@@ -1,4 +1,4 @@
-# 利用 Python 进行数据分析 · 第 2 版
+# 利用 Python 进行数据分析第二版
 
 ![](cover.jpg)
 
