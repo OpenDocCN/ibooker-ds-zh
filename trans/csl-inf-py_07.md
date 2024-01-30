@@ -1,4 +1,4 @@
-# 6) The Premium of Having a White Female Name in the Canadian Job Market During the Great Recession 2007-2009
+# 六、2007-2009 年大衰退期间加拿大就业市场上白人女性名字的溢价
 
 > 原文：[`causal-methods.github.io/Book/6%29_The_Premium_of_Having_a_White_Female_Name_in_the_Canadian_Job_Market_During_the_Great_Recession_2007_2009.html`](https://causal-methods.github.io/Book/6%29_The_Premium_of_Having_a_White_Female_Name_in_the_Canadian_Job_Market_During_the_Great_Recession_2007_2009.html)
 

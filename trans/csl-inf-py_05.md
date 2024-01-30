@@ -1,4 +1,4 @@
-# 4）新教徒是否比天主教徒更喜欢休闲？
+# 四、新教徒是否比天主教徒更喜欢休闲？
 
 > 原文：[`causal-methods.github.io/Book/4%29_Do_Protestants_Prefer_Less_Leisure_than_Catholics.html`](https://causal-methods.github.io/Book/4%29_Do_Protestants_Prefer_Less_Leisure_than_Catholics.html)
 

@@ -1,4 +1,4 @@
-# 7) The Impact of Legalizing Prostitution on Crime
+# 七、卖淫合法化对犯罪的影响
 
 > 原文：[`causal-methods.github.io/Book/7%29_The_Impact_of_Legalizing_Prostitution_on_Crime.html`](https://causal-methods.github.io/Book/7%29_The_Impact_of_Legalizing_Prostitution_on_Crime.html)
 

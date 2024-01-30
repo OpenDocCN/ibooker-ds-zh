@@ -1,4 +1,4 @@
-# 1）国际象棋选手比其他人更理性吗？
+# 一、国际象棋选手比其他人更理性吗？
 
 > 原文：[`causal-methods.github.io/Book/1%29_Are_Chess_Players_More_Rational_than_the_Rest_of_the_Population.html`](https://causal-methods.github.io/Book/1%29_Are_Chess_Players_More_Rational_than_the_Rest_of_the_Population.html)
 

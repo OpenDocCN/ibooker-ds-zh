@@ -1,4 +1,4 @@
-# 8）Airbnb 的主人是否歧视黑人客人？
+# 八、Airbnb 的主人是否歧视黑人客人？
 
 > 原文：[`causal-methods.github.io/Book/8%29_Do_Hosts_Discriminate_against_Black_Guests_in_Airbnb.html`](https://causal-methods.github.io/Book/8%29_Do_Hosts_Discriminate_against_Black_Guests_in_Airbnb.html)
 
