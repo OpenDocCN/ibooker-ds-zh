@@ -1,6 +1,11 @@
 # 五、联邦储备是否能够阻止大萧条？
 
 > 原文：[`causal-methods.github.io/Book/5%29_Could_the_Federal_Reserve_Prevent_the_Great_Depression.html`](https://causal-methods.github.io/Book/5%29_Could_the_Federal_Reserve_Prevent_the_Great_Depression.html)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 [Vitor Kamada](https://www.linkedin.com/in/vitor-kamada-1b73a078)
 

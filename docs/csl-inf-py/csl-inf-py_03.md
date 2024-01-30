@@ -1,6 +1,11 @@
 # 二、白人名字有助于获得工作面试吗？
 
 > 原文：[`causal-methods.github.io/Book/2%29_Does_a_White_Sounding_Name_Help_to_Get_Job_Interview.html`](https://causal-methods.github.io/Book/2%29_Does_a_White_Sounding_Name_Help_to_Get_Job_Interview.html)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 [Vitor Kamada](https://www.linkedin.com/in/vitor-kamada-1b73a078)
 

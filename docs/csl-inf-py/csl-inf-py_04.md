@@ -1,6 +1,11 @@
 # 三、在伊斯兰或世俗政权下，女性更有可能完成高中吗？
 
 > 原文：[`causal-methods.github.io/Book/3%29_Are_Females_More_Likely_to_Complete_High_School_Under_Islamic_or_Secular_Regime.html`](https://causal-methods.github.io/Book/3%29_Are_Females_More_Likely_to_Complete_High_School_Under_Islamic_or_Secular_Regime.html)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 [Vitor Kamada](https://www.linkedin.com/in/vitor-kamada-1b73a078)
 

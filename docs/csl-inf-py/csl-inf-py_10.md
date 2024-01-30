@@ -1,6 +1,11 @@
 # 九、股票市场如何缓解以巴冲突？
 
 > 原文：[`causal-methods.github.io/Book/9%29_How_Can_Stock_Market_Mitigate_the_Israeli_Palestinian_Conflict.html`](https://causal-methods.github.io/Book/9%29_How_Can_Stock_Market_Mitigate_the_Israeli_Palestinian_Conflict.html)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 [Vitor Kamada](https://www.linkedin.com/in/vitor-kamada-1b73a078)
 

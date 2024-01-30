@@ -1,6 +1,11 @@
 # 参考书目
 
 > 原文：[`causal-methods.github.io/Book/Bibliography.html`](https://causal-methods.github.io/Book/Bibliography.html)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 作者：[Vitor Kamada](https://www.linkedin.com/in/vitor-kamada-1b73a078)
 
