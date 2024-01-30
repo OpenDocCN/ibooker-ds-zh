@@ -187,7 +187,11 @@ pd.DataFrame(summary)
 
 形式上，我们可以写出下面的因果模型。这 3 行是等价的。我们只有在处理变量（$T$）被随机化时，才能声称$\beta$具有“因果”解释。在没有随机化的情况下，$\beta$只捕捉到相关性。
 
-$$结果 = 截距 + 斜率*处理 + 误差$$$$Y=\alpha+\beta T +\epsilon$$$$回电 = \alpha+\beta 种族+\epsilon$$
+$$结果 = 截距 + 斜率*处理 + 误差$$
+
+$$Y=\alpha+\beta T +\epsilon$$
+
+$$回电 = \alpha+\beta 种族+\epsilon$$
 
 让我们使用普通最小二乘（OLS）方法估计上述模型。
 
