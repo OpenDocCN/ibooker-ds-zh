@@ -350,9 +350,9 @@ proportions_ztest(count, nobs)
 
 ## 练习
 
-1| 使用 Palacios-Huerta & Volij（2009）的电子表格“Data Chess Tournaments”来计算停留在节点 1、节点 2、节点 3、节点 4 和节点 5 的其他国际象棋选手的比例。比例将总和为 100%。其他国际象棋选手是一个排除所有国际象棋选手（包括特级大师、国际大师和联邦大师）的类别。
+1）使用 Palacios-Huerta & Volij（2009）的电子表格“Data Chess Tournaments”来计算停留在节点 1、节点 2、节点 3、节点 4 和节点 5 的其他国际象棋选手的比例。比例将总和为 100%。其他国际象棋选手是一个排除所有国际象棋选手（包括特级大师、国际大师和联邦大师）的类别。
 
-2| 这个问题涉及 Palacios-Huerta & Volij（2009）的电子表格“Data UPV Students-One shot”。
+2）这个问题涉及 Palacios-Huerta & Volij（2009）的电子表格“Data UPV Students-One shot”。
 
 a) 在 Google Colab 中打开电子表格“Data UPV Students-One shot”。
 
@@ -360,13 +360,13 @@ b) 巴斯克大学（UPV）的学生玩了多少对蜈蚣游戏？
 
 c) 计算停留在节点 1、节点 2、节点 3、节点 4、节点 5 和节点 6 的学生比例。比例将总和为 100%。
 
-3| 比较练习 1（国际象棋选手）和练习 2（c）（学生）的结果。为什么这两个子群体玩蜈蚣游戏的方式不同？推测并证明你的推理。
+3）比较练习 1（国际象棋选手）和练习 2（c）（学生）的结果。为什么这两个子群体玩蜈蚣游戏的方式不同？推测并证明你的推理。
 
-4| 使用 Palacios-Huerta & Volij（2009）的电子表格“Data Chess Tournaments”来测试在蜈蚣游戏的节点 3 停止的国际大师比例是否等于在节点 3 停止的其他国际象棋选手的比例。
+4）使用 Palacios-Huerta & Volij（2009）的电子表格“Data Chess Tournaments”来测试在蜈蚣游戏的节点 3 停止的国际大师比例是否等于在节点 3 停止的其他国际象棋选手的比例。
 
-5| 对于这个问题，使用 Palacios-Huerta & Volij（2009）的电子表格“Data Chess Tournaments”。创建一个条形图，比较国际大师和其他国际象棋选手在每个节点停止蜈蚣游戏的比例。
+5）对于这个问题，使用 Palacios-Huerta & Volij（2009）的电子表格“Data Chess Tournaments”。创建一个条形图，比较国际大师和其他国际象棋选手在每个节点停止蜈蚣游戏的比例。
 
-6| 假设你是一位新古典经济学家。你如何证明在更强的理性和自利的假设下建立的标准经济理论与 Palacios-Huerta & Volij（2009）的论文中呈现的实证证据相矛盾？详细说明你的理由。
+6）假设你是一位新古典经济学家。你如何证明在更强的理性和自利的假设下建立的标准经济理论与 Palacios-Huerta & Volij（2009）的论文中呈现的实证证据相矛盾？详细说明你的理由。
 
 ## 参考文献
 
