@@ -112,11 +112,11 @@ df['Dyear'] = pd.Categorical(df.year)
 df25 = df.set_index(['city1', 'year']) 
 ```
 
-设\(Y_{ct}\)为城市\(c\)在年份\(t\)的犯罪率。设\(D_{ct}\) = 1，如果城市\(c\)在年份\(t\)有开放的 tippelzone；否则为 0。让我们估计以下模型：
+设$Y_{ct}$为城市$c$在年份$t$的犯罪率。设$D_{ct}$ = 1，如果城市$c$在年份$t$有开放的 tippelzone；否则为 0。让我们估计以下模型：
 
-\[ln(Y_{ct})=\alpha_c+\rho D_{ct}+\beta X_{ct}+\gamma_t + \epsilon_{ct}\]
+$$ln(Y_{ct})=\alpha_c+\rho D_{ct}+\beta X_{ct}+\gamma_t + \epsilon_{ct}$$
 
-其中\(\alpha_c\)是城市固定效应，\(X_{ct}\)是控制变量向量，\(\gamma_t\)是年固定效应，\(\epsilon_{ct}\)是通常的误差项。
+其中$\alpha_c$是城市固定效应，$X_{ct}$是控制变量向量，$\gamma_t$是年固定效应，$\epsilon_{ct}$是通常的误差项。
 
 ```py
 import statsmodels.formula.api as smf
@@ -161,7 +161,7 @@ Requirement already satisfied: stargazer in c:\anaconda\envs\textbook\lib\site-p
 WARNING: Error parsing requirements for numpy: [Errno 2] No such file or directory: 'c:\\anaconda\\envs\\textbook\\lib\\site-packages\\numpy-1.19.2.dist-info\\METADATA' 
 ```
 
-第 1 列表明开放 tippelzone 将性虐待减少 26%（\(e^{-0.302}-1\)）。在其他列中，tippelzone 的系数在统计上不显著。看起来合法化卖淫会减少性虐待，但不会减少其他犯罪，如强奸、攻击、非法武器和毒品相关犯罪。
+第 1 列表明开放 tippelzone 将性虐待减少 26%（$e^{-0.302}-1$）。在其他列中，tippelzone 的系数在统计上不显著。看起来合法化卖淫会减少性虐待，但不会减少其他犯罪，如强奸、攻击、非法武器和毒品相关犯罪。
 
 ```py
 # Settings for a nice table
@@ -233,19 +233,19 @@ math.exp(-0.302) - 1
 
 2）Bisschop 等人（2017: 29）表示：“我们进行了几项实证测试，以评估 tippelzone 开放周围的内生犯罪趋势。”他们为什么这样做？这其中的逻辑是什么？是否存在内生犯罪趋势？请解释并具体说明您的答案。
 
-3）Bisschop 等人（2017: 36）表示：“...时间趋势\(\mu_t\)是使用年固定效应来建模的。”模拟时间趋势的其他方法是什么？编写不同假设下创建时间趋势的代码片段。提示：记住这是面板数据。在横截面数据中有效的代码将在面板数据结构中创建错误的变量。
+3）Bisschop 等人（2017: 36）表示：“...时间趋势$\mu_t$是使用年固定效应来建模的。”模拟时间趋势的其他方法是什么？编写不同假设下创建时间趋势的代码片段。提示：记住这是面板数据。在横截面数据中有效的代码将在面板数据结构中创建错误的变量。
 
 4）Bisschop 等人（2017: 36）表示：“我们使用差异中的差异规范来研究 tippelzone 存在对各种犯罪的影响。”部署差异中的差异估计器的关键假设是什么？
 
 5）复制表格“Tippelzone 对犯罪的影响”，不包括阿姆斯特丹、鹿特丹和海牙。此外，用以下四个变量替换变量“opening”：
 
-i) “everopenNoReg”: 如果城市\(c\)在年份\(t\)之前曾开放过没有许可证的 tippelzone，则为 1，否则为 0。
+i) “everopenNoReg”: 如果城市$c$在年份$t$之前曾开放过没有许可证的 tippelzone，则为 1，否则为 0。
 
-ii) “openingRegP”: 如果城市\(c\)在年份\(t\)之前开放了 tippelzone 并引入了事后许可证，则为 1，否则为 0。
+ii) “openingRegP”: 如果城市$c$在年份$t$之前开放了 tippelzone 并引入了事后许可证，则为 1，否则为 0。
 
-iii) “openingRegA”: 如果城市\(c\)在年份\(t\)之前曾开放过带有许可证的 tippelzone，则为 1，否则为 0。
+iii) “openingRegA”: 如果城市$c$在年份$t$之前曾开放过带有许可证的 tippelzone，则为 1，否则为 0。
 
-iv) “closing”: 如果城市\(c\)在年份\(t\)之前关闭 tippelzone，则为 1，否则为 0。
+iv) “closing”: 如果城市$c$在年份$t$之前关闭 tippelzone，则为 1，否则为 0。
 
 解释结果。
 

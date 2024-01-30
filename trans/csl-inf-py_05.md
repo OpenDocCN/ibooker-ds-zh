@@ -107,7 +107,7 @@ outcome = ['Preference_for_Leisure', 'Mean_Income_(CHF)', 'Gini_1996']
 
 考虑到只使用了 5 公里范围内的市镇（49 个天主教市镇和 84 个新教市镇），上述比较并不“糟糕”。此外，两个地区在 1980 年的无宗教信仰比例（1.7% vs 2.9%）和海拔高度（642 vs 639 米）方面相似。
 
-然而，一个更可信的方法是使用一个带有运行变量(\(r_i\))的回归不连续框架。
+然而，一个更可信的方法是使用一个带有运行变量($r_i$)的回归不连续框架。
 
 ```py
 control = ['noreligion1980s', 'altitude']
@@ -123,11 +123,11 @@ df5.loc[:, control].groupby(df5['Region']).agg([np.mean, np.std]).T
 
 在图表“模糊回归不连续”中，我们可以清楚地看到运行变量“边界距离”与处理变量“新教徒比例”之间存在很强的相关性。变量“边界距离”并不决定处理状态，但增加了成为新教徒的概率。因此，这是一个模糊回归不连续的情况，而不是一个尖锐的回归不连续。
 
-让\(D_i\)成为单位\(i\)的处理状态。\(P(D_i=1|r_i)\)是在截断\(r_0\)处处理概率的跳跃：
+让$D_i$成为单位$i$的处理状态。$P(D_i=1|r_i)$是在截断$r_0$处处理概率的跳跃：
 
-\[P(D_i=1|r_i)\]\[= f_1(r_i) \ if \ r_i\geq r_0\]\[= f_0(r_i) \ if \ r_i< r_0\]
+$$P(D_i=1|r_i)$$$$= f_1(r_i) \ if \ r_i\geq r_0$$$$= f_0(r_i) \ if \ r_i< r_0$$
 
-其中\(f_1(r_i)\)和\(f_0(r_i)\)是可以假定任何值的函数。在尖锐的回归不连续中，\(f_1(r_i)\)为 1，\(f_0(r_i)\)为 0。
+其中$f_1(r_i)$和$f_0(r_i)$是可以假定任何值的函数。在尖锐的回归不连续中，$f_1(r_i)$为 1，$f_0(r_i)$为 0。
 
 ```py
 fuzzy = px.scatter(df5,
@@ -157,29 +157,29 @@ sharp = px.scatter(df5,
 sharp.show() 
 ```
 
-假设\(Y\) = 休闲偏好，\(D_r\) = 新教徒比例，\(r\) = 边界距离。现在，我们有一个估计以下方程的问题：
+假设$Y$ = 休闲偏好，$D_r$ = 新教徒比例，$r$ = 边界距离。现在，我们有一个估计以下方程的问题：
 
-\[Y = \beta_0+\rho D_r+ \beta_1r+\epsilon\]
+$$Y = \beta_0+\rho D_r+ \beta_1r+\epsilon$$
 
-兴趣变量\(D_r\)不再被\(r\)“净化”，也就是说，它不再完全由运行变量\(r\)决定。因此，\(D_r\)很可能与误差项\(\epsilon\)相关：
+兴趣变量$D_r$不再被$r$“净化”，也就是说，它不再完全由运行变量$r$决定。因此，$D_r$很可能与误差项$\epsilon$相关：
 
-\[Cov(D_r, \epsilon)\neq0\]
+$$Cov(D_r, \epsilon)\neq0$$
 
-我们可以使用一个与误差项\(\epsilon\)不相关且在控制其他因素后与\(D_r\)相关的工具变量\(Z\)来解决这个问题：
+我们可以使用一个与误差项$\epsilon$不相关且在控制其他因素后与$D_r$相关的工具变量$Z$来解决这个问题：
 
-\[Cov(Z, \epsilon) = 0\]\[Cov(Z, D_r) \neq 0\]
+$$Cov(Z, \epsilon) = 0$$$$Cov(Z, D_r) \neq 0$$
 
-\(Z\)的自然候选人是变量“vaud”：如果是瓦州的市政当局，则为 1；如果是弗里堡的市政当局，则为 0。没有理由相信这个变量与误差项\(\epsilon\)相关，因为分隔该地区的边界是在 1536 年确定的，当时伯尔尼共和国征服了瓦州。第二个假设也是有效的，因为瓦州地区的新教徒比弗里堡地区更多。
+$Z$的自然候选人是变量“vaud”：如果是瓦州的市政当局，则为 1；如果是弗里堡的市政当局，则为 0。没有理由相信这个变量与误差项$\epsilon$相关，因为分隔该地区的边界是在 1536 年确定的，当时伯尔尼共和国征服了瓦州。第二个假设也是有效的，因为瓦州地区的新教徒比弗里堡地区更多。
 
-工具变量方法首先是使用\(Z\)“纯化”\(D_r\)：
+工具变量方法首先是使用$Z$“纯化”$D_r$：
 
-\[D_r=\gamma_0+\gamma_1Z+\gamma_2r+\upsilon\]
+$$D_r=\gamma_0+\gamma_1Z+\gamma_2r+\upsilon$$
 
-然后，我们通过进行普通最小二乘（OLS）回归得到\(\hat{D}_r\)的拟合值，并将其代入方程：
+然后，我们通过进行普通最小二乘（OLS）回归得到$\hat{D}_r$的拟合值，并将其代入方程：
 
-\[Y = \beta_0+\rho \hat{D}_r+ \beta_1r+\epsilon\]
+$$Y = \beta_0+\rho \hat{D}_r+ \beta_1r+\epsilon$$
 
-逻辑是“纯化”的\(\hat{D}_r\)与误差项\(\epsilon\)不相关。现在，我们可以运行普通最小二乘（OLS）来得到\(\hat{D}_r\)对\(Y\)的孤立影响，即\(\rho\)将是无偏的因果效应。
+逻辑是“纯化”的$\hat{D}_r$与误差项$\epsilon$不相关。现在，我们可以运行普通最小二乘（OLS）来得到$\hat{D}_r$对$Y$的孤立影响，即$\rho$将是无偏的因果效应。
 
 ```py
 # Install libray to run Instrumental Variable estimation
@@ -202,7 +202,7 @@ WARNING: No metadata found in c:\anaconda\envs\textbook\lib\site-packages
 ERROR: Could not install packages due to an EnvironmentError: [Errno 2] No such file or directory: 'c:\\anaconda\\envs\\textbook\\lib\\site-packages\\numpy-1.19.2.dist-info\\METADATA' 
 ```
 
-计算机自动运行工具变量（IV）程序的两个阶段。我们指出内生变量\(D_r\)是“新教徒比例”，工具变量\(Z\)是“vaud”。我们还添加了变量“t_dist”，即变量“vaud”和“边境距离”的交互。
+计算机自动运行工具变量（IV）程序的两个阶段。我们指出内生变量$D_r$是“新教徒比例”，工具变量$Z$是“vaud”。我们还添加了变量“t_dist”，即变量“vaud”和“边境距离”的交互。
 
 结果是，“新教徒比例”使休闲偏好减少了 13.4%。
 
