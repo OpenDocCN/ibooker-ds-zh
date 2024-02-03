@@ -1,4 +1,4 @@
-# Python 数据分析第三版
+# Python 数据分析（PYDA）第三版
 
 > 原文：[`wesmckinney.com/book/`](https://wesmckinney.com/book/)
 >
