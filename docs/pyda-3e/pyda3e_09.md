@@ -9,7 +9,9 @@
 
 *本开放访问的网络版本*Python for Data Analysis 第 3 版*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣版本可用。如果您遇到任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站的某些方面将与 O'Reilly 的印刷版和电子书版本的格式不同。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。* * 读取数据并使其可访问（通常称为*数据加载*）是使用本书中大多数工具的必要第一步。术语*解析*有时也用于描述加载文本数据并将其解释为表格和不同数据类型。我将专注于使用 pandas 进行数据输入和输出，尽管其他库中有许多工具可帮助读取和写入各种格式的数据。
+如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。
+
+ 读取数据并使其可访问（通常称为*数据加载*）是使用本书中大多数工具的必要第一步。术语*解析*有时也用于描述加载文本数据并将其解释为表格和不同数据类型。我将专注于使用 pandas 进行数据输入和输出，尽管其他库中有许多工具可帮助读取和写入各种格式的数据。
 
 输入和输出通常分为几个主要类别：读取文本文件和其他更高效的磁盘格式、从数据库加载数据以及与网络源（如 Web API）交互。
 
@@ -77,7 +79,11 @@ a,b,c,d,message
 9,10,11,12,foo
 ```
 
-*注意* *这里我使用了 Unix 的`cat` shell 命令将文件的原始内容打印到屏幕上。如果您使用 Windows，可以在 Windows 终端（或命令行）中使用`type`代替`cat`来实现相同的效果。* *由于这是逗号分隔的，我们可以使用`pandas.read_csv`将其读入 DataFrame：
+注意
+
+这里我使用了 Unix 的`cat` shell 命令将文件的原始内容打印到屏幕上。如果您使用 Windows，可以在 Windows 终端（或命令行）中使用`type`代替`cat`来实现相同的效果。
+
+由于这是逗号分隔的，我们可以使用`pandas.read_csv`将其读入 DataFrame：
 
 ```py
 In [11]: df = pd.read_csv("examples/ex1.csv")
@@ -579,7 +585,11 @@ reader = csv.reader(f, delimiter="|")
 | `doublequote` | 如何处理字段内的引用字符；如果为 `True`，则会加倍（请查看在线文档以获取完整的详细信息和行为）。 |
 | `escapechar` | 如果 `quoting` 设置为 `csv.QUOTE_NONE`，用于转义分隔符的字符串；默认情况下禁用。 |
 
-*注意* *对于具有更复杂或固定多字符分隔符的文件，您将无法使用 `csv` 模块。在这些情况下，您将需要使用字符串的 `split` 方法或正则表达式方法 `re.split` 进行行分割和其他清理。幸运的是，如果传递必要的选项，`pandas.read_csv` 能够几乎做任何您需要的事情，因此您很少需要手动解析文件。*  *要 *手动* 写入分隔文件，可以使用 `csv.writer`。它接受一个打开的可写文件对象以及与 `csv.reader` 相同的方言和格式选项：
+注意
+
+对于具有更复杂或固定多字符分隔符的文件，您将无法使用 `csv` 模块。在这些情况下，您将需要使用字符串的 `split` 方法或正则表达式方法 `re.split` 进行行分割和其他清理。幸运的是，如果传递必要的选项，`pandas.read_csv` 能够几乎做任何您需要的事情，因此您很少需要手动解析文件。
+
+要 *手动* 写入分隔文件，可以使用 `csv.writer`。它接受一个打开的可写文件对象以及与 `csv.reader` 相同的方言和格式选项：
 
 ```py
 with open("mydata.csv", "w") as f:
@@ -588,7 +598,9 @@ with open("mydata.csv", "w") as f:
  writer.writerow(("1", "2", "3"))
  writer.writerow(("4", "5", "6"))
  writer.writerow(("7", "8", "9"))
-```*  *### JSON 数据
+```
+
+### JSON 数据
 
 JSON（JavaScript 对象表示法的缩写）已经成为在 Web 浏览器和其他应用程序之间通过 HTTP 请求发送数据的标准格式之一。它是比 CSV 等表格文本形式更自由的数据格式。这里是一个例子：
 
@@ -910,7 +922,11 @@ Out[98]:
 2  9  10  11  12     foo
 ```
 
-*注意* *`pickle`仅建议作为短期存储格式。问题在于很难保证格式随时间稳定；今天使用 pickle 的对象可能无法在以后的库版本中解除 pickle。pandas 在可能的情况下尽力保持向后兼容性，但在将来的某个时候可能需要“破坏”pickle 格式。* *pandas 内置支持其他几种开源二进制数据格式，例如 HDF5、ORC 和 Apache Parquet。例如，如果安装`pyarrow`包（`conda install pyarrow`），则可以使用`pandas.read_parquet`读取 Parquet 文件：
+注意
+
+`pickle`仅建议作为短期存储格式。问题在于很难保证格式随时间稳定；今天使用 pickle 的对象可能无法在以后的库版本中解除 pickle。pandas 在可能的情况下尽力保持向后兼容性，但在将来的某个时候可能需要“破坏”pickle 格式。
+
+pandas 内置支持其他几种开源二进制数据格式，例如 HDF5、ORC 和 Apache Parquet。例如，如果安装`pyarrow`包（`conda install pyarrow`），则可以使用`pandas.read_parquet`读取 Parquet 文件：
 
 ```py
 In [100]: fec = pd.read_parquet('datasets/fec/fec.parquet')
@@ -1000,7 +1016,11 @@ HDF5 是一种受尊敬的文件格式，用于存储大量科学数组数据。
 conda install pytables
 ```
 
-*注意* *请注意，PyTables 包在 PyPI 中称为“tables”，因此如果您使用 pip 安装，您将需要运行`pip install tables`。* *虽然可以直接使用 PyTables 或 h5py 库访问 HDF5 文件，但 pandas 提供了一个简化存储 Series 和 DataFrame 对象的高级接口。`HDFStore`类的工作方式类似于字典，并处理底层细节：
+注意
+
+请注意，PyTables 包在 PyPI 中称为“tables”，因此如果您使用 pip 安装，您将需要运行`pip install tables`。
+
+虽然可以直接使用 PyTables 或 h5py 库访问 HDF5 文件，但 pandas 提供了一个简化存储 Series 和 DataFrame 对象的高级接口。`HDFStore`类的工作方式类似于字典，并处理底层细节：
 
 ```py
 In [113]: frame = pd.DataFrame({"a": np.random.standard_normal(100)})
@@ -1080,9 +1100,17 @@ In [124]: import os
 In [125]: os.remove("examples/mydata.h5")
 ```
 
-*注意* *如果您正在处理存储在远程服务器上的数据，如 Amazon S3 或 HDFS，使用设计用于分布式存储的不同二进制格式（如[Apache Parquet](http://parquet.apache.org)）可能更合适。*  *如果您在本地处理大量数据，我建议您探索 PyTables 和 h5py，看看它们如何满足您的需求。由于许多数据分析问题受 I/O 限制（而不是 CPU 限制），使用 HDF5 等工具可以大大加速您的应用程序。
+注意
 
-*注意* *HDF5 不是数据库。它最适合于一次写入，多次读取的数据集。虽然数据可以随时添加到文件中，但如果多个写入者同时这样做，文件可能会损坏。****  ***## 6.3 与 Web API 交互
+如果您正在处理存储在远程服务器上的数据，如 Amazon S3 或 HDFS，使用设计用于分布式存储的不同二进制格式（如[Apache Parquet](http://parquet.apache.org)）可能更合适。
+
+如果您在本地处理大量数据，我建议您探索 PyTables 和 h5py，看看它们如何满足您的需求。由于许多数据分析问题受 I/O 限制（而不是 CPU 限制），使用 HDF5 等工具可以大大加速您的应用程序。
+
+注意
+
+HDF5 不是数据库。它最适合于一次写入，多次读取的数据集。虽然数据可以随时添加到文件中，但如果多个写入者同时这样做，文件可能会损坏。
+
+## 6.3 与 Web API 交互
 
 许多网站都有提供数据源的公共 API，可以通过 JSON 或其他格式提供数据。有许多方法可以从 Python 访问这些 API；我推荐的一种方法是[`requests`包](http://docs.python-requests.org)，可以使用 pip 或 conda 进行安装：
 

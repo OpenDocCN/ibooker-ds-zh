@@ -9,7 +9,9 @@
 
 *本开放获取的网络版本*Python for Data Analysis 3rd Edition*现在可作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。* *制作信息丰富的可视化（有时称为*图）是数据分析中最重要的任务之一。它可能是探索过程的一部分，例如，帮助识别异常值或所需的数据转换，或者作为生成模型想法的一种方式。对于其他人，构建用于网络的交互式可视化可能是最终目标。Python 有许多附加库用于制作静态或动态可视化，但我主要关注[matplotlib](https://matplotlib.org)和构建在其之上的库。
+如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。
+
+制作信息丰富的可视化（有时称为*图）是数据分析中最重要的任务之一。它可能是探索过程的一部分，例如，帮助识别异常值或所需的数据转换，或者作为生成模型想法的一种方式。对于其他人，构建用于网络的交互式可视化可能是最终目标。Python 有许多附加库用于制作静态或动态可视化，但我主要关注[matplotlib](https://matplotlib.org)和构建在其之上的库。
 
 matplotlib 是一个桌面绘图包，旨在创建适合出版的图形和图表。该项目由 John Hunter 于 2002 年发起，旨在在 Python 中实现类似 MATLAB 的绘图界面。matplotlib 和 IPython 社区合作简化了从 IPython shell（现在是 Jupyter 笔记本）进行交互式绘图。matplotlib 支持所有操作系统上的各种 GUI 后端，并且可以将可视化导出为所有常见的矢量和光栅图形格式（PDF、SVG、JPG、PNG、BMP、GIF 等）。除了一些图表外，本书中几乎所有的图形都是使用 matplotlib 生成的。
 
@@ -21,7 +23,11 @@ matplotlib 是一个桌面绘图包，旨在创建适合出版的图形和图表
 %matplotlib inline
 ```
 
-*注意* *自 2012 年第一版以来，已经创建了许多新的数据可视化库，其中一些（如 Bokeh 和 Altair）利用现代网络技术创建交互式可视化，与 Jupyter 笔记本很好地集成。与在本书中使用多个可视化工具不同，我决定坚持使用 matplotlib 来教授基础知识，特别是因为 pandas 与 matplotlib 有很好的集成。您可以根据本章的原则学习如何使用其他可视化库。* *## 9.1 简要的 matplotlib API 入门
+注意
+
+自 2012 年第一版以来，已经创建了许多新的数据可视化库，其中一些（如 Bokeh 和 Altair）利用现代网络技术创建交互式可视化，与 Jupyter 笔记本很好地集成。与在本书中使用多个可视化工具不同，我决定坚持使用 matplotlib 来教授基础知识，特别是因为 pandas 与 matplotlib 有很好的集成。您可以根据本章的原则学习如何使用其他可视化库。
+
+## 9.1 简要的 matplotlib API 入门
 
 使用 matplotlib 时，我们使用以下导入约定：
 
@@ -46,7 +52,11 @@ In [16]: plt.plot(data)
 
 虽然像 seaborn 和 pandas 内置绘图函数将处理许多制作图形的琐碎细节，但如果您希望自定义超出提供的函数选项之外的内容，您需要了解一些关于 matplotlib API 的知识。
 
-*注意* *本书中没有足够的空间来全面介绍 matplotlib 的功能广度和深度。它应该足以教会您如何上手。matplotlib 图库和文档是学习高级功能的最佳资源。*  *### 图和子图
+注意
+
+本书中没有足够的空间来全面介绍 matplotlib 的功能广度和深度。它应该足以教会您如何上手。matplotlib 图库和文档是学习高级功能的最佳资源。
+
+### 图和子图
 
 matplotlib 中的绘图位于 `Figure` 对象中。您可以使用 `plt.figure` 创建一个新的图：
 
@@ -76,7 +86,11 @@ In [20]: ax3 = fig.add_subplot(2, 2, 3)
 
 图 9.2：一个空的 matplotlib 图，带有三个子图
 
-*提示* *使用 Jupyter 笔记本的一个细微之处是，每次评估单元格后绘图都会重置，因此您必须将所有绘图命令放在一个单独的笔记本单元格中。* *在这里，我们在同一个单元格中运行所有这些命令：
+提示：
+
+使用 Jupyter 笔记本的一个细微之处是，每次评估单元格后绘图都会重置，因此您必须将所有绘图命令放在一个单独的笔记本单元格中。
+
+在这里，我们在同一个单元格中运行所有这些命令：
 
 ```py
 fig = plt.figure()
@@ -163,7 +177,9 @@ fig.subplots_adjust(wspace=0, hspace=0)
 
 图 9.5：没有子图间距的数据可视化
 
-您可能会注意到轴标签重叠。matplotlib 不会检查标签是否重叠，因此在这种情况下，您需要通过指定显式刻度位置和刻度标签自行修复标签（我们将在后面的部分刻度、标签和图例中看到如何做到这一点）。*  *### 颜色、标记和线型
+您可能会注意到轴标签重叠。matplotlib 不会检查标签是否重叠，因此在这种情况下，您需要通过指定显式刻度位置和刻度标签自行修复标签（我们将在后面的部分刻度、标签和图例中看到如何做到这一点）。
+
+### 颜色、标记和线型
 
 matplotlib 的线`plot`函数接受 x 和 y 坐标数组以及可选的颜色样式选项。例如，要用绿色虚线绘制`x`与`y`，您可以执行：
 
@@ -207,7 +223,11 @@ In [39]: ax.legend()
 
 在这里，由于我们将`label`参数传递给`plot`，我们能够使用`ax.legend`创建一个图例，以标识每条线。我在刻度、标签和图例中更多地讨论图例。
 
-*注意* *无论您在绘制数据时是否传递了`label`选项，都必须调用`ax.legend`来创建图例。*  *### 刻度、标签和图例
+注意
+
+无论您在绘制数据时是否传递了`label`选项，都必须调用`ax.legend`来创建图例。
+
+### 刻度、标签和图例
 
 大多数类型的绘图装饰都可以通过 matplotlib 轴对象上的方法访问。这包括`xlim`、`xticks`和`xticklabels`等方法。它们分别控制绘图范围、刻度位置和刻度标签。它们可以以两种方式使用：
 
@@ -404,7 +424,9 @@ plt.rc("font", family="monospace", weight="bold", size=8)
 
 要进行更广泛的自定义并查看所有选项列表，matplotlib 附带了一个配置文件*matplotlibrc*，位于*matplotlib/mpl-data*目录中。如果您自定义此文件并将其放在名为*.matplotlibrc*的主目录中，每次使用 matplotlib 时都会加载它。
 
-正如我们将在下一节中看到的，seaborn 包具有几个内置的绘图主题或*样式*，这些主题或样式在内部使用 matplotlib 的配置系统。***  ***## 9.2 使用 pandas 和 seaborn 绘图
+正如我们将在下一节中看到的，seaborn 包具有几个内置的绘图主题或*样式*，这些主题或样式在内部使用 matplotlib 的配置系统。
+
+## 9.2 使用 pandas 和 seaborn 绘图
 
 matplotlib 可以是一个相当低级的工具。您可以从其基本组件中组装图表：数据显示（即绘图类型：线条、柱状图、箱线图、散点图、等高线图等）、图例、标题、刻度标签和其他注释。
 
@@ -466,9 +488,17 @@ In [65]: df.plot()
 
 图 9.14：简单的 DataFrame 绘图
 
-*注意* *这里我使用了 `plt.style.use('grayscale')` 来切换到更适合黑白出版的颜色方案，因为一些读者可能无法看到完整的彩色图。* *`plot` 属性包含不同绘图类型的方法“家族”。例如，`df.plot()` 等同于 `df.plot.line()`。我们将在接下来探索其中一些方法。
+注意
 
-*注意* *`plot` 的其他关键字参数会传递给相应的 matplotlib 绘图函数，因此您可以通过学习更多关于 matplotlib API 的知识来进一步自定义这些图。* *DataFrame 有许多选项，允许对列的处理方式进行一定的灵活性，例如，是否将它们全部绘制在同一个子图上，还是创建单独的子图。更多信息请参见 表 9.4。
+这里我使用了 `plt.style.use('grayscale')` 来切换到更适合黑白出版的颜色方案，因为一些读者可能无法看到完整的彩色图。
+
+`plot` 属性包含不同绘图类型的方法“家族”。例如，`df.plot()` 等同于 `df.plot.line()`。我们将在接下来探索其中一些方法。
+
+注意
+
+`plot` 的其他关键字参数会传递给相应的 matplotlib 绘图函数，因此您可以通过学习更多关于 matplotlib API 的知识来进一步自定义这些图。
+
+DataFrame 有许多选项，允许对列的处理方式进行一定的灵活性，例如，是否将它们全部绘制在同一个子图上，还是创建单独的子图。更多信息请参见 表 9.4。
 
 表 9.4：DataFrame 特定的绘图参数
 
@@ -481,7 +511,11 @@ In [65]: df.plot()
 | `legend` | 添加子图图例（默认为 `True`） |
 | `sort_columns` | 按字母顺序绘制列；默认使用现有列顺序 |
 
-*注意* *有关时间序列绘图，请参见 第十一章：时间序列。***  ***### 条形图
+注意
+
+有关时间序列绘图，请参见 第十一章：时间序列。
+
+### 条形图
 
 `plot.bar()` 和 `plot.barh()` 分别绘制垂直和水平条形图。在这种情况下，Series 或 DataFrame 的索引将用作 x（`bar`）或 y（`barh`）刻度（请参见 水平和垂直条形图）：
 
@@ -537,7 +571,11 @@ In [75]: df.plot.barh(stacked=True, alpha=0.5)
 
 图 9.17：DataFrame 堆叠条形图
 
-*注意* *一个有用的条形图的制作方法是使用`value_counts`来可视化 Series 的值频率：`s.value_counts().plot.bar()`。* *让我们看一个关于餐厅小费的示例数据集。假设我们想要制作一个堆叠条形图，显示每天每个派对规模的数据点的百分比。我使用`read_csv`加载数据，并通过日期和派对规模进行交叉制表。`pandas.crosstab`函数是从两个 DataFrame 列计算简单频率表的便捷方法：
+注意
+
+一个有用的条形图的制作方法是使用`value_counts`来可视化 Series 的值频率：`s.value_counts().plot.bar()`。
+
+让我们看一个关于餐厅小费的示例数据集。假设我们想要制作一个堆叠条形图，显示每天每个派对规模的数据点的百分比。我使用`read_csv`加载数据，并通过日期和派对规模进行交叉制表。`pandas.crosstab`函数是从两个 DataFrame 列计算简单频率表的便捷方法：
 
 ```py
 In [77]: tips = pd.read_csv("examples/tips.csv")
@@ -641,7 +679,9 @@ In [94]: sns.set_style("whitegrid")
 
 ```py
 sns.set_palette("Greys_r")
-```*  *### 直方图和密度图
+```
+
+### 直方图和密度图
 
 *直方图*是一种显示值频率的离散化条形图。数据点被分成离散的、均匀间隔的箱子，并绘制每个箱子中的数据点数。使用之前的小费数据，我们可以使用 Series 的`plot.hist`方法制作总账单的小费百分比的直方图（参见小费百分比的直方图）：
 
@@ -766,7 +806,9 @@ In [114]: sns.catplot(x="tip_pct", y="day", kind="box",
 
 图 9.28：按天的小费百分比箱线图
 
-您可以使用更通用的`seaborn.FacetGrid`类创建自己的 facet grid 图。有关更多信息，请参阅[seaborn 文档](https://seaborn.pydata.org/)。****  ***## 9.3 其他 Python 可视化工具
+您可以使用更通用的`seaborn.FacetGrid`类创建自己的 facet grid 图。有关更多信息，请参阅[seaborn 文档](https://seaborn.pydata.org/)。
+
+## 9.3 其他 Python 可视化工具
 
 与开源软件一样，Python 中有许多用于创建图形的选项（太多了无法列出）。自 2010 年以来，许多开发工作都集中在为在网页上发布的交互式图形创建工具上。使用诸如[Altair](https://altair-viz.github.io)、[Bokeh](http://bokeh.pydata.org)和[Plotly](https://plotly.com/python)等工具，现在可以在 Python 中指定动态、交互式图形，用于与 Web 浏览器一起使用。
 

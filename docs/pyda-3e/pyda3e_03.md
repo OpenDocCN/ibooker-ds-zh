@@ -9,7 +9,9 @@
 
 *此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。*  *本书的第一版于 2012 年出版，当时 Python 的开源数据分析库，尤其是 pandas，非常新且快速发展。到了 2016 年和 2017 年写第二版时，我不仅需要将书更新为 Python 3.6（第一版使用 Python 2.7），还需要更新 pandas 在过去五年中发生的许多变化。现在是 2022 年，Python 语言的变化较少（我们现在使用 Python 3.10，3.11 将于 2022 年底发布），但 pandas 仍在不断发展。
+如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
+
+本书的第一版于 2012 年出版，当时 Python 的开源数据分析库，尤其是 pandas，非常新且快速发展。到了 2016 年和 2017 年写第二版时，我不仅需要将书更新为 Python 3.6（第一版使用 Python 2.7），还需要更新 pandas 在过去五年中发生的许多变化。现在是 2022 年，Python 语言的变化较少（我们现在使用 Python 3.10，3.11 将于 2022 年底发布），但 pandas 仍在不断发展。
 
 在这第三版中，我的目标是将内容与当前版本的 Python、NumPy、pandas 和其他项目保持同步，同时对于讨论近几年出现的较新的 Python 项目保持相对保守。由于这本书已成为许多大学课程和职业人士的重要资源，我将尽量避免讨论可能在一两年内过时的主题。这样，纸质副本在 2023 年、2024 年甚至更久以后也不会太难理解。
 
@@ -35,7 +37,19 @@
 
 显示应替换为用户提供的值或由上下文确定的值的文本。
 
-*提示* *此元素表示提示或建议。* **注意* *此元素表示一般说明。* **警告* *此元素表示警告或注意事项。***  ***## 使用代码示例
+提示：
+
+此元素表示提示或建议。
+
+注意：
+
+此元素表示一般说明。
+
+警告：
+
+此元素表示警告或注意事项。
+
+## 使用代码示例
 
 您可以在本书的 GitHub 存储库中找到每章的数据文件和相关材料，网址为[`github.com/wesm/pydata-book`](https://github.com/wesm/pydata-book)，该存储库在 Gitee 上有镜像（供无法访问 GitHub 的用户使用），网址为[`gitee.com/wesmckinn/pydata-book`](https://gitee.com/wesmckinn/pydata-book)。
 
@@ -47,7 +61,13 @@
 
 ## O'Reilly 在线学习
 
-*注* *40 多年来，[O'Reilly Media](http://oreilly.com)提供技术和商业培训、知识和见解，帮助公司取得成功。* *我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O'Reilly 的在线学习平台为您提供按需访问实时培训课程、深入学习路径、交互式编码环境以及来自 O'Reilly 和其他 200 多家出版商的大量文本和视频。有关更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。*  *## 如何联系我们
+注意：
+
+40 多年来，[O'Reilly Media](http://oreilly.com)提供技术和商业培训、知识和见解，帮助公司取得成功。
+
+我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专长。O'Reilly 的在线学习平台为您提供按需访问实时培训课程、深入学习路径、交互式编码环境以及来自 O'Reilly 和其他 200 多家出版商的大量文本和视频。有关更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
+
+## 如何联系我们
 
 请将有关本书的评论和问题发送至出版商：
 

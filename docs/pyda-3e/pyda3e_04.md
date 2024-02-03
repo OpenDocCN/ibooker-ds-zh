@@ -15,7 +15,9 @@
 
 在我 2012 年首次出版这本书之后不久，人们开始使用“数据科学”这个术语作为从简单的描述性统计到更高级的统计分析和机器学习等各种内容的总称。自那时以来，用于进行数据分析（或数据科学）的 Python 开源生态系统也显著扩展。现在有许多其他专门关注这些更高级方法的书籍。我希望这本书能够作为足够的准备，使您能够转向更具领域特定性的资源。
 
-*注* *有些人可能将本书的大部分内容描述为“数据操纵”，而不是“数据分析”。我们还使用*整理*或*整理*这些术语来指代数据操纵。*### 什么样的数据？
+注意：
+
+有些人可能将本书的大部分内容描述为“数据操纵”，而不是“数据分析”。我们还使用*整理*或*整理*这些术语来指代数据操纵。*### 什么样的数据？
 
 当我说“数据”时，我确切指的是什么？主要关注的是*结构化数据*，这是一个故意模糊的术语，包括许多不同形式的常见数据，例如：
 
@@ -230,7 +232,11 @@ Linux 的详细信息会根据您的 Linux 发行版类型有所不同，但在�
 $ bash Miniconda3-latest-Linux-x86_64.sh
 ```
 
-*注意* *一些 Linux 发行版在其软件包管理器中具有所有所需的 Python 软件包（在某些情况下是过时版本），可以使用类似 apt 的工具进行安装。这里描述的设置使用 Miniconda，因为它在各种发行版中都很容易重现，并且更简单地升级软件包到最新版本。* *您可以选择将 Miniconda 文件放在哪里。我建议将文件安装在您的主目录中的默认位置；例如，*/home/$USER/miniconda*（自然包括您的用户名）。
+注意
+
+一些 Linux 发行版在其软件包管理器中具有所有所需的 Python 软件包（在某些情况下是过时版本），可以使用类似 apt 的工具进行安装。这里描述的设置使用 Miniconda，因为它在各种发行版中都很容易重现，并且更简单地升级软件包到最新版本。
+
+您可以选择将 Miniconda 文件放在哪里。我建议将文件安装在您的主目录中的默认位置；例如，*/home/$USER/miniconda*（自然包括您的用户名）。
 
 安装程序会询问您是否希望修改您的 shell 脚本以自动激活 Miniconda。我建议这样做（选择“是”）以方便起见。
 
@@ -286,7 +292,11 @@ Type "help", "copyright", "credits" or "license" for more information.
 (pydata-book) $
 ```
 
-*注意* *每次打开新终端时，都需要使用`conda activate`来激活您的环境。您可以随时通过在终端中运行`conda info`来查看有关活动 conda 环境的信息。*  *现在，我们将使用`conda install`安装整本书中使用的基本软件包（以及它们的依赖项）：
+注意
+
+每次打开新终端时，都需要使用`conda activate`来激活您的环境。您可以随时通过在终端中运行`conda info`来查看有关活动 conda 环境的信息。
+
+现在，我们将使用`conda install`安装整本书中使用的基本软件包（以及它们的依赖项）：
 
 ```py
 (pydata-book) $ conda install -y pandas jupyter matplotlib
@@ -294,7 +304,9 @@ Type "help", "copyright", "credits" or "license" for more information.
 
 我们还将使用其他软件包，但这些软件包可以在需要时稍后安装。有两种安装软件包的方法：使用`conda install`和`pip install`。在使用 Miniconda 时，应始终优先使用`conda install`，但某些软件包无法通过 conda 获得，因此如果`conda install $package_name`失败，请尝试`pip install $package_name`。
 
-*注意* *如果您想安装本书其余部分使用的所有软件包，现在可以通过运行：
+注意
+
+如果您想安装本书其余部分使用的所有软件包，现在可以通过运行：
 
 ```py
 conda install lxml beautifulsoup4 html5lib openpyxl \
@@ -302,7 +314,9 @@ conda install lxml beautifulsoup4 html5lib openpyxl \
                patsy scikit-learn pyarrow pytables numba
 ```
 
-在 Windows 上，将`^`替换为 Linux 和 macOS 上使用的行继续符`\`。*  *您可以使用`conda` `update`命令更新软件包：
+在 Windows 上，将`^`替换为 Linux 和 macOS 上使用的行继续符`\`。
+
+您可以使用`conda` `update`命令更新软件包：
 
 ```py
 conda update package_name
@@ -316,7 +330,11 @@ pip install --upgrade package_name
 
 您将有机会在整本书中尝试这些命令。
 
-*注意* *虽然您可以使用 conda 和 pip 来安装软件包，但应避免使用 pip 更新最初使用 conda 安装的软件包（反之亦然），因为这样做可能会导致环境问题。我建议尽可能使用 conda，并仅在无法使用`conda install`安装软件包时才回退到 pip。***  ***### 集成开发环境和文本编辑器
+注意
+
+虽然您可以使用 conda 和 pip 来安装软件包，但应避免使用 pip 更新最初使用 conda 安装的软件包（反之亦然），因为这样做可能会导致环境问题。我建议尽可能使用 conda，并仅在无法使用`conda install`安装软件包时才回退到 pip。
+
+### 集成开发环境和文本编辑器
 
 当被问及我的标准开发环境时，我几乎总是说“IPython 加上文本编辑器”。我通常会在 IPython 或 Jupyter 笔记本中编写程序，并逐步测试和调试每个部分。交互式地玩弄数据并直观验证特定数据操作是否正确也是很有用的。像 pandas 和 NumPy 这样的库旨在在 shell 中使用时提高生产力。
 
@@ -332,7 +350,9 @@ pip install --upgrade package_name
 
 +   Komodo IDE（商业版）
 
-由于 Python 的流行，大多数文本编辑器，如 VS Code 和 Sublime Text 2，都具有出色的 Python 支持。****  ***## 1.5 社区和会议
+由于 Python 的流行，大多数文本编辑器，如 VS Code 和 Sublime Text 2，都具有出色的 Python 支持。
+
+## 1.5 社区和会议
 
 除了通过互联网搜索外，各种科学和数据相关的 Python 邮件列表通常对问题有帮助并且响应迅速。一些可以参考的包括：
 
