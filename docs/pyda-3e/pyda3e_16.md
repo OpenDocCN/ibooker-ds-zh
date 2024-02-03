@@ -1,18 +1,18 @@
-# 13 数据分析示例
+# 十三、数据分析示例
 
-> 原文：[https://wesmckinney.com/book/data-analysis-examples](https://wesmckinney.com/book/data-analysis-examples)
+> 原文：[`wesmckinney.com/book/data-analysis-examples`](https://wesmckinney.com/book/data-analysis-examples)
 
-*本开放获取的网络版本*Python for Data Analysis第3版*现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴随版本提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由Quarto制作的本网站的某些方面将与O'Reilly的印刷版和电子书版本的格式不同。
+*本开放获取的网络版本*Python for Data Analysis 第 3 版*现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴随版本提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本网站的某些方面将与 O'Reilly 的印刷版和电子书版本的格式不同。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无DRM的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用MIT许可证，可在GitHub或Gitee上找到。* *现在我们已经到达本书的最后一章，我们将查看一些真实世界的数据集。对于每个数据集，我们将使用本书中介绍的技术从原始数据中提取含义。演示的技术可以应用于各种其他数据集。本章包含一系列杂例数据集，您可以使用这些数据集练习本书中的工具。
+如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。* *现在我们已经到达本书的最后一章，我们将查看一些真实世界的数据集。对于每个数据集，我们将使用本书中介绍的技术从原始数据中提取含义。演示的技术可以应用于各种其他数据集。本章包含一系列杂例数据集，您可以使用这些数据集练习本书中的工具。
 
-示例数据集可在本书附带的[GitHub存储库](http://github.com/wesm/pydata-book)中找到。如果无法访问GitHub，还可以从[Gitee上的存储库镜像](https://gitee.com/wesmckinn/pydata-book)获取它们。
+示例数据集可在本书附带的[GitHub 存储库](http://github.com/wesm/pydata-book)中找到。如果无法访问 GitHub，还可以从[Gitee 上的存储库镜像](https://gitee.com/wesmckinn/pydata-book)获取它们。
 
 ## 13.1 Bitly Data from 1.USA.gov
 
-2011年，URL缩短服务[Bitly](https://bitly.com)与美国政府网站[USA.gov](https://www.usa.gov)合作，提供从缩短链接以*.gov*或*.mil*结尾的用户收集的匿名数据的源。2011年，可下载的文本文件提供了实时数据以及每小时的快照。本文撰写时（2022年），该服务已关闭，但我们保留了一份数据文件用于本书的示例。
+2011 年，URL 缩短服务[Bitly](https://bitly.com)与美国政府网站[USA.gov](https://www.usa.gov)合作，提供从缩短链接以*.gov*或*.mil*结尾的用户收集的匿名数据的源。2011 年，可下载的文本文件提供了实时数据以及每小时的快照。本文撰写时（2022 年），该服务已关闭，但我们保留了一份数据文件用于本书的示例。
 
-在每个文件的每一行中，每小时快照包含一种称为JSON的常见网络数据形式，JSON代表JavaScript对象表示法。例如，如果我们只读取文件的第一行，可能会看到类似于这样的内容：
+在每个文件的每一行中，每小时快照包含一种称为 JSON 的常见网络数据形式，JSON 代表 JavaScript 对象表示法。例如，如果我们只读取文件的第一行，可能会看到类似于这样的内容：
 
 ```py
 In [5]: path = "datasets/bitly_usagov/example.txt"
@@ -29,7 +29,7 @@ In [6]: with open(path) as f:
 1331822918, "cy": "Danvers", "ll": [ 42.576698, -70.954903 ] }
 ```
 
-Python有内置和第三方库，用于将JSON字符串转换为Python字典。在这里，我们将使用`json`模块及其在我们下载的示例文件中的每一行上调用的`loads`函数：
+Python 有内置和第三方库，用于将 JSON 字符串转换为 Python 字典。在这里，我们将使用`json`模块及其在我们下载的示例文件中的每一行上调用的`loads`函数：
 
 ```py
 import json
@@ -37,7 +37,7 @@ with open(path) as f:
  records = [json.loads(line) for line in f]
 ```
 
-结果对象`records`现在是一个Python字典列表：
+结果对象`records`现在是一个 Python 字典列表：
 
 ```py
 In [18]: records[0]
@@ -61,7 +61,7 @@ Chrome/17.0.963.78 Safari/535.11',
  'u': 'http://www.ncbi.nlm.nih.gov/pubmed/22415991'}
 ```
 
-### 使用纯Python计算时区
+### 使用纯 Python 计算时区
 
 假设我们有兴趣找出数据集中最常出现的时区（`tz`字段）。我们可以通过多种方式来实现这一点。首先，让我们再次使用列表推导式提取时区列表：
 
@@ -95,7 +95,7 @@ Out[17]:
  '']
 ```
 
-仅查看前10个时区，我们会发现其中一些是未知的（空字符串）。您也可以将这些过滤掉，但我暂时保留它们。接下来，为了按时区生成计数，我将展示两种方法：一种更困难的方法（仅使用Python标准库）和一种更简单的方法（使用pandas）。计数的一种方法是使用字典来存储计数，同时我们遍历时区：
+仅查看前 10 个时区，我们会发现其中一些是未知的（空字符串）。您也可以将这些过滤掉，但我暂时保留它们。接下来，为了按时区生成计数，我将展示两种方法：一种更困难的方法（仅使用 Python 标准库）和一种更简单的方法（使用 pandas）。计数的一种方法是使用字典来存储计数，同时我们遍历时区：
 
 ```py
 def get_counts(sequence):
@@ -108,7 +108,7 @@ def get_counts(sequence):
  return counts
 ```
 
-使用Python标准库中更高级的工具，您可以更简洁地编写相同的内容：
+使用 Python 标准库中更高级的工具，您可以更简洁地编写相同的内容：
 
 ```py
 from collections import defaultdict
@@ -132,7 +132,7 @@ In [22]: len(time_zones)
 Out[22]: 3440
 ```
 
-如果我们想要前10个时区及其计数，我们可以通过`(count, timezone)`创建一个元组列表，并对其进行排序：
+如果我们想要前 10 个时区及其计数，我们可以通过`(count, timezone)`创建一个元组列表，并对其进行排序：
 
 ```py
 def top_counts(count_dict, n=10):
@@ -158,7 +158,7 @@ Out[24]:
  (1251, 'America/New_York')]
 ```
 
-如果您搜索Python标准库，可能会找到`collections.Counter`类，这将使这个任务变得更简单：
+如果您搜索 Python 标准库，可能会找到`collections.Counter`类，这将使这个任务变得更简单：
 
 ```py
 In [25]: from collections import Counter
@@ -179,15 +179,15 @@ Out[27]:
  ('America/Sao_Paulo', 33)]
 ```
 
-### 使用pandas计算时区
+### 使用 pandas 计算时区
 
-您可以通过将记录列表传递给`pandas.DataFrame`来从原始记录集创建一个DataFrame：
+您可以通过将记录列表传递给`pandas.DataFrame`来从原始记录集创建一个 DataFrame：
 
 ```py
 In [28]: frame = pd.DataFrame(records)
 ```
 
-我们可以查看有关这个新DataFrame的一些基本信息，比如列名、推断的列类型或缺失值的数量，使用`frame.info()`：
+我们可以查看有关这个新 DataFrame 的一些基本信息，比如列名、推断的列类型或缺失值的数量，使用`frame.info()`：
 
 ```py
 In [29]: frame.info()
@@ -227,7 +227,7 @@ Out[30]:
 Name: tz, dtype: object
 ```
 
-`frame`的输出显示为*摘要视图*，适用于大型DataFrame对象。然后我们可以使用Series的`value_counts`方法：
+`frame`的输出显示为*摘要视图*，适用于大型 DataFrame 对象。然后我们可以使用 Series 的`value_counts`方法：
 
 ```py
 In [31]: tz_counts = frame["tz"].value_counts()
@@ -243,7 +243,7 @@ America/Denver          191
 Name: count, dtype: int64
 ```
 
-我们可以使用matplotlib可视化这些数据。我们可以通过为记录中的未知或缺失时区数据填充替代值来使图表更加美观。我们使用`fillna`方法替换缺失值，并使用布尔数组索引来处理空字符串：
+我们可以使用 matplotlib 可视化这些数据。我们可以通过为记录中的未知或缺失时区数据填充替代值来使图表更加美观。我们使用`fillna`方法替换缺失值，并使用布尔数组索引来处理空字符串：
 
 ```py
 In [33]: clean_tz = frame["tz"].fillna("Missing")
@@ -263,7 +263,7 @@ America/Denver          191
 Name: count, dtype: int64
 ```
 
-此时，我们可以使用[seaborn包](http://seaborn.pydata.org)制作一个水平条形图（参见[1.usa.gov示例数据中的顶级时区](#usa_gov_counts)以查看结果可视化）：
+此时，我们可以使用[seaborn 包](http://seaborn.pydata.org)制作一个水平条形图（参见 1.usa.gov 示例数据中的顶级时区以查看结果可视化）：
 
 ```py
 In [38]: import seaborn as sns
@@ -273,11 +273,11 @@ In [39]: subset = tz_counts.head()
 In [40]: sns.barplot(y=subset.index, x=subset.to_numpy())
 ```
 
-![](../Images/7dd52fd5fa321b6a9d79111326825f9b.png)
+![](img/7dd52fd5fa321b6a9d79111326825f9b.png)
 
-图13.1：1.usa.gov示例数据中的顶级时区
+图 13.1：1.usa.gov 示例数据中的顶级时区
 
-`a`字段包含有关用于执行URL缩短的浏览器、设备或应用程序的信息：
+`a`字段包含有关用于执行 URL 缩短的浏览器、设备或应用程序的信息：
 
 ```py
 In [41]: frame["a"][1]
@@ -317,13 +317,13 @@ BlackBerry8520/5.0.0.681       4
 Name: count, dtype: int64
 ```
 
-现在，假设您想将顶级时区分解为Windows和非Windows用户。为简化起见，假设如果代理字符串中包含`"Windows"`字符串，则用户使用的是Windows。由于一些代理缺失，我们将排除这些数据：
+现在，假设您想将顶级时区分解为 Windows 和非 Windows 用户。为简化起见，假设如果代理字符串中包含`"Windows"`字符串，则用户使用的是 Windows。由于一些代理缺失，我们将排除这些数据：
 
 ```py
 In [47]: cframe = frame[frame["a"].notna()].copy()
 ```
 
-然后，我们想计算每行是否为Windows的值：
+然后，我们想计算每行是否为 Windows 的值：
 
 ```py
 In [48]: cframe["os"] = np.where(cframe["a"].str.contains("Windows"),
@@ -370,7 +370,7 @@ In [54]: indexer.values[:10]
 Out[54]: array([24, 20, 21, 92, 87, 53, 54, 57, 26, 55])
 ```
 
-我使用`take`按顺序选择行，然后切掉最后10行（最大值）：
+我使用`take`按顺序选择行，然后切掉最后 10 行（最大值）：
 
 ```py
 In [55]: count_subset = agg_counts.take(indexer[-10:])
@@ -391,7 +391,7 @@ America/Chicago            115.0    285.0
 America/New_York           339.0    912.0
 ```
 
-pandas有一个方便的方法叫做`nlargest`，可以做同样的事情：
+pandas 有一个方便的方法叫做`nlargest`，可以做同样的事情：
 
 ```py
 In [57]: agg_counts.sum(axis="columns").nlargest(10)
@@ -410,7 +410,7 @@ America/Sao_Paulo        33.0
 dtype: float64
 ```
 
-然后，可以绘制一个分组条形图，比较Windows和非Windows用户的数量，使用seaborn的`barplot`函数（参见[按Windows和非Windows用户的顶级时区](#usa_gov_tz_os)）。我首先调用`count_subset.stack()`并重置索引以重新排列数据，以便更好地与seaborn兼容：
+然后，可以绘制一个分组条形图，比较 Windows 和非 Windows 用户的数量，使用 seaborn 的`barplot`函数（参见按 Windows 和非 Windows 用户的顶级时区）。我首先调用`count_subset.stack()`并重置索引以重新排列数据，以便更好地与 seaborn 兼容：
 
 ```py
 In [59]: count_subset = count_subset.stack()
@@ -436,11 +436,11 @@ Out[62]:
 In [63]: sns.barplot(x="total", y="tz", hue="os",  data=count_subset)
 ```
 
-![](../Images/f69b4d795dc2eedaf3e3e02e6e0a9d87.png)
+![](img/f69b4d795dc2eedaf3e3e02e6e0a9d87.png)
 
-图13.2：按Windows和非Windows用户的顶级时区
+图 13.2：按 Windows 和非 Windows 用户的顶级时区
 
-在较小的组中，很难看出Windows用户的相对百分比，因此让我们将组百分比归一化为1：
+在较小的组中，很难看出 Windows 用户的相对百分比，因此让我们将组百分比归一化为 1：
 
 ```py
 def norm_total(group):
@@ -450,15 +450,15 @@ def norm_total(group):
 results = count_subset.groupby("tz").apply(norm_total)
 ```
 
-然后在[出现频率最高的时区中Windows和非Windows用户的百分比](#usa_gov_tz_os_normed)中绘制这个图：
+然后在出现频率最高的时区中 Windows 和非 Windows 用户的百分比中绘制这个图：
 
 ```py
 In [66]: sns.barplot(x="normed_total", y="tz", hue="os",  data=results)
 ```
 
-![](../Images/a218b1a30914e6cbfa11d7eb83a4f1cb.png)
+![](img/a218b1a30914e6cbfa11d7eb83a4f1cb.png)
 
-图13.3：出现频率最高的时区中Windows和非Windows用户的百分比
+图 13.3：出现频率最高的时区中 Windows 和非 Windows 用户的百分比
 
 我们可以通过使用`transform`方法和`groupby`更有效地计算归一化和：
 
@@ -468,11 +468,11 @@ In [67]: g = count_subset.groupby("tz")
 In [68]: results2 = count_subset["total"] / g["total"].transform("sum")
 ```
 
-## 13.2 MovieLens 1M数据集
+## 13.2 MovieLens 1M 数据集
 
-[GroupLens Research](https://grouplens.org/datasets/movielens)提供了从1990年代末到2000年代初从MovieLens用户收集的多个电影评分数据集。数据提供了电影评分、电影元数据（类型和年份）以及关于用户的人口统计数据（年龄、邮政编码、性别认同和职业）。这些数据通常在基于机器学习算法的推荐系统的开发中很有兴趣。虽然我们在本书中没有详细探讨机器学习技术，但我将向您展示如何将这些数据集切分成您需要的确切形式。
+[GroupLens Research](https://grouplens.org/datasets/movielens)提供了从 1990 年代末到 2000 年代初从 MovieLens 用户收集的多个电影评分数据集。数据提供了电影评分、电影元数据（类型和年份）以及关于用户的人口统计数据（年龄、邮政编码、性别认同和职业）。这些数据通常在基于机器学习算法的推荐系统的开发中很有兴趣。虽然我们在本书中没有详细探讨机器学习技术，但我将向您展示如何将这些数据集切分成您需要的确切形式。
 
-MovieLens 1M数据集包含从六千名用户对四千部电影收集的一百万个评分。它分布在三个表中：评分、用户信息和电影信息。我们可以使用`pandas.read_table`将每个表加载到一个pandas DataFrame对象中。在Jupyter单元格中运行以下代码：
+MovieLens 1M 数据集包含从六千名用户对四千部电影收集的一百万个评分。它分布在三个表中：评分、用户信息和电影信息。我们可以使用`pandas.read_table`将每个表加载到一个 pandas DataFrame 对象中。在 Jupyter 单元格中运行以下代码：
 
 ```py
 unames = ["user_id", "gender", "age", "occupation", "zip"]
@@ -488,7 +488,7 @@ movies = pd.read_table("datasets/movielens/movies.dat", sep="::",
  header=None, names=mnames, engine="python")
 ```
 
-您可以通过查看每个DataFrame来验证一切是否成功：
+您可以通过查看每个 DataFrame 来验证一切是否成功：
 
 ```py
 In [70]: users.head(5)
@@ -535,7 +535,7 @@ Out[73]:
 [1000209 rows x 4 columns]
 ```
 
-请注意，年龄和职业被编码为整数，表示数据集的*README*文件中描述的组。分析分布在三个表中的数据并不是一项简单的任务；例如，假设您想要按性别身份和年龄计算特定电影的平均评分。正如您将看到的，将所有数据合并到一个单一表中更方便。使用pandas的`merge`函数，我们首先将`ratings`与`users`合并，然后将该结果与`movies`数据合并。pandas根据重叠的名称推断要用作合并（或*join*）键的列：
+请注意，年龄和职业被编码为整数，表示数据集的*README*文件中描述的组。分析分布在三个表中的数据并不是一项简单的任务；例如，假设您想要按性别身份和年龄计算特定电影的平均评分。正如您将看到的，将所有数据合并到一个单一表中更方便。使用 pandas 的`merge`函数，我们首先将`ratings`与`users`合并，然后将该结果与`movies`数据合并。pandas 根据重叠的名称推断要用作合并（或*join*）键的列：
 
 ```py
 In [74]: data = pd.merge(pd.merge(ratings, users), movies)
@@ -600,7 +600,7 @@ $1,000,000 Duck (1971)         3.375000  2.761905
 ...And Justice for All (1979)  3.828571  3.689024
 ```
 
-这产生了另一个包含平均评分的DataFrame，其中电影标题作为行标签（“索引”），性别作为列标签。我首先筛选出至少收到250个评分的电影（一个任意的数字）；为此，我按标题对数据进行分组，并使用`size()`来获取每个标题的组大小的Series：
+这产生了另一个包含平均评分的 DataFrame，其中电影标题作为行标签（“索引”），性别作为列标签。我首先筛选出至少收到 250 个评分的电影（一个任意的数字）；为此，我按标题对数据进行分组，并使用`size()`来获取每个标题的组大小的 Series：
 
 ```py
 In [79]: ratings_by_title = data.groupby("title").size()
@@ -633,7 +633,7 @@ Index([''burbs, The (1989)', '10 Things I Hate About You (1999)',
  dtype='object', name='title', length=1216)
 ```
 
-然后，可以使用至少收到250个评分的标题的索引来从`mean_ratings`中选择行，使用`.loc`：
+然后，可以使用至少收到 250 个评分的标题的索引来从`mean_ratings`中选择行，使用`.loc`：
 
 ```py
 In [83]: mean_ratings = mean_ratings.loc[active_titles]
@@ -696,7 +696,7 @@ Little Women (1994)        3.870588  3.321739 -0.548849
 Steel Magnolias (1989)     3.901734  3.365957 -0.535777
 ```
 
-颠倒行的顺序并再次切片前10行，我们得到了男性喜欢但女性评分不高的电影：
+颠倒行的顺序并再次切片前 10 行，我们得到了男性喜欢但女性评分不高的电影：
 
 ```py
 In [91]: sorted_by_diff[::-1].head()
@@ -728,7 +728,7 @@ title
 Name: rating, dtype: float64
 ```
 
-然后，我们按降序排序并选择前10行，这大致是评分最具分歧的10部电影：
+然后，我们按降序排序并选择前 10 行，这大致是评分最具分歧的 10 部电影：
 
 ```py
 In [95]: rating_std_by_title.sort_values(ascending=False)[:10]
@@ -747,7 +747,7 @@ Bicentennial Man (1999)                  1.245533
 Name: rating, dtype: float64
 ```
 
-您可能已经注意到电影类型是以管道分隔（`|`）的字符串给出的，因为一部电影可以属于多种类型。为了帮助我们按类型对评分数据进行分组，我们可以在DataFrame上使用`explode`方法。让我们看看这是如何工作的。首先，我们可以使用Series上的`str.split`方法将类型字符串拆分为类型列表：
+您可能已经注意到电影类型是以管道分隔（`|`）的字符串给出的，因为一部电影可以属于多种类型。为了帮助我们按类型对评分数据进行分组，我们可以在 DataFrame 上使用`explode`方法。让我们看看这是如何工作的。首先，我们可以使用 Series 上的`str.split`方法将类型字符串拆分为类型列表：
 
 ```py
 In [96]: movies["genres"].head()
@@ -786,7 +786,7 @@ Out[99]:
 4                          [Comedy] 
 ```
 
-现在，调用`movies.explode("genre")`会生成一个新的DataFrame，其中每个电影类型列表中的“内部”元素都有一行。例如，如果一部电影被分类为喜剧和浪漫片，那么结果中将有两行，一行只有“喜剧”，另一行只有“浪漫片”：
+现在，调用`movies.explode("genre")`会生成一个新的 DataFrame，其中每个电影类型列表中的“内部”元素都有一行。例如，如果一部电影被分类为喜剧和浪漫片，那么结果中将有两行，一行只有“喜剧”，另一行只有“浪漫片”：
 
 ```py
 In [100]: movies_exploded = movies.explode("genre")
@@ -858,11 +858,11 @@ Fantasy      3.532700
 Film-Noir    4.125932 
 ```
 
-## 13.3美国婴儿姓名1880-2010
+## 13.3 美国婴儿姓名 1880-2010
 
-美国社会保障管理局（SSA）提供了从1880年到现在的婴儿名字频率数据。Hadley Wickham，几个流行R包的作者，在R中说明数据操作时使用了这个数据集。
+美国社会保障管理局（SSA）提供了从 1880 年到现在的婴儿名字频率数据。Hadley Wickham，几个流行 R 包的作者，在 R 中说明数据操作时使用了这个数据集。
 
-我们需要进行一些数据整理来加载这个数据集，但一旦我们这样做了，我们将得到一个看起来像这样的DataFrame：
+我们需要进行一些数据整理来加载这个数据集，但一旦我们这样做了，我们将得到一个看起来像这样的 DataFrame：
 
 ```py
 In [4]: names.head(10)
@@ -896,7 +896,7 @@ Out[4]:
 
 截至目前，美国社会保障管理局提供了数据文件，每年一个文件，其中包含每个性别/名字组合的总出生数。您可以下载这些文件的[原始存档](http://www.ssa.gov/oact/babynames/limits.html)。
 
-如果您在阅读此页面时发现已移动，很可能可以通过互联网搜索再次找到。下载“国家数据”文件*names.zip*并解压缩后，您将获得一个包含一系列文件如*yob1880.txt*的目录。我使用Unix的`head`命令查看其中一个文件的前10行（在Windows上，您可以使用`more`命令或在文本编辑器中打开）：
+如果您在阅读此页面时发现已移动，很可能可以通过互联网搜索再次找到。下载“国家数据”文件*names.zip*并解压缩后，您将获得一个包含一系列文件如*yob1880.txt*的目录。我使用 Unix 的`head`命令查看其中一个文件的前 10 行（在 Windows 上，您可以使用`more`命令或在文本编辑器中打开）：
 
 ```py
 In [106]: !head -n 10 datasets/babynames/yob1880.txt
@@ -912,7 +912,7 @@ Bertha,F,1320
 Sarah,F,1288
 ```
 
-由于这已经是逗号分隔形式，可以使用`pandas.read_csv`将其加载到DataFrame中：
+由于这已经是逗号分隔形式，可以使用`pandas.read_csv`将其加载到 DataFrame 中：
 
 ```py
 In [107]: names1880 = pd.read_csv("datasets/babynames/yob1880.txt",
@@ -946,7 +946,7 @@ M    110493
 Name: births, dtype: int64
 ```
 
-由于数据集按年份分成文件，首先要做的事情之一是将所有数据组装到一个单独的DataFrame中，并进一步添加一个`year`字段。您可以使用`pandas.concat`来做到这一点。在Jupyter单元格中运行以下内容：
+由于数据集按年份分成文件，首先要做的事情之一是将所有数据组装到一个单独的 DataFrame 中，并进一步添加一个`year`字段。您可以使用`pandas.concat`来做到这一点。在 Jupyter 单元格中运行以下内容：
 
 ```py
 pieces = []
@@ -962,7 +962,7 @@ for year in range(1880, 2011):
 names = pd.concat(pieces, ignore_index=True)
 ```
 
-这里有几件事情需要注意。首先，记住`concat`默认按行组合DataFrame对象。其次，您必须传递`ignore_index=True`，因为我们不关心从`pandas.read_csv`返回的原始行号。因此，现在我们有一个包含所有年份的所有名字数据的单个DataFrame：
+这里有几件事情需要注意。首先，记住`concat`默认按行组合 DataFrame 对象。其次，您必须传递`ignore_index=True`，因为我们不关心从`pandas.read_csv`返回的原始行号。因此，现在我们有一个包含所有年份的所有名字数据的单个 DataFrame：
 
 ```py
 In [111]: names
@@ -982,7 +982,7 @@ Out[111]:
 [1690784 rows x 4 columns]
 ```
 
-有了这些数据，我们可以开始使用`groupby`或`pivot_table`在年份和性别水平上对数据进行聚合（参见[按性别和年份统计的总出生数](#baby_names_total_births)）：
+有了这些数据，我们可以开始使用`groupby`或`pivot_table`在年份和性别水平上对数据进行聚合（参见按性别和年份统计的总出生数）：
 
 ```py
 In [112]: total_births = names.pivot_table("births", index="year",
@@ -1001,11 +1001,11 @@ year
 In [114]: total_births.plot(title="Total births by sex and year")
 ```
 
-![](../Images/6716e4c3fc8eb1a44199a90351da2a0d.png)
+![](img/6716e4c3fc8eb1a44199a90351da2a0d.png)
 
-图13.4：按性别和年份统计的总出生数
+图 13.4：按性别和年份统计的总出生数
 
-接下来，让我们插入一个名为`prop`的列，该列显示每个名字相对于总出生数的比例。`prop`值为`0.02`表示每100个婴儿中有2个被赋予特定的名字。因此，我们按年份和性别对数据进行分组，然后向每个组添加新列：
+接下来，让我们插入一个名为`prop`的列，该列显示每个名字相对于总出生数的比例。`prop`值为`0.02`表示每 100 个婴儿中有 2 个被赋予特定的名字。因此，我们按年份和性别对数据进行分组，然后向每个组添加新列：
 
 ```py
 def add_prop(group):
@@ -1034,7 +1034,7 @@ Out[116]:
 [1690784 rows x 5 columns]
 ```
 
-在执行这样的组操作时，通常很有价值进行一些合理性检查，比如验证所有组中`prop`列的总和是否为1：
+在执行这样的组操作时，通常很有价值进行一些合理性检查，比如验证所有组中`prop`列的总和是否为 1：
 
 ```py
 In [117]: names.groupby(["year", "sex"])["prop"].sum()
@@ -1054,7 +1054,7 @@ year  sex
 Name: prop, Length: 262, dtype: float64
 ```
 
-现在这样做了，我将提取数据的一个子集以便进一步分析：每个性别/年份组合的前1000个名字。这是另一个组操作：
+现在这样做了，我将提取数据的一个子集以便进一步分析：每个性别/年份组合的前 1000 个名字。这是另一个组操作：
 
 ```py
 In [118]: def get_top1000(group):
@@ -1114,7 +1114,7 @@ In [126]: total_births = top1000.pivot_table("births", index="year",
  .....:                                    aggfunc=sum)
 ```
 
-现在，可以使用DataFrame的`plot`方法为一些名字绘制图表（[一些男孩和女孩名字随时间变化](#baby_names_some_names)显示了结果）：
+现在，可以使用 DataFrame 的`plot`方法为一些名字绘制图表（一些男孩和女孩名字随时间变化显示了结果）：
 
 ```py
 In [127]: total_births.info()
@@ -1130,15 +1130,15 @@ In [129]: subset.plot(subplots=True, figsize=(12, 10),
  .....:             title="Number of births per year")
 ```
 
-![](../Images/e1a3230ba5c578a21a784b09be9c0e91.png)
+![](img/e1a3230ba5c578a21a784b09be9c0e91.png)
 
-图13.5：一些男孩和女孩名字随时间变化
+图 13.5：一些男孩和女孩名字随时间变化
 
 看到这个，你可能会得出结论，这些名字已经不再受到美国人口的青睐。但事实实际上比这更复杂，将在下一节中探讨。
 
 #### 衡量命名多样性的增加
 
-减少图表的原因之一是越来越少的父母选择常见的名字给他们的孩子。这个假设可以在数据中进行探索和确认。一个度量是由前1000个最受欢迎的名字代表的出生比例，我按年份和性别进行汇总和绘制（[性别在前一千个名字中所代表的出生比例](#baby_names_tot_prop)显示了结果图）：
+减少图表的原因之一是越来越少的父母选择常见的名字给他们的孩子。这个假设可以在数据中进行探索和确认。一个度量是由前 1000 个最受欢迎的名字代表的出生比例，我按年份和性别进行汇总和绘制（性别在前一千个名字中所代表的出生比例显示了结果图）：
 
 ```py
 In [131]: table = top1000.pivot_table("prop", index="year",
@@ -1148,11 +1148,11 @@ In [132]: table.plot(title="Sum of table1000.prop by year and sex",
  .....:            yticks=np.linspace(0, 1.2, 13))
 ```
 
-![](../Images/24e093fb2856ccb1ffa83d884da1713d.png)
+![](img/24e093fb2856ccb1ffa83d884da1713d.png)
 
-图13.6：性别在前一千个名字中所代表的出生比例
+图 13.6：性别在前一千个名字中所代表的出生比例
 
-您可以看到，确实存在着越来越多的名字多样性（前一千名中总比例减少）。另一个有趣的指标是在出生的前50%中按照从高到低的流行度顺序取的不同名字的数量。这个数字更难计算。让我们只考虑2010年的男孩名字：
+您可以看到，确实存在着越来越多的名字多样性（前一千名中总比例减少）。另一个有趣的指标是在出生的前 50%中按照从高到低的流行度顺序取的不同名字的数量。这个数字更难计算。让我们只考虑 2010 年的男孩名字：
 
 ```py
 In [133]: df = boys[boys["year"] == 2010]
@@ -1174,7 +1174,7 @@ Out[134]:
 [1000 rows x 5 columns]
 ```
 
-在对`prop`进行降序排序后，我们想知道最受欢迎的名字中有多少个名字达到了50%。您可以编写一个`for`循环来执行此操作，但使用矢量化的NumPy方法更具计算效率。对`prop`进行累积求和`cumsum`，然后调用`searchsorted`方法返回`0.5`需要插入的累积和位置，以保持其按顺序排序：
+在对`prop`进行降序排序后，我们想知道最受欢迎的名字中有多少个名字达到了 50%。您可以编写一个`for`循环来执行此操作，但使用矢量化的 NumPy 方法更具计算效率。对`prop`进行累积求和`cumsum`，然后调用`searchsorted`方法返回`0.5`需要插入的累积和位置，以保持其按顺序排序：
 
 ```py
 In [135]: prop_cumsum = df["prop"].sort_values(ascending=False).cumsum()
@@ -1197,7 +1197,7 @@ In [137]: prop_cumsum.searchsorted(0.5)
 Out[137]: 116
 ```
 
-由于数组是从零开始索引的，将此结果加1将得到117的结果。相比之下，在1900年，这个数字要小得多：
+由于数组是从零开始索引的，将此结果加 1 将得到 117 的结果。相比之下，在 1900 年，这个数字要小得多：
 
 ```py
 In [138]: df = boys[boys.year == 1900]
@@ -1219,7 +1219,7 @@ diversity = top1000.groupby(["year", "sex"]).apply(get_quantile_count)
 diversity = diversity.unstack()
 ```
 
-这个结果DataFrame `diversity` 现在有两个时间序列，一个用于每个性别，按年份索引。这可以像以前一样进行检查和绘制（参见[按年份绘制的多样性指标](#baby_names_diversity_fig)）：
+这个结果 DataFrame `diversity` 现在有两个时间序列，一个用于每个性别，按年份索引。这可以像以前一样进行检查和绘制（参见按年份绘制的多样性指标）：
 
 ```py
 In [143]: diversity.head()
@@ -1235,15 +1235,15 @@ year
 In [144]: diversity.plot(title="Number of popular names in top 50%")
 ```
 
-![](../Images/1e1bea5330bbf1ad2202b26ba95095b8.png)
+![](img/1e1bea5330bbf1ad2202b26ba95095b8.png)
 
-图13.7：按年份绘制的多样性指标
+图 13.7：按年份绘制的多样性指标
 
 正如你所看到的，女孩名字一直比男孩名字更多样化，而且随着时间的推移，它们变得更加多样化。关于到底是什么推动了这种多样性的进一步分析，比如替代拼写的增加，留给读者自行探讨。
 
 #### “最后一个字母”革命
 
-在2007年，婴儿姓名研究员劳拉·瓦滕伯格指出，过去100年来，以最后一个字母结尾的男孩名字的分布发生了显著变化。为了看到这一点，我们首先按年份、性别和最后一个字母聚合完整数据集中的所有出生情况：
+在 2007 年，婴儿姓名研究员劳拉·瓦滕伯格指出，过去 100 年来，以最后一个字母结尾的男孩名字的分布发生了显著变化。为了看到这一点，我们首先按年份、性别和最后一个字母聚合完整数据集中的所有出生情况：
 
 ```py
 def get_last_letter(x):
@@ -1308,7 +1308,7 @@ z            0.002439  0.000659  0.000704  0.000170  0.000184  0.001831
 [26 rows x 6 columns]
 ```
 
-现在有了字母比例，我们可以按年份将每个性别分解为条形图（参见[以每个字母结尾的男孩和女孩名字的比例](#baby_names_last_letter)）：
+现在有了字母比例，我们可以按年份将每个性别分解为条形图（参见以每个字母结尾的男孩和女孩名字的比例）：
 
 ```py
 import matplotlib.pyplot as plt
@@ -1319,11 +1319,11 @@ letter_prop["F"].plot(kind="bar", rot=0, ax=axes[1], title="Female",
  legend=False)
 ```
 
-![](../Images/5f557600f8cbeb90fd07375592d49c18.png)
+![](img/5f557600f8cbeb90fd07375592d49c18.png)
 
-图13.8：以每个字母结尾的男孩和女孩名字的比例
+图 13.8：以每个字母结尾的男孩和女孩名字的比例
 
-正如您所看到的，自20世纪60年代以来，以*n*结尾的男孩名字经历了显著增长。回到之前创建的完整表格，再次按年份和性别进行标准化，并选择男孩名字的一部分字母，最后转置使每一列成为一个时间序列：
+正如您所看到的，自 20 世纪 60 年代以来，以*n*结尾的男孩名字经历了显著增长。回到之前创建的完整表格，再次按年份和性别进行标准化，并选择男孩名字的一部分字母，最后转置使每一列成为一个时间序列：
 
 ```py
 In [153]: letter_prop = table / table.sum()
@@ -1341,19 +1341,19 @@ year
 1884         0.086120  0.149915  0.080405
 ```
 
-有了这个时间序列的DataFrame，我可以再次使用其`plot`方法制作时间趋势图（请参见[随时间变化以d/n/y结尾的男孩出生比例](#baby_names_letter_over_time)）：
+有了这个时间序列的 DataFrame，我可以再次使用其`plot`方法制作时间趋势图（请参见随时间变化以 d/n/y 结尾的男孩出生比例）：
 
 ```py
 In [158]: dny_ts.plot()
 ```
 
-![](../Images/e7ac4057ad5de3681057e0690540ab39.png)
+![](img/e7ac4057ad5de3681057e0690540ab39.png)
 
-图13.9：随时间变化以d/n/y结尾的男孩出生比例
+图 13.9：随时间变化以 d/n/y 结尾的男孩出生比例
 
 #### 男孩名字变成女孩名字（反之亦然）
 
-另一个有趣的趋势是查看在样本早期更受一性别欢迎，但随着时间推移已成为另一性别的首选名字的名字。一个例子是Lesley或Leslie这个名字。回到`top1000` DataFrame，我计算出数据集中以"Lesl"开头的名字列表：
+另一个有趣的趋势是查看在样本早期更受一性别欢迎，但随着时间推移已成为另一性别的首选名字的名字。一个例子是 Lesley 或 Leslie 这个名字。回到`top1000` DataFrame，我计算出数据集中以"Lesl"开头的名字列表：
 
 ```py
 In [159]: all_names = pd.Series(top1000["name"].unique())
@@ -1405,19 +1405,19 @@ year
 2010  1.0 NaN
 ```
 
-最后，现在可以制作按性别随时间变化的分布图（请参见[随时间变化男/女Lesley样式名字的比例](#baby_names_lesley)）：
+最后，现在可以制作按性别随时间变化的分布图（请参见随时间变化男/女 Lesley 样式名字的比例）：
 
 ```py
 In [168]: table.plot(style={"M": "k-", "F": "k--"})
 ```
 
-![](../Images/61d4a67e0c93651a04b70d68220275c0.png)
+![](img/61d4a67e0c93651a04b70d68220275c0.png)
 
-图13.10：随时间变化男/女Lesley样式名字的比例
+图 13.10：随时间变化男/女 Lesley 样式名字的比例
 
-## 13.4 USDA食品数据库
+## 13.4 USDA 食品数据库
 
-美国农业部（USDA）提供了一个食品营养信息数据库。程序员Ashley Williams以JSON格式创建了这个数据库的一个版本。记录看起来像这样：
+美国农业部（USDA）提供了一个食品营养信息数据库。程序员 Ashley Williams 以 JSON 格式创建了这个数据库的一个版本。记录看起来像这样：
 
 ```py
 {
@@ -1451,7 +1451,7 @@ Wing, meat and skin with breading",
 
 每种食物都有一些标识属性，还有两个营养素和分量大小的列表。这种形式的数据不太适合分析，因此我们需要做一些工作，将数据整理成更好的形式。
 
-您可以使用您选择的任何JSON库将此文件加载到Python中。我将使用内置的Python `json`模块：
+您可以使用您选择的任何 JSON 库将此文件加载到 Python 中。我将使用内置的 Python `json`模块：
 
 ```py
 In [169]: import json
@@ -1490,7 +1490,7 @@ Out[175]:
 6  1573.00    kJ                       Energy       Energy
 ```
 
-将字典列表转换为DataFrame时，我们可以指定要提取的字段列表。我们将提取食物名称、组、ID和制造商：
+将字典列表转换为 DataFrame 时，我们可以指定要提取的字段列表。我们将提取食物名称、组、ID 和制造商：
 
 ```py
 In [176]: info_keys = ["description", "group", "id", "manufacturer"]
@@ -1547,7 +1547,7 @@ Pork Products                        328
 Name: count, dtype: int64
 ```
 
-现在，要对所有营养数据进行一些分析，最简单的方法是将每种食物的营养成分组装成一个单独的大表格。为此，我们需要采取几个步骤。首先，我将把每个食物营养列表转换为一个DataFrame，添加一个食物`id`的列，并将DataFrame附加到列表中。然后，可以使用`concat`将它们连接起来。在Jupyter单元格中运行以下代码：
+现在，要对所有营养数据进行一些分析，最简单的方法是将每种食物的营养成分组装成一个单独的大表格。为此，我们需要采取几个步骤。首先，我将把每个食物营养列表转换为一个 DataFrame，添加一个食物`id`的列，并将 DataFrame 附加到列表中。然后，可以使用`concat`将它们连接起来。在 Jupyter 单元格中运行以下代码：
 
 ```py
 nutrients = []
@@ -1580,7 +1580,7 @@ Out[182]:
 [389355 rows x 5 columns]
 ```
 
-我注意到这个DataFrame中有重复项，所以删除它们会更容易：
+我注意到这个 DataFrame 中有重复项，所以删除它们会更容易：
 
 ```py
 In [183]: nutrients.duplicated().sum()  # number of duplicates
@@ -1589,7 +1589,7 @@ Out[183]: 14179
 In [184]: nutrients = nutrients.drop_duplicates()
 ```
 
-由于DataFrame对象中都有`"group"`和`"description"`，我们可以重命名以便更清晰：
+由于 DataFrame 对象中都有`"group"`和`"description"`，我们可以重命名以便更清晰：
 
 ```py
 In [185]: col_mapping = {"description" : "food",
@@ -1667,7 +1667,7 @@ manufacturer
 Name: 30000, dtype: object
 ```
 
-现在我们可以制作按食物组和营养类型中位数值的图表（请参见[各食物组的锌中位数值](#fig_wrangle_zinc)）：
+现在我们可以制作按食物组和营养类型中位数值的图表（请参见各食物组的锌中位数值）：
 
 ```py
 In [195]: result = ndata.groupby(["nutrient", "fgroup"])["value"].quantile(0.5)
@@ -1675,11 +1675,11 @@ In [195]: result = ndata.groupby(["nutrient", "fgroup"])["value"].quantile(0.5)
 In [196]: result["Zinc, Zn"].sort_values().plot(kind="barh")
 ```
 
-![](../Images/c65abbdbb1b538d16ea4f45c46581a89.png)
+![](img/c65abbdbb1b538d16ea4f45c46581a89.png)
 
-图13.11：各食物组的锌中位数值
+图 13.11：各食物组的锌中位数值
 
-使用`idxmax`或`argmax` Series方法，您可以找到每种营养素中最密集的食物。在Jupyter单元格中运行以下内容：
+使用`idxmax`或`argmax` Series 方法，您可以找到每种营养素中最密集的食物。在 Jupyter 单元格中运行以下内容：
 
 ```py
 by_nutrient = ndata.groupby(["nutgroup", "nutrient"])
@@ -1693,7 +1693,7 @@ max_foods = by_nutrient.apply(get_maximum)[["value", "food"]]
 max_foods["food"] = max_foods["food"].str[:50]
 ```
 
-生成的DataFrame太大，无法在书中显示；这里只有`"Amino Acids"`营养组：
+生成的 DataFrame 太大，无法在书中显示；这里只有`"Amino Acids"`营养组：
 
 ```py
 In [198]: max_foods.loc["Amino Acids"]["food"]
@@ -1721,9 +1721,9 @@ Valine            Soy protein isolate, PROTEIN TECHNOLOGIES INTERNAT
 Name: food, dtype: object
 ```
 
-## 13.5 2012年联邦选举委员会数据库
+## 13.5 2012 年联邦选举委员会数据库
 
-美国联邦选举委员会（FEC）发布了有关政治竞选捐款的数据。这包括捐助者姓名、职业和雇主、地址以及捐款金额。2012年美国总统选举的捐款数据作为一个150兆字节的CSV文件*P00000001-ALL.csv*可用（请参阅本书的数据存储库），可以使用`pandas.read_csv`加载：
+美国联邦选举委员会（FEC）发布了有关政治竞选捐款的数据。这包括捐助者姓名、职业和雇主、地址以及捐款金额。2012 年美国总统选举的捐款数据作为一个 150 兆字节的 CSV 文件*P00000001-ALL.csv*可用（请参阅本书的数据存储库），可以使用`pandas.read_csv`加载：
 
 ```py
 In [199]: fec = pd.read_csv("datasets/fec/P00000001-ALL.csv", low_memory=False)
@@ -1754,7 +1754,7 @@ dtypes: float64(1), int64(1), object(14)
 memory usage: 122.3+ MB
 ```
 
-*注* *有几个人要求我将数据集从2012年选举更新到2016年或2020年选举。不幸的是，联邦选举委员会提供的最新数据集变得更大更复杂，我决定在这里使用它们会分散我想要说明的分析技术。* *数据框中的一个示例记录如下：
+*注* *有几个人要求我将数据集从 2012 年选举更新到 2016 年或 2020 年选举。不幸的是，联邦选举委员会提供的最新数据集变得更大更复杂，我决定在这里使用它们会分散我想要说明的分析技术。* *数据框中的一个示例记录如下：
 
 ```py
 In [201]: fec.iloc[123456]
@@ -1797,7 +1797,7 @@ In [204]: unique_cands[2]
 Out[204]: 'Obama, Barack'
 ```
 
-表示政党隶属关系的一种方法是使用字典：[¹](#fn1)
+表示政党隶属关系的一种方法是使用字典：¹
 
 ```py
 parties = {"Bachmann, Michelle": "Republican",
@@ -1815,7 +1815,7 @@ parties = {"Bachmann, Michelle": "Republican",
  "Santorum, Rick": "Republican"}
 ```
 
-现在，使用这个映射和Series对象上的`map`方法，您可以从候选人姓名计算一个政党数组：
+现在，使用这个映射和 Series 对象上的`map`方法，您可以从候选人姓名计算一个政党数组：
 
 ```py
 In [206]: fec["cand_nm"][123456:123461]
@@ -1925,7 +1925,7 @@ def get_emp(x):
 fec["contbr_employer"] = fec["contbr_employer"].map(get_emp)
 ```
 
-现在，您可以使用`pivot_table`按政党和职业对数据进行聚合，然后筛选出总捐款至少为200万美元的子集：
+现在，您可以使用`pivot_table`按政党和职业对数据进行聚合，然后筛选出总捐款至少为 200 万美元的子集：
 
 ```py
 In [216]: by_occupation = fec.pivot_table("contb_receipt_amt",
@@ -1957,15 +1957,15 @@ RETIRED            25305116.38  23561244.49
 SELF-EMPLOYED        672393.40   1640252.54
 ```
 
-这些数据以条形图形式更容易查看（`"barh"`表示水平条形图；请参见[按职业和政党分组的总捐款](#groupby_fec_occ_party)）：
+这些数据以条形图形式更容易查看（`"barh"`表示水平条形图；请参见按职业和政党分组的总捐款）：
 
 ```py
 In [220]: over_2mm.plot(kind="barh")
 ```
 
-![](../Images/f4e8c3c83f755658e00aaadb7414d336.png)
+![](img/f4e8c3c83f755658e00aaadb7414d336.png)
 
-图13.12：按职业分组的政党总捐款
+图 13.12：按职业分组的政党总捐款
 
 您可能对捐赠最多的职业或向奥巴马和罗姆尼捐款最多的公司感兴趣。为此，您可以按候选人姓名分组，并使用本章早期的`top`方法的变体：
 
@@ -2056,7 +2056,7 @@ Categories (8, interval[int64, right]): [(0, 1] < (1, 10] < (10, 100] < (100, 10
  (1000000, 10000000]]
 ```
 
-然后，我们可以按姓名和bin标签对Obama和Romney的数据进行分组，以获得按捐款大小分组的直方图：
+然后，我们可以按姓名和 bin 标签对 Obama 和 Romney 的数据进行分组，以获得按捐款大小分组的直方图：
 
 ```py
 In [228]: grouped = fec_mrbo.groupby(["cand_nm", labels])
@@ -2075,7 +2075,7 @@ contb_receipt_amt
 (1000000, 10000000]              4             0
 ```
 
-这些数据显示，奥巴马收到的小额捐款数量明显多于罗姆尼。您还可以对捐款金额进行求和，并在桶内进行归一化，以可视化每个候选人每个大小的总捐款的百分比（[每个捐款大小收到的候选人总捐款的百分比](#fig_groupby_fec_bucket)显示了结果图）：
+这些数据显示，奥巴马收到的小额捐款数量明显多于罗姆尼。您还可以对捐款金额进行求和，并在桶内进行归一化，以可视化每个候选人每个大小的总捐款的百分比（每个捐款大小收到的候选人总捐款的百分比显示了结果图）：
 
 ```py
 In [231]: bucket_sums = grouped["contb_receipt_amt"].sum().unstack(level=0)
@@ -2099,9 +2099,9 @@ contb_receipt_amt
 In [234]: normed_sums[:-2].plot(kind="barh")
 ```
 
-![](../Images/e84a484574c968c98c4258588ab07435.png)
+![](img/e84a484574c968c98c4258588ab07435.png)
 
-图13.13：每个捐款大小收到的候选人总捐款的百分比
+图 13.13：每个捐款大小收到的候选人总捐款的百分比
 
 我排除了两个最大的桶，因为这些不是个人捐款。
 
@@ -2140,8 +2140,8 @@ FL            7318178.58    8338458.81
 
 ## 13.6 结论
 
-在这本书第一版出版以来的10年里，Python已经成为数据分析中流行和广泛使用的语言。您在这里所学习的编程技能将在未来很长一段时间内保持相关性。希望我们探讨过的编程工具和库能够为您提供帮助。
+在这本书第一版出版以来的 10 年里，Python 已经成为数据分析中流行和广泛使用的语言。您在这里所学习的编程技能将在未来很长一段时间内保持相关性。希望我们探讨过的编程工具和库能够为您提供帮助。
 
 我们已经到达了这本书的结尾。我在附录中包含了一些您可能会发现有用的额外内容。
 
-1.  这做出了一个简化的假设，即Gary Johnson是共和党人，尽管后来成为了自由党候选人。
+1.  这做出了一个简化的假设，即 Gary Johnson 是共和党人，尽管后来成为了自由党候选人。

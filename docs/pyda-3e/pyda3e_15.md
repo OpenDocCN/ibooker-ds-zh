@@ -1,22 +1,22 @@
-# 12 Python建模库介绍
+# 十二、Python 建模库介绍
 
-> 原文：[https://wesmckinney.com/book/modeling](https://wesmckinney.com/book/modeling)
+> 原文：[`wesmckinney.com/book/modeling`](https://wesmckinney.com/book/modeling)
 
-*本开放访问的网络版本*Python for Data Analysis第3版*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣版本可用。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由Quarto制作的本网站的某些方面将与O’Reilly的印刷版和电子书版本的格式不同。
+*本开放访问的网络版本*Python for Data Analysis 第 3 版*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣版本可用。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本网站的某些方面将与 O’Reilly 的印刷版和电子书版本的格式不同。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无DRM的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用MIT许可，可在GitHub或Gitee上找到。* *在本书中，我专注于为在Python中进行数据分析提供编程基础。由于数据分析师和科学家经常报告花费大量时间进行数据整理和准备，因此本书的结构反映了掌握这些技术的重要性。
+如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。* *在本书中，我专注于为在 Python 中进行数据分析提供编程基础。由于数据分析师和科学家经常报告花费大量时间进行数据整理和准备，因此本书的结构反映了掌握这些技术的重要性。
 
-您用于开发模型的库将取决于应用程序。许多统计问题可以通过简单的技术解决，如普通最小二乘回归，而其他问题可能需要更高级的机器学习方法。幸运的是，Python已经成为实现分析方法的首选语言之一，因此在完成本书后，您可以探索许多工具。
+您用于开发模型的库将取决于应用程序。许多统计问题可以通过简单的技术解决，如普通最小二乘回归，而其他问题可能需要更高级的机器学习方法。幸运的是，Python 已经成为实现分析方法的首选语言之一，因此在完成本书后，您可以探索许多工具。
 
-在本章中，我将回顾一些pandas的特性，这些特性在您在pandas中进行数据整理和模型拟合和评分之间来回切换时可能会有所帮助。然后，我将简要介绍两个流行的建模工具包，[statsmodels](http://statsmodels.org)和[scikit-learn](http://scikit-learn.org)。由于这两个项目都足够庞大，值得有自己的专门书籍，因此我没有尝试全面介绍，而是建议您查阅这两个项目的在线文档，以及一些其他基于Python的数据科学、统计学和机器学习书籍。
+在本章中，我将回顾一些 pandas 的特性，这些特性在您在 pandas 中进行数据整理和模型拟合和评分之间来回切换时可能会有所帮助。然后，我将简要介绍两个流行的建模工具包，[statsmodels](http://statsmodels.org)和[scikit-learn](http://scikit-learn.org)。由于这两个项目都足够庞大，值得有自己的专门书籍，因此我没有尝试全面介绍，而是建议您查阅这两个项目的在线文档，以及一些其他基于 Python 的数据科学、统计学和机器学习书籍。
 
-## 12.1 pandas与模型代码之间的接口
+## 12.1 pandas 与模型代码之间的接口
 
-模型开发的常见工作流程是使用pandas进行数据加载和清理，然后切换到建模库来构建模型本身。模型开发过程中的一个重要部分被称为*特征工程*，在机器学习中。这可以描述从原始数据集中提取信息的任何数据转换或分析，这些信息在建模环境中可能有用。我们在本书中探讨的数据聚合和GroupBy工具经常在特征工程环境中使用。
+模型开发的常见工作流程是使用 pandas 进行数据加载和清理，然后切换到建模库来构建模型本身。模型开发过程中的一个重要部分被称为*特征工程*，在机器学习中。这可以描述从原始数据集中提取信息的任何数据转换或分析，这些信息在建模环境中可能有用。我们在本书中探讨的数据聚合和 GroupBy 工具经常在特征工程环境中使用。
 
-虽然“好”的特征工程的细节超出了本书的范围，但我将展示一些方法，使在pandas中进行数据操作和建模之间的切换尽可能轻松。
+虽然“好”的特征工程的细节超出了本书的范围，但我将展示一些方法，使在 pandas 中进行数据操作和建模之间的切换尽可能轻松。
 
-pandas与其他分析库之间的接触点通常是NumPy数组。要将DataFrame转换为NumPy数组，请使用`to_numpy`方法：
+pandas 与其他分析库之间的接触点通常是 NumPy 数组。要将 DataFrame 转换为 NumPy 数组，请使用`to_numpy`方法：
 
 ```py
 In [12]: data = pd.DataFrame({
@@ -45,7 +45,7 @@ array([[ 1.  ,  0.01, -1.5 ],
  [ 5.  ,  0.  , -2.  ]])
 ```
 
-回到DataFrame，正如您可能从前几章中记得的那样，您可以传递一个二维的ndarray，其中包含可选的列名：
+回到 DataFrame，正如您可能从前几章中记得的那样，您可以传递一个二维的 ndarray，其中包含可选的列名：
 
 ```py
 In [16]: df2 = pd.DataFrame(data.to_numpy(), columns=['one', 'two', 'three'])
@@ -60,7 +60,7 @@ Out[17]:
 4  5.0  0.00   -2.0
 ```
 
-`to_numpy`方法旨在在数据是同质的情况下使用，例如所有的数值类型。如果您有异构数据，结果将是一个Python对象的ndarray：
+`to_numpy`方法旨在在数据是同质的情况下使用，例如所有的数值类型。如果您有异构数据，结果将是一个 Python 对象的 ndarray：
 
 ```py
 In [18]: df3 = data.copy()
@@ -99,9 +99,9 @@ array([[ 1.  ,  0.01],
  [ 5.  ,  0.  ]])
 ```
 
-一些库原生支持pandas，并自动完成一些工作：从DataFrame转换为NumPy，并将模型参数名称附加到输出表或Series的列上。在其他情况下，您将不得不手动执行这种“元数据管理”。
+一些库原生支持 pandas，并自动完成一些工作：从 DataFrame 转换为 NumPy，并将模型参数名称附加到输出表或 Series 的列上。在其他情况下，您将不得不手动执行这种“元数据管理”。
 
-在[Ch 7.5：分类数据](/book/data-cleaning#pandas-categorical)中，我们看过pandas的`Categorical`类型和`pandas.get_dummies`函数。假设我们的示例数据集中有一个非数字列：
+在 Ch 7.5：分类数据中，我们看过 pandas 的`Categorical`类型和`pandas.get_dummies`函数。假设我们的示例数据集中有一个非数字列：
 
 ```py
 In [24]: data['category'] = pd.Categorical(['a', 'b', 'a', 'a', 'b'],
@@ -135,23 +135,23 @@ Out[28]:
 4   5  0.00 -2.0         0.0         1.0
 ```
 
-使用虚拟变量拟合某些统计模型时存在一些微妙之处。当您拥有不仅仅是简单数字列时，使用Patsy（下一节的主题）可能更简单且更不容易出错。
+使用虚拟变量拟合某些统计模型时存在一些微妙之处。当您拥有不仅仅是简单数字列时，使用 Patsy（下一节的主题）可能更简单且更不容易出错。
 
-## 12.2 使用Patsy创建模型描述
+## 12.2 使用 Patsy 创建模型描述
 
-[Patsy](https://patsy.readthedocs.io/)是一个用于描述统计模型（尤其是线性模型）的Python库，它使用基于字符串的“公式语法”，受到R和S统计编程语言使用的公式语法的启发（但并非完全相同）。在安装statsmodels时会自动安装它：
+[Patsy](https://patsy.readthedocs.io/)是一个用于描述统计模型（尤其是线性模型）的 Python 库，它使用基于字符串的“公式语法”，受到 R 和 S 统计编程语言使用的公式语法的启发（但并非完全相同）。在安装 statsmodels 时会自动安装它：
 
 ```py
 conda install statsmodels
 ```
 
-Patsy在为statsmodels指定线性模型方面得到很好的支持，因此我将重点介绍一些主要功能，以帮助您快速上手。Patsy的*公式*是一种特殊的字符串语法，看起来像：
+Patsy 在为 statsmodels 指定线性模型方面得到很好的支持，因此我将重点介绍一些主要功能，以帮助您快速上手。Patsy 的*公式*是一种特殊的字符串语法，看起来像：
 
 ```py
 y ~ x0 + x1
 ```
 
-语法`a + b`并不意味着将`a`加到`b`，而是这些是为模型创建的*设计矩阵*中的*项*。`patsy.dmatrices`函数接受一个公式字符串以及一个数据集（可以是DataFrame或数组字典），并为线性模型生成设计矩阵：
+语法`a + b`并不意味着将`a`加到`b`，而是这些是为模型创建的*设计矩阵*中的*项*。`patsy.dmatrices`函数接受一个公式字符串以及一个数据集（可以是 DataFrame 或数组字典），并为线性模型生成设计矩阵：
 
 ```py
 In [29]: data = pd.DataFrame({
@@ -203,7 +203,7 @@ DesignMatrix with shape (5, 3)
  'x1' (column 2)
 ```
 
-这些Patsy `DesignMatrix`实例是带有附加元数据的NumPy ndarrays：
+这些 Patsy `DesignMatrix`实例是带有附加元数据的 NumPy ndarrays：
 
 ```py
 In [35]: np.asarray(y)
@@ -240,13 +240,13 @@ DesignMatrix with shape (5, 2)
  'x1' (column 1)
 ```
 
-Patsy对象可以直接传递到像`numpy.linalg.lstsq`这样的算法中，该算法执行普通最小二乘回归：
+Patsy 对象可以直接传递到像`numpy.linalg.lstsq`这样的算法中，该算法执行普通最小二乘回归：
 
 ```py
 In [38]: coef, resid, _, _ = np.linalg.lstsq(X, y, rcond=None)
 ```
 
-模型元数据保留在`design_info`属性中，因此您可以重新附加模型列名称到拟合系数以获得一个Series，例如：
+模型元数据保留在`design_info`属性中，因此您可以重新附加模型列名称到拟合系数以获得一个 Series，例如：
 
 ```py
 In [39]: coef
@@ -265,9 +265,9 @@ x1          -0.265464
 dtype: float64
 ```
 
-### Patsy公式中的数据转换
+### Patsy 公式中的数据转换
 
-您可以将Python代码混合到您的Patsy公式中；在评估公式时，库将尝试在封闭范围中找到您使用的函数：
+您可以将 Python 代码混合到您的 Patsy 公式中；在评估公式时，库将尝试在封闭范围中找到您使用的函数：
 
 ```py
 In [42]: y, X = patsy.dmatrices('y ~ x0 + np.log(np.abs(x1) + 1)', data)
@@ -287,7 +287,7 @@ DesignMatrix with shape (5, 3)
  'np.log(np.abs(x1) + 1)' (column 2)
 ```
 
-一些常用的变量转换包括*标准化*（均值为0，方差为1）和*中心化*（减去均值）。Patsy具有内置函数用于此目的：
+一些常用的变量转换包括*标准化*（均值为 0，方差为 1）和*中心化*（减去均值）。Patsy 具有内置函数用于此目的：
 
 ```py
 In [44]: y, X = patsy.dmatrices('y ~ standardize(x0) + center(x1)', data)
@@ -333,7 +333,7 @@ Out[48]:
  'center(x1)' (column 2)]
 ```
 
-因为Patsy公式中加号（`+`）并不表示加法，所以当您想按名称从数据集中添加列时，您必须将它们包装在特殊的`I`函数中：
+因为 Patsy 公式中加号（`+`）并不表示加法，所以当您想按名称从数据集中添加列时，您必须将它们包装在特殊的`I`函数中：
 
 ```py
 In [49]: y, X = patsy.dmatrices('y ~ I(x0 + x1)', data)
@@ -352,15 +352,15 @@ DesignMatrix with shape (5, 2)
  'I(x0 + x1)' (column 1)
 ```
 
-Patsy在`patsy.builtins`模块中还有几个内置转换。请查看在线文档以获取更多信息。
+Patsy 在`patsy.builtins`模块中还有几个内置转换。请查看在线文档以获取更多信息。
 
 分类数据有一类特殊的转换，接下来我会解释。
 
-### 分类数据和Patsy
+### 分类数据和 Patsy
 
 非数字数据可以以多种不同的方式转换为模型设计矩阵。本书不涉及这个主题的完整处理，最好是在统计课程中学习。
 
-当您在Patsy公式中使用非数字术语时，默认情况下它们会被转换为虚拟变量。如果有一个截距，将会有一个级别被排除以避免共线性：
+当您在 Patsy 公式中使用非数字术语时，默认情况下它们会被转换为虚拟变量。如果有一个截距，将会有一个级别被排除以避免共线性：
 
 ```py
 In [51]: data = pd.DataFrame({
@@ -489,13 +489,13 @@ DesignMatrix with shape (8, 4)
  'key1:key2' (column 3)
 ```
 
-Patsy提供了其他转换分类数据的方法，包括具有特定顺序的项的转换。有关更多信息，请参阅在线文档。
+Patsy 提供了其他转换分类数据的方法，包括具有特定顺序的项的转换。有关更多信息，请参阅在线文档。
 
-## 12.3 statsmodels简介
+## 12.3 statsmodels 简介
 
-[statsmodels](http://www.statsmodels.org)是一个用于拟合许多种统计模型、执行统计检验以及数据探索和可视化的Python库。statsmodels包含更多“经典”的频率统计方法，而贝叶斯方法和机器学习模型则在其他库中找到。
+[statsmodels](http://www.statsmodels.org)是一个用于拟合许多种统计模型、执行统计检验以及数据探索和可视化的 Python 库。statsmodels 包含更多“经典”的频率统计方法，而贝叶斯方法和机器学习模型则在其他库中找到。
 
-在statsmodels中找到的一些模型类型包括：
+在 statsmodels 中找到的一些模型类型包括：
 
 +   线性模型、广义线性模型和鲁棒线性模型
 
@@ -507,7 +507,7 @@ Patsy提供了其他转换分类数据的方法，包括具有特定顺序的项
 
 +   广义矩估计法
 
-在接下来的几页中，我们将使用statsmodels中的一些基本工具，并探索如何使用Patsy公式和pandas DataFrame对象的建模接口。如果您之前在Patsy讨论中没有安装statsmodels，现在可以使用以下命令进行安装：
+在接下来的几页中，我们将使用 statsmodels 中的一些基本工具，并探索如何使用 Patsy 公式和 pandas DataFrame 对象的建模接口。如果您之前在 Patsy 讨论中没有安装 statsmodels，现在可以使用以下命令进行安装：
 
 ```py
 conda install statsmodels
@@ -515,16 +515,16 @@ conda install statsmodels
 
 ### 估计线性模型
 
-statsmodels中有几种线性回归模型，从更基本的（例如普通最小二乘法）到更复杂的（例如迭代重新加权最小二乘法）。
+statsmodels 中有几种线性回归模型，从更基本的（例如普通最小二乘法）到更复杂的（例如迭代重新加权最小二乘法）。
 
-statsmodels中的线性模型有两种不同的主要接口：基于数组和基于公式。可以通过以下API模块导入来访问这些接口：
+statsmodels 中的线性模型有两种不同的主要接口：基于数组和基于公式。可以通过以下 API 模块导入来访问这些接口：
 
 ```py
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 ```
 
-为了展示如何使用这些方法，我们从一些随机数据生成一个线性模型。在Jupyter中运行以下代码：
+为了展示如何使用这些方法，我们从一些随机数据生成一个线性模型。在 Jupyter 中运行以下代码：
 
 ```py
 # To make the example reproducible
@@ -560,7 +560,7 @@ In [67]: y[:5]
 Out[67]: array([-0.5995, -0.5885,  0.1856, -0.0075, -0.0154])
 ```
 
-通常使用截距项拟合线性模型，就像我们之前在Patsy中看到的那样。`sm.add_constant`函数可以向现有矩阵添加一个截距列：
+通常使用截距项拟合线性模型，就像我们之前在 Patsy 中看到的那样。`sm.add_constant`函数可以向现有矩阵添加一个截距列：
 
 ```py
 In [68]: X_model = sm.add_constant(X)
@@ -633,7 +633,7 @@ n a constant.
 specified.
 ```
 
-这里的参数名称已经被赋予了通用名称`x1, x2`等。假设所有模型参数都在一个DataFrame中：
+这里的参数名称已经被赋予了通用名称`x1, x2`等。假设所有模型参数都在一个 DataFrame 中：
 
 ```py
 In [74]: data = pd.DataFrame(X, columns=['col0', 'col1', 'col2'])
@@ -650,7 +650,7 @@ Out[76]:
 4 -0.047651 -0.213147 -0.048244 -0.015374
 ```
 
-现在我们可以使用statsmodels的公式API和Patsy公式字符串：
+现在我们可以使用 statsmodels 的公式 API 和 Patsy 公式字符串：
 
 ```py
 In [77]: results = smf.ols('y ~ col0 + col1 + col2', data=data).fit()
@@ -672,7 +672,7 @@ col2         6.567428
 dtype: float64
 ```
 
-注意statsmodels如何将结果返回为带有DataFrame列名称附加的Series。在使用公式和pandas对象时，我们也不需要使用`add_constant`。
+注意 statsmodels 如何将结果返回为带有 DataFrame 列名称附加的 Series。在使用公式和 pandas 对象时，我们也不需要使用`add_constant`。
 
 给定新的样本外数据，可以根据估计的模型参数计算预测值：
 
@@ -687,13 +687,13 @@ Out[80]:
 dtype: float64
 ```
 
-在statsmodels中有许多用于分析、诊断和可视化线性模型结果的附加工具，您可以探索。除了普通最小二乘法之外，还有其他类型的线性模型。
+在 statsmodels 中有许多用于分析、诊断和可视化线性模型结果的附加工具，您可以探索。除了普通最小二乘法之外，还有其他类型的线性模型。
 
 ### 估计时间序列过程
 
-statsmodels中的另一类模型是用于时间序列分析的模型。其中包括自回归过程、卡尔曼滤波和其他状态空间模型以及多变量自回归模型。
+statsmodels 中的另一类模型是用于时间序列分析的模型。其中包括自回归过程、卡尔曼滤波和其他状态空间模型以及多变量自回归模型。
 
-让我们模拟一些具有自回归结构和噪声的时间序列数据。在Jupyter中运行以下代码：
+让我们模拟一些具有自回归结构和噪声的时间序列数据。在 Jupyter 中运行以下代码：
 
 ```py
 init_x = 4
@@ -709,7 +709,7 @@ for i in range(N):
  values.append(new_x)
 ```
 
-这个数据具有AR(2)结构（两个*滞后*），参数为`0.8`和`-0.4`。当拟合AR模型时，您可能不知道要包括的滞后项的数量，因此可以使用一些更大数量的滞后项来拟合模型：
+这个数据具有 AR(2)结构（两个*滞后*），参数为`0.8`和`-0.4`。当拟合 AR 模型时，您可能不知道要包括的滞后项的数量，因此可以使用一些更大数量的滞后项来拟合模型：
 
 ```py
 In [82]: from statsmodels.tsa.ar_model import AutoReg
@@ -728,21 +728,21 @@ In [86]: results.params
 Out[86]: array([ 0.0235,  0.8097, -0.4287, -0.0334,  0.0427, -0.0567])
 ```
 
-这些模型的更深层细节以及如何解释它们的结果超出了我在本书中可以涵盖的范围，但在statsmodels文档中还有很多内容等待探索。
+这些模型的更深层细节以及如何解释它们的结果超出了我在本书中可以涵盖的范围，但在 statsmodels 文档中还有很多内容等待探索。
 
-## 12.4 scikit-learn简介
+## 12.4 scikit-learn 简介
 
-[scikit-learn](http://scikit-learn.org)是最广泛使用和信任的通用Python机器学习工具包之一。它包含广泛的标准监督和无监督机器学习方法，具有模型选择和评估工具，数据转换，数据加载和模型持久性。这些模型可用于分类，聚类，预测和其他常见任务。您可以像这样从conda安装scikit-learn：
+[scikit-learn](http://scikit-learn.org)是最广泛使用和信任的通用 Python 机器学习工具包之一。它包含广泛的标准监督和无监督机器学习方法，具有模型选择和评估工具，数据转换，数据加载和模型持久性。这些模型可用于分类，聚类，预测和其他常见任务。您可以像这样从 conda 安装 scikit-learn：
 
 ```py
 conda install scikit-learn
 ```
 
-有很多在线和印刷资源可供学习机器学习以及如何应用类似scikit-learn的库来解决实际问题。在本节中，我将简要介绍scikit-learn API风格。
+有很多在线和印刷资源可供学习机器学习以及如何应用类似 scikit-learn 的库来解决实际问题。在本节中，我将简要介绍 scikit-learn API 风格。
 
-scikit-learn中的pandas集成在近年来显著改善，当您阅读本文时，它可能已经进一步改进。我鼓励您查看最新的项目文档。
+scikit-learn 中的 pandas 集成在近年来显著改善，当您阅读本文时，它可能已经进一步改进。我鼓励您查看最新的项目文档。
 
-作为本章的示例，我使用了一份来自Kaggle竞赛的[经典数据集](https://www.kaggle.com/c/titanic)，关于1912年*泰坦尼克号*上乘客生存率。我们使用pandas加载训练和测试数据集：
+作为本章的示例，我使用了一份来自 Kaggle 竞赛的[经典数据集](https://www.kaggle.com/c/titanic)，关于 1912 年*泰坦尼克号*上乘客生存率。我们使用 pandas 加载训练和测试数据集：
 
 ```py
 In [87]: train = pd.read_csv('datasets/titanic/train.csv')
@@ -768,7 +768,7 @@ Out[89]:
 3      0            113803  53.1000  C123        S 
 ```
 
-像statsmodels和scikit-learn这样的库通常无法处理缺失数据，因此我们查看列，看看是否有包含缺失数据的列：
+像 statsmodels 和 scikit-learn 这样的库通常无法处理缺失数据，因此我们查看列，看看是否有包含缺失数据的列：
 
 ```py
 In [90]: train.isna().sum()
@@ -823,7 +823,7 @@ In [95]: train['IsFemale'] = (train['Sex'] == 'female').astype(int)
 In [96]: test['IsFemale'] = (test['Sex'] == 'female').astype(int)
 ```
 
-然后我们决定一些模型变量并创建NumPy数组：
+然后我们决定一些模型变量并创建 NumPy 数组：
 
 ```py
 In [97]: predictors = ['Pclass', 'IsFemale', 'Age']
@@ -846,7 +846,7 @@ In [102]: y_train[:5]
 Out[102]: array([0, 1, 1, 1, 0])
 ```
 
-我不断言这是一个好模型或这些特征是否被正确设计。我们使用scikit-learn中的`LogisticRegression`模型并创建一个模型实例：
+我不断言这是一个好模型或这些特征是否被正确设计。我们使用 scikit-learn 中的`LogisticRegression`模型并创建一个模型实例：
 
 ```py
 In [103]: from sklearn.linear_model import LogisticRegression
@@ -906,18 +906,18 @@ Out[114]: array([0.7758, 0.7982, 0.7758, 0.7883])
 
 ## 12.5 结论
 
-虽然我只是浅尝了一些Python建模库的表面，但有越来越多的框架适用于各种统计和机器学习，要么是用Python实现的，要么有Python用户界面。
+虽然我只是浅尝了一些 Python 建模库的表面，但有越来越多的框架适用于各种统计和机器学习，要么是用 Python 实现的，要么有 Python 用户界面。
 
 这本书专注于数据整理，但还有许多其他专门用于建模和数据科学工具的书籍。一些优秀的书籍包括：
 
-+   《Python机器学习入门》作者Andreas Müller和Sarah Guido（O'Reilly）
++   《Python 机器学习入门》作者 Andreas Müller 和 Sarah Guido（O'Reilly）
 
-+   《Python数据科学手册》作者Jake VanderPlas（O'Reilly）
++   《Python 数据科学手册》作者 Jake VanderPlas（O'Reilly）
 
-+   《从零开始的数据科学：Python基础》作者Joel Grus（O'Reilly）
++   《从零开始的数据科学：Python 基础》作者 Joel Grus（O'Reilly）
 
-+   《Python机器学习》作者Sebastian Raschka和Vahid Mirjalili（Packt Publishing）
++   《Python 机器学习》作者 Sebastian Raschka 和 Vahid Mirjalili（Packt Publishing）
 
-+   《使用Scikit-Learn、Keras和TensorFlow进行实践机器学习》作者Aurélien Géron（O'Reilly）
++   《使用 Scikit-Learn、Keras 和 TensorFlow 进行实践机器学习》作者 Aurélien Géron（O'Reilly）
 
-尽管书籍可以是学习的宝贵资源，但当底层的开源软件发生变化时，它们有时会变得过时。熟悉各种统计或机器学习框架的文档是一个好主意，以便了解最新功能和API。
+尽管书籍可以是学习的宝贵资源，但当底层的开源软件发生变化时，它们有时会变得过时。熟悉各种统计或机器学习框架的文档是一个好主意，以便了解最新功能和 API。

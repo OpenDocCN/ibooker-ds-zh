@@ -1,20 +1,20 @@
-# 7 数据清理和准备
+# 七、数据清理和准备
 
-> 原文：[https://wesmckinney.com/book/data-cleaning](https://wesmckinney.com/book/data-cleaning)
+> 原文：[`wesmckinney.com/book/data-cleaning`](https://wesmckinney.com/book/data-cleaning)
 
-*这个*Python数据分析第三版*的开放获取网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由Quarto生成的本网站的某些方面与O'Reilly的印刷版和电子书版本的格式不同。
+*这个*Python 数据分析第三版*的开放获取网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本网站的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无DRM的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用MIT许可证，可在GitHub或Gitee上找到。* *在进行数据分析和建模过程中，大量时间花费在数据准备上：加载、清理、转换和重新排列。这些任务通常被报告为占据分析师80%或更多的时间。有时，文件或数据库中存储数据的方式并不适合特定任务。许多研究人员选择使用通用编程语言（如Python、Perl、R或Java）或Unix文本处理工具（如sed或awk）对数据进行自发处理，从一种形式转换为另一种形式。幸运的是，pandas与内置的Python语言功能一起，为您提供了一套高级、灵活和快速的工具，使您能够将数据转换为正确的形式。
+如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。* *在进行数据分析和建模过程中，大量时间花费在数据准备上：加载、清理、转换和重新排列。这些任务通常被报告为占据分析师 80%或更多的时间。有时，文件或数据库中存储数据的方式并不适合特定任务。许多研究人员选择使用通用编程语言（如 Python、Perl、R 或 Java）或 Unix 文本处理工具（如 sed 或 awk）对数据进行自发处理，从一种形式转换为另一种形式。幸运的是，pandas 与内置的 Python 语言功能一起，为您提供了一套高级、灵活和快速的工具，使您能够将数据转换为正确的形式。
 
-如果您发现在本书或pandas库中找不到的数据操作类型，请随时在Python邮件列表或pandas GitHub网站上分享您的用例。事实上，pandas的设计和实现很大程度上是由真实应用程序的需求驱动的。
+如果您发现在本书或 pandas 库中找不到的数据操作类型，请随时在 Python 邮件列表或 pandas GitHub 网站上分享您的用例。事实上，pandas 的设计和实现很大程度上是由真实应用程序的需求驱动的。
 
 在本章中，我讨论了有关缺失数据、重复数据、字符串操作和其他一些分析数据转换的工具。在下一章中，我将专注于以各种方式组合和重新排列数据集。
 
 ## 7.1 处理缺失数据
 
-缺失数据在许多数据分析应用中很常见。pandas的目标之一是尽可能地使处理缺失数据变得轻松。例如，默认情况下，pandas对象上的所有描述性统计都排除缺失数据。
+缺失数据在许多数据分析应用中很常见。pandas 的目标之一是尽可能地使处理缺失数据变得轻松。例如，默认情况下，pandas 对象上的所有描述性统计都排除缺失数据。
 
-pandas对象中表示缺失数据的方式有些不完美，但对于大多数真实世界的用途来说是足够的。对于`float64`数据类型，pandas使用浮点值`NaN`（Not a Number）表示缺失数据。
+pandas 对象中表示缺失数据的方式有些不完美，但对于大多数真实世界的用途来说是足够的。对于`float64`数据类型，pandas 使用浮点值`NaN`（Not a Number）表示缺失数据。
 
 我们称之为*标记值*：当存在时，表示缺失（或*空*）值：
 
@@ -30,7 +30,7 @@ Out[15]:
 dtype: float64
 ```
 
-`isna`方法为我们提供一个布尔Series，其中值为空时为`True`：
+`isna`方法为我们提供一个布尔 Series，其中值为空时为`True`：
 
 ```py
 In [16]: float_data.isna()
@@ -42,9 +42,9 @@ Out[16]:
 dtype: bool
 ```
 
-在pandas中，我们采用了R编程语言中使用的惯例，将缺失数据称为NA，代表*不可用*。在统计应用中，NA数据可能是不存在的数据，也可能是存在但未被观察到的数据（例如通过数据收集问题）。在清理数据进行分析时，通常重要的是对缺失数据本身进行分析，以识别数据收集问题或由缺失数据引起的数据潜在偏差。
+在 pandas 中，我们采用了 R 编程语言中使用的惯例，将缺失数据称为 NA，代表*不可用*。在统计应用中，NA 数据可能是不存在的数据，也可能是存在但未被观察到的数据（例如通过数据收集问题）。在清理数据进行分析时，通常重要的是对缺失数据本身进行分析，以识别数据收集问题或由缺失数据引起的数据潜在偏差。
 
-内置的Python `None`值也被视为NA：
+内置的 Python `None`值也被视为 NA：
 
 ```py
 In [17]: string_data = pd.Series(["aardvark", np.nan, None, "avocado"])
@@ -82,9 +82,9 @@ Out[22]:
 dtype: bool
 ```
 
-pandas项目已经尝试使处理缺失数据在不同数据类型之间保持一致。像`pandas.isna`这样的函数抽象了许多烦人的细节。请参阅[表7.1](#tbl-table_na_method)以获取与处理缺失数据相关的一些函数列表。
+pandas 项目已经尝试使处理缺失数据在不同数据类型之间保持一致。像`pandas.isna`这样的函数抽象了许多烦人的细节。请参阅表 7.1 以获取与处理缺失数据相关的一些函数列表。
 
-表7.1：NA处理对象方法
+表 7.1：NA 处理对象方法
 
 | 方法 | 描述 |
 | --- | --- |
@@ -243,7 +243,7 @@ Out[40]:
 6  1.669025 -0.438570 -0.539741
 ```
 
-可用于重新索引的相同插值方法（请参见 [表 5.3](/book/pandas-basics#tbl-table_reindex_function)）也可用于 `fillna`：
+可用于重新索引的相同插值方法（请参见 表 5.3）也可用于 `fillna`：
 
 ```py
 In [41]: df = pd.DataFrame(np.random.standard_normal((6, 3)))
@@ -298,7 +298,7 @@ Out[48]:
 dtype: float64
 ```
 
-请参见 [表 7.2](#tbl-table_fillna_function) 了解 `fillna` 函数参数的参考。
+请参见 表 7.2 了解 `fillna` 函数参数的参考。
 
 表 7.2：`fillna` 函数参数
 
@@ -401,7 +401,7 @@ Out[56]:
 
 ### 使用函数或映射转换数据
 
-对于许多数据集，您可能希望根据数组、Series或DataFrame中的值执行一些基于值的转换。考虑收集的关于各种肉类的假设数据：
+对于许多数据集，您可能希望根据数组、Series 或 DataFrame 中的值执行一些基于值的转换。考虑收集的关于各种肉类的假设数据：
 
 ```py
 In [57]: data = pd.DataFrame({"food": ["bacon", "pulled pork", "bacon",
@@ -436,7 +436,7 @@ meat_to_animal = {
 }
 ```
 
-Series 上的 `map` 方法（也在 [Ch 5.2.5: 函数应用和映射](/book/pandas-basics#pandas_apply) 中讨论）接受一个包含映射的函数或类似字典的对象，用于对值进行转换：
+Series 上的 `map` 方法（也在 Ch 5.2.5: 函数应用和映射 中讨论）接受一个包含映射的函数或类似字典的对象，用于对值进行转换：
 
 ```py
 In [60]: data["animal"] = data["food"].map(meat_to_animal)
@@ -617,7 +617,7 @@ NEW        8    9        10    11
 In [77]: ages = [20, 22, 25, 27, 21, 23, 37, 31, 61, 45, 41, 32]
 ```
 
-让我们将这些分成18至25岁、26至35岁、36至60岁，最后是61岁及以上的箱子。为此，您必须使用 `pandas.cut`：
+让我们将这些分成 18 至 25 岁、26 至 35 岁、36 至 60 岁，最后是 61 岁及以上的箱子。为此，您必须使用 `pandas.cut`：
 
 ```py
 In [78]: bins = [18, 25, 35, 60, 100]
@@ -741,7 +741,7 @@ Name: count, dtype: int64
 
 ### 检测和过滤异常值
 
-过滤或转换异常值主要是应用数组操作的问题。考虑一个包含一些正态分布数据的DataFrame：
+过滤或转换异常值主要是应用数组操作的问题。考虑一个包含一些正态分布数据的 DataFrame：
 
 ```py
 In [95]: data = pd.DataFrame(np.random.standard_normal((1000, 4)))
@@ -759,7 +759,7 @@ min      -3.645860    -3.184377    -3.745356    -3.428254
 max       2.653656     3.525865     2.735527     3.366626
 ```
 
-假设您想要查找绝对值超过3的某一列中的值：
+假设您想要查找绝对值超过 3 的某一列中的值：
 
 ```py
 In [97]: col = data[2]
@@ -771,7 +771,7 @@ Out[98]:
 Name: 2, dtype: float64
 ```
 
-要选择所有值超过3或-3的行，您可以在布尔DataFrame上使用`any`方法：
+要选择所有值超过 3 或-3 的行，您可以在布尔 DataFrame 上使用`any`方法：
 
 ```py
 In [99]: data[(data.abs() > 3).any(axis="columns")]
@@ -791,7 +791,7 @@ Out[99]:
 
 在`data.abs() > 3`周围的括号是必要的，以便在比较操作的结果上调用`any`方法。
 
-可以根据这些标准设置值。以下是将值限制在区间-3到3之外的代码：
+可以根据这些标准设置值。以下是将值限制在区间-3 到 3 之外的代码：
 
 ```py
 In [100]: data[data.abs() > 3] = np.sign(data) * 3
@@ -809,7 +809,7 @@ min      -3.000000    -3.000000    -3.000000    -3.000000
 max       2.653656     3.000000     2.735527     3.000000
 ```
 
-`np.sign(data)`语句根据`data`中的值是正数还是负数产生1和-1值：
+`np.sign(data)`语句根据`data`中的值是正数还是负数产生 1 和-1 值：
 
 ```py
 In [102]: np.sign(data).head()
@@ -824,7 +824,7 @@ Out[102]:
 
 ### 排列和随机抽样
 
-通过使用`numpy.random.permutation`函数，可以对Series或DataFrame中的行进行排列（随机重新排序）。调用`permutation`并传入您想要排列的轴的长度会产生一个整数数组，指示新的排序：
+通过使用`numpy.random.permutation`函数，可以对 Series 或 DataFrame 中的行进行排列（随机重新排序）。调用`permutation`并传入您想要排列的轴的长度会产生一个整数数组，指示新的排序：
 
 ```py
 In [103]: df = pd.DataFrame(np.arange(5 * 7).reshape((5, 7)))
@@ -884,7 +884,7 @@ Out[111]:
 4  32  34  31  30  29  28  33
 ```
 
-要选择一个不带替换的随机子集（同一行不能出现两次），可以在Series和DataFrame上使用`sample`方法：
+要选择一个不带替换的随机子集（同一行不能出现两次），可以在 Series 和 DataFrame 上使用`sample`方法：
 
 ```py
 In [112]: df.sample(n=3)
@@ -917,7 +917,7 @@ dtype: int64
 
 ### 计算指示/虚拟变量
 
-另一种用于统计建模或机器学习应用的转换类型是将分类变量转换为*虚拟*或*指示*矩阵。如果DataFrame中的一列有`k`个不同的值，您将得到一个包含所有1和0的`k`列的矩阵或DataFrame。pandas有一个`pandas.get_dummies`函数可以做到这一点，尽管您也可以自己设计一个。让我们考虑一个示例DataFrame：
+另一种用于统计建模或机器学习应用的转换类型是将分类变量转换为*虚拟*或*指示*矩阵。如果 DataFrame 中的一列有`k`个不同的值，您将得到一个包含所有 1 和 0 的`k`列的矩阵或 DataFrame。pandas 有一个`pandas.get_dummies`函数可以做到这一点，尽管您也可以自己设计一个。让我们考虑一个示例 DataFrame：
 
 ```py
 In [115]: df = pd.DataFrame({"key": ["b", "b", "a", "c", "a", "b"],
@@ -944,9 +944,9 @@ Out[117]:
 5  0.0  1.0  0.0
 ```
 
-在这里，我传递了`dtype=float`以将输出类型从布尔值（pandas较新版本中的默认值）更改为浮点数。
+在这里，我传递了`dtype=float`以将输出类型从布尔值（pandas 较新版本中的默认值）更改为浮点数。
 
-在某些情况下，您可能希望在指示DataFrame的列中添加前缀，然后将其与其他数据合并。`pandas.get_dummies`有一个用于执行此操作的前缀参数：
+在某些情况下，您可能希望在指示 DataFrame 的列中添加前缀，然后将其与其他数据合并。`pandas.get_dummies`有一个用于执行此操作的前缀参数：
 
 ```py
 In [118]: dummies = pd.get_dummies(df["key"], prefix="key", dtype=float)
@@ -966,7 +966,7 @@ Out[120]:
 
 `DataFrame.join`方法将在下一章中详细解释。
 
-如果DataFrame中的一行属于多个类别，则我们必须使用不同的方法来创建虚拟变量。让我们看一下MovieLens 1M数据集，该数据集在[Ch 13：数据分析示例](#data-analysis-examples)中有更详细的研究：
+如果 DataFrame 中的一行属于多个类别，则我们必须使用不同的方法来创建虚拟变量。让我们看一下 MovieLens 1M 数据集，该数据集在 Ch 13：数据分析示例中有更详细的研究：
 
 ```py
 In [121]: mnames = ["movie_id", "title", "genres"]
@@ -989,7 +989,7 @@ Out[123]:
 9        10                    GoldenEye (1995)     Action|Adventure|Thriller
 ```
 
-pandas实现了一个特殊的Series方法`str.get_dummies`（以`str.`开头的方法将在[字符串操作](#text_string_manip)中更详细地讨论），处理了将多个组成员身份编码为分隔字符串的情况：
+pandas 实现了一个特殊的 Series 方法`str.get_dummies`（以`str.`开头的方法将在字符串操作中更详细地讨论），处理了将多个组成员身份编码为分隔字符串的情况：
 
 ```py
 In [124]: dummies = movies["genres"].str.get_dummies("|")
@@ -1009,7 +1009,7 @@ Out[125]:
 9       1          1          0           0       0      0
 ```
 
-然后，与之前一样，您可以将此与`movies`组合，同时在`dummies` DataFrame的列名中添加`"Genre_"`，使用`add_prefix`方法：
+然后，与之前一样，您可以将此与`movies`组合，同时在`dummies` DataFrame 的列名中添加`"Genre_"`，使用`add_prefix`方法：
 
 ```py
 In [126]: movies_windic = movies.join(dummies.add_prefix("Genre_"))
@@ -1040,7 +1040,7 @@ Genre_Western                                  0
 Name: 0, dtype: object
 ```
 
-*注意* *对于更大的数据，使用这种构建具有多个成员身份的指示变量的方法并不特别快速。最好编写一个直接写入NumPy数组的低级函数，然后将结果包装在DataFrame中。* *在统计应用中的一个有用的技巧是将`pandas.get_dummies`与像`pandas.cut`这样的离散化函数结合使用：*
+*注意* *对于更大的数据，使用这种构建具有多个成员身份的指示变量的方法并不特别快速。最好编写一个直接写入 NumPy 数组的低级函数，然后将结果包装在 DataFrame 中。* *在统计应用中的一个有用的技巧是将`pandas.get_dummies`与像`pandas.cut`这样的离散化函数结合使用：*
 
 ```py
 In [128]: np.random.seed(12345) # to make the example repeatable
@@ -1069,21 +1069,21 @@ Out[132]:
 9       False       False       False        True       False
 ```
 
-我们稍后将再次查看`pandas.get_dummies`，在[为建模创建虚拟变量](#pandas-categorical-dummy)中。**  **## 7.3 扩展数据类型
+我们稍后将再次查看`pandas.get_dummies`，在为建模创建虚拟变量中。**  **## 7.3 扩展数据类型
 
-*注意* *这是一个较新且更高级的主题，许多pandas用户不需要了解太多，但我在这里完整地介绍它，因为在接下来的章节中我将引用和使用扩展数据类型。* *pandas最初是建立在NumPy的基础上的，NumPy是一个主要用于处理数值数据的数组计算库。许多pandas概念，如缺失数据，是使用NumPy中可用的内容实现的，同时尽量在使用NumPy和pandas的库之间最大程度地保持兼容性。
+*注意* *这是一个较新且更高级的主题，许多 pandas 用户不需要了解太多，但我在这里完整地介绍它，因为在接下来的章节中我将引用和使用扩展数据类型。* *pandas 最初是建立在 NumPy 的基础上的，NumPy 是一个主要用于处理数值数据的数组计算库。许多 pandas 概念，如缺失数据，是使用 NumPy 中可用的内容实现的，同时尽量在使用 NumPy 和 pandas 的库之间最大程度地保持兼容性。
 
-基于NumPy的构建存在许多缺点，例如：
+基于 NumPy 的构建存在许多缺点，例如：
 
-+   对于一些数值数据类型，如整数和布尔值，缺失数据处理是不完整的。因此，当这些数据中引入缺失数据时，pandas会将数据类型转换为`float64`，并使用`np.nan`表示空值。这导致许多pandas算法中出现了微妙的问题。
++   对于一些数值数据类型，如整数和布尔值，缺失数据处理是不完整的。因此，当这些数据中引入缺失数据时，pandas 会将数据类型转换为`float64`，并使用`np.nan`表示空值。这导致许多 pandas 算法中出现了微妙的问题。
 
 +   具有大量字符串数据的数据集在计算上是昂贵的，并且使用了大量内存。
 
-+   一些数据类型，如时间间隔、时间增量和带时区的时间戳，如果不使用计算昂贵的Python对象数组，将无法有效支持。
++   一些数据类型，如时间间隔、时间增量和带时区的时间戳，如果不使用计算昂贵的 Python 对象数组，将无法有效支持。
 
-最近，pandas开发了一个*扩展类型*系统，允许添加新的数据类型，即使它们在NumPy中没有原生支持。这些新数据类型可以被视为与来自NumPy数组的数据同等重要。
+最近，pandas 开发了一个*扩展类型*系统，允许添加新的数据类型，即使它们在 NumPy 中没有原生支持。这些新数据类型可以被视为与来自 NumPy 数组的数据同等重要。
 
-让我们看一个例子，我们创建一个带有缺失值的整数Series：
+让我们看一个例子，我们创建一个带有缺失值的整数 Series：
 
 ```py
 In [133]: s = pd.Series([1, 2, 3, None])
@@ -1100,7 +1100,7 @@ In [135]: s.dtype
 Out[135]: dtype('float64')
 ```
 
-主要出于向后兼容的原因，Series使用了使用`float64`数据类型和`np.nan`表示缺失值的传统行为。我们可以使用`pandas.Int64Dtype`来创建这个Series：
+主要出于向后兼容的原因，Series 使用了使用`float64`数据类型和`np.nan`表示缺失值的传统行为。我们可以使用`pandas.Int64Dtype`来创建这个 Series：
 
 ```py
 In [136]: s = pd.Series([1, 2, 3, None], dtype=pd.Int64Dtype())
@@ -1135,13 +1135,13 @@ In [141]: s[3] is pd.NA
 Out[141]: True
 ```
 
-我们也可以使用缩写`"Int64"`来指定类型，而不是`pd.Int64Dtype()`。大写是必需的，否则它将是一个基于NumPy的非扩展类型：
+我们也可以使用缩写`"Int64"`来指定类型，而不是`pd.Int64Dtype()`。大写是必需的，否则它将是一个基于 NumPy 的非扩展类型：
 
 ```py
 In [142]: s = pd.Series([1, 2, 3, None], dtype="Int64")
 ```
 
-pandas还有一种专门用于字符串数据的扩展类型，不使用NumPy对象数组（需要安装pyarrow库）：
+pandas 还有一种专门用于字符串数据的扩展类型，不使用 NumPy 对象数组（需要安装 pyarrow 库）：
 
 ```py
 In [143]: s = pd.Series(['one', 'two', None, 'three'], dtype=pd.StringDtype())
@@ -1157,9 +1157,9 @@ dtype: string
 
 这些字符串数组通常使用更少的内存，并且在对大型数据集进行操作时通常更高效。
 
-另一个重要的扩展类型是`Categorical`，我们将在[Categorical Data](#pandas-categorical)中更详细地讨论。截至本文撰写时，可用的扩展类型的相对完整列表在[表7.3](#tbl-table_pandas_extension_types)中。
+另一个重要的扩展类型是`Categorical`，我们将在 Categorical Data 中更详细地讨论。截至本文撰写时，可用的扩展类型的相对完整列表在表 7.3 中。
 
-扩展类型可以传递给Series的`astype`方法，允许您在数据清理过程中轻松转换：
+扩展类型可以传递给 Series 的`astype`方法，允许您在数据清理过程中轻松转换：
 
 ```py
 In [145]: df = pd.DataFrame({"A": [1, 2, None, 4],
@@ -1189,28 +1189,28 @@ Out[150]:
 3     4   <NA>   True
 ```
 
-表7.3：pandas扩展数据类型
+表 7.3：pandas 扩展数据类型
 
 | 扩展类型 | 描述 |
 | --- | --- |
 | `BooleanDtype` | 可空布尔数据，传递字符串时使用`"boolean"` |
 | `CategoricalDtype` | 分类数据类型，传递字符串时使用`"category"` |
 | `DatetimeTZDtype` | 带时区的日期时间 |
-| `Float32Dtype` | 32位可空浮点数，传递字符串时使用`"Float32"` |
-| `Float64Dtype` | 64位可空浮点数，传递字符串时使用`"Float64"` |
-| `Int8Dtype` | 8位可空有符号整数，传递字符串时使用`"Int8"` |
-| `Int16Dtype` | 16位可空有符号整数，传递字符串时使用`"Int16"` |
-| `Int32Dtype` | 32位可空有符号整数，传递字符串时使用`"Int32"` |
-| `Int64Dtype` | 64位可空有符号整数，传递字符串时使用`"Int64"` |
-| `UInt8Dtype` | 8位可空无符号整数，传递字符串时使用`"UInt8"` |
-| `UInt16Dtype` | 16位可空无符号整数，传递字符串时使用`"UInt16"` |
-| `UInt32Dtype` | 32位可空无符号整数，传递字符串时使用`"UInt32"` |
+| `Float32Dtype` | 32 位可空浮点数，传递字符串时使用`"Float32"` |
+| `Float64Dtype` | 64 位可空浮点数，传递字符串时使用`"Float64"` |
+| `Int8Dtype` | 8 位可空有符号整数，传递字符串时使用`"Int8"` |
+| `Int16Dtype` | 16 位可空有符号整数，传递字符串时使用`"Int16"` |
+| `Int32Dtype` | 32 位可空有符号整数，传递字符串时使用`"Int32"` |
+| `Int64Dtype` | 64 位可空有符号整数，传递字符串时使用`"Int64"` |
+| `UInt8Dtype` | 8 位可空无符号整数，传递字符串时使用`"UInt8"` |
+| `UInt16Dtype` | 16 位可空无符号整数，传递字符串时使用`"UInt16"` |
+| `UInt32Dtype` | 32 位可空无符号整数，传递字符串时使用`"UInt32"` |
 
-| `UInt64Dtype` | 64位可空无符号整数，在传递为字符串时使用`"UInt64"` |*  *## 7.4字符串操作
+| `UInt64Dtype` | 64 位可空无符号整数，在传递为字符串时使用`"UInt64"` |*  *## 7.4 字符串操作
 
-Python长期以来一直是一种流行的原始数据处理语言，部分原因是它易于用于字符串和文本处理。大多数文本操作都可以通过字符串对象的内置方法简化。对于更复杂的模式匹配和文本操作，可能需要使用正则表达式。pandas通过使您能够简洁地在整个数据数组上应用字符串和正则表达式，另外处理了缺失数据的烦恼。
+Python 长期以来一直是一种流行的原始数据处理语言，部分原因是它易于用于字符串和文本处理。大多数文本操作都可以通过字符串对象的内置方法简化。对于更复杂的模式匹配和文本操作，可能需要使用正则表达式。pandas 通过使您能够简洁地在整个数据数组上应用字符串和正则表达式，另外处理了缺失数据的烦恼。
 
-### Python内置字符串对象方法
+### Python 内置字符串对象方法
 
 在许多字符串处理和脚本应用程序中，内置字符串方法已经足够。例如，逗号分隔的字符串可以使用`split`分割成多个部分：
 
@@ -1239,14 +1239,14 @@ In [156]: first + "::" + second + "::" + third
 Out[156]: 'a::b::guido'
 ```
 
-但这并不是一种实用的通用方法。更快速和更符合Python风格的方法是将列表或元组传递给字符串`"::"`上的`join`方法：
+但这并不是一种实用的通用方法。更快速和更符合 Python 风格的方法是将列表或元组传递给字符串`"::"`上的`join`方法：
 
 ```py
 In [157]: "::".join(pieces)
 Out[157]: 'a::b::guido'
 ```
 
-其他方法涉及定位子字符串。使用Python的`in`关键字是检测子字符串的最佳方法，尽管也可以使用`index`和`find`：
+其他方法涉及定位子字符串。使用 Python 的`in`关键字是检测子字符串的最佳方法，尽管也可以使用`index`和`find`：
 
 ```py
 In [158]: "guido" in val
@@ -1287,11 +1287,11 @@ In [164]: val.replace(",", "")
 Out[164]: 'ab  guido'
 ```
 
-请参阅[表7.4](#tbl-table_string_methods)以获取Python的一些字符串方法列表。
+请参阅表 7.4 以获取 Python 的一些字符串方法列表。
 
 正则表达式也可以与许多这些操作一起使用，您将看到。
 
-表7.4：Python内置字符串方法
+表 7.4：Python 内置字符串方法
 
 | 方法 | 描述 |
 | --- | --- |
@@ -1312,7 +1312,7 @@ Out[164]: 'ab  guido'
 
 ### 正则表达式
 
-*正则表达式*提供了一种灵活的方式来在文本中搜索或匹配（通常更复杂的）字符串模式。单个表达式，通常称为*regex*，是根据正则表达式语言形成的字符串。Python的内置`re`模块负责将正则表达式应用于字符串；我将在这里给出一些示例。
+*正则表达式*提供了一种灵活的方式来在文本中搜索或匹配（通常更复杂的）字符串模式。单个表达式，通常称为*regex*，是根据正则表达式语言形成的字符串。Python 的内置`re`模块负责将正则表达式应用于字符串；我将在这里给出一些示例。
 
 *注意* *编写正则表达式的艺术可能是一个单独的章节，因此超出了本书的范围。互联网和其他书籍上有许多优秀的教程和参考资料。* *`re` 模块的函数分为三类：模式匹配、替换和拆分。当然，这些都是相关的；正则表达式描述了要在文本中定位的模式，然后可以用于许多目的。让我们看一个简单的例子：假设我们想要使用可变数量的空白字符（制表符、空格和换行符）来拆分字符串。
 
@@ -1436,7 +1436,7 @@ Rob Username: rob, Domain: gmail, Suffix: com
 Ryan Username: ryan, Domain: yahoo, Suffix: com
 ```
 
-Python 中的正则表达式还有很多内容，其中大部分超出了本书的范围。[表 7.5](#tbl-table_regex_method) 提供了一个简要总结。
+Python 中的正则表达式还有很多内容，其中大部分超出了本书的范围。表 7.5 提供了一个简要总结。
 
 表 7.5：正则表达式方法
 
@@ -1509,7 +1509,7 @@ Wes       <NA>
 dtype: boolean
 ```
 
-更详细地讨论了扩展类型，请参阅[扩展数据类型](#pandas-ext-types)。
+更详细地讨论了扩展类型，请参阅扩展数据类型。
 
 也可以使用正则表达式，以及任何 `re` 选项，如 `IGNORECASE`：
 
@@ -1571,7 +1571,7 @@ Rob      rob   gmail  com
 Wes      NaN     NaN  NaN
 ```
 
-查看更多 pandas 字符串方法，请参阅[表 7.6](#tbl-table_vec_string)。
+查看更多 pandas 字符串方法，请参阅表 7.6。
 
 表 7.6: Series 字符串方法的部分列表
 
@@ -1665,7 +1665,7 @@ Out[206]:
 dtype: object
 ```
 
-我们可以使用`take`方法恢复原始的字符串Series：
+我们可以使用`take`方法恢复原始的字符串 Series：
 
 ```py
 In [207]: dim.take(values)
@@ -1689,11 +1689,11 @@ dtype: object
 
 +   追加一个新类别而不改变现有类别的顺序或位置
 
-### pandas中的分类扩展类型
+### pandas 中的分类扩展类型
 
-pandas具有专门的`Categorical`扩展类型，用于保存使用基于整数的分类表示或*编码*的数据。这是一种流行的数据压缩技术，适用于具有许多相似值出现的数据，并且可以提供更快的性能和更低的内存使用，特别是对于字符串数据。
+pandas 具有专门的`Categorical`扩展类型，用于保存使用基于整数的分类表示或*编码*的数据。这是一种流行的数据压缩技术，适用于具有许多相似值出现的数据，并且可以提供更快的性能和更低的内存使用，特别是对于字符串数据。
 
-让我们考虑之前的示例Series：
+让我们考虑之前的示例 Series：
 
 ```py
 In [208]: fruits = ['apple', 'orange', 'apple', 'apple'] * 2
@@ -1721,7 +1721,7 @@ Out[212]:
 7          7   apple     11  3.795525
 ```
 
-这里，`df['fruit']`是Python字符串对象的数组。我们可以通过调用以下方式将其转换为分类：
+这里，`df['fruit']`是 Python 字符串对象的数组。我们可以通过调用以下方式将其转换为分类：
 
 ```py
 In [213]: fruit_cat = df['fruit'].astype('category')
@@ -1759,7 +1759,7 @@ In [218]: c.codes
 Out[218]: array([0, 1, 0, 0, 0, 1, 0, 0], dtype=int8)
 ```
 
-可以使用`cat`访问器更轻松地访问这些，这将在[Categorical Methods](#pandas-categorical-methods)中很快解释。
+可以使用`cat`访问器更轻松地访问这些，这将在 Categorical Methods 中很快解释。
 
 获取代码和类别之间的映射的一个有用技巧是：
 
@@ -1768,7 +1768,7 @@ In [219]: dict(enumerate(c.categories))
 Out[219]: {0: 'apple', 1: 'orange'}
 ```
 
-您可以通过分配转换后的结果将DataFrame列转换为分类：
+您可以通过分配转换后的结果将 DataFrame 列转换为分类：
 
 ```py
 In [220]: df['fruit'] = df['fruit'].astype('category')
@@ -1787,7 +1787,7 @@ Name: fruit, dtype: category
 Categories (2, object): ['apple', 'orange']
 ```
 
-您还可以直接从其他类型的Python序列创建`pandas.Categorical`：
+您还可以直接从其他类型的 Python 序列创建`pandas.Categorical`：
 
 ```py
 In [222]: my_categories = pd.Categorical(['foo', 'bar', 'baz', 'foo', 'bar'])
@@ -1836,9 +1836,9 @@ Categories (3, object): ['foo' < 'bar' < 'baz']
 
 最后一点，分类数据不一定是字符串，尽管我只展示了字符串示例。分类数组可以由任何不可变的值类型组成。
 
-### 使用Categoricals进行计算
+### 使用 Categoricals 进行计算
 
-与非编码版本（如字符串数组）相比，在pandas中使用`Categorical`通常表现相同。在处理分类数据时，pandas的某些部分，如`groupby`函数，表现更好。还有一些函数可以利用`ordered`标志。
+与非编码版本（如字符串数组）相比，在 pandas 中使用`Categorical`通常表现相同。在处理分类数据时，pandas 的某些部分，如`groupby`函数，表现更好。还有一些函数可以利用`ordered`标志。
 
 让我们考虑一些随机数值数据，并使用`pandas.qcut`分箱函数。这将返回`pandas.Categorical`；我们在本书的早期使用了`pandas.cut`，但忽略了分类的工作原理的细节：
 
@@ -1916,7 +1916,7 @@ Categories (4, object): ['Q1' < 'Q2' < 'Q3' < 'Q4']
 
 #### 分类数据的更好性能
 
-在本节开头，我说过分类类型可以提高性能和内存使用，所以让我们看一些例子。考虑一些具有1000万个元素和少量不同类别的Series：
+在本节开头，我说过分类类型可以提高性能和内存使用，所以让我们看一些例子。考虑一些具有 1000 万个元素和少量不同类别的 Series：
 
 ```py
 In [243]: N = 10_000_000
@@ -1948,7 +1948,7 @@ CPU times: user 279 ms, sys: 6.06 ms, total: 285 ms
 Wall time: 285 ms
 ```
 
-由于底层算法使用基于整数的代码数组而不是字符串数组，因此使用分类的GroupBy操作可以显着提高性能。这里我们比较了使用GroupBy机制的`value_counts()`的性能：
+由于底层算法使用基于整数的代码数组而不是字符串数组，因此使用分类的 GroupBy 操作可以显着提高性能。这里我们比较了使用 GroupBy 机制的`value_counts()`的性能：
 
 ```py
 In [249]: %timeit labels.value_counts()
@@ -1960,7 +1960,7 @@ In [250]: %timeit categories.value_counts()
 
 ### 分类方法
 
-包含分类数据的Series具有几个类似于`Series.str`专门的字符串方法的特殊方法。这也提供了方便访问类别和代码。考虑Series：
+包含分类数据的 Series 具有几个类似于`Series.str`专门的字符串方法的特殊方法。这也提供了方便访问类别和代码。考虑 Series：
 
 ```py
 In [251]: s = pd.Series(['a', 'b', 'c', 'd'] * 2)
@@ -2042,7 +2042,7 @@ e    0
 Name: count, dtype: int64
 ```
 
-在大型数据集中，分类通常被用作一种方便的工具，用于节省内存和提高性能。在过滤大型DataFrame或Series之后，许多类别可能不会出现在数据中。为了帮助解决这个问题，我们可以使用`remove_unused_categories`方法来修剪未观察到的类别：
+在大型数据集中，分类通常被用作一种方便的工具，用于节省内存和提高性能。在过滤大型 DataFrame 或 Series 之后，许多类别可能不会出现在数据中。为了帮助解决这个问题，我们可以使用`remove_unused_categories`方法来修剪未观察到的类别：
 
 ```py
 In [261]: cat_s3 = cat_s[cat_s.isin(['a', 'b'])]
@@ -2066,16 +2066,16 @@ dtype: category
 Categories (2, object): ['a', 'b']
 ```
 
-请参见[表7.7](#tbl-table_categorical_methods)列出的可用分类方法。
+请参见表 7.7 列出的可用分类方法。
 
-表7.7：pandas中Series的分类方法
+表 7.7：pandas 中 Series 的分类方法
 
 | 方法 | 描述 |
 | --- | --- |
 | `add_categories` | 在现有类别的末尾追加新的（未使用的）类别 |
 | `as_ordered` | 使类别有序 |
 | `as_unordered` | 使类别无序 |
-| `remove_categories` | 删除类别，将任何删除的值设置为null |
+| `remove_categories` | 删除类别，将任何删除的值设置为 null |
 | `remove_unused_categories` | 删除数据中不存在的任何类别值 |
 | `rename_categories` | 用指定的新类别名称集替换类别；不能改变类别数量 |
 | `reorder_categories` | 表现类似于`rename_categories`，但也可以改变结果为有序类别 |
@@ -2083,7 +2083,7 @@ Categories (2, object): ['a', 'b']
 
 #### 为建模创建虚拟变量
 
-当您使用统计或机器学习工具时，通常会将分类数据转换为*虚拟变量*，也称为*独热*编码。这涉及创建一个DataFrame，其中每个不同的类别都有一列；这些列包含给定类别的出现为1，否则为0。
+当您使用统计或机器学习工具时，通常会将分类数据转换为*虚拟变量*，也称为*独热*编码。这涉及创建一个 DataFrame，其中每个不同的类别都有一列；这些列包含给定类别的出现为 1，否则为 0。
 
 考虑前面的例子：
 
@@ -2091,7 +2091,7 @@ Categories (2, object): ['a', 'b']
 In [264]: cat_s = pd.Series(['a', 'b', 'c', 'd'] * 2, dtype='category')
 ```
 
-如本章前面提到的，`pandas.get_dummies`函数将这个一维分类数据转换为包含虚拟变量的DataFrame：
+如本章前面提到的，`pandas.get_dummies`函数将这个一维分类数据转换为包含虚拟变量的 DataFrame：
 
 ```py
 In [265]: pd.get_dummies(cat_s, dtype=float)
@@ -2109,4 +2109,4 @@ Out[265]:
 
 ## 7.6 结论
 
-有效的数据准备可以通过使您花更多时间分析数据而不是准备分析数据来显着提高生产率。本章中我们探讨了许多工具，但这里的覆盖范围并不全面。在下一章中，我们将探讨pandas的连接和分组功能。******
+有效的数据准备可以通过使您花更多时间分析数据而不是准备分析数据来显着提高生产率。本章中我们探讨了许多工具，但这里的覆盖范围并不全面。在下一章中，我们将探讨 pandas 的连接和分组功能。******
