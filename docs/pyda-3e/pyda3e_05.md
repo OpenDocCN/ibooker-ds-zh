@@ -7,9 +7,11 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-此《Python 数据分析第三版》的开放访问网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣版本提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的此网站的某些方面与 O’Reilly 的印刷版和电子书版本的格式不同。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。当我在 2011 年和 2012 年编写本书的第一版时，关于在 Python 中进行数据分析的学习资源较少。这在一定程度上是一个鸡生蛋的问题；许多我们现在认为理所当然的库，如 pandas、scikit-learn 和 statsmodels，在那时相对不成熟。现在是 2022 年，现在有越来越多关于数据科学、数据分析和机器学习的文献，补充了关于面向计算科学家、物理学家和其他研究领域专业人士的通用科学计算的先前作品。还有关于学习 Python 编程语言本身并成为有效软件工程师的优秀书籍。
+当我在 2011 年和 2012 年编写本书的第一版时，关于在 Python 中进行数据分析的学习资源较少。这在一定程度上是一个鸡生蛋的问题；许多我们现在认为理所当然的库，如 pandas、scikit-learn 和 statsmodels，在那时相对不成熟。现在是 2022 年，现在有越来越多关于数据科学、数据分析和机器学习的文献，补充了关于面向计算科学家、物理学家和其他研究领域专业人士的通用科学计算的先前作品。还有关于学习 Python 编程语言本身并成为有效软件工程师的优秀书籍。
 
 由于本书旨在作为在 Python 中处理数据的入门文本，我认为从数据操作的角度对 Python 的内置数据结构和库的一些最重要特性进行自包含概述是有价值的。因此，我将在本章和第三章：内置数据结构、函数和文件中提供大致足够的信息，以便您能够跟随本书的其余部分。
 

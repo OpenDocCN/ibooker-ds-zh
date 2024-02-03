@@ -7,9 +7,9 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-*本开放获取的网络版本*Python for Data Analysis 第 3 版*现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴随版本提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本网站的某些方面将与 O'Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
 现在我们已经到达本书的最后一章，我们将查看一些真实世界的数据集。对于每个数据集，我们将使用本书中介绍的技术从原始数据中提取含义。演示的技术可以应用于各种其他数据集。本章包含一系列杂例数据集，您可以使用这些数据集练习本书中的工具。
 

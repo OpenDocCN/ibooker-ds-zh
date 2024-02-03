@@ -7,9 +7,11 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-*这个*Python 数据分析第三版*的开放访问网络版本现在作为[印刷和数字版本](https://amzn.to/3DyLaJc)的伴侣可用。如果您遇到任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本网站的某些方面与 O'Reilly 的印刷和电子书版本的格式不同。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
-如果您发现本书的在线版本有用，请考虑[订购纸质副本](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。*本章讨论了内置到 Python 语言中的功能，这些功能将在整本书中被广泛使用。虽然像 pandas 和 NumPy 这样的附加库为更大的数据集添加了高级计算功能，但它们旨在与 Python 的内置数据操作工具一起使用。
+本章讨论了内置到 Python 语言中的功能，这些功能将在整本书中被广泛使用。虽然像 pandas 和 NumPy 这样的附加库为更大的数据集添加了高级计算功能，但它们旨在与 Python 的内置数据操作工具一起使用。
 
 我们将从 Python 的主要数据结构开始：元组、列表、字典和集合。然后，我们将讨论如何创建自己可重用的 Python 函数。最后，我们将看看 Python 文件对象的机制以及如何与本地硬盘交互。
 

@@ -6,10 +6,11 @@
 >
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
-*这个开放访问的网络版本*Python for Data Analysis 第 3 版*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在此报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现这本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可以在 GitHub 或 Gitee 上找到。*pandas 将是本书剩余部分中的一个主要工具。它包含了专为在 Python 中快速方便地进行数据清洗和分析而设计的数据结构和数据操作工具。pandas 经常与数值计算工具（如 NumPy 和 SciPy）、分析库（如 statsmodels 和 scikit-learn）以及数据可视化库（如 matplotlib）一起使用。pandas 采用了 NumPy 的很多习惯用法，特别是基于数组的计算和对数据处理的偏好，而不使用`for`循环。
+pandas 将是本书剩余部分中的一个主要工具。它包含了专为在 Python 中快速方便地进行数据清洗和分析而设计的数据结构和数据操作工具。pandas 经常与数值计算工具（如 NumPy 和 SciPy）、分析库（如 statsmodels 和 scikit-learn）以及数据可视化库（如 matplotlib）一起使用。pandas 采用了 NumPy 的很多习惯用法，特别是基于数组的计算和对数据处理的偏好，而不使用`for`循环。
 
 虽然 pandas 采用了许多来自 NumPy 的编码习惯，但最大的区别在于 pandas 是为处理表格或异构数据而设计的。相比之下，NumPy 更适合处理同质类型的数值数组数据。
 

@@ -7,9 +7,9 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-*这个*Python 数据分析第三版*的开放获取网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本网站的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
 在进行数据分析和建模过程中，大量时间花费在数据准备上：加载、清理、转换和重新排列。这些任务通常被报告为占据分析师 80%或更多的时间。有时，文件或数据库中存储数据的方式并不适合特定任务。许多研究人员选择使用通用编程语言（如 Python、Perl、R 或 Java）或 Unix 文本处理工具（如 sed 或 awk）对数据进行自发处理，从一种形式转换为另一种形式。幸运的是，pandas 与内置的 Python 语言功能一起，为您提供了一套高级、灵活和快速的工具，使您能够将数据转换为正确的形式。
 

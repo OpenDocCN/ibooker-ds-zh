@@ -12,8 +12,8 @@
 第 3 版的[《Python 数据分析》](https://amzn.to/3DyLaJc)现在作为“开放获取”HTML 版本在此网站[`wesmckinney.com/book`](https://wesmckinney.com/book)上提供，除了通常的印刷和电子书格式。该版本最初于 2022 年 8 月出版，将在未来几个月和年份内定期修正勘误。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。
 
 一般来说，本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在[GitHub](https://github.com/wesm/pydata-book/tree/3rd-edition)或[Gitee](https://gitee.com/wesmckinn/pydata-book)上找到，以及支持数据集。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质版本](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)（PDF 和 EPUB 格式）以支持作者。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版本](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)（PDF 和 EPUB 格式）以支持作者。
 
 本书的网络版本是使用[Quarto 出版系统](https://quarto.org/)创建的。
 

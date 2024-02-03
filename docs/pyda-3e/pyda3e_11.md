@@ -7,9 +7,9 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-*Python for Data Analysis 第 3 版*的这个开放访问网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站某些方面将与 O’Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质副本](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
 在许多应用程序中，数据可能分布在许多文件或数据库中，或者以不便于分析的形式排列。本章重点介绍帮助组合、连接和重新排列数据的工具。
 

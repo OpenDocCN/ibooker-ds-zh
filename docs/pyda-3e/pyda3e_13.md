@@ -7,9 +7,9 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-*这个*Python 数据分析第 3 版*的开放访问网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您遇到任何勘误，请[在此报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站的某些方面将与 O’Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
 对数据集进行分类并对每个组应用函数，无论是聚合还是转换，都可能是数据分析工作流程的关键组成部分。加载、合并和准备数据集后，您可能需要计算组统计信息或可能需要为报告或可视化目的计算*数据透视表*。pandas 提供了一个多功能的`groupby`接口，使您能够以自然的方式切片、切块和总结数据集。
 

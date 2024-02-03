@@ -7,9 +7,9 @@
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 
-*这个开放访问的网络版本*Python for Data Analysis 3rd Edition*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本网站的某些方面与 O’Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可在 GitHub 或 Gitee 上找到。
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 
 时间序列数据是许多不同领域中的结构化数据的重要形式，如金融、经济、生态学、神经科学和物理学。任何在许多时间点重复记录的东西都构成一个时间序列。许多时间序列是*固定频率*的，也就是说，数据点按照某种规则定期发生，例如每 15 秒、每 5 分钟或每月一次。时间序列也可以是*不规则*的，没有固定的时间单位或单位之间的偏移。如何标记和引用时间序列数据取决于应用程序，您可能有以下之一：
 

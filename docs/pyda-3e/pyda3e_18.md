@@ -6,11 +6,9 @@
 >
 > 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-
-*这个开放获取的网络版本*Python for Data Analysis 3rd Edition*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在这里报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站的某些方面与 O’Reilly 的印刷版和电子书版本的格式不同。
-
-如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或复制。代码示例采用 MIT 许可证，可以在 GitHub 或 Gitee 上找到。
-
+> 此开放访问网络版本的《Python 数据分析第三版》现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站点的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
+> 
+> 如果您发现本书的在线版本有用，请考虑[订购纸质版](https://amzn.to/3DyLaJc)或[无 DRM 的电子书](https://www.ebooks.com/en-us/book/210644288/python-for-data-analysis/wes-mckinney/?affId=WES398681F)以支持作者。本网站的内容不得复制或再生产。代码示例采用 MIT 许可，可在 GitHub 或 Gitee 上找到。
 在这个附录中，我将深入探讨 NumPy 库的数组计算。这将包括有关 ndarray 类型的更多内部细节以及更高级的数组操作和算法。
 
 这个附录包含各种主题，不一定需要按顺序阅读。在各章节中，我将为许多示例生成随机数据，这些示例将使用`numpy.random`模块中的默认随机数生成器：
