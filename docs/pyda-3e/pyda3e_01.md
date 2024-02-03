@@ -1,6 +1,11 @@
-# 《Python 数据分析，第 3 版》
+# Python 数据分析第三版
 
 > 原文：[`wesmckinney.com/book/`](https://wesmckinney.com/book/)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 # 关于开放版本
 

@@ -1,6 +1,11 @@
 # 六、数据加载、存储和文件格式
 
 > 原文：[`wesmckinney.com/book/accessing-data`](https://wesmckinney.com/book/accessing-data)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 *本开放访问的网络版本*Python for Data Analysis 第 3 版*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣版本可用。如果您遇到任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站的某些方面将与 O'Reilly 的印刷版和电子书版本的格式不同。
 
@@ -875,7 +880,9 @@ Out[94]:
 4          95.80 
 ```
 
-对于更复杂的 XML 文档，请参考`pandas.read_xml`的文档字符串，其中描述了如何进行选择和过滤以提取感兴趣的特定表格。**  **## 6.2 二进制数据格式
+对于更复杂的 XML 文档，请参考`pandas.read_xml`的文档字符串，其中描述了如何进行选择和过滤以提取感兴趣的特定表格。
+
+## 6.2 二进制数据格式
 
 以二进制格式存储（或*序列化*）数据的一种简单方法是使用 Python 的内置`pickle`模块。所有 pandas 对象都有一个`to_pickle`方法，它以 pickle 格式将数据写入磁盘：
 

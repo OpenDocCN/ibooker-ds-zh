@@ -1,6 +1,11 @@
-# 附录 B — 关于 IPython 系统的更多内容
+# 附录 B：关于 IPython 系统的更多内容
 
 > 原文：[`wesmckinney.com/book/ipython`](https://wesmckinney.com/book/ipython)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 *这个开放获取的网络版本 *Python for Data Analysis 3rd Edition* 现在作为 [印刷版和数字版](https://amzn.to/3DyLaJc) 的伴侣可用。如果您发现任何勘误，请[在此报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
 
@@ -173,7 +178,9 @@ In [16]: %load script.py
 
 在运行任何代码时按下 Ctrl-C，无论是通过`%run`运行脚本还是长时间运行的命令，都会引发`KeyboardInterrupt`。这将导致几乎所有 Python 程序立即停止，除非在某些不寻常的情况下。
 
-*警告* *当一段 Python 代码调用了一些编译的扩展模块时，按下 Ctrl-C 并不总是会立即停止程序执行。在这种情况下，您要么等待控制返回到 Python 解释器，要么在更严重的情况下，在您的操作系统中强制终止 Python 进程（例如在 Windows 上使用任务管理器或在 Linux 上使用`kill`命令）。**  **### 从剪贴板执行代码
+*警告* *当一段 Python 代码调用了一些编译的扩展模块时，按下 Ctrl-C 并不总是会立即停止程序执行。在这种情况下，您要么等待控制返回到 Python 解释器，要么在更严重的情况下，在您的操作系统中强制终止 Python 进程（例如在 Windows 上使用任务管理器或在 Linux 上使用`kill`命令）。
+
+### 从剪贴板执行代码
 
 如果您正在使用 Jupyter 笔记本，您可以将代码复制粘贴到任何代码单元格中并执行。还可以在 IPython shell 中从剪贴板运行代码。假设您在其他应用程序中有以下代码：
 

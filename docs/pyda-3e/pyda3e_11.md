@@ -1,6 +1,11 @@
 # 八、数据整理：连接、合并和重塑
 
 > 原文：[`wesmckinney.com/book/data-wrangling`](https://wesmckinney.com/book/data-wrangling)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 *Python for Data Analysis 第 3 版*的这个开放访问网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您发现任何勘误，请[在此报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站某些方面将与 O’Reilly 的印刷版和电子书版本的格式不同。
 
@@ -316,7 +321,9 @@ Out[37]:
 4  two  1  4  3
 5  two  2  5  2
 6  two  3  6  1
-```**  **## 8.2 合并和组合数据集
+```
+
+## 8.2 合并和组合数据集
 
 pandas 对象中包含的数据可以以多种方式组合：
 

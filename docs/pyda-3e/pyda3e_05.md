@@ -1,6 +1,11 @@
 # 二、Python 语言基础，IPython 和 Jupyter 笔记本
 
 > 原文：[`wesmckinney.com/book/python-basics`](https://wesmckinney.com/book/python-basics)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 此《Python 数据分析第三版》的开放访问网络版本现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣版本提供。如果您发现任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的此网站的某些方面与 O’Reilly 的印刷版和电子书版本的格式不同。
 
@@ -279,7 +284,9 @@ np.__loader__
 np.load
 np.loads
 np.loadtxt
-```**  **## 2.3 Python 语言基础
+```
+
+## 2.3 Python 语言基础
 
 在本节中，我将为您概述基本的 Python 编程概念和语言机制。在下一章中，我将更详细地介绍 Python 数据结构、函数和其他内置工具。
 
@@ -1261,6 +1268,8 @@ In [143]: print(total)
 2333316668
 ```
 
-虽然生成的范围可以任意大，但在任何给定时间内的内存使用可能非常小。**  **## 2.4 结论
+虽然生成的范围可以任意大，但在任何给定时间内的内存使用可能非常小。
+
+## 2.4 结论
 
 本章简要介绍了一些基本的 Python 语言概念以及 IPython 和 Jupyter 编程环境。在下一章中，我将讨论许多内置数据类型、函数和输入输出工具，这些内容将在本书的其余部分中持续使用。

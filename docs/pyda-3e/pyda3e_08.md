@@ -1,6 +1,11 @@
 # 五、使用 pandas 入门
 
 > 原文：[`wesmckinney.com/book/pandas-basics`](https://wesmckinney.com/book/pandas-basics)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 *这个开放访问的网络版本*Python for Data Analysis 第 3 版*现在作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣可用。如果您发现任何勘误，请[在此报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 制作的本站的某些方面与 O'Reilly 的印刷版和电子书版本的格式不同。
 
@@ -1424,7 +1429,9 @@ Utah        5    5      6     5
 New York    3    3      3     3
 ```
 
-一个很好的经验法则是在进行赋值时避免链接索引。还有其他情况下，pandas 会生成`SettingWithCopyWarning`，这与链接索引有关。我建议您查阅在线 pandas 文档中的这个主题。**  **### 算术和数据对齐
+一个很好的经验法则是在进行赋值时避免链接索引。还有其他情况下，pandas 会生成`SettingWithCopyWarning`，这与链接索引有关。我建议您查阅在线 pandas 文档中的这个主题。
+
+### 算术和数据对齐
 
 pandas 可以使处理具有不同索引的对象变得更简单。例如，当您添加对象时，如果任何索引对不相同，结果中的相应索引将是索引对的并集。让我们看一个例子：
 
@@ -2124,7 +2131,9 @@ Out[266]:
 1    0.124121
 2    0.302614
 Name: c, dtype: float64
-```**  **## 5.3 总结和计算描述性统计
+```
+
+## 5.3 总结和计算描述性统计
 
 pandas 对象配备了一组常见的数学和统计方法。其中大多数属于*减少*或*摘要统计*的类别，这些方法从 Series 中提取单个值（如总和或均值），或者从 DataFrame 的行或列中提取一系列值。与 NumPy 数组上找到的类似方法相比，它们内置了对缺失数据的处理。考虑一个小的 DataFrame：
 

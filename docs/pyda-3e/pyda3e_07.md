@@ -1,6 +1,11 @@
 # 四、NumPy 基础知识：数组和向量化计算
 
 > 原文：[`wesmckinney.com/book/numpy-basics`](https://wesmckinney.com/book/numpy-basics)
+>
+> 译者：[飞龙](https://github.com/wizardforcel)
+>
+> 协议：[CC BY-NC-SA 4.0](http://creativecommons.org/licenses/by-nc-sa/4.0/)
+
 
 *本开放获取的网络版本*Python for Data Analysis 第 3 版*现已作为[印刷版和数字版](https://amzn.to/3DyLaJc)的伴侣提供。如果您遇到任何勘误，请[在此处报告](https://oreilly.com/catalog/0636920519829/errata)。请注意，由 Quarto 生成的本站的某些方面将与 O'Reilly 的印刷版和电子书版本的格式不同。
 
