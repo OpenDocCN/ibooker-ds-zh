@@ -3,3 +3,4 @@
 +   [Python 自然语言处理第二版](docs/nlp-py-2e/README.md)
 +   [Python 因果推断](docs/csl-inf-py/README.md)
 +   [命令行上的数据科学第二版](docs/ds-cmd-line-2e/README.md)
++   [数据可视化的基础知识](docs/fund-data-viz/README.md)
