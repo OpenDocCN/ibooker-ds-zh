@@ -1,0 +1,624 @@
+- en: Chapter 9\. Analyzing Genomics Data and the BDG Project
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: The advent of next-generation DNA sequencing (NGS) technology has rapidly transformed
+    the life sciences into a data-driven field. However, making the best use of this
+    data is butting up against a traditional computational ecosystem that builds on
+    difficult-to-use, low-level primitives for distributed computing and a jungle
+    of semistructured text-based file formats.
+  prefs: []
+  type: TYPE_NORMAL
+- en: This chapter will serve two primary purposes. First, we introduce a set of popular
+    serialization and file formats (Avro and Parquet) that simplify many problems
+    in data management. These serialization technologies enable us to convert data
+    into compact, machine-friendly binary representations. This helps with movement
+    of data across networks and helps with cross-compatibility across programming
+    languages. Although we will use data serialization techniques with genomics data,
+    the concepts will be useful whenever processing large amounts of data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Second, we show how to perform typical genomics tasks in the PySpark ecosystem.
+    Specifically, we’ll use PySpark and the open source ADAM library to manipulate
+    large quantities of genomics data and process data from multiple sources to create
+    a dataset for predicting transcription factor (TF) binding sites. For this, we
+    will join genome annotations from the [ENCODE dataset](https://oreil.ly/h0yOq).
+    This chapter will serve as a tutorial to the ADAM project, which comprises a set
+    of genomics-specific Avro schemas, PySpark-based APIs, and command-line tools
+    for large-scale genomics analysis. Among other applications, ADAM provides a natively
+    distributed implementation of the [Genome Analysis Toolkit (GATK)](https://oreil.ly/k2YZH)
+    using PySpark.
+  prefs: []
+  type: TYPE_NORMAL
+- en: We’ll start by talking about the various data formats used in the bioinformatics
+    domain, associated challenges, and how serialization formats can help. After that,
+    we’ll install the ADAM project and explore its API using a sample dataset. We
+    will then work with multiple genomics datasets to prepare a dataset that can be
+    used for predicting binding sites in DNA sequences for a particular type of protein—CTCF
+    transcription factor. The datasets will be obtained from the publicly available
+    ENCODE dataset. Because the genome implies a 1D coordinate system, many genomics
+    operations are spatial in nature. The ADAM project provides a genomics-targeted
+    API for performing distributed spatial joins that we will use.
+  prefs: []
+  type: TYPE_NORMAL
+- en: For those interested, a great introduction to biology is [Eric Lander’s EdX
+    course](https://oreil.ly/WIky1). For an introduction to bioinformatics, see Arthur
+    Lesk’s *Introduction to Bioinformatics* (Oxford University Press).
+  prefs: []
+  type: TYPE_NORMAL
+- en: Decoupling Storage from Modeling
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Bioinformaticians spend a disproportionate amount of time worrying about file
+    formats—*.fasta*, *.fastq*, *.sam*, *.bam*, *.vcf*, *.gvcf*, *.bcf*, *.bed*, *.gff*,
+    *.gtf*, *.narrowPeak*, *.wig*, *.bigWig*, *.bigBed*, *.ped*, and *.tped*, to name
+    a few. Some scientists also feel it is necessary to specify their own custom format
+    for their custom tool. On top of that, many of the format specifications are incomplete
+    or ambiguous (which makes it hard to ensure implementations are consistent or
+    compliant) and specify ASCII-encoded data. ASCII data is very common in bioinformatics,
+    but it is inefficient and compresses relatively poorly. In addition, the data
+    must always be parsed, necessitating additional compute cycles.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This is particularly troubling because all of these file formats essentially
+    store just a few common object types: an aligned sequence read, a called genotype,
+    a sequence feature, and a phenotype. (The term *sequence feature* is slightly
+    overloaded in genomics, but in this chapter we mean it in the sense of an element
+    from a track of the UCSC Genome Browser.) Libraries like [`biopython`](http://biopython.org)
+    are popular because they are chock-full of parsers (e.g., `Bio.SeqIO`) that attempt
+    to read all the file formats into a small number of common in-memory models (e.g.,
+    `Bio.Seq`, `Bio.SeqRecord`, `Bio.SeqFeature`).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can solve all of these problems in one shot using a serialization framework
+    like Apache Avro. The key lies in Avro’s separation of the data model (i.e., an
+    explicit schema) from the underlying storage file format and also the language’s
+    in-memory representation. Avro specifies how data of a certain type should be
+    communicated between processes, whether that’s between running processes over
+    the internet, or a process trying to write the data into a particular file format.
+    For example, a Java program that uses Avro can write the data into multiple underlying
+    file formats that are all compatible with Avro’s data model. This allows each
+    process to stop worrying about compatibility with multiple file formats: the process
+    only needs to know how to read Avro, and the filesystem needs to know how to supply
+    Avro.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Let’s take the sequence feature as an example. We begin by specifying the desired
+    schema for the object using the Avro interface definition language (IDL):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE0]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO1-1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: For example, “conservation,” “centipede,” “gene”
+  prefs: []
+  type: TYPE_NORMAL
+- en: This data type could be used to encode, for example, conservation level, the
+    presence of a promoter or ribosome binding site, a TF binding site, and so on
+    at a particular location in the genome. One way to think about it is as a binary
+    version of JSON, but more restricted and with higher performance. Given a particular
+    data schema, the Avro spec then determines the precise binary encoding for the
+    object so that it can be easily communicated between processes (even if written
+    in different programming languages), over the network, or onto disk for storage.
+    The Avro project includes modules for processing Avro-encoded data from many languages,
+    including Java, C/C++, Python, and Perl; after that, the language is free to store
+    the object in memory in whichever way is deemed most advantageous. The separation
+    of data modeling from the storage format provides another level of flexibility/abstraction;
+    Avro data can be stored as Avro-serialized binary objects (Avro container file),
+    in a columnar file format for fast queries (Parquet file), or as text JSON data
+    for maximum flexibility (minimum efficiency). Finally, Avro supports schema evolution,
+    allowing the user to add new fields as they become necessary, while the software
+    gracefully deals with new/old versions of the schema.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Overall, Avro is an efficient binary encoding that allows you to specify evolvable
+    data schemas, process the same data from many programming languages, and store
+    the data using many formats. Deciding to store your data using Avro schemas frees
+    you from perpetually working with more and more custom data formats, while simultaneously
+    increasing the performance of your computations.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'The particular `SequenceFeature` model used in the preceding example is a bit
+    simplistic for real data, but the Big Data Genomics (BDG) project has already
+    defined Avro schemas to represent the following objects, as well as many others:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`AlignmentRecord` for reads'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Variant` for known genome variants and metadata'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Genotype` for a called genotype at a particular locus'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: '`Feature` for a sequence feature (annotation on a genome segment)'
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+- en: The actual schemas can be found in [the `bdg-formats` GitHub repo](https://oreil.ly/gCf1f).
+    The BDG formats can function as a replacement of the ubiquitous “legacy” formats
+    (like BAM and VCF), but more commonly function as high-performance “intermediate”
+    formats. (The original goal of these BDG formats was to replace the use of BAM
+    and VCF, but their stubborn ubiquity has proved this goal to be difficult to attain.)
+    Avro provides many performance and data modeling benefits over the custom ASCII
+    status quo.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In the remainder of the chapter, we’ll use some of the BDG schemas to accomplish
+    some typical genomics tasks. Before we can do that, we will need to install the
+    ADAM project. That’s what we’ll do in the next section.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Setting Up ADAM
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: BDG’s core set of genomics tools is called ADAM. Starting from a set of mapped
+    reads, this core includes tools that can perform mark-duplicates, base quality
+    score recalibration, indel realignment, and variant calling, among other tasks.
+    ADAM also contains a command-line interface that wraps the core for ease of use.
+    In contrast to traditional HPC tools, ADAM can automatically parallelize across
+    a cluster without having to split files or schedule jobs manually.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We can start by installing ADAM using pip:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE1]'
+  prefs: []
+  type: TYPE_PRE
+- en: Alternative installation methods can be found on the [GitHub page](https://oreil.ly/4eFnX).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'ADAM also comes with a submission script that facilitates interfacing with
+    Spark’s `spark-submit` script:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE2]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, you should be able to run ADAM from the command line and get
+    the usage message. As noted in the usage message, Spark arguments are given before
+    ADAM-specific arguments.
+  prefs: []
+  type: TYPE_NORMAL
+- en: With ADAM set up, we can start working with genomic data. We will explore ADAM’s
+    API by working with a sample dataset next.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Introduction to Working with Genomics Data Using ADAM
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: 'We’ll start by taking a *.bam* file containing some mapped NGS reads, converting
+    them to the corresponding BDG format (`AlignedRecord` in this case), and saving
+    them to HDFS. First, we get our hands on a suitable *.bam* file:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE3]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Move the downloaded file into a directory where we’ll store all data for this
+    chapter:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE4]'
+  prefs: []
+  type: TYPE_PRE
+- en: Next up, we’ll use the ADAM CLI.
+  prefs: []
+  type: TYPE_NORMAL
+- en: File Format Conversion with the ADAM CLI
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: 'We can then use the ADAM `transform` command to convert the *.bam* file to
+    Parquet format (described in [“Parquet Format and Columnar Storage”](#parquet-format)).
+    This would work both on a cluster and in `local` mode:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE5]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO2-1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Example Spark args for running on YARN
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO2-2)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: The ADAM subcommand itself
+  prefs: []
+  type: TYPE_NORMAL
+- en: This should kick off a pretty large amount of output to the console, including
+    the URL to track the progress of the job.
+  prefs: []
+  type: TYPE_NORMAL
+- en: The resulting dataset is the concatenation of all the files in the *data/genomics/reads/HG00103/*
+    directory, where each *part-*.parquet* file is the output from one of the PySpark
+    tasks. You’ll also notice that the data has been compressed more efficiently than
+    the initial *.bam* file (which is gzipped underneath) thanks to the columnar storage
+    (see [“Parquet Format and Columnar Storage”](#parquet-format)).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE6]'
+  prefs: []
+  type: TYPE_PRE
+- en: Let’s see what one of these objects looks like in an interactive session.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Ingesting Genomics Data Using PySpark and ADAM
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+- en: First, we start up the PySpark shell using the ADAM helper command. It loads
+    all of the JARs that are necessary.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE7]'
+  prefs: []
+  type: TYPE_PRE
+- en: In some cases, you can encounter a TypeError error with a mention of JavaPackage
+    object not being when trying to use ADAM with PySpark. It is a known issue and
+    is documented [here](https://oreil.ly/67uBd).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'In such a scenario, please try the solutions suggested in the thread. One could
+    be running the following command to start PySpark shell with ADAM:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE8]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we’ll load the aligned read data as an `AlignmentDataset`:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE9]'
+  prefs: []
+  type: TYPE_PRE
+- en: You may get a different read because the partitioning of the data may be different
+    on your system, so there is no guarantee which read will come back first.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now we can interactively ask questions about our dataset, all while executing
+    the computations across a cluster in the background. How many reads do we have
+    in this dataset?
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE10]'
+  prefs: []
+  type: TYPE_PRE
+- en: Do the reads in this dataset derive from all human chromosomes?
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE11]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Yep, we observe reads from chromosomes 1 through 22, X and Y, along with some
+    other chromosomal chunks that are not part of the “main” chromosomes or whose
+    locations are unknown. Let’s analyze the code a little more closely:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE12]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`AlignmentDataset`: an ADAM type that contains all our data.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-2)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`DataFrame`: the underlying Spark DataFrame.'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![3](assets/3.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-3)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This will aggregate all the distinct contig names; it will be small.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![4](assets/4.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-4)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: This triggers the computation and brings the data in the DataFrame back to the
+    client app (the shell).
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'For a more clinical example, say we are testing an individual’s genome to check
+    whether they carry any gene variants that put them at risk for having a child
+    with cystic fibrosis (CF). Our genetic test uses next-generation DNA sequencing
+    to generate reads from multiple relevant genes, such as the CFTR gene (whose mutations
+    can cause CF). After running our data through our genotyping pipeline, we determine
+    that the CFTR gene appears to have a premature stop codon that destroys its function.
+    However, this mutation has never been reported before in the [Human Gene Mutation
+    Database](https://oreil.ly/wULRR), nor is it in the [Sickkids CFTR database](https://oreil.ly/u1L0j),
+    which aggregates CF gene variants. We want to go back to the raw sequencing data
+    to see if the potentially deleterious genotype call is a false positive. To do
+    so, we need to manually analyze all the reads that map to that variant locus,
+    say, chromosome 7 at 117149189 (see [Figure 9-1](#IGV_HG00103_CFTR)):'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE13]'
+  prefs: []
+  type: TYPE_PRE
+- en: It is now possible to manually inspect these nine reads, or process them through
+    a custom aligner, for example, and check whether the reported pathogenic variant
+    is a false positive.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '![aaps 0901](assets/aaps_0901.png)'
+  prefs: []
+  type: TYPE_IMG
+- en: Figure 9-1\. Integrative Genomic Viewer visualization of the HG00103 at chr7:117149189
+    in the CFTR gene
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+- en: Say we’re running a clinical lab that is performing such carrier screening as
+    a service to clinicians. Archiving the raw data using a cloud storage system such
+    as AWS S3 ensures that the data stays relatively warm (compared with, say, tape
+    archive). In addition to having a reliable system for actually performing the
+    data processing, we can easily access all of the past data for quality control
+    or for cases where there needs to be manual interventions, like the CFTR example
+    presented earlier. In addition to the rapid access to the totality of the data,
+    the centrality also makes it easy to perform large analytical studies, like population
+    genetics, large-scale quality-control analyses, and so on.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Now that we are familiar with the ADAM API, let’s start work on creation of
+    our transcription factor prediction dataset.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Predicting Transcription Factor Binding Sites from ENCODE Data
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: In this example, we will use publicly available sequence feature data to build
+    a simple model for transcription factor binding. TFs are proteins that bind to
+    specific DNA sequences in the genome and help control the expression of different
+    genes. As a result, they are critical in determining the phenotype of a particular
+    cell and are involved in many physiological and disease processes. ChIP-seq is
+    an NGS-based assay that allows the genome-wide characterization of binding sites
+    for a particular TF in a particular cell/tissue type. However, in addition to
+    ChIP-seq’s cost and technical difficulty, it requires a separate experiment for
+    each tissue/TF pair. In contrast, DNase-seq is an assay that finds regions of
+    open chromatin genome-wide and needs to be performed only once per tissue type.
+    Instead of assaying TF binding sites by performing a ChIP-seq experiment for each
+    tissue/TF combination, we’d like to predict TF binding sites in a new tissue type
+    assuming only the availability of DNase-seq data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: In particular, we will predict the binding sites for the CTCF TF using DNase-seq
+    data along with known sequence motif data (from [HT-SELEX](https://oreil.ly/t5OEkL))
+    and other data from [the publicly available ENCODE dataset](https://oreil.ly/eFJ9n).
+    We have chosen six different cell types that have available DNase-seq and CTCF
+    ChIP-seq data for training. A training example will be a DNase hypersensitivity
+    (HS) peak (a segment of the genome), and the binary label for whether the TF is
+    bound/unbound will be derived from the ChIP-seq data.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To summarize the overall data flow: the main training/test examples will be
+    derived from the DNase-seq data. Each region of open chromatin (an interval on
+    the genome) will be used to generate a prediction of whether a particular TF in
+    a particular tissue type will be bound there. To do so, we spatially join the
+    ChIP-seq data to the DNase-seq data; every overlap is a positive label for the
+    DNase seq objects. Finally, to improve the prediction accuracy, we generate an
+    additional feature at each interval in the DNase-seq data—distance to a transcription
+    start site (using the GENCODE dataset). The feature is added into the training
+    examples by performing a spatial join (with a possible aggregation).'
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'We will use data from the following cell lines:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: GM12878
+  prefs: []
+  type: TYPE_NORMAL
+- en: Commonly studied lymphoblastoid cell line
+  prefs: []
+  type: TYPE_NORMAL
+- en: K562
+  prefs: []
+  type: TYPE_NORMAL
+- en: Female chronic myelogenous leukemia
+  prefs: []
+  type: TYPE_NORMAL
+- en: BJ
+  prefs: []
+  type: TYPE_NORMAL
+- en: Skin fibroblast
+  prefs: []
+  type: TYPE_NORMAL
+- en: HEK293
+  prefs: []
+  type: TYPE_NORMAL
+- en: Embryonic kidney
+  prefs: []
+  type: TYPE_NORMAL
+- en: H54
+  prefs: []
+  type: TYPE_NORMAL
+- en: Glioblastoma
+  prefs: []
+  type: TYPE_NORMAL
+- en: HepG2
+  prefs: []
+  type: TYPE_NORMAL
+- en: Hepatocellular carcinoma
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'First, we download the DNase data for each cell line in *.narrowPeak* format:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE14]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO4-1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Streaming decompression
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'Next, we download the ChIP-seq data for the CTCF TF, also in *.narrowPeak*
+    format, and the GENCODE data, in GTF format:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE15]'
+  prefs: []
+  type: TYPE_PRE
+- en: Note how we unzip the stream of data with `gunzip` on the way to depositing
+    it in our filesystem.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'From all of this raw data, we want to generate a training set with a schema
+    like the following:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Chromosome
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Start
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: End
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Distance to closest transcription start site (TSS)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: TF identity (always “CTCF” in this case)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: Cell line
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: TF binding status (boolean; the target variable)
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+- en: 'This dataset can easily be converted into a DataFrame to carry into a machine
+    learning library. Since we need to generate the data for multiple cell lines,
+    we will define a DataFrame for each cell line individually and concatenate them
+    at the end:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE16]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'We define a utility function and a broadcast variable that will be used to
+    generate the features:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE17]'
+  prefs: []
+  type: TYPE_PRE
+- en: Now that we have loaded the data necessary for defining our training examples,
+    we define the body of the “loop” for computing the data on each cell line. Note
+    how we read the text representations of the ChIP-seq and DNase data, because the
+    datasets are not so large that they will hurt performance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'To do so, we load the DNase and ChIP-seq data:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE18]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO5-1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '`FeatureDataset`'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO5-2)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Columns in Dnase DataFrame
+  prefs: []
+  type: TYPE_NORMAL
+- en: Sites that overlap a ChIP-seq peak, as defined by a `ReferenceRegion` in `chipseq_data`,
+    have TF binding sites and are therefore labeled `true`, while the rest of the
+    sites are labeled `false`. This is accomplished using the 1D spatial join primitives
+    provided in the ADAM API. The join functionality requires an RDD that is keyed
+    by a `ReferenceRegion` and will produce tuples that have overlapping regions,
+    according to usual join semantics (e.g., inner versus outer).
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE19]'
+  prefs: []
+  type: TYPE_PRE
+- en: 'Now we compute the final set of features on each DNase peak:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE20]'
+  prefs: []
+  type: TYPE_PRE
+- en: '[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO6-1)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Left join with `tss_df` created earlier.
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO6-2)'
+  prefs: []
+  type: TYPE_NORMAL
+- en: Get the closest TSS distance.
+  prefs: []
+  type: TYPE_NORMAL
+- en: 'This final DF is computed in each pass of the loop over the cell lines. Finally,
+    we union each DF from each cell line and cache this data in memory in preparation
+    for training models off of it:'
+  prefs: []
+  type: TYPE_NORMAL
+- en: '[PRE21]'
+  prefs: []
+  type: TYPE_PRE
+- en: At this point, the data in `preTrainingData` can be normalized and converted
+    into a DataFrame for training a classifier, as described in [“Random Forests”](ch04.xhtml#RandomDecisionForests).
+    Note that you should perform cross-validation, where in each fold, you hold out
+    the data from one of the cell lines.
+  prefs: []
+  type: TYPE_NORMAL
+- en: Where to Go from Here
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+- en: Many computations in genomics fit nicely into the PySpark computational paradigm.
+    When you’re performing ad hoc analysis, the most valuable contribution that projects
+    like ADAM provide is the set of Avro schemas that represents the underlying analytical
+    objects (along with the conversion tools). We saw how once data is converted into
+    the corresponding Avro schemas, many large-scale computations become relatively
+    easy to express and distribute.
+  prefs: []
+  type: TYPE_NORMAL
+- en: While there may still be a relative dearth of tools for performing scientific
+    research on PySpark, there do exist a few projects that could help avoid reinventing
+    the wheel. We explored the core functionality implemented in ADAM, but the project
+    already has implementations for the entire GATK best-practices pipeline, including
+    indel realignment, and deduplication. In addition to ADAM, the Broad Institute
+    is now developing major software projects using Spark, including the newest version
+    of the [GATK4](https://oreil.ly/hGR87) and a project called [Hail](https://oreil.ly/V6Wpl)
+    for large-scale population genetics computations. All of these tools are open
+    source, so if you start using them in your own work, please consider contributing
+    improvements!
+  prefs: []
+  type: TYPE_NORMAL
