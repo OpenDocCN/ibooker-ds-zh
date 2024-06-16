@@ -1,0 +1,325 @@
+<html><head></head><body>
+<div id="sbo-rt-content"><section data-pdf-bookmark="Chapter 24. High-Performance Pandas: eval and query" data-type="chapter" epub:type="chapter"><div class="chapter" id="section-0312-performance-eval-and-query">
+<h1><span class="label">Chapter 24. </span>High-Performance Pandas: eval and query</h1>
+<p><a data-primary="Pandas" data-secondary="eval() and query()" data-type="indexterm" id="ix_ch24-asciidoc0"/>As we’ve already seen in previous chapters, the power of the
+PyData stack is built upon the ability of NumPy and Pandas to push basic
+operations into lower-level compiled code via an intuitive higher-level
+syntax: examples are vectorized/broadcasted operations in NumPy, and
+grouping-type operations in Pandas. While these abstractions are
+efficient and effective for many common use cases, they often rely on
+the creation of temporary intermediate objects, which can cause undue
+overhead in computational time and memory use.</p>
+<p>To address this, Pandas includes some methods that allow you to directly
+access C-speed operations without costly allocation of intermediate
+arrays: <code>eval</code> and <code>query</code>, which rely on the
+<a href="https://oreil.ly/acvj5">NumExpr package</a>. In this chapter I
+will walk you through their use and give some rules of thumb about when
+you might think about using them.</p>
+<section data-pdf-bookmark="Motivating query and eval: Compound Expressions" data-type="sect1"><div class="sect1" id="ch_0312-performance-eval-and-query_motivating-query-and-eval-compound-expressions">
+<h1>Motivating query and eval: Compound Expressions</h1>
+<p><a data-primary="Pandas" data-secondary="compound expressions" data-type="indexterm" id="idm45858765383664"/>We’ve seen previously that NumPy and Pandas support fast
+vectorized operations; for example, when adding the elements of two
+arrays:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">1</code><code class="p">]:</code> <code class="kn">import</code> <code class="nn">numpy</code> <code class="k">as</code> <code class="nn">np</code>
+        <code class="n">rng</code> <code class="o">=</code> <code class="n">np</code><code class="o">.</code><code class="n">random</code><code class="o">.</code><code class="n">default_rng</code><code class="p">(</code><code class="mi">42</code><code class="p">)</code>
+        <code class="n">x</code> <code class="o">=</code> <code class="n">rng</code><code class="o">.</code><code class="n">random</code><code class="p">(</code><code class="mi">1000000</code><code class="p">)</code>
+        <code class="n">y</code> <code class="o">=</code> <code class="n">rng</code><code class="o">.</code><code class="n">random</code><code class="p">(</code><code class="mi">1000000</code><code class="p">)</code>
+        <code class="o">%</code><code class="k">timeit</code> x + y
+<code class="n">Out</code><code class="p">[</code><code class="mi">1</code><code class="p">]:</code> <code class="mf">2.21</code> <code class="n">ms</code> <code class="err">±</code> <code class="mi">142</code> <code class="n">µs</code> <code class="n">per</code> <code class="n">loop</code> <code class="p">(</code><code class="n">mean</code> <code class="err">±</code> <code class="n">std</code><code class="o">.</code> <code class="n">dev</code><code class="o">.</code> <code class="n">of</code> <code class="mi">7</code> <code class="n">runs</code><code class="p">,</code> <code class="mi">100</code> <code class="n">loops</code> <code class="n">each</code><code class="p">)</code></pre>
+<p class="pagebreak-before less_space">As discussed in
+<a data-type="xref" href="ch06.xhtml#section-0203-computation-on-arrays-ufuncs">Chapter 6</a>, this is much faster than doing the
+addition via a Python loop or comprehension:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">2</code><code class="p">]:</code> <code class="o">%</code><code class="k">timeit</code> np.fromiter((xi + yi for xi, yi in zip(x, y)),
+                            <code class="n">dtype</code><code class="o">=</code><code class="n">x</code><code class="o">.</code><code class="n">dtype</code><code class="p">,</code> <code class="n">count</code><code class="o">=</code><code class="nb">len</code><code class="p">(</code><code class="n">x</code><code class="p">))</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">2</code><code class="p">]:</code> <code class="mi">263</code> <code class="n">ms</code> <code class="err">±</code> <code class="mf">43.4</code> <code class="n">ms</code> <code class="n">per</code> <code class="n">loop</code> <code class="p">(</code><code class="n">mean</code> <code class="err">±</code> <code class="n">std</code><code class="o">.</code> <code class="n">dev</code><code class="o">.</code> <code class="n">of</code> <code class="mi">7</code> <code class="n">runs</code><code class="p">,</code> <code class="mi">1</code> <code class="n">loop</code> <code class="n">each</code><code class="p">)</code></pre>
+<p>But this abstraction can become less efficient when computing compound
+expressions. For example, consider the following expression:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">3</code><code class="p">]:</code> <code class="n">mask</code> <code class="o">=</code> <code class="p">(</code><code class="n">x</code> <code class="o">&gt;</code> <code class="mf">0.5</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">y</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)</code></pre>
+<p>Because NumPy evaluates each subexpression, this is roughly equivalent
+to the following:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">4</code><code class="p">]:</code> <code class="n">tmp1</code> <code class="o">=</code> <code class="p">(</code><code class="n">x</code> <code class="o">&gt;</code> <code class="mf">0.5</code><code class="p">)</code>
+        <code class="n">tmp2</code> <code class="o">=</code> <code class="p">(</code><code class="n">y</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)</code>
+        <code class="n">mask</code> <code class="o">=</code> <code class="n">tmp1</code> <code class="o">&amp;</code> <code class="n">tmp2</code></pre>
+<p>In other words, <em>every intermediate step is explicitly allocated in
+memory</em>. If the <code>x</code> and <code>y</code> arrays are very large, this can lead to
+significant memory and computational overhead. The NumExpr library gives
+you the ability to compute this type of compound expression element by
+element, without the need to allocate full intermediate arrays. The
+<a href="https://oreil.ly/acvj5">NumExpr documentation</a> has more
+details, but for the time being it is sufficient to say that the library
+accepts a <em>string</em> giving the NumPy-style expression you’d
+like to compute:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">5</code><code class="p">]:</code> <code class="kn">import</code> <code class="nn">numexpr</code>
+        <code class="n">mask_numexpr</code> <code class="o">=</code> <code class="n">numexpr</code><code class="o">.</code><code class="n">evaluate</code><code class="p">(</code><code class="s1">'(x &gt; 0.5) &amp; (y &lt; 0.5)'</code><code class="p">)</code>
+        <code class="n">np</code><code class="o">.</code><code class="n">all</code><code class="p">(</code><code class="n">mask</code> <code class="o">==</code> <code class="n">mask_numexpr</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">5</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>The benefit here is that NumExpr evaluates the expression in a way that
+avoids temporary arrays where possible, and thus can be much more
+efficient than NumPy, especially for long sequences of computations on
+large arrays. The Pandas <code>eval</code> and <code>query</code> tools that we will discuss
+here are conceptually similar, and are essentially Pandas-specific
+wrappers of NumExpr functionality.</p>
+</div></section>
+<section data-pdf-bookmark="pandas.eval for Efficient Operations" data-type="sect1"><div class="sect1" id="ch_0312-performance-eval-and-query_pandas.eval-for-efficient-operations">
+<h1>pandas.eval for Efficient Operations</h1>
+<p><a data-primary="eval() function" data-type="indexterm" id="ix_ch24-asciidoc1"/>The <code>eval</code> <a data-primary="pandas.eval() function" data-type="indexterm" id="ix_ch24-asciidoc2"/>function in Pandas uses string expressions to efficiently
+compute operations on <code>DataFrame</code> objects. For example, consider the
+following data:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">6</code><code class="p">]:</code> <code class="kn">import</code> <code class="nn">pandas</code> <code class="k">as</code> <code class="nn">pd</code>
+        <code class="n">nrows</code><code class="p">,</code> <code class="n">ncols</code> <code class="o">=</code> <code class="mi">100000</code><code class="p">,</code> <code class="mi">100</code>
+        <code class="n">df1</code><code class="p">,</code> <code class="n">df2</code><code class="p">,</code> <code class="n">df3</code><code class="p">,</code> <code class="n">df4</code> <code class="o">=</code> <code class="p">(</code><code class="n">pd</code><code class="o">.</code><code class="n">DataFrame</code><code class="p">(</code><code class="n">rng</code><code class="o">.</code><code class="n">random</code><code class="p">((</code><code class="n">nrows</code><code class="p">,</code> <code class="n">ncols</code><code class="p">)))</code>
+                              <code class="k">for</code> <code class="n">i</code> <code class="ow">in</code> <code class="nb">range</code><code class="p">(</code><code class="mi">4</code><code class="p">))</code></pre>
+<p>To compute the sum of all four <code>DataFrame</code>s using the typical Pandas
+approach, we can just write the sum:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">7</code><code class="p">]:</code> <code class="o">%</code><code class="k">timeit</code> df1 + df2 + df3 + df4
+<code class="n">Out</code><code class="p">[</code><code class="mi">7</code><code class="p">]:</code> <code class="mf">73.2</code> <code class="n">ms</code> <code class="err">±</code> <code class="mf">6.72</code> <code class="n">ms</code> <code class="n">per</code> <code class="n">loop</code> <code class="p">(</code><code class="n">mean</code> <code class="err">±</code> <code class="n">std</code><code class="o">.</code> <code class="n">dev</code><code class="o">.</code> <code class="n">of</code> <code class="mi">7</code> <code class="n">runs</code><code class="p">,</code> <code class="mi">10</code> <code class="n">loops</code> <code class="n">each</code><code class="p">)</code></pre>
+<p><a data-primary="eval() function" data-secondary="pd.eval() function and" data-type="indexterm" id="ix_ch24-asciidoc3"/><a data-primary="pd.eval() function" data-type="indexterm" id="ix_ch24-asciidoc4"/>The same result can be computed via <code>pd.eval</code> by constructing the
+expression as a string:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">8</code><code class="p">]:</code> <code class="o">%</code><code class="k">timeit</code> pd.eval('df1 + df2 + df3 + df4')
+<code class="n">Out</code><code class="p">[</code><code class="mi">8</code><code class="p">]:</code> <code class="mi">34</code> <code class="n">ms</code> <code class="err">±</code> <code class="mf">4.2</code> <code class="n">ms</code> <code class="n">per</code> <code class="n">loop</code> <code class="p">(</code><code class="n">mean</code> <code class="err">±</code> <code class="n">std</code><code class="o">.</code> <code class="n">dev</code><code class="o">.</code> <code class="n">of</code> <code class="mi">7</code> <code class="n">runs</code><code class="p">,</code> <code class="mi">10</code> <code class="n">loops</code> <code class="n">each</code><code class="p">)</code></pre>
+<p>The <code>eval</code> version of this expression is about 50% faster (and uses much
+less memory), while giving the same result:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">9</code><code class="p">]:</code> <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">df1</code> <code class="o">+</code> <code class="n">df2</code> <code class="o">+</code> <code class="n">df3</code> <code class="o">+</code> <code class="n">df4</code><code class="p">,</code>
+                    <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'df1 + df2 + df3 + df4'</code><code class="p">))</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">9</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p><code>pd.eval</code> supports a wide range of operations. To demonstrate these,
+we’ll use the following integer data:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">10</code><code class="p">]:</code> <code class="n">df1</code><code class="p">,</code> <code class="n">df2</code><code class="p">,</code> <code class="n">df3</code><code class="p">,</code> <code class="n">df4</code><code class="p">,</code> <code class="n">df5</code> <code class="o">=</code> <code class="p">(</code><code class="n">pd</code><code class="o">.</code><code class="n">DataFrame</code><code class="p">(</code><code class="n">rng</code><code class="o">.</code><code class="n">integers</code><code class="p">(</code><code class="mi">0</code><code class="p">,</code> <code class="mi">1000</code><code class="p">,</code> <code class="p">(</code><code class="mi">100</code><code class="p">,</code> <code class="mi">3</code><code class="p">)))</code>
+                                    <code class="k">for</code> <code class="n">i</code> <code class="ow">in</code> <code class="nb">range</code><code class="p">(</code><code class="mi">5</code><code class="p">))</code></pre>
+<p>Here’s a summary of the operations <code>pd.eval</code> supports:</p>
+<dl>
+<dt>Arithmetic operators</dt>
+<dd>
+<p><code>pd.eval</code> supports all arithmetic operators. For example:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">11</code><code class="p">]:</code> <code class="n">result1</code> <code class="o">=</code> <code class="o">-</code><code class="n">df1</code> <code class="o">*</code> <code class="n">df2</code> <code class="o">/</code> <code class="p">(</code><code class="n">df3</code> <code class="o">+</code> <code class="n">df4</code><code class="p">)</code> <code class="o">-</code> <code class="n">df5</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'-df1 * df2 / (df3 + df4) - df5'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">11</code><code class="p">]:</code> <code class="kc">True</code></pre>
+</dd>
+<dt>Comparison operators</dt>
+<dd>
+<p><code>pd.eval</code> supports all comparison operators, including chained
+expressions:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">12</code><code class="p">]:</code> <code class="n">result1</code> <code class="o">=</code> <code class="p">(</code><code class="n">df1</code> <code class="o">&lt;</code> <code class="n">df2</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">df2</code> <code class="o">&lt;=</code> <code class="n">df3</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">df3</code> <code class="o">!=</code> <code class="n">df4</code><code class="p">)</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'df1 &lt; df2 &lt;= df3 != df4'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">12</code><code class="p">]:</code> <code class="kc">True</code></pre>
+</dd>
+<dt>Bitwise operators</dt>
+<dd>
+<p><code>pd.eval</code> supports the <code>&amp;</code> and <code>|</code> bitwise operators:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">13</code><code class="p">]:</code> <code class="n">result1</code> <code class="o">=</code> <code class="p">(</code><code class="n">df1</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">df2</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)</code> <code class="o">|</code> <code class="p">(</code><code class="n">df3</code> <code class="o">&lt;</code> <code class="n">df4</code><code class="p">)</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'(df1 &lt; 0.5) &amp; (df2 &lt; 0.5) | (df3 &lt; df4)'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">13</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>In addition, it supports the use of the literal <code>and</code> and <code>or</code> in
+Boolean expressions:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">14</code><code class="p">]:</code> <code class="n">result3</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'(df1 &lt; 0.5) and (df2 &lt; 0.5) or (df3 &lt; df4)'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result3</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">14</code><code class="p">]:</code> <code class="kc">True</code></pre>
+</dd>
+<dt>Object attributes and indices</dt>
+<dd>
+<p><code>pd.eval</code> supports access to object attributes via the <code>obj.attr</code> syntax
+and indexes via the <code>obj[index]</code> syntax:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">15</code><code class="p">]:</code> <code class="n">result1</code> <code class="o">=</code> <code class="n">df2</code><code class="o">.</code><code class="n">T</code><code class="p">[</code><code class="mi">0</code><code class="p">]</code> <code class="o">+</code> <code class="n">df3</code><code class="o">.</code><code class="n">iloc</code><code class="p">[</code><code class="mi">1</code><code class="p">]</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'df2.T[0] + df3.iloc[1]'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">15</code><code class="p">]:</code> <code class="kc">True</code></pre>
+</dd>
+<dt>Other operations</dt>
+<dd>
+<p>Other operations, such as function calls, conditional statements, loops,
+and other more involved constructs are currently <em>not</em> implemented in
+<code>pd.eval</code>. If you’d like to execute these more complicated
+types of expressions, you can use the NumExpr library itself.<a data-startref="ix_ch24-asciidoc4" data-type="indexterm" id="idm45858764396608"/></p>
+</dd>
+</dl>
+</div></section>
+<section data-pdf-bookmark="DataFrame.eval for Column-Wise Operations" data-type="sect1"><div class="sect1" id="ch_0312-performance-eval-and-query_dataframe.eval-for-column-wise-operations">
+<h1>DataFrame.eval for Column-Wise Operations</h1>
+<p><a data-primary="column-wise operations" data-type="indexterm" id="ix_ch24-asciidoc5"/><a data-primary="DataFrame.eval() method" data-type="indexterm" id="ix_ch24-asciidoc6"/><a data-primary="eval() function" data-secondary="DataFrame.eval() method and" data-type="indexterm" id="ix_ch24-asciidoc7"/>Just as Pandas has a top-level <code>pd.eval</code> function, <code>DataFrame</code> objects
+have an <code>eval</code> method that works in similar ways. The benefit of the
+<code>eval</code> method is that columns can be referred to by name.
+We’ll use this labeled array as an example:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">16</code><code class="p">]:</code> <code class="n">df</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">DataFrame</code><code class="p">(</code><code class="n">rng</code><code class="o">.</code><code class="n">random</code><code class="p">((</code><code class="mi">1000</code><code class="p">,</code> <code class="mi">3</code><code class="p">)),</code> <code class="n">columns</code><code class="o">=</code><code class="p">[</code><code class="s1">'A'</code><code class="p">,</code> <code class="s1">'B'</code><code class="p">,</code> <code class="s1">'C'</code><code class="p">])</code>
+         <code class="n">df</code><code class="o">.</code><code class="n">head</code><code class="p">()</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">16</code><code class="p">]:</code>           <code class="n">A</code>         <code class="n">B</code>         <code class="n">C</code>
+         <code class="mi">0</code>  <code class="mf">0.850888</code>  <code class="mf">0.966709</code>  <code class="mf">0.958690</code>
+         <code class="mi">1</code>  <code class="mf">0.820126</code>  <code class="mf">0.385686</code>  <code class="mf">0.061402</code>
+         <code class="mi">2</code>  <code class="mf">0.059729</code>  <code class="mf">0.831768</code>  <code class="mf">0.652259</code>
+         <code class="mi">3</code>  <code class="mf">0.244774</code>  <code class="mf">0.140322</code>  <code class="mf">0.041711</code>
+         <code class="mi">4</code>  <code class="mf">0.818205</code>  <code class="mf">0.753384</code>  <code class="mf">0.578851</code></pre>
+<p>Using <code>pd.eval</code> as in the previous section, we can compute expressions
+with the three columns like this:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">17</code><code class="p">]:</code> <code class="n">result1</code> <code class="o">=</code> <code class="p">(</code><code class="n">df</code><code class="p">[</code><code class="s1">'A'</code><code class="p">]</code> <code class="o">+</code> <code class="n">df</code><code class="p">[</code><code class="s1">'B'</code><code class="p">])</code> <code class="o">/</code> <code class="p">(</code><code class="n">df</code><code class="p">[</code><code class="s1">'C'</code><code class="p">]</code> <code class="o">-</code> <code class="mi">1</code><code class="p">)</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s2">"(df.A + df.B) / (df.C - 1)"</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">17</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>The <code>DataFrame.eval</code> method allows much more succinct evaluation of
+expressions with the columns:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">18</code><code class="p">]:</code> <code class="n">result3</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'(A + B) / (C - 1)'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result3</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">18</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>Notice here that we treat <em>column names as variables</em> within the
+evaluated expression, and the result is what we would wish.</p>
+<section data-pdf-bookmark="Assignment in DataFrame.eval" data-type="sect2"><div class="sect2" id="ch_0312-performance-eval-and-query_assignment-in-dataframe.eval">
+<h2>Assignment in DataFrame.eval</h2>
+<p><a data-primary="DataFrame.eval() method" data-secondary="assignment in" data-type="indexterm" id="idm45858764133424"/>In addition to the options just discussed, <code>DataFrame.eval</code> also allows
+assignment to any column. Let’s use the <code>DataFrame</code> from
+before, which has columns <code>'A'</code>,
+<code>'B'</code>, and <code>'C'</code>:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">19</code><code class="p">]:</code> <code class="n">df</code><code class="o">.</code><code class="n">head</code><code class="p">()</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">19</code><code class="p">]:</code>           <code class="n">A</code>         <code class="n">B</code>         <code class="n">C</code>
+         <code class="mi">0</code>  <code class="mf">0.850888</code>  <code class="mf">0.966709</code>  <code class="mf">0.958690</code>
+         <code class="mi">1</code>  <code class="mf">0.820126</code>  <code class="mf">0.385686</code>  <code class="mf">0.061402</code>
+         <code class="mi">2</code>  <code class="mf">0.059729</code>  <code class="mf">0.831768</code>  <code class="mf">0.652259</code>
+         <code class="mi">3</code>  <code class="mf">0.244774</code>  <code class="mf">0.140322</code>  <code class="mf">0.041711</code>
+         <code class="mi">4</code>  <code class="mf">0.818205</code>  <code class="mf">0.753384</code>  <code class="mf">0.578851</code></pre>
+<p>We can use <code>df.eval</code> to create a new column
+<code>'D'</code> and assign to it a value computed from the
+other columns:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">20</code><code class="p">]:</code> <code class="n">df</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'D = (A + B) / C'</code><code class="p">,</code> <code class="n">inplace</code><code class="o">=</code><code class="kc">True</code><code class="p">)</code>
+         <code class="n">df</code><code class="o">.</code><code class="n">head</code><code class="p">()</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">20</code><code class="p">]:</code>           <code class="n">A</code>         <code class="n">B</code>         <code class="n">C</code>          <code class="n">D</code>
+         <code class="mi">0</code>  <code class="mf">0.850888</code>  <code class="mf">0.966709</code>  <code class="mf">0.958690</code>   <code class="mf">1.895916</code>
+         <code class="mi">1</code>  <code class="mf">0.820126</code>  <code class="mf">0.385686</code>  <code class="mf">0.061402</code>  <code class="mf">19.638139</code>
+         <code class="mi">2</code>  <code class="mf">0.059729</code>  <code class="mf">0.831768</code>  <code class="mf">0.652259</code>   <code class="mf">1.366782</code>
+         <code class="mi">3</code>  <code class="mf">0.244774</code>  <code class="mf">0.140322</code>  <code class="mf">0.041711</code>   <code class="mf">9.232370</code>
+         <code class="mi">4</code>  <code class="mf">0.818205</code>  <code class="mf">0.753384</code>  <code class="mf">0.578851</code>   <code class="mf">2.715013</code></pre>
+<p>In the same way, any existing column can be modified:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">21</code><code class="p">]:</code> <code class="n">df</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'D = (A - B) / C'</code><code class="p">,</code> <code class="n">inplace</code><code class="o">=</code><code class="kc">True</code><code class="p">)</code>
+         <code class="n">df</code><code class="o">.</code><code class="n">head</code><code class="p">()</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">21</code><code class="p">]:</code>           <code class="n">A</code>         <code class="n">B</code>         <code class="n">C</code>         <code class="n">D</code>
+         <code class="mi">0</code>  <code class="mf">0.850888</code>  <code class="mf">0.966709</code>  <code class="mf">0.958690</code> <code class="o">-</code><code class="mf">0.120812</code>
+         <code class="mi">1</code>  <code class="mf">0.820126</code>  <code class="mf">0.385686</code>  <code class="mf">0.061402</code>  <code class="mf">7.075399</code>
+         <code class="mi">2</code>  <code class="mf">0.059729</code>  <code class="mf">0.831768</code>  <code class="mf">0.652259</code> <code class="o">-</code><code class="mf">1.183638</code>
+         <code class="mi">3</code>  <code class="mf">0.244774</code>  <code class="mf">0.140322</code>  <code class="mf">0.041711</code>  <code class="mf">2.504142</code>
+         <code class="mi">4</code>  <code class="mf">0.818205</code>  <code class="mf">0.753384</code>  <code class="mf">0.578851</code>  <code class="mf">0.111982</code></pre>
+</div></section>
+<section data-pdf-bookmark="Local Variables in DataFrame.eval" data-type="sect2"><div class="sect2" id="ch_0312-performance-eval-and-query_local-variables-in-dataframe.eval">
+<h2>Local Variables in DataFrame.eval</h2>
+<p><a data-primary="DataFrame.eval() method" data-secondary="local variables in" data-type="indexterm" id="idm45858763881792"/>The <code>DataFrame.eval</code> method supports an additional syntax that lets it
+work with local Python variables. Consider the following:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">22</code><code class="p">]:</code> <code class="n">column_mean</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">mean</code><code class="p">(</code><code class="mi">1</code><code class="p">)</code>
+         <code class="n">result1</code> <code class="o">=</code> <code class="n">df</code><code class="p">[</code><code class="s1">'A'</code><code class="p">]</code> <code class="o">+</code> <code class="n">column_mean</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'A + @column_mean'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">22</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>The <code>@</code> character here marks a <em>variable name</em> rather than a <em>column
+name</em>, and lets you efficiently evaluate expressions involving the two
+“namespaces”: the namespace of columns, and the namespace of Python
+objects. Notice that this <code>@</code> character is only supported by the
+<code>DataFrame.eval</code> <em>method</em>, not by the <code>pandas.eval</code> <em>function</em>, because
+the <code>pandas.eval</code> function only has access to the one (Python)
+namespace<a data-startref="ix_ch24-asciidoc7" data-type="indexterm" id="idm45858763805296"/><a data-startref="ix_ch24-asciidoc6" data-type="indexterm" id="idm45858763804592"/><a data-startref="ix_ch24-asciidoc5" data-type="indexterm" id="idm45858763803920"/><a data-startref="ix_ch24-asciidoc3" data-type="indexterm" id="idm45858763803248"/><a data-startref="ix_ch24-asciidoc2" data-type="indexterm" id="idm45858763802576"/>.<a data-startref="ix_ch24-asciidoc1" data-type="indexterm" id="idm45858763800576"/></p>
+</div></section>
+</div></section>
+<section data-pdf-bookmark="The DataFrame.query Method" data-type="sect1"><div class="sect1" id="ch_0312-performance-eval-and-query_the-dataframe.query-method">
+<h1>The DataFrame.query Method</h1>
+<p><a data-primary="DataFrame.query() method" data-type="indexterm" id="idm45858763798608"/><a data-primary="query() method" data-secondary="DataFrame.query() method" data-type="indexterm" id="idm45858763798000"/>The <code>DataFrame</code> has another method based on evaluated strings, called
+<code>query</code>. Consider the following:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">23</code><code class="p">]:</code> <code class="n">result1</code> <code class="o">=</code> <code class="n">df</code><code class="p">[(</code><code class="n">df</code><code class="o">.</code><code class="n">A</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">df</code><code class="o">.</code><code class="n">B</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)]</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">pd</code><code class="o">.</code><code class="n">eval</code><code class="p">(</code><code class="s1">'df[(df.A &lt; 0.5) &amp; (df.B &lt; 0.5)]'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">23</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>As with the example used in our discussion of <code>DataFrame.eval</code>, this is
+an expression involving columns of the <code>DataFrame</code>. However, it cannot
+be expressed using the <code>DataFrame.eval</code> syntax! Instead, for this type
+of filtering operation, you can use the <code>query</code> method:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">24</code><code class="p">]:</code> <code class="n">result2</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">query</code><code class="p">(</code><code class="s1">'A &lt; 0.5 and B &lt; 0.5'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">24</code><code class="p">]:</code> <code class="kc">True</code></pre>
+<p>In addition to being a more efficient computation, compared to the
+masking expression this is much easier to read and understand. Note that
+the <code>query</code> method also accepts the <code>@</code> flag to mark local variables:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">25</code><code class="p">]:</code> <code class="n">Cmean</code> <code class="o">=</code> <code class="n">df</code><code class="p">[</code><code class="s1">'C'</code><code class="p">]</code><code class="o">.</code><code class="n">mean</code><code class="p">()</code>
+         <code class="n">result1</code> <code class="o">=</code> <code class="n">df</code><code class="p">[(</code><code class="n">df</code><code class="o">.</code><code class="n">A</code> <code class="o">&lt;</code> <code class="n">Cmean</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">df</code><code class="o">.</code><code class="n">B</code> <code class="o">&lt;</code> <code class="n">Cmean</code><code class="p">)]</code>
+         <code class="n">result2</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">query</code><code class="p">(</code><code class="s1">'A &lt; @Cmean and B &lt; @Cmean'</code><code class="p">)</code>
+         <code class="n">np</code><code class="o">.</code><code class="n">allclose</code><code class="p">(</code><code class="n">result1</code><code class="p">,</code> <code class="n">result2</code><code class="p">)</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">25</code><code class="p">]:</code> <code class="kc">True</code></pre>
+</div></section>
+<section data-pdf-bookmark="Performance: When to Use These Functions" data-type="sect1"><div class="sect1" id="ch_0312-performance-eval-and-query_performance-when-to-use-these-functions">
+<h1>Performance: When to Use These Functions</h1>
+<p><a data-primary="eval() function" data-secondary="when to use" data-type="indexterm" id="idm45858763623584"/><a data-primary="query() method" data-secondary="when to use" data-type="indexterm" id="idm45858763622416"/>When considering whether to use <code>eval</code> and <code>query</code>, there are two
+considerations: <em>computation time</em> and <em>memory use</em>. Memory use is the
+most predictable aspect. As already mentioned, every compound expression
+involving NumPy arrays or Pandas <code>DataFrame</code>s will result in implicit
+creation of temporary arrays. For example, this:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">26</code><code class="p">]:</code> <code class="n">x</code> <code class="o">=</code> <code class="n">df</code><code class="p">[(</code><code class="n">df</code><code class="o">.</code><code class="n">A</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)</code> <code class="o">&amp;</code> <code class="p">(</code><code class="n">df</code><code class="o">.</code><code class="n">B</code> <code class="o">&lt;</code> <code class="mf">0.5</code><code class="p">)]</code></pre>
+<p>is roughly equivalent to this:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">27</code><code class="p">]:</code> <code class="n">tmp1</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">A</code> <code class="o">&lt;</code> <code class="mf">0.5</code>
+         <code class="n">tmp2</code> <code class="o">=</code> <code class="n">df</code><code class="o">.</code><code class="n">B</code> <code class="o">&lt;</code> <code class="mf">0.5</code>
+         <code class="n">tmp3</code> <code class="o">=</code> <code class="n">tmp1</code> <code class="o">&amp;</code> <code class="n">tmp2</code>
+         <code class="n">x</code> <code class="o">=</code> <code class="n">df</code><code class="p">[</code><code class="n">tmp3</code><code class="p">]</code></pre>
+<p class="pagebreak-before less_space">If the size of the temporary <code>DataFrame</code>s is significant compared to
+your available system memory (typically several gigabytes), then
+it’s a good idea to use an <code>eval</code> or <code>query</code> expression. You
+can check the approximate size of your array in bytes using this:</p>
+<pre data-code-language="ipython" data-type="programlisting"><code class="n">In</code> <code class="p">[</code><code class="mi">28</code><code class="p">]:</code> <code class="n">df</code><code class="o">.</code><code class="n">values</code><code class="o">.</code><code class="n">nbytes</code>
+<code class="n">Out</code><code class="p">[</code><code class="mi">28</code><code class="p">]:</code> <code class="mi">32000</code></pre>
+<p>On the performance side, <code>eval</code> can be faster even when you are not
+maxing out your system memory. The issue is how your temporary objects
+compare to the size of the L1 or L2 CPU cache on your system (typically
+a few megabytes); if they are much bigger, then <code>eval</code> can avoid some
+potentially slow movement of values between the different memory caches.
+In practice, I find that the difference in computation time between the
+traditional methods and the <code>eval</code>/<code>query</code> method is usually not
+significant—if anything, the traditional method is faster for smaller
+arrays! The benefit of <code>eval</code>/<code>query</code> is mainly in the saved memory, and
+the sometimes cleaner syntax they offer.</p>
+<p>We’ve covered most of the details of <code>eval</code> and <code>query</code>
+here; for more information on these, you can refer to the Pandas
+documentation. In particular, different parsers and engines can be
+specified for running these queries; for details on this, see the
+discussion within the
+<a href="https://oreil.ly/DHNy8">“Enhancing
+Performance” section</a> of the 
+<span class="keep-together">documentation</span>.<a data-startref="ix_ch24-asciidoc0" data-type="indexterm" id="idm45858763447680"/></p>
+</div></section>
+<section data-pdf-bookmark="Further Resources" data-type="sect1"><div class="sect1" id="section-0313-further-resources">
+<h1>Further Resources</h1>
+<p>In this part of the book, we’ve covered many of the basics
+of using Pandas effectively for data analysis. Still, much has been
+omitted from our discussion. To learn more about Pandas, I recommend the
+following resources:</p>
+<dl>
+<dt><a href="http://pandas.pydata.org">Pandas online documentation</a></dt>
+<dd>
+<p>This is the
+go-to source for complete documentation of the package. While the
+examples in the documentation tend to be based on small generated
+datasets, the description of the options is complete and generally very
+useful for understanding the use of various functions.</p>
+</dd>
+<dt><a href="https://oreil.ly/0hdsf"><em>Python for Data Analysis</em></a></dt>
+<dd>
+<p>Written by Wes McKinney (the original creator of
+Pandas), this book contains much more detail on the Pandas package than
+we had room for in this chapter. In particular, McKinney takes a deep
+dive into tools for time series, which were his bread and butter as a
+financial consultant. The book also has many entertaining examples of
+applying Pandas to gain insight from real-world datasets.</p>
+</dd>
+</dl>
+<dl class="pagebreak-before less_space">
+<dt><a href="https://oreil.ly/cn1ls"><em>Effective Pandas</em></a></dt>
+<dd>
+<p>This short
+ebook by Pandas developer Tom Augspurger provides a succinct outline of
+using the full power of the Pandas library in an effective and idiomatic
+way.</p>
+</dd>
+<dt><a href="https://oreil.ly/mh4wI">Pandas on PyVideo</a></dt>
+<dd>
+<p>From PyCon to
+SciPy to PyData, many conferences have featured tutorials by Pandas
+developers and power users. The PyCon tutorials in particular tend to be
+given by very well-vetted presenters.</p>
+</dd>
+</dl>
+<p>Using these resources, combined with the walkthrough given in these
+chapters, my hope is that you’ll be poised to use Pandas to
+tackle any data analysis problem you come across!</p>
+</div></section>
+</div></section></div></body></html>
