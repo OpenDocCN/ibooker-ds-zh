@@ -1,6 +1,6 @@
-# Python 入门指南
+# 现代数据科学家 Python 与 R 指南
 
-> 原文：[`zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92`](https://zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92)
+> 原文：[`zh.annas-archive.org/md5/7d2468ffba808f16fc49f377a169de98`](https://zh.annas-archive.org/md5/7d2468ffba808f16fc49f377a169de98)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

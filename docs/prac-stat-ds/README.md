@@ -1,6 +1,6 @@
-# Python 入门指南
+# 数据科学家的统计学实践指南
 
-> 原文：[`zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92`](https://zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92)
+> 原文：[`zh.annas-archive.org/md5/7cc7f5be94b748e6ecbe5eff5ff3ee97`](https://zh.annas-archive.org/md5/7cc7f5be94b748e6ecbe5eff5ff3ee97)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

@@ -1,6 +1,6 @@
-# Python 入门指南
+# Python 地理空间数据分析
 
-> 原文：[`zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92`](https://zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92)
+> 原文：[`zh.annas-archive.org/md5/1e5dd3cb52782f4aa8fc65ed40d9831a`](https://zh.annas-archive.org/md5/1e5dd3cb52782f4aa8fc65ed40d9831a)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

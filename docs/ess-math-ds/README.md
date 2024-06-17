@@ -1,6 +1,6 @@
-# Python 入门指南
+# 数据科学的数学基础
 
-> 原文：[`zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92`](https://zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92)
+> 原文：[`zh.annas-archive.org/md5/773ab81070b00a4b488f78c66a458af9`](https://zh.annas-archive.org/md5/773ab81070b00a4b488f78c66a458af9)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 

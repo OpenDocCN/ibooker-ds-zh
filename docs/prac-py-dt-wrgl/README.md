@@ -1,6 +1,6 @@
-# Python 入门指南
+# Python 数据清理和质量实践指南
 
-> 原文：[`zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92`](https://zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92)
+> 原文：[`zh.annas-archive.org/md5/315665282b94c575115c21732f961f1e`](https://zh.annas-archive.org/md5/315665282b94c575115c21732f961f1e)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 
