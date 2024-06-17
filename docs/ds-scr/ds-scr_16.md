@@ -1,4 +1,4 @@
-# 第15章。多元回归
+# 第十五章：多元回归
 
 > 我不会看着问题并在里面加入不影响它的变量。
 > 
@@ -10,11 +10,11 @@
 
 <math alttext="minutes equals alpha plus beta 1 friends plus beta 2 work hours plus beta 3 phd plus epsilon" display="block"><mrow><mtext>minutes</mtext> <mo>=</mo> <mi>α</mi> <mo>+</mo> <msub><mi>β</mi> <mn>1</mn></msub> <mtext>friends</mtext> <mo>+</mo> <msub><mi>β</mi> <mn>2</mn></msub> <mtext>work</mtext> <mtext>hours</mtext> <mo>+</mo> <msub><mi>β</mi> <mn>3</mn></msub> <mtext>phd</mtext> <mo>+</mo> <mi>ε</mi></mrow></math>
 
-显然，用户是否拥有博士学位不是一个数字——但是，正如我们在[第11章](ch11.html#machine_learning)中提到的，我们可以引入一个*虚拟变量*，对于拥有博士学位的用户设为1，没有的设为0，之后它与其他变量一样是数值化的。
+显然，用户是否拥有博士学位不是一个数字——但是，正如我们在第十一章中提到的，我们可以引入一个*虚拟变量*，对于拥有博士学位的用户设为 1，没有的设为 0，之后它与其他变量一样是数值化的。
 
 # 模型
 
-回想一下，在[第14章](ch14.html#simple_linear_regression)中，我们拟合了一个形式为：
+回想一下，在第十四章中，我们拟合了一个形式为：
 
 <math alttext="y Subscript i Baseline equals alpha plus beta x Subscript i Baseline plus epsilon Subscript i" display="block"><mrow><msub><mi>y</mi> <mi>i</mi></msub> <mo>=</mo> <mi>α</mi> <mo>+</mo> <mi>β</mi> <msub><mi>x</mi> <mi>i</mi></msub> <mo>+</mo> <msub><mi>ε</mi> <mi>i</mi></msub></mrow></math>
 
@@ -22,7 +22,7 @@
 
 <math alttext="y Subscript i Baseline equals alpha plus beta 1 x Subscript i Baseline 1 Baseline plus period period period plus beta Subscript k Baseline x Subscript i k Baseline plus epsilon Subscript i Baseline" display="block"><mrow><msub><mi>y</mi> <mi>i</mi></msub> <mo>=</mo> <mi>α</mi> <mo>+</mo> <msub><mi>β</mi> <mn>1</mn></msub> <msub><mi>x</mi> <mrow><mi>i</mi><mn>1</mn></mrow></msub> <mo>+</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo> <mo>+</mo> <msub><mi>β</mi> <mi>k</mi></msub> <msub><mi>x</mi> <mrow><mi>i</mi><mi>k</mi></mrow></msub> <mo>+</mo> <msub><mi>ε</mi> <mi>i</mi></msub></mrow></math>
 
-在多元回归中，参数向量通常称为*β*。我们希望这个向量包括常数项，可以通过在数据中添加一列1来实现：
+在多元回归中，参数向量通常称为*β*。我们希望这个向量包括常数项，可以通过在数据中添加一列 1 来实现：
 
 ```py
 beta = [alpha, beta_1, ..., beta_k]
@@ -63,7 +63,7 @@ def predict(x: Vector, beta: Vector) -> float:
 
 第二个重要假设是*x*的列与误差<math><mi>ε</mi></math>不相关。如果这一点不成立，我们对`beta`的估计将会系统错误。
 
-例如，在[第14章](ch14.html#simple_linear_regression)中，我们建立了一个模型，预测每增加一个朋友与额外0.90分钟的网站使用时间相关。
+例如，在第十四章中，我们建立了一个模型，预测每增加一个朋友与额外 0.90 分钟的网站使用时间相关。
 
 想象也是这种情况：
 
@@ -87,7 +87,7 @@ def predict(x: Vector, beta: Vector) -> float:
 
 # 拟合模型
 
-就像我们在简单线性模型中所做的那样，我们会选择`beta`来最小化平方误差的和。手动找到一个确切的解决方案并不容易，这意味着我们需要使用梯度下降法。同样，我们希望最小化平方误差的和。误差函数与我们在[第14章](ch14.html#simple_linear_regression)中使用的几乎完全相同，只是不再期望参数`[alpha, beta]`，而是会接受任意长度的向量：
+就像我们在简单线性模型中所做的那样，我们会选择`beta`来最小化平方误差的和。手动找到一个确切的解决方案并不容易，这意味着我们需要使用梯度下降法。同样，我们希望最小化平方误差的和。误差函数与我们在第十四章中使用的几乎完全相同，只是不再期望参数`[alpha, beta]`，而是会接受任意长度的向量：
 
 ```py
 from typing import List
@@ -186,7 +186,7 @@ assert  0.91 < beta[3] <  0.94  # has PhD
 
 # 拟合优度
 
-再次我们可以看一下R平方：
+再次我们可以看一下 R 平方：
 
 ```py
 from scratch.simple_linear_regression import total_sum_of_squares
@@ -197,17 +197,17 @@ def multiple_r_squared(xs: List[Vector], ys: Vector, beta: Vector) -> float:
     return 1.0 - sum_of_squared_errors / total_sum_of_squares(ys)
 ```
 
-现在已经增加到0.68：
+现在已经增加到 0.68：
 
 ```py
 assert 0.67 < multiple_r_squared(inputs, daily_minutes_good, beta) < 0.68
 ```
 
-请记住，然而，向回归中添加新变量*必然*会增加R平方。毕竟，简单回归模型只是多重回归模型的特殊情况，其中“工作时间”和“博士学位”的系数都等于0。最佳的多重回归模型将至少有一个与该模型一样小的误差。
+请记住，然而，向回归中添加新变量*必然*会增加 R 平方。毕竟，简单回归模型只是多重回归模型的特殊情况，其中“工作时间”和“博士学位”的系数都等于 0。最佳的多重回归模型将至少有一个与该模型一样小的误差。
 
 因此，在多重回归中，我们还需要看看系数的*标准误差*，这些标准误差衡量我们对每个<math><msub><mi>β</mi> <mi>i</mi></msub></math>的估计有多确定。整体回归可能非常适合我们的数据，但如果一些自变量相关（或不相关），它们的系数可能意义不大。
 
-测量这些误差的典型方法始于另一个假设——误差<math><msub><mi>ε</mi> <mi>i</mi></msub></math>是独立的正态随机变量，均值为0，有一些共享的（未知）标准偏差<math><mi>σ</mi></math>。在这种情况下，我们（或者更可能是我们的统计软件）可以使用一些线性代数来找出每个系数的标准误差。它越大，我们对该系数的模型越不确定。不幸的是，我们没有设置好可以从头开始执行这种线性代数的工具。
+测量这些误差的典型方法始于另一个假设——误差<math><msub><mi>ε</mi> <mi>i</mi></msub></math>是独立的正态随机变量，均值为 0，有一些共享的（未知）标准偏差<math><mi>σ</mi></math>。在这种情况下，我们（或者更可能是我们的统计软件）可以使用一些线性代数来找出每个系数的标准误差。它越大，我们对该系数的模型越不确定。不幸的是，我们没有设置好可以从头开始执行这种线性代数的工具。
 
 # 偏离：自助法
 
@@ -217,9 +217,9 @@ assert 0.67 < multiple_r_squared(inputs, daily_minutes_good, beta) < 0.68
 data = get_sample(num_points=n)
 ```
 
-在[第5章](ch05.html#statistics)中，我们编写了一个可以计算样本`中位数`的函数，我们可以将其用作对分布本身中位数的估计。
+在第五章中，我们编写了一个可以计算样本`中位数`的函数，我们可以将其用作对分布本身中位数的估计。
 
-但我们对我们的估计有多自信呢？如果样本中所有数据点都非常接近100，那么实际中位数似乎也接近100。如果样本中大约一半的数据点接近0，而另一半接近200，则我们对中位数的估计就不太确定。
+但我们对我们的估计有多自信呢？如果样本中所有数据点都非常接近 100，那么实际中位数似乎也接近 100。如果样本中大约一半的数据点接近 0，而另一半接近 200，则我们对中位数的估计就不太确定。
 
 如果我们能够重复获得新样本，我们可以计算许多样本的中位数，并查看这些中位数的分布。通常我们做不到这一点。在这种情况下，我们可以通过从我们的数据中*有放回地*选择*n*个数据点来*bootstrap*新数据集。然后我们可以计算这些合成数据集的中位数：
 
@@ -252,7 +252,7 @@ far_from_100 = ([99.5 + random.random()] +
                 [200 + random.random() for _ in range(50)])
 ```
 
-如果计算这两个数据集的`median`，两者都将非常接近100。然而，如果你看一下：
+如果计算这两个数据集的`median`，两者都将非常接近 100。然而，如果你看一下：
 
 ```py
 from scratch.statistics import median, standard_deviation
@@ -260,15 +260,15 @@ from scratch.statistics import median, standard_deviation
 medians_close = bootstrap_statistic(close_to_100, median, 100)
 ```
 
-你将主要看到数字非常接近100。但如果你看一下：
+你将主要看到数字非常接近 100。但如果你看一下：
 
 ```py
 medians_far = bootstrap_statistic(far_from_100, median, 100)
 ```
 
-你会看到很多接近0和很多接近200的数字。
+你会看到很多接近 0 和很多接近 200 的数字。
 
-第一组中位数的`标准偏差`接近0，而第二组中位数的则接近100：
+第一组中位数的`标准偏差`接近 0，而第二组中位数的则接近 100：
 
 ```py
 assert standard_deviation(medians_close) < 1
@@ -318,15 +318,15 @@ print(bootstrap_standard_errors)
 #  1.249]    # phd,           actual error = 0.998
 ```
 
-（如果我们收集了超过100个样本并使用了超过5,000次迭代来估计每个`beta`，我们可能会得到更好的估计，但我们没有那么多时间。）
+（如果我们收集了超过 100 个样本并使用了超过 5,000 次迭代来估计每个`beta`，我们可能会得到更好的估计，但我们没有那么多时间。）
 
-我们可以使用这些来测试假设，比如“<math><msub><mi>β</mi> <mi>i</mi></msub></math>是否等于0？”在零假设<math><mrow><msub><mi>β</mi> <mi>i</mi></msub> <mo>=</mo> <mn>0</mn></mrow></math>（以及我们对<math><msub><mi>ε</mi> <mi>i</mi></msub></math>分布的其他假设）下，统计量：
+我们可以使用这些来测试假设，比如“<math><msub><mi>β</mi> <mi>i</mi></msub></math>是否等于 0？”在零假设<math><mrow><msub><mi>β</mi> <mi>i</mi></msub> <mo>=</mo> <mn>0</mn></mrow></math>（以及我们对<math><msub><mi>ε</mi> <mi>i</mi></msub></math>分布的其他假设）下，统计量：
 
 <math alttext="t Subscript j Baseline equals ModifyingAbove beta Subscript j Baseline With caret slash ModifyingAbove sigma Subscript j Baseline With caret" display="block"><mrow><msub><mi>t</mi> <mi>j</mi></msub> <mo>=</mo> <mover accent="true"><msub><mi>β</mi> <mi>j</mi></msub> <mo>^</mo></mover> <mo>/</mo> <mover accent="true"><msub><mi>σ</mi> <mi>j</mi></msub> <mo>^</mo></mover></mrow></math>
 
-其中，我们对<math><msub><mi>β</mi> <mi>j</mi></msub></math>的估计除以其标准误差的估计值，遵循“ <math><mrow><mi>n</mi> <mo>-</mo> <mi>k</mi></mrow></math>自由度”的*学生t分布*。
+其中，我们对<math><msub><mi>β</mi> <mi>j</mi></msub></math>的估计除以其标准误差的估计值，遵循“ <math><mrow><mi>n</mi> <mo>-</mo> <mi>k</mi></mrow></math>自由度”的*学生 t 分布*。
 
-如果我们有一个`students_t_cdf`函数，我们可以为每个最小二乘系数计算*p*-值，以指示如果实际系数为0，则观察到这样的值的可能性有多大。不幸的是，我们没有这样的函数。（尽管如果我们不是从头开始工作，我们会有这样的函数。）
+如果我们有一个`students_t_cdf`函数，我们可以为每个最小二乘系数计算*p*-值，以指示如果实际系数为 0，则观察到这样的值的可能性有多大。不幸的是，我们没有这样的函数。（尽管如果我们不是从头开始工作，我们会有这样的函数。）
 
 然而，随着自由度的增大，*t*-分布越来越接近于标准正态分布。在像这样的情况下，其中*n*远大于*k*，我们可以使用`normal_cdf`而仍然感觉良好：
 
@@ -350,7 +350,7 @@ assert p_value(0.923, 1.249)  > 0.4    # phd
 
 （在不像这样的情况下，我们可能会使用知道如何计算*t*-分布以及如何计算确切标准误差的统计软件。）
 
-虽然大多数系数的*p*-值非常小（表明它们确实是非零的），但“PhD”的系数与0的差异不“显著”，这使得“PhD”的系数很可能是随机的，而不是有意义的。
+虽然大多数系数的*p*-值非常小（表明它们确实是非零的），但“PhD”的系数与 0 的差异不“显著”，这使得“PhD”的系数很可能是随机的，而不是有意义的。
 
 在更复杂的回归场景中，有时您可能希望对数据进行更复杂的假设检验，例如“至少一个<math><msub><mi>β</mi> <mi>j</mi></msub></math>非零”或“<math><msub><mi>β</mi> <mn>1</mn></msub></math>等于<math><msub><mi>β</mi> <mn>2</mn></msub></math> *和* <math><msub><mi>β</mi> <mn>3</mn></msub></math>等于<math><msub><mi>β</mi> <mn>4</mn></msub></math>。” 您可以使用*F-检验*来执行此操作，但遗憾的是，这超出了本书的范围。
 
@@ -399,7 +399,7 @@ def sqerror_ridge_gradient(x: Vector,
 
 然后我们只需修改`least_squares_fit`函数，以使用`sqerror_ridge_gradient`而不是`sqerror_gradient`。（我不会在这里重复代码。）
 
-将`alpha`设置为0后，就没有惩罚了，我们获得了与以前相同的结果：
+将`alpha`设置为 0 后，就没有惩罚了，我们获得了与以前相同的结果：
 
 ```py
 random.seed(0)
@@ -432,11 +432,11 @@ assert 1 < dot(beta_10[1:], beta_10[1:]) < 2
 assert 0.5 < multiple_r_squared(inputs, daily_minutes_good, beta_10) < 0.6
 ```
 
-特别是，“PhD”的系数在增加惩罚时消失，这与我们先前的结果相符，即其与0没有显著不同。
+特别是，“PhD”的系数在增加惩罚时消失，这与我们先前的结果相符，即其与 0 没有显著不同。
 
 ###### 注意
 
-通常在使用这种方法之前，你应该`重新缩放`你的数据。毕竟，如果你将工作经验从年转换为世纪，其最小二乘系数将增加100倍，并且突然受到更严重的惩罚，尽管模型是相同的。
+通常在使用这种方法之前，你应该`重新缩放`你的数据。毕竟，如果你将工作经验从年转换为世纪，其最小二乘系数将增加 100 倍，并且突然受到更严重的惩罚，尽管模型是相同的。
 
 另一种方法是*套索回归*，它使用惩罚项：
 
@@ -445,12 +445,12 @@ def lasso_penalty(beta, alpha):
     return alpha * sum(abs(beta_i) for beta_i in beta[1:])
 ```
 
-虽然岭回归的惩罚在整体上缩小了系数，但套索惩罚倾向于强制系数为0，这使其非常适合学习稀疏模型。不幸的是，它不适合梯度下降，这意味着我们无法从头开始解决它。
+虽然岭回归的惩罚在整体上缩小了系数，但套索惩罚倾向于强制系数为 0，这使其非常适合学习稀疏模型。不幸的是，它不适合梯度下降，这意味着我们无法从头开始解决它。
 
 # 进一步探索
 
 +   回归背后有丰富而广泛的理论支持。这是另一个你应该考虑阅读教科书或至少大量维基百科文章的地方。
 
-+   scikit-learn有一个[`linear_model`模块](https://scikit-learn.org/stable/modules/linear_model.html)，提供类似于我们的`LinearRegression`模型，以及岭回归、套索回归和其他类型的正则化。
++   scikit-learn 有一个[`linear_model`模块](https://scikit-learn.org/stable/modules/linear_model.html)，提供类似于我们的`LinearRegression`模型，以及岭回归、套索回归和其他类型的正则化。
 
-+   [Statsmodels](https://www.statsmodels.org)是另一个Python模块，其中包含（除其他内容外）线性回归模型。
++   [Statsmodels](https://www.statsmodels.org)是另一个 Python 模块，其中包含（除其他内容外）线性回归模型。

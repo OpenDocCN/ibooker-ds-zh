@@ -1,14 +1,14 @@
-# 第九章. 获取数据
+# 第九章：获取数据
 
 > 要写它，用了三个月；要构思它，用了三分钟；要收集其中的数据，用了一生。
 > 
 > F. 斯科特·菲茨杰拉德
 
-要成为一名数据科学家，你需要数据。事实上，作为数据科学家，你将花费大量时间来获取、清理和转换数据。如果必要，你可以自己键入数据（或者如果有下属，让他们来做），但通常这不是你时间的好用法。在本章中，我们将探讨将数据引入Python及其转换为正确格式的不同方法。
+要成为一名数据科学家，你需要数据。事实上，作为数据科学家，你将花费大量时间来获取、清理和转换数据。如果必要，你可以自己键入数据（或者如果有下属，让他们来做），但通常这不是你时间的好用法。在本章中，我们将探讨将数据引入 Python 及其转换为正确格式的不同方法。
 
-# stdin和stdout
+# stdin 和 stdout
 
-如果在命令行中运行Python脚本，你可以使用`sys.stdin`和`sys.stdout`将数据*管道*通过它们。例如，这是一个读取文本行并返回匹配正则表达式的脚本：
+如果在命令行中运行 Python 脚本，你可以使用`sys.stdin`和`sys.stdout`将数据*管道*通过它们。例如，这是一个读取文本行并返回匹配正则表达式的脚本：
 
 ```py
 # egrep.py
@@ -40,13 +40,13 @@ for line in sys.stdin:
 print(count)
 ```
 
-然后你可以使用它们来计算文件中包含数字的行数。在Windows中，你会使用：
+然后你可以使用它们来计算文件中包含数字的行数。在 Windows 中，你会使用：
 
 ```py
 type SomeFile.txt | python egrep.py "[0-9]" | python line_count.py
 ```
 
-在Unix系统中，你会使用：
+在 Unix 系统中，你会使用：
 
 ```py
 cat SomeFile.txt | python egrep.py "[0-9]" | python line_count.py
@@ -56,13 +56,13 @@ cat SomeFile.txt | python egrep.py "[0-9]" | python line_count.py
 
 ###### 注意
 
-如果你使用Windows，你可能可以在该命令中省略`python`部分：
+如果你使用 Windows，你可能可以在该命令中省略`python`部分：
 
 ```py
 type SomeFile.txt | egrep.py "[0-9]" | line_count.py
 ```
 
-如果你在Unix系统上，这样做需要[几个额外步骤](https://stackoverflow.com/questions/15587877/run-a-python-script-in-terminal-without-the-python-command)。首先在你的脚本的第一行添加一个“shebang” `#!/usr/bin/env python`。然后，在命令行中使用`chmod` x egrep.py++将文件设为可执行。
+如果你在 Unix 系统上，这样做需要[几个额外步骤](https://stackoverflow.com/questions/15587877/run-a-python-script-in-terminal-without-the-python-command)。首先在你的脚本的第一行添加一个“shebang” `#!/usr/bin/env python`。然后，在命令行中使用`chmod` x egrep.py++将文件设为可执行。
 
 同样地，这是一个计算其输入中单词数量并写出最常见单词的脚本：
 
@@ -106,15 +106,15 @@ $ cat the_bible.txt | python most_common_words.py 10
 4297	shall
 ```
 
-（如果你使用Windows，则使用`type`而不是`cat`。）
+（如果你使用 Windows，则使用`type`而不是`cat`。）
 
 ###### 注意
 
-如果你是一名经验丰富的Unix程序员，可能已经熟悉各种命令行工具（例如，`egrep`），这些工具已经内建到你的操作系统中，比从头开始构建更可取。不过，了解自己可以这样做也是很好的。
+如果你是一名经验丰富的 Unix 程序员，可能已经熟悉各种命令行工具（例如，`egrep`），这些工具已经内建到你的操作系统中，比从头开始构建更可取。不过，了解自己可以这样做也是很好的。
 
 # 读取文件
 
-你也可以在代码中直接显式地读取和写入文件。Python使得处理文件变得非常简单。
+你也可以在代码中直接显式地读取和写入文件。Python 使得处理文件变得非常简单。
 
 ## 文本文件的基础知识
 
@@ -181,7 +181,7 @@ with open('email_addresses.txt', 'r') as f:
 
 我们刚刚处理的假设的邮箱地址文件每行一个地址。更频繁地，你将使用每行有大量数据的文件。这些文件往往是逗号分隔或制表符分隔的：每行有多个字段，逗号或制表符表示一个字段的结束和下一个字段的开始。
 
-当你的字段中有逗号、制表符和换行符时（这是不可避免的）。因此，你不应该尝试自己解析它们。相反，你应该使用Python的`csv`模块（或pandas库，或设计用于读取逗号分隔或制表符分隔文件的其他库）。
+当你的字段中有逗号、制表符和换行符时（这是不可避免的）。因此，你不应该尝试自己解析它们。相反，你应该使用 Python 的`csv`模块（或 pandas 库，或设计用于读取逗号分隔或制表符分隔文件的其他库）。
 
 ###### 警告
 
@@ -278,9 +278,9 @@ test4,failure, utter,Thursday
 
 另一种获取数据的方式是从网页中抓取数据。事实证明，获取网页很容易；但从中获取有意义的结构化信息却不那么容易。
 
-## HTML及其解析
+## HTML 及其解析
 
-网页是用HTML编写的，文本（理想情况下）被标记为元素及其属性：
+网页是用 HTML 编写的，文本（理想情况下）被标记为元素及其属性：
 
 ```py
 <html>
@@ -294,11 +294,11 @@ test4,failure, utter,Thursday
 </html>
 ```
 
-在一个完美的世界中，所有网页都会被语义化地标记，为了我们的利益。我们将能够使用诸如“查找`id`为`subject`的`<p>`元素并返回其包含的文本”之类的规则来提取数据。但实际上，HTML通常并不规范，更不用说注释了。这意味着我们需要帮助来理解它。
+在一个完美的世界中，所有网页都会被语义化地标记，为了我们的利益。我们将能够使用诸如“查找`id`为`subject`的`<p>`元素并返回其包含的文本”之类的规则来提取数据。但实际上，HTML 通常并不规范，更不用说注释了。这意味着我们需要帮助来理解它。
 
-要从HTML中获取数据，我们将使用[Beautiful Soup库](http://www.crummy.com/software/BeautifulSoup/)，它会构建一个网页上各种元素的树，并提供一个简单的接口来访问它们。在我写这篇文章时，最新版本是Beautiful Soup 4.6.0，这也是我们将使用的版本。我们还将使用[Requests库](http://docs.python-requests.org/en/latest/)，这是一种比Python内置的任何东西都更好的方式来进行HTTP请求。
+要从 HTML 中获取数据，我们将使用[Beautiful Soup 库](http://www.crummy.com/software/BeautifulSoup/)，它会构建一个网页上各种元素的树，并提供一个简单的接口来访问它们。在我写这篇文章时，最新版本是 Beautiful Soup 4.6.0，这也是我们将使用的版本。我们还将使用[Requests 库](http://docs.python-requests.org/en/latest/)，这是一种比 Python 内置的任何东西都更好的方式来进行 HTTP 请求。
 
-Python内置的HTML解析器并不那么宽容，这意味着它不能很好地处理不完全形式的HTML。因此，我们还将安装`html5lib`解析器。
+Python 内置的 HTML 解析器并不那么宽容，这意味着它不能很好地处理不完全形式的 HTML。因此，我们还将安装`html5lib`解析器。
 
 确保您处于正确的虚拟环境中，安装库：
 
@@ -306,7 +306,7 @@ Python内置的HTML解析器并不那么宽容，这意味着它不能很好地�
 python -m pip install beautifulsoup4 requests html5lib
 ```
 
-要使用Beautiful Soup，我们将一个包含HTML的字符串传递给`BeautifulSoup`函数。在我们的示例中，这将是对`requests.get`调用的结果：
+要使用 Beautiful Soup，我们将一个包含 HTML 的字符串传递给`BeautifulSoup`函数。在我们的示例中，这将是对`requests.get`调用的结果：
 
 ```py
 from bs4 import BeautifulSoup
@@ -323,7 +323,7 @@ soup = BeautifulSoup(html, 'html5lib')
 
 然后我们可以使用几种简单的方法走得相当远。
 
-我们通常会使用`Tag`对象，它对应于表示HTML页面结构的标签。
+我们通常会使用`Tag`对象，它对应于表示 HTML 页面结构的标签。
 
 例如，要找到第一个`<p>`标签（及其内容），您可以使用：
 
@@ -374,11 +374,11 @@ spans_inside_divs = [span
 
 这些功能的几个特点就足以让我们做很多事情。如果你最终需要做更复杂的事情（或者你只是好奇），请查阅[文档](https://www.crummy.com/software/BeautifulSoup/bs4/doc/)。
 
-当然，重要的数据通常不会标记为`class="important"`。您需要仔细检查源HTML，通过选择逻辑推理，并担心边缘情况，以确保数据正确。让我们看一个例子。
+当然，重要的数据通常不会标记为`class="important"`。您需要仔细检查源 HTML，通过选择逻辑推理，并担心边缘情况，以确保数据正确。让我们看一个例子。
 
 ## 例如：监控国会
 
-DataSciencester的政策副总裁担心数据科学行业可能会受到监管，并要求您量化国会在该主题上的言论。特别是，他希望您找出所有发表关于“数据”内容的代表。
+DataSciencester 的政策副总裁担心数据科学行业可能会受到监管，并要求您量化国会在该主题上的言论。特别是，他希望您找出所有发表关于“数据”内容的代表。
 
 在发布时，有一个页面链接到所有代表的网站，网址为[*https://www.house.gov/representatives*](https://www.house.gov/representatives)。
 
@@ -390,7 +390,7 @@ DataSciencester的政策副总裁担心数据科学行业可能会受到监管�
 </td>
 ```
 
-让我们开始收集从该页面链接到的所有URL：
+让我们开始收集从该页面链接到的所有 URL：
 
 ```py
 from bs4 import BeautifulSoup
@@ -407,7 +407,7 @@ all_urls = [a['href']
 print(len(all_urls))  # 965 for me, way too many
 ```
 
-这返回了太多的URL。如果你查看它们，我们想要的URL以*http://*或*https://*开头，有一些名称，并且以*.house.gov*或*.house.gov/*结尾。
+这返回了太多的 URL。如果你查看它们，我们想要的 URL 以*http://*或*https://*开头，有一些名称，并且以*.house.gov*或*.house.gov/*结尾。
 
 这是使用正则表达式的好地方：
 
@@ -433,7 +433,7 @@ good_urls = [url for url in all_urls if re.match(regex, url)]
 print(len(good_urls))  # still 862 for me
 ```
 
-这仍然太多了，因为只有435位代表。如果你看一下列表，会发现很多重复。让我们使用`set`来去重：
+这仍然太多了，因为只有 435 位代表。如果你看一下列表，会发现很多重复。让我们使用`set`来去重：
 
 ```py
 good_urls = list(set(good_urls))
@@ -473,7 +473,7 @@ for house_url in good_urls:
 
 通常情况下，自由地抓取一个网站是不礼貌的。大多数网站会有一个*robots.txt*文件，指示您可以多频繁地抓取该站点（以及您不应该抓取的路径），但由于涉及到国会，我们不需要特别礼貌。
 
-如果你看这些内容滚动显示，你会看到很多`/media/press-releases`和`media-center/press-releases`，以及各种其他地址。其中一个URL是[*https://jayapal.house.gov/media/press-releases*](https://jayapal.house.gov/media/press-releases)。
+如果你看这些内容滚动显示，你会看到很多`/media/press-releases`和`media-center/press-releases`，以及各种其他地址。其中一个 URL 是[*https://jayapal.house.gov/media/press-releases*](https://jayapal.house.gov/media/press-releases)。
 
 请记住，我们的目标是找出哪些国会议员在其新闻稿中提到了“数据”。我们将编写一个稍微更通用的函数，检查新闻稿页面是否提到了任何给定的术语。
 
@@ -512,19 +512,19 @@ for house_url, pr_links in press_releases.items():
             break  # done with this house_url
 ```
 
-当我运行这个时，我得到了大约20位代表的列表。你的结果可能会有所不同。
+当我运行这个时，我得到了大约 20 位代表的列表。你的结果可能会有所不同。
 
 ###### 注意
 
-如果你看各种“新闻稿”页面，大多数页面都是分页的，每页只有5或10篇新闻稿。这意味着我们只检索了每位国会议员最近的几篇新闻稿。更彻底的解决方案将迭代每一页，并检索每篇新闻稿的全文。
+如果你看各种“新闻稿”页面，大多数页面都是分页的，每页只有 5 或 10 篇新闻稿。这意味着我们只检索了每位国会议员最近的几篇新闻稿。更彻底的解决方案将迭代每一页，并检索每篇新闻稿的全文。
 
-# 使用API
+# 使用 API
 
-许多网站和Web服务提供*应用程序编程接口*（API），允许您以结构化格式显式请求数据。这样可以避免您必须进行抓取的麻烦！
+许多网站和 Web 服务提供*应用程序编程接口*（API），允许您以结构化格式显式请求数据。这样可以避免您必须进行抓取的麻烦！
 
-## JSON和XML
+## JSON 和 XML
 
-因为HTTP是一个用于传输*文本*的协议，通过Web API请求的数据需要被*序列化*为字符串格式。通常这种序列化使用*JavaScript对象表示法*（JSON）。JavaScript对象看起来非常类似于Python的`dict`，这使得它们的字符串表示易于解释：
+因为 HTTP 是一个用于传输*文本*的协议，通过 Web API 请求的数据需要被*序列化*为字符串格式。通常这种序列化使用*JavaScript 对象表示法*（JSON）。JavaScript 对象看起来非常类似于 Python 的`dict`，这使得它们的字符串表示易于解释：
 
 ```py
 { "title" : "Data Science Book",
@@ -533,7 +533,7 @@ for house_url, pr_links in press_releases.items():
   "topics" : [ "data", "science", "data science"] }
 ```
 
-我们可以使用Python的`json`模块解析JSON。特别地，我们将使用它的`loads`函数，将表示JSON对象的字符串反序列化为Python对象：
+我们可以使用 Python 的`json`模块解析 JSON。特别地，我们将使用它的`loads`函数，将表示 JSON 对象的字符串反序列化为 Python 对象：
 
 ```py
 import json
@@ -548,7 +548,7 @@ assert deserialized["publicationYear"] == 2019
 assert "data science" in deserialized["topics"]
 ```
 
-有时API提供者会讨厌你，并且只提供XML格式的响应：
+有时 API 提供者会讨厌你，并且只提供 XML 格式的响应：
 
 ```py
 <Book>
@@ -563,11 +563,11 @@ assert "data science" in deserialized["topics"]
 </Book>
 ```
 
-你可以像从HTML中获取数据那样，使用Beautiful Soup从XML中获取数据；请查看其文档以获取详细信息。
+你可以像从 HTML 中获取数据那样，使用 Beautiful Soup 从 XML 中获取数据；请查看其文档以获取详细信息。
 
-## 使用未经身份验证的API
+## 使用未经身份验证的 API
 
-大多数API现在要求你先进行身份验证，然后才能使用它们。虽然我们不反对这种策略，但这会产生很多额外的样板代码，使我们的解释变得混乱。因此，我们将首先看一下[GitHub的API](http://developer.github.com/v3/)，它可以让你无需身份验证就能进行一些简单的操作：
+大多数 API 现在要求你先进行身份验证，然后才能使用它们。虽然我们不反对这种策略，但这会产生很多额外的样板代码，使我们的解释变得混乱。因此，我们将首先看一下[GitHub 的 API](http://developer.github.com/v3/)，它可以让你无需身份验证就能进行一些简单的操作：
 
 ```py
 import requests, json
@@ -578,7 +578,7 @@ endpoint = f"https://api.github.com/users/{github_user}/repos"
 repos = json.loads(requests.get(endpoint).text)
 ```
 
-此时`repos`是我GitHub账户中的公共仓库的Python `dict`列表。（随意替换你的用户名并获取你的GitHub仓库数据。你有GitHub账户，对吧？）
+此时`repos`是我 GitHub 账户中的公共仓库的 Python `dict`列表。（随意替换你的用户名并获取你的 GitHub 仓库数据。你有 GitHub 账户，对吧？）
 
 我们可以用这个来找出我最有可能创建仓库的月份和星期几。唯一的问题是响应中的日期是字符串：
 
@@ -586,7 +586,7 @@ repos = json.loads(requests.get(endpoint).text)
 "created_at": "2013-07-05T02:02:28Z"
 ```
 
-Python自带的日期解析器不是很好用，所以我们需要安装一个：
+Python 自带的日期解析器不是很好用，所以我们需要安装一个：
 
 ```py
 python -m pip install python-dateutil
@@ -614,25 +614,25 @@ last_5_languages = [repo["language"]
                     for repo in last_5_repositories]
 ```
 
-通常情况下，我们不会在低层次（“自己发起请求并解析响应”）处理API。使用Python的好处之一是，几乎任何你有兴趣访问的API，都已经有人建立了一个库。如果做得好，这些库可以节省你很多访问API的复杂细节的麻烦。（如果做得不好，或者当它们基于已失效的API版本时，可能会带来巨大的麻烦。）
+通常情况下，我们不会在低层次（“自己发起请求并解析响应”）处理 API。使用 Python 的好处之一是，几乎任何你有兴趣访问的 API，都已经有人建立了一个库。如果做得好，这些库可以节省你很多访问 API 的复杂细节的麻烦。（如果做得不好，或者当它们基于已失效的 API 版本时，可能会带来巨大的麻烦。）
 
-尽管如此，偶尔你会需要自己编写API访问库（或者更有可能，调试为什么别人的库不起作用），因此了解一些细节是很有用的。
+尽管如此，偶尔你会需要自己编写 API 访问库（或者更有可能，调试为什么别人的库不起作用），因此了解一些细节是很有用的。
 
-## 寻找API
+## 寻找 API
 
 如果你需要从特定网站获取数据，请查找该网站的“开发者”或“API”部分以获取详细信息，并尝试在网上搜索“python <sitename> api”来找到相应的库。
 
-有关Yelp API、Instagram API、Spotify API等等，都有相应的库。
+有关 Yelp API、Instagram API、Spotify API 等等，都有相应的库。
 
-如果你在寻找Python封装的API列表，[Real Python在GitHub上](https://github.com/realpython/list-of-python-api-wrappers)有一个很好的列表。
+如果你在寻找 Python 封装的 API 列表，[Real Python 在 GitHub 上](https://github.com/realpython/list-of-python-api-wrappers)有一个很好的列表。
 
 如果找不到你需要的内容，总有一种方法，那就是网页抓取，数据科学家的最后避风港。
 
-# 示例：使用Twitter的API
+# 示例：使用 Twitter 的 API
 
-Twitter是一个非常好的数据来源。你可以用它来获取实时新闻，也可以用它来衡量对当前事件的反应。你还可以用它来查找与特定主题相关的链接。你可以用它来做几乎任何你能想到的事情，只要你能访问到它的数据。通过它的API，你可以获取到它的数据。
+Twitter 是一个非常好的数据来源。你可以用它来获取实时新闻，也可以用它来衡量对当前事件的反应。你还可以用它来查找与特定主题相关的链接。你可以用它来做几乎任何你能想到的事情，只要你能访问到它的数据。通过它的 API，你可以获取到它的数据。
 
-要与Twitter的API交互，我们将使用[Twython库](https://github.com/ryanmcgrath/twython)（`python -m pip install twython`）。目前有许多Python Twitter库，但这是我使用最成功的一个。当然，也鼓励你探索其他库！
+要与 Twitter 的 API 交互，我们将使用[Twython 库](https://github.com/ryanmcgrath/twython)（`python -m pip install twython`）。目前有许多 Python Twitter 库，但这是我使用最成功的一个。当然，也鼓励你探索其他库！
 
 ## 获取凭证
 
@@ -746,9 +746,9 @@ spleonard1: Using #dplyr in #R to work through a procrastinated assignment for
 @rdpeng in @coursera data science specialization. So easy and Awesome.
 ```
 
-这并不那么有趣，主要是因为Twitter搜索API只会显示出它觉得最近的结果。在进行数据科学时，更多时候你会想要大量的推文。这就是[Streaming API](https://developer.twitter.com/en/docs/tutorials/consuming-streaming-data)有用的地方。它允许你连接到（部分）巨大的Twitter firehose。要使用它，你需要使用你的访问令牌进行身份验证。
+这并不那么有趣，主要是因为 Twitter 搜索 API 只会显示出它觉得最近的结果。在进行数据科学时，更多时候你会想要大量的推文。这就是[Streaming API](https://developer.twitter.com/en/docs/tutorials/consuming-streaming-data)有用的地方。它允许你连接到（部分）巨大的 Twitter firehose。要使用它，你需要使用你的访问令牌进行身份验证。
 
-为了使用Twython访问Streaming API，我们需要定义一个类，该类继承自`TwythonStreamer`并重写其`on_success`方法，可能还有其`on_error`方法：
+为了使用 Twython 访问 Streaming API，我们需要定义一个类，该类继承自`TwythonStreamer`并重写其`on_success`方法，可能还有其`on_error`方法：
 
 ```py
 from twython import TwythonStreamer
@@ -777,7 +777,7 @@ class MyStreamer(TwythonStreamer):
         self.disconnect()
 ```
 
-`MyStreamer`将连接到Twitter流并等待Twitter提供数据。每次接收到一些数据（在这里是表示为Python对象的推文）时，它都会将其传递给`on_success`方法，如果推文的语言是英语，则将其追加到我们的`tweets`列表中，然后在收集到1,000条推文后断开流。
+`MyStreamer`将连接到 Twitter 流并等待 Twitter 提供数据。每次接收到一些数据（在这里是表示为 Python 对象的推文）时，它都会将其传递给`on_success`方法，如果推文的语言是英语，则将其追加到我们的`tweets`列表中，然后在收集到 1,000 条推文后断开流。
 
 唯一剩下的就是初始化它并开始运行：
 
@@ -792,7 +792,7 @@ stream.statuses.filter(track='data')
 # stream.statuses.sample()
 ```
 
-这将持续运行，直到收集到100条推文（或遇到错误为止），然后停止，此时你可以开始分析这些推文。例如，你可以找出最常见的标签：
+这将持续运行，直到收集到 100 条推文（或遇到错误为止），然后停止，此时你可以开始分析这些推文。例如，你可以找出最常见的标签：
 
 ```py
 top_hashtags = Counter(hashtag['text'].lower()
@@ -802,7 +802,7 @@ top_hashtags = Counter(hashtag['text'].lower()
 print(top_hashtags.most_common(5))
 ```
 
-每条推文都包含大量的数据。你可以自己探索，或者查看[Twitter API文档](https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/tweet-object)。
+每条推文都包含大量的数据。你可以自己探索，或者查看[Twitter API 文档](https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/tweet-object)。
 
 ###### 注意
 

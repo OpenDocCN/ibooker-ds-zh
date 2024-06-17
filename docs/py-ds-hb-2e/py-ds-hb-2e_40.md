@@ -1,4 +1,4 @@
-# 第三十六章 可视化与 Seaborn
+# 第三十六章：可视化与 Seaborn
 
 Matplotlib 已经是 Python 科学可视化的核心工具数十年了，但即使是忠实的用户也会承认它经常留下很多不足之处。关于 Matplotlib 经常提到的几个抱怨有：
 

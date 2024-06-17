@@ -1,1 +1,1 @@
-# 第一章：Part I. Foundations of Analytics in Excel
+# 第一部分：Foundations of Analytics in Excel

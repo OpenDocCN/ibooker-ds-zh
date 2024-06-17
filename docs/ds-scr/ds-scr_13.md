@@ -1,4 +1,4 @@
-# 第12章 k-最近邻
+# 第十二章：k-最近邻
 
 > 如果你想要惹恼你的邻居，就告诉他们关于他们的真相。
 > 
@@ -22,9 +22,9 @@
 
 在一般情况下，我们有一些数据点和相应的标签集合。标签可以是`True`和`False`，表示每个输入是否满足某些条件，比如“是垃圾邮件？”或“有毒？”或“看起来有趣吗？”或者它们可以是类别，比如电影评级（G，PG，PG-13，R，NC-17）。或者它们可以是总统候选人的名字。或者它们可以是喜欢的编程语言。
 
-在我们的情况下，数据点将是向量，这意味着我们可以使用[第四章](ch04.html#linear_algebra)中的`distance`函数。
+在我们的情况下，数据点将是向量，这意味着我们可以使用第四章中的`distance`函数。
 
-假设我们选择了一个像3或5这样的数字*k*。那么，当我们想要对一些新的数据点进行分类时，我们找到*k*个最近的带标签点，并让它们对新的输出进行投票。
+假设我们选择了一个像 3 或 5 这样的数字*k*。那么，当我们想要对一些新的数据点进行分类时，我们找到*k*个最近的带标签点，并让它们对新的输出进行投票。
 
 为此，我们需要一个计票的函数。一种可能性是：
 
@@ -40,7 +40,7 @@ def raw_majority_vote(labels: List[str]) -> str:
 assert raw_majority_vote(['a', 'b', 'c', 'b']) == 'b'
 ```
 
-但这并不会处理带有智能的平局情况。例如，想象我们正在评分电影，而最近的五部电影分别被评为G、G、PG、PG和R。那么G有两票，PG也有两票。在这种情况下，我们有几个选项：
+但这并不会处理带有智能的平局情况。例如，想象我们正在评分电影，而最近的五部电影分别被评为 G、G、PG、PG 和 R。那么 G 有两票，PG 也有两票。在这种情况下，我们有几个选项：
 
 +   随机挑选一个赢家。
 
@@ -99,7 +99,7 @@ def knn_classify(k: int,
 
 # 示例：鸢尾花数据集
 
-*Iris* 数据集是机器学习的重要数据集。它包含了150朵花的测量数据，代表三种鸢尾花物种。对于每朵花，我们有它的花瓣长度、花瓣宽度、萼片长度和萼片宽度，以及它的物种。你可以从[*https://archive.ics.uci.edu/ml/datasets/iris*](https://archive.ics.uci.edu/ml/datasets/iris)下载：
+*Iris* 数据集是机器学习的重要数据集。它包含了 150 朵花的测量数据，代表三种鸢尾花物种。对于每朵花，我们有它的花瓣长度、花瓣宽度、萼片长度和萼片宽度，以及它的物种。你可以从[*https://archive.ics.uci.edu/ml/datasets/iris*](https://archive.ics.uci.edu/ml/datasets/iris)下载：
 
 ```py
 import requests
@@ -153,7 +153,7 @@ for iris in iris_data:
     points_by_species[iris.label].append(iris.point)
 ```
 
-我们希望绘制测量结果，以便查看它们按物种的变化。不幸的是，它们是四维的，这使得绘图变得棘手。我们可以做的一件事是查看每一对测量的散点图（[图 12-1](#iris_scatterplots)）。我不会解释所有的细节，但这是对matplotlib更复杂用法的很好示例，所以值得学习：
+我们希望绘制测量结果，以便查看它们按物种的变化。不幸的是，它们是四维的，这使得绘图变得棘手。我们可以做的一件事是查看每一对测量的散点图（图 12-1）。我不会解释所有的细节，但这是对 matplotlib 更复杂用法的很好示例，所以值得学习：
 
 ```py
 from matplotlib import pyplot as plt
@@ -179,7 +179,7 @@ ax[-1][-1].legend(loc='lower right', prop={'size': 6})
 plt.show()
 ```
 
-![鸢尾花散点图](assets/dsf2_1201.png)
+![鸢尾花散点图](img/dsf2_1201.png)
 
 ###### 图 12-1\. 鸢尾花散点图
 
@@ -242,7 +242,7 @@ def random_distances(dim: int, num_pairs: int) -> List[float]:
             for _ in range(num_pairs)]
 ```
 
-对于从 1 到 100 的每个维度，我们将计算 10,000 个距离，并使用这些距离计算点之间的平均距离以及每个维度中点之间的最小距离（参见[图 12-2](#curse_of_dimensionality_graph)）：
+对于从 1 到 100 的每个维度，我们将计算 10,000 个距离，并使用这些距离计算点之间的平均距离以及每个维度中点之间的最小距离（参见图 12-2）：
 
 ```py
 import tqdm
@@ -258,18 +258,18 @@ for dim in tqdm.tqdm(dimensions, desc="Curse of Dimensionality"):
     min_distances.append(min(distances))          # track the minimum
 ```
 
-![维度的诅咒。](assets/dsf2_1202.png)
+![维度的诅咒。](img/dsf2_1202.png)
 
 ###### 图 12-2。维度的诅咒
 
-随着维度的增加，点之间的平均距离也增加。但更为问题的是最近距离与平均距离之间的比率（参见[图 12-3](#curse_of_dimensionality_graph2)）：
+随着维度的增加，点之间的平均距离也增加。但更为问题的是最近距离与平均距离之间的比率（参见图 12-3）：
 
 ```py
 min_avg_ratio = [min_dist / avg_dist
                  for min_dist, avg_dist in zip(min_distances, avg_distances)]
 ```
 
-![再谈维度的诅咒。](assets/dsf2_1203.png)
+![再谈维度的诅咒。](img/dsf2_1203.png)
 
 ###### 图 12-3。再谈维度的诅咒
 
@@ -277,28 +277,28 @@ min_avg_ratio = [min_dist / avg_dist
 
 对问题的另一种思考方式涉及到更高维度空间的稀疏性。
 
-如果你在 0 和 1 之间随机选择 50 个数字，你可能会得到单位区间的一个相当好的样本（参见[图 12-4](#fifty_points_1d)）。
+如果你在 0 和 1 之间随机选择 50 个数字，你可能会得到单位区间的一个相当好的样本（参见图 12-4）。
 
-![一维空间中的 50 个随机点。](assets/dsf2_1204.png)
+![一维空间中的 50 个随机点。](img/dsf2_1204.png)
 
 ###### 图 12-4。一维空间中的 50 个随机点
 
-如果你在单位正方形中随机选择 50 个点，你将得到更少的覆盖（参见[图 12-5](#fifty_points_2d)）。
+如果你在单位正方形中随机选择 50 个点，你将得到更少的覆盖（参见图 12-5）。
 
-![二维空间中的 50 个随机点。](assets/dsf2_1205.png)
+![二维空间中的 50 个随机点。](img/dsf2_1205.png)
 
 ###### 图 12-5。二维空间中的 50 个随机点
 
-在三维空间中，覆盖更少（参见[图 12-6](#fifty_points_3d)）。
+在三维空间中，覆盖更少（参见图 12-6）。
 
 matplotlib 对于四维图表的呈现并不好，所以这是我们所能达到的最远的地方，但你已经可以看到开始出现大量空白区域，没有点靠近它们。在更多维度中——除非你得到指数级更多的数据——这些大量空白区域代表了远离所有你想要用于预测的点的区域。
 
 因此，如果你尝试在更高维度中使用最近邻方法，最好先进行某种降维处理。
 
-![三维空间中的 50 个随机点。](assets/dsf2_1206.png)
+![三维空间中的 50 个随机点。](img/dsf2_1206.png)
 
 ###### 图 12-6。三维空间中的 50 个随机点
 
 # 进一步探索
 
-scikit-learn有许多[最近邻](https://scikit-learn.org/stable/modules/neighbors.html)模型。
+scikit-learn 有许多[最近邻](https://scikit-learn.org/stable/modules/neighbors.html)模型。

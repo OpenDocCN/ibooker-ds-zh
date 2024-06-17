@@ -1,4 +1,4 @@
-# 第二十六章\. 简单线图
+# 第二十六章：简单线图
 
 可能所有绘图中最简单的是单个函数 <math alttext="y equals f left-parenthesis x right-parenthesis"><mrow><mi>y</mi> <mo>=</mo> <mi>f</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></math> 的可视化。在这里，我们将首次创建这种类型的简单绘图。如同接下来的所有章节一样，我们将从设置用于绘图的笔记本开始，并导入我们将使用的包：
 

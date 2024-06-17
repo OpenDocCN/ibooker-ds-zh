@@ -1,4 +1,4 @@
-# 第四章 回归与预测
+# 第四章：回归与预测
 
 统计学中最常见的目标之一是回答问题“变量*X*（或更可能是<math alttext="upper X 1 comma ellipsis comma upper X Subscript p Baseline"><mrow><msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <mo>...</mo> <mo>,</mo> <msub><mi>X</mi> <mi>p</mi></msub></mrow></math>）与变量*Y*是否相关，如果相关，它们之间的关系是什么，我们能否用它来预测*Y*？”
 

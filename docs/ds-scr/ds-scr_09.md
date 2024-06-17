@@ -1,4 +1,4 @@
-# 第8章\. 梯度下降
+# 第八章：梯度下降
 
 > 那些夸口自己的衰退的人，吹嘘他们欠别人的东西。
 > 
@@ -24,9 +24,9 @@ def sum_of_squares(v: Vector) -> float:
 
 对于像我们这样的函数，*梯度*（如果你记得你的微积分，这是偏导数的向量）给出了函数增加最快的输入方向。（如果你不记得你的微积分，相信我或者去互联网上查一查。）
 
-相应地，最大化一个函数的一种方法是选择一个随机起点，计算梯度，沿着梯度的方向迈出一小步（即导致函数增加最多的方向），然后用新的起点重复这个过程。类似地，你可以尝试通过向*相反*方向迈小步来最小化一个函数，如[图 8-1](#gradient_descent_image)所示。
+相应地，最大化一个函数的一种方法是选择一个随机起点，计算梯度，沿着梯度的方向迈出一小步（即导致函数增加最多的方向），然后用新的起点重复这个过程。类似地，你可以尝试通过向*相反*方向迈小步来最小化一个函数，如图 8-1 所示。
 
-![使用梯度下降找到最小值。](assets/dsf2_0801.png)
+![使用梯度下降找到最小值。](img/dsf2_0801.png)
 
 ###### 图 8-1\. 使用梯度下降找到最小值
 
@@ -51,9 +51,9 @@ def difference_quotient(f: Callable[[float], float],
 
 （许多想要学习微积分的人都被极限的数学定义所困扰，这是美丽的但可能看起来有些令人生畏的。在这里，我们将作弊并简单地说，“极限”意味着你认为的意思。）
 
-导数是切线在 <math><mrow><mo>(</mo> <mi>x</mi> <mo>,</mo> <mi>f</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>)</mo></mrow></math> 处的斜率，而差商是穿过 <math><mrow><mo>(</mo> <mi>x</mi> <mo>+</mo> <mi>h</mi> <mo>,</mo> <mi>f</mi> <mo>(</mo> <mi>x</mi> <mo>+</mo> <mi>h</mi> <mo>)</mo> <mo>)</mo></mrow></math> 的不完全切线的斜率。随着 *h* 变得越来越小，这个不完全切线越来越接近切线 ([图 8-2](#difference_quotient))。
+导数是切线在 <math><mrow><mo>(</mo> <mi>x</mi> <mo>,</mo> <mi>f</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>)</mo></mrow></math> 处的斜率，而差商是穿过 <math><mrow><mo>(</mo> <mi>x</mi> <mo>+</mo> <mi>h</mi> <mo>,</mo> <mi>f</mi> <mo>(</mo> <mi>x</mi> <mo>+</mo> <mi>h</mi> <mo>)</mo> <mo>)</mo></mrow></math> 的不完全切线的斜率。随着 *h* 变得越来越小，这个不完全切线越来越接近切线 (图 8-2)。
 
-![差商作为导数的近似。](assets/dsf2_0802.png)
+![差商作为导数的近似。](img/dsf2_0802.png)
 
 ###### 图 8-2\. 使用差商近似导数
 
@@ -73,7 +73,7 @@ def derivative(x: float) -> float:
 
 对于我们来说很容易检查的是，通过明确计算差商并取极限。(这只需要高中代数就可以做到。)
 
-如果你不能（或不想）找到梯度怎么办？尽管我们不能在 Python 中取极限，但我们可以通过评估一个非常小的 `e` 的差商来估计导数。[图 8-3](#difference_quotient_goodness) 显示了这样一个估计的结果：
+如果你不能（或不想）找到梯度怎么办？尽管我们不能在 Python 中取极限，但我们可以通过评估一个非常小的 `e` 的差商来估计导数。图 8-3 显示了这样一个估计的结果：
 
 ```py
 xs = range(-10, 11)
@@ -89,7 +89,7 @@ plt.legend(loc=9)
 plt.show()
 ```
 
-![差商是一个良好的近似。](assets/dsf2_0803.png)
+![差商是一个良好的近似。](img/dsf2_0803.png)
 
 ###### 图 8-3\. 差商近似的好处
 
@@ -232,7 +232,7 @@ assert 4.9 < intercept < 5.1, "intercept should be about 5"
 
 # 小批量和随机梯度下降
 
-前述方法的一个缺点是，我们必须在可以采取梯度步骤并更新参数之前对整个数据集进行梯度评估。在这种情况下，这是可以接受的，因为我们的数据集只有100对，梯度计算是廉价的。
+前述方法的一个缺点是，我们必须在可以采取梯度步骤并更新参数之前对整个数据集进行梯度评估。在这种情况下，这是可以接受的，因为我们的数据集只有 100 对，梯度计算是廉价的。
 
 然而，您的模型通常会有大型数据集和昂贵的梯度计算。在这种情况下，您会希望更频繁地进行梯度步骤。
 
@@ -307,6 +307,6 @@ assert 4.9 < intercept < 5.1, "intercept should be about 5"
 
 +   继续阅读！我们将在本书的其余部分使用梯度下降来解决问题。
 
-+   此时，您无疑对我建议您阅读教科书感到厌倦。如果能稍微安慰一下的话，[*Active Calculus 1.0*](https://scholarworks.gvsu.edu/books/10/)，由Matthew Boelkins、David Austin和Steven Schlicker（Grand Valley State University Libraries）编写的书，似乎比我学习的微积分教科书更好。
++   此时，您无疑对我建议您阅读教科书感到厌倦。如果能稍微安慰一下的话，[*Active Calculus 1.0*](https://scholarworks.gvsu.edu/books/10/)，由 Matthew Boelkins、David Austin 和 Steven Schlicker（Grand Valley State University Libraries）编写的书，似乎比我学习的微积分教科书更好。
 
 +   Sebastian Ruder 在他的 [epic 博客文章](http://ruder.io/optimizing-gradient-descent/index.html) 中比较了梯度下降及其许多变体。

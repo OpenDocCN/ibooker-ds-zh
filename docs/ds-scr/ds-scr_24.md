@@ -1,4 +1,4 @@
-# Chapter 23\. 推荐系统
+# 第二十五章：Chapter 23\. 推荐系统
 
 > O nature, nature, why art thou so dishonest, as ever to send men with these false recommendations into the world!
 > 
@@ -100,11 +100,11 @@ Of course, “lots of people are interested in Python, so maybe you should be to
 
 One way of taking a user’s interests into account is to look for users who are somehow *similar* to her, and then suggest the things that those users are interested in.
 
-In order to do that, we’ll need a way to measure how similar two users are. Here we’ll use cosine similarity, which we used in [第21章](ch21.html#natural_language_processing) to measure how similar two word vectors were.
+In order to do that, we’ll need a way to measure how similar two users are. Here we’ll use cosine similarity, which we used in 第二十一章 to measure how similar two word vectors were.
 
 We’ll apply this to vectors of 0s and 1s, each vector `v` representing one user’s interests. `v[i]` will be 1 if the user specified the *i*th interest, and 0 otherwise. Accordingly, “similar users” will mean “users whose interest vectors most nearly point in the same direction.” Users with identical interests will have similarity 1\. Users with no identical interests will have similarity 0\. Otherwise, the similarity will fall in between, with numbers closer to 1 indicating “very similar” and numbers closer to 0 indicating “not very similar.”
 
-一个很好的开始是收集已知的兴趣，并（隐式地）为它们分配索引。我们可以通过使用集合推导来找到唯一的兴趣，并将它们排序成一个列表。结果列表中的第一个兴趣将是兴趣0，依此类推：
+一个很好的开始是收集已知的兴趣，并（隐式地）为它们分配索引。我们可以通过使用集合推导来找到唯一的兴趣，并将它们排序成一个列表。结果列表中的第一个兴趣将是兴趣 0，依此类推：
 
 ```py
 unique_interests = sorted({interest
@@ -126,7 +126,7 @@ assert unique_interests[:6] == [
 ]
 ```
 
-接下来，我们想为每个用户生成一个“兴趣”向量，其中包含0和1。我们只需遍历`unique_interests`列表，如果用户具有每个兴趣，则替换为1，否则为0：
+接下来，我们想为每个用户生成一个“兴趣”向量，其中包含 0 和 1。我们只需遍历`unique_interests`列表，如果用户具有每个兴趣，则替换为 1，否则为 0：
 
 ```py
 def make_user_interest_vector(user_interests: List[str]) -> List[int]:
@@ -145,7 +145,7 @@ user_interest_vectors = [make_user_interest_vector(user_interests)
                          for user_interests in users_interests]
 ```
 
-现在，如果用户`i`指定了兴趣`j`，那么`user_interest_vectors[i][j]`等于1，否则为0。
+现在，如果用户`i`指定了兴趣`j`，那么`user_interest_vectors[i][j]`等于 1，否则为 0。
 
 因为我们有一个小数据集，计算所有用户之间的成对相似性是没有问题的：
 
@@ -234,9 +234,9 @@ def user_based_suggestions(user_id: int,
 
 对于那些声称兴趣是“大数据”和数据库相关的人来说，这些看起来是相当不错的建议。（权重本质上没有意义；我们只是用它们来排序。）
 
-当项目数量变得非常大时，这种方法效果不佳。回想一下[第12章](ch12.html#nearest_neighbors)中的维度诅咒 —— 在高维向量空间中，大多数向量相距甚远（并且指向非常不同的方向）。也就是说，当兴趣的数量很多时，对于给定用户，“最相似的用户”可能完全不相似。
+当项目数量变得非常大时，这种方法效果不佳。回想一下第十二章中的维度诅咒 —— 在高维向量空间中，大多数向量相距甚远（并且指向非常不同的方向）。也就是说，当兴趣的数量很多时，对于给定用户，“最相似的用户”可能完全不相似。
 
-想象一个像Amazon.com这样的网站，我在过去几十年里购买了成千上万件物品。你可以基于购买模式尝试识别与我类似的用户，但在全世界范围内，几乎没有人的购买历史看起来像我的。无论我的“最相似”的购物者是谁，他可能与我完全不相似，他的购买几乎肯定不会提供好的推荐。
+想象一个像 Amazon.com 这样的网站，我在过去几十年里购买了成千上万件物品。你可以基于购买模式尝试识别与我类似的用户，但在全世界范围内，几乎没有人的购买历史看起来像我的。无论我的“最相似”的购物者是谁，他可能与我完全不相似，他的购买几乎肯定不会提供好的推荐。
 
 # 基于物品的协同过滤
 
@@ -354,7 +354,7 @@ def item_based_suggestions(user_id: int,
 
 如果将用户类型表示为 `[num_users, dim]` 矩阵，将项目类型的转置表示为 `[dim, num_items]` 矩阵，则它们的乘积是一个 `[num_users, num_items]` 矩阵。因此，构建这样一个模型的一种方式是将偏好矩阵“因子化”为用户矩阵和项目矩阵的乘积。
 
-（也许这种潜在类型的想法会让你想起我们在 [第 21 章](ch21.html#natural_language_processing) 中开发的词嵌入。记住这个想法。）
+（也许这种潜在类型的想法会让你想起我们在 第二十一章 中开发的词嵌入。记住这个想法。）
 
 而不是使用我们虚构的 10 用户数据集，我们将使用 MovieLens 100k 数据集，其中包含许多用户对许多电影的评分，评分从 0 到 5 不等。每个用户只对少数电影进行了评分。我们将尝试构建一个系统，可以预测任意给定的（用户，电影）对的评分。我们将训练它以在每个用户评分的电影上表现良好；希望它能推广到用户未评分的电影。
 
@@ -381,9 +381,9 @@ class Rating(NamedTuple):
 
 ###### 注意
 
-电影ID和用户ID实际上是整数，但它们不是连续的，这意味着如果我们将它们作为整数处理，将会有很多浪费的维度（除非我们重新编号所有内容）。因此，为了简化起见，我们将它们视为字符串处理。
+电影 ID 和用户 ID 实际上是整数，但它们不是连续的，这意味着如果我们将它们作为整数处理，将会有很多浪费的维度（除非我们重新编号所有内容）。因此，为了简化起见，我们将它们视为字符串处理。
 
-现在让我们读取数据并探索它。电影文件是管道分隔的，并且有许多列。我们只关心前两列，即ID和标题：
+现在让我们读取数据并探索它。电影文件是管道分隔的，并且有许多列。我们只关心前两列，即 ID 和标题：
 
 ```py
 import csv
@@ -394,7 +394,7 @@ with open(MOVIES, encoding="iso-8859-1") as f:
     movies = {movie_id: title for movie_id, title, *_ in reader}
 ```
 
-评分文件是制表符分隔的，包含四列：`user_id`、`movie_id`、评分（1到5），以及`timestamp`。我们将忽略时间戳，因为我们不需要它：
+评分文件是制表符分隔的，包含四列：`user_id`、`movie_id`、评分（1 到 5），以及`timestamp`。我们将忽略时间戳，因为我们不需要它：
 
 ```py
 # Create a list of [Rating]
@@ -408,7 +408,7 @@ assert len(movies) == 1682
 assert len(list({rating.user_id for rating in ratings})) == 943
 ```
 
-有很多有趣的探索性分析可以在这些数据上进行；例如，您可能对*星球大战*电影的平均评分感兴趣（该数据集来自1998年，比*星球大战：幽灵的威胁*晚一年）：
+有很多有趣的探索性分析可以在这些数据上进行；例如，您可能对*星球大战*电影的平均评分感兴趣（该数据集来自 1998 年，比*星球大战：幽灵的威胁*晚一年）：
 
 ```py
 import re
@@ -468,7 +468,7 @@ assert 1.26 < baseline_error < 1.27
 
 给定我们的嵌入，预测的评分由用户嵌入和电影嵌入的矩阵乘积给出。对于给定的用户和电影，该值只是对应嵌入的点积。
 
-所以让我们从创建嵌入开始。我们将它们表示为`dict`，其中键是ID，值是向量，这样可以轻松地检索给定ID的嵌入：
+所以让我们从创建嵌入开始。我们将它们表示为`dict`，其中键是 ID，值是向量，这样可以轻松地检索给定 ID 的嵌入：
 
 ```py
 from scratch.deep_learning import random_tensor
@@ -531,11 +531,11 @@ for epoch in range(20):
 loop(test)
 ```
 
-这个模型很容易过拟合训练集。我在测试集上的平均损失是大约0.89，这时`EMBEDDING_DIM=2`的情况下取得最佳结果。
+这个模型很容易过拟合训练集。我在测试集上的平均损失是大约 0.89，这时`EMBEDDING_DIM=2`的情况下取得最佳结果。
 
 ###### 注意
 
-如果您想要更高维度的嵌入，您可以尝试像我们在[“正则化”](ch15.html#regularization)中使用的正则化。特别是，在每次梯度更新时，您可以将权重收缩至0附近。但我没能通过这种方式获得更好的结果。
+如果您想要更高维度的嵌入，您可以尝试像我们在“正则化”中使用的正则化。特别是，在每次梯度更新时，您可以将权重收缩至 0 附近。但我没能通过这种方式获得更好的结果。
 
 现在，检查学习到的向量。没有理由期望这两个组件特别有意义，因此我们将使用主成分分析：
 
@@ -546,7 +546,7 @@ original_vectors = [vector for vector in movie_vectors.values()]
 components = pca(original_vectors, 2)
 ```
 
-让我们将我们的向量转换为表示主成分，并加入电影ID和平均评分：
+让我们将我们的向量转换为表示主成分，并加入电影 ID 和平均评分：
 
 ```py
 ratings_by_movie = defaultdict(list)
@@ -567,12 +567,12 @@ print(sorted(vectors, key=lambda v: v[-1][0])[:25])
 print(sorted(vectors, key=lambda v: v[-1][0])[-25:])
 ```
 
-前25个电影评分都很高，而后25个大部分是低评分的（或在训练数据中未评级），这表明第一个主成分主要捕捉了“这部电影有多好？”
+前 25 个电影评分都很高，而后 25 个大部分是低评分的（或在训练数据中未评级），这表明第一个主成分主要捕捉了“这部电影有多好？”
 
-对于我来说，很难理解第二个组件的意义；而且二维嵌入的表现只比一维嵌入略好，这表明第二个组件捕捉到的可能是非常微妙的内容。（可以推测，在较大的MovieLens数据集中可能有更有趣的事情发生。）
+对于我来说，很难理解第二个组件的意义；而且二维嵌入的表现只比一维嵌入略好，这表明第二个组件捕捉到的可能是非常微妙的内容。（可以推测，在较大的 MovieLens 数据集中可能有更有趣的事情发生。）
 
 # 进一步探索
 
-+   [惊喜](http://surpriselib.com/)是一个用于“构建和分析推荐系统”的Python库，似乎相当受欢迎且更新及时。
++   [惊喜](http://surpriselib.com/)是一个用于“构建和分析推荐系统”的 Python 库，似乎相当受欢迎且更新及时。
 
-+   [Netflix Prize](http://www.netflixprize.com) 是一个相当有名的比赛，旨在构建更好的系统，向Netflix用户推荐电影。
++   [Netflix Prize](http://www.netflixprize.com) 是一个相当有名的比赛，旨在构建更好的系统，向 Netflix 用户推荐电影。

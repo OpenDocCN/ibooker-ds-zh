@@ -1,14 +1,14 @@
-# 第16章 logistic回归
+# 第十六章：logistic 回归
 
 > 很多人说天才和疯狂之间只有一条细微的界限。我认为这不是细微的界限，实际上是一个巨大的鸿沟。
 > 
 > Bill Bailey
 
-在[第1章](ch01.html#introduction)中，我们简要讨论了试图预测哪些DataSciencester用户购买高级帐户的问题。在这里，我们将重新讨论这个问题。
+在第一章中，我们简要讨论了试图预测哪些 DataSciencester 用户购买高级帐户的问题。在这里，我们将重新讨论这个问题。
 
 # 问题
 
-我们有一个约200个用户的匿名数据集，包含每个用户的工资、作为数据科学家的经验年数，以及她是否为高级帐户支付费用（[图 16-1](#logit_image)）。像典型的分类变量一样，我们将依赖变量表示为0（没有高级帐户）或1（高级帐户）。
+我们有一个约 200 个用户的匿名数据集，包含每个用户的工资、作为数据科学家的经验年数，以及她是否为高级帐户支付费用（图 16-1）。像典型的分类变量一样，我们将依赖变量表示为 0（没有高级帐户）或 1（高级帐户）。
 
 像往常一样，我们的数据是一列行 `[experience, salary, paid_account]`。让我们把它转换成我们需要的格式：
 
@@ -19,11 +19,11 @@ ys = [row[2] for row in data]           # paid_account
 
 显而易见的第一次尝试是使用线性回归找到最佳模型：
 
-<math alttext="paid account equals beta 0 plus beta 1 experience plus beta 2 salary plus epsilon" display="block"><mrow><mtext>paid</mtext> <mtext>account</mtext> <mo>=</mo> <msub><mi>β</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>β</mi> <mn>1</mn></msub> <mtext>experience</mtext> <mo>+</mo> <msub><mi>β</mi> <mn>2</mn></msub> <mtext>salary</mtext> <mo>+</mo> <mi>ε</mi></mrow></math>![付费和非付费用户。](assets/dsf2_1601.png)
+<math alttext="paid account equals beta 0 plus beta 1 experience plus beta 2 salary plus epsilon" display="block"><mrow><mtext>paid</mtext> <mtext>account</mtext> <mo>=</mo> <msub><mi>β</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>β</mi> <mn>1</mn></msub> <mtext>experience</mtext> <mo>+</mo> <msub><mi>β</mi> <mn>2</mn></msub> <mtext>salary</mtext> <mo>+</mo> <mi>ε</mi></mrow></math>![付费和非付费用户。](img/dsf2_1601.png)
 
 ###### 图 16-1 付费和非付费用户
 
-当然，我们完全可以用这种方式对问题建模。结果显示在[图 16-2](#linear_regression_for_probabilities)中：
+当然，我们完全可以用这种方式对问题建模。结果显示在图 16-2 中：
 
 ```py
 from matplotlib import pyplot as plt
@@ -43,32 +43,32 @@ plt.ylabel("actual")
 plt.show()
 ```
 
-![使用线性回归预测高级账户。](assets/dsf2_1602.png)
+![使用线性回归预测高级账户。](img/dsf2_1602.png)
 
 ###### 图 16-2 使用线性回归预测高级账户
 
 但是这种方法会导致一些即时问题：
 
-+   我们希望我们预测的输出是0或1，以表示类别成员资格。如果它们在0和1之间，我们可以将其解释为概率，例如0.25的输出可能表示成为付费会员的25%的机会。但是线性模型的输出可以是非常大的正数甚至是负数，这样不清楚如何解释。实际上，这里很多我们的预测是负数。
++   我们希望我们预测的输出是 0 或 1，以表示类别成员资格。如果它们在 0 和 1 之间，我们可以将其解释为概率，例如 0.25 的输出可能表示成为付费会员的 25%的机会。但是线性模型的输出可以是非常大的正数甚至是负数，这样不清楚如何解释。实际上，这里很多我们的预测是负数。
 
-+   线性回归模型假设误差与*x*的列无关。但是在这里，`experience`的回归系数为0.43，表明经验越多，付费会员的可能性越大。这意味着我们的模型对于经验丰富的人输出非常大的值。但是我们知道实际值最多只能是1，这意味着非常大的输出（因此非常大的`experience`值）对应于误差项非常大的负值。由于这种情况，我们对`beta`的估计是有偏的。
++   线性回归模型假设误差与*x*的列无关。但是在这里，`experience`的回归系数为 0.43，表明经验越多，付费会员的可能性越大。这意味着我们的模型对于经验丰富的人输出非常大的值。但是我们知道实际值最多只能是 1，这意味着非常大的输出（因此非常大的`experience`值）对应于误差项非常大的负值。由于这种情况，我们对`beta`的估计是有偏的。
 
-我们希望`dot(x_i, beta)`的大正值对应接近1的概率，大负值对应接近0的概率。我们可以通过对结果应用另一个函数来实现这一点。
+我们希望`dot(x_i, beta)`的大正值对应接近 1 的概率，大负值对应接近 0 的概率。我们可以通过对结果应用另一个函数来实现这一点。
 
 # 逻辑函数
 
-在逻辑回归中，我们使用*逻辑函数*，如[图 16-3](#graph_of_logistic_function)所示：
+在逻辑回归中，我们使用*逻辑函数*，如图 16-3 所示：
 
 ```py
 def logistic(x: float) -> float:
     return 1.0 / (1 + math.exp(-x))
 ```
 
-![逻辑函数。](assets/dsf2_1603.png)
+![逻辑函数。](img/dsf2_1603.png)
 
 ###### 图 16-3. 逻辑函数
 
-当其输入变得很大且为正时，它逐渐接近1。当其输入变得很大且为负时，它逐渐接近0。此外，它具有一个方便的性质，即其导数为：
+当其输入变得很大且为正时，它逐渐接近 1。当其输入变得很大且为负时，它逐渐接近 0。此外，它具有一个方便的性质，即其导数为：
 
 ```py
 def logistic_prime(x: float) -> float:
@@ -86,17 +86,17 @@ def logistic_prime(x: float) -> float:
 
 在这里两者并不等价，因此我们将使用梯度下降直接最大化似然。这意味着我们需要计算似然函数及其梯度。
 
-给定一些*β*，我们的模型表明每个<math><msub><mi>y</mi> <mi>i</mi></msub></math>应该等于1的概率为<math><mrow><mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi> <mo>)</mo></mrow></math>，等于0的概率为<math><mrow><mn>1</mn> <mo>-</mo> <mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi> <mo>)</mo></mrow></math>。
+给定一些*β*，我们的模型表明每个<math><msub><mi>y</mi> <mi>i</mi></msub></math>应该等于 1 的概率为<math><mrow><mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi> <mo>)</mo></mrow></math>，等于 0 的概率为<math><mrow><mn>1</mn> <mo>-</mo> <mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi> <mo>)</mo></mrow></math>。
 
 特别地，<math><msub><mi>y</mi> <mi>i</mi></msub></math>的概率密度函数可以写成：
 
 <math alttext="p left-parenthesis y Subscript i Baseline vertical-bar x Subscript i Baseline comma beta right-parenthesis equals f left-parenthesis x Subscript i Baseline beta right-parenthesis Superscript y Super Subscript i Baseline left-parenthesis 1 minus f left-parenthesis x Subscript i Baseline beta right-parenthesis right-parenthesis Superscript 1 minus y Super Subscript i" display="block"><mrow><mi>p</mi> <mrow><mo>(</mo> <msub><mi>y</mi> <mi>i</mi></msub> <mo>|</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <mi>β</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>f</mi> <msup><mrow><mo>(</mo><msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi><mo>)</mo></mrow> <msub><mi>y</mi> <mi>i</mi></msub></msup> <msup><mrow><mo>(</mo><mn>1</mn><mo>-</mo><mi>f</mi><mrow><mo>(</mo><msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi><mo>)</mo></mrow><mo>)</mo></mrow> <mrow><mn>1</mn><mo>-</mo><msub><mi>y</mi> <mi>i</mi></msub></mrow></msup></mrow></math>
 
-因为如果<math><msub><mi>y</mi> <mi>i</mi></msub></math>为0，则此等于：
+因为如果<math><msub><mi>y</mi> <mi>i</mi></msub></math>为 0，则此等于：
 
 <math alttext="1 minus f left-parenthesis x Subscript i Baseline beta right-parenthesis" display="block"><mrow><mn>1</mn> <mo>-</mo> <mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi> <mo>)</mo></mrow></math>
 
-如果<math><msub><mi>y</mi> <mi>i</mi></msub></math>为1，则它等于：
+如果<math><msub><mi>y</mi> <mi>i</mi></msub></math>为 1，则它等于：
 
 <math alttext="f left-parenthesis x Subscript i Baseline beta right-parenthesis" display="block"><mrow><mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mi>β</mi> <mo>)</mo></mrow></math>
 
@@ -189,7 +189,7 @@ with tqdm.trange(5000) as t:
 [-2.0, 4.7, -4.5]
 ```
 
-这些是`rescale`d数据的系数，但我们也可以将它们转换回原始数据：
+这些是`rescale`d 数据的系数，但我们也可以将它们转换回原始数据：
 
 ```py
 from scratch.working_with_data import scale
@@ -203,15 +203,15 @@ beta_unscaled = [(beta[0]
 # [8.9, 1.6, -0.000288]
 ```
 
-不幸的是，这些并不像线性回归系数那样容易解释。其他条件相同，一年额外的经验将在`logistic`的输入上增加1.6。其他条件相同，额外的10,000美元薪水将在`logistic`的输入上减少2.88。
+不幸的是，这些并不像线性回归系数那样容易解释。其他条件相同，一年额外的经验将在`logistic`的输入上增加 1.6。其他条件相同，额外的 10,000 美元薪水将在`logistic`的输入上减少 2.88。
 
-然而，输出的影响也取决于其他输入。如果`dot(beta, x_i)`已经很大（对应概率接近1），即使大幅增加它也不能太大影响概率。如果接近0，稍微增加可能会大幅增加概率。
+然而，输出的影响也取决于其他输入。如果`dot(beta, x_i)`已经很大（对应概率接近 1），即使大幅增加它也不能太大影响概率。如果接近 0，稍微增加可能会大幅增加概率。
 
 我们可以说的是，其他条件相同的情况下，经验丰富的人更有可能支付账户。而其他条件相同的情况下，收入较高的人支付账户的可能性较低。（这在我们绘制数据时也有些明显。）
 
 # 拟合度
 
-我们还没有使用我们留出的测试数据。让我们看看如果我们在概率超过0.5时预测*付费账户*会发生什么：
+我们还没有使用我们留出的测试数据。让我们看看如果我们在概率超过 0.5 时预测*付费账户*会发生什么：
 
 ```py
 true_positives = false_positives = true_negatives = false_negatives = 0
@@ -232,9 +232,9 @@ precision = true_positives / (true_positives + false_positives)
 recall = true_positives / (true_positives + false_negatives)
 ```
 
-这给出了75%的精度（“当我们预测*付费账户*时，我们有75%的准确率”）和80%的召回率（“当用户有付费账户时，我们80%的时间预测为*付费账户*”），考虑到我们拥有的数据很少，这并不算糟糕。
+这给出了 75%的精度（“当我们预测*付费账户*时，我们有 75%的准确率”）和 80%的召回率（“当用户有付费账户时，我们 80%的时间预测为*付费账户*”），考虑到我们拥有的数据很少，这并不算糟糕。
 
-我们还可以绘制预测与实际情况对比图（见图16-4，#logistic_prediction_vs_actual），这也显示出模型表现良好：
+我们还可以绘制预测与实际情况对比图（见图 16-4，#logistic_prediction_vs_actual），这也显示出模型表现良好：
 
 ```py
 predictions = [logistic(dot(beta, x_i)) for x_i in x_test]
@@ -245,37 +245,37 @@ plt.title("Logistic Regression Predicted vs. Actual")
 plt.show()
 ```
 
-![逻辑回归预测 vs 实际。](assets/dsf2_1604.png)
+![逻辑回归预测 vs 实际。](img/dsf2_1604.png)
 
-###### 图16-4。逻辑回归预测与实际
+###### 图 16-4。逻辑回归预测与实际
 
 # 支持向量机
 
-`dot(beta, x_i)`等于0的点集是我们类之间的边界。我们可以绘制这个图来精确了解我们的模型在做什么（见图16-5，#logit_image_part_two）。
+`dot(beta, x_i)`等于 0 的点集是我们类之间的边界。我们可以绘制这个图来精确了解我们的模型在做什么（见图 16-5，#logit_image_part_two）。
 
-![付费和未付费用户与决策边界。](assets/dsf2_1605.png)
+![付费和未付费用户与决策边界。](img/dsf2_1605.png)
 
-###### 图16-5。付费和未付费用户与决策边界
+###### 图 16-5。付费和未付费用户与决策边界
 
 这个边界是一个*超平面*，将参数空间分成两个半空间，对应*预测付费*和*预测未付费*。我们发现它是在找到最可能的逻辑模型的副作用中发现的。
 
-分类的另一种方法是只需寻找在训练数据中“最佳”分离类别的超平面。这是支持向量机背后的思想，它找到最大化每个类别最近点到超平面距离的超平面（见图16-6，#separating_hyperplane）。
+分类的另一种方法是只需寻找在训练数据中“最佳”分离类别的超平面。这是支持向量机背后的思想，它找到最大化每个类别最近点到超平面距离的超平面（见图 16-6，#separating_hyperplane）。
 
-![一个分离超平面。](assets/dsf2_1606.png)
+![一个分离超平面。](img/dsf2_1606.png)
 
-###### 图16-6。一个分离超平面
+###### 图 16-6。一个分离超平面
 
 寻找这样的超平面是一个涉及我们过于高级的技术的优化问题。另一个问题是，一个分离超平面可能根本不存在。在我们的“谁付费？”数据集中，简单地没有一条线完全分离付费用户和未付费用户。
 
-我们有时可以通过将数据转换为更高维空间来绕过这个问题。例如，考虑到简单的一维数据集，如[图16-7](#svm_non_separable)所示。
+我们有时可以通过将数据转换为更高维空间来绕过这个问题。例如，考虑到简单的一维数据集，如图 16-7 所示。
 
-![一个不可分离的一维数据集](assets/dsf2_1607.png)
+![一个不可分离的一维数据集](img/dsf2_1607.png)
 
-###### 图16-7。一个不可分离的一维数据集
+###### 图 16-7。一个不可分离的一维数据集
 
-从明显的来看，没有一个超平面可以将正例和负例分开。然而，当我们通过将点`x`映射到`(x, x**2)`的方式将这个数据集映射到二维空间时，看看会发生什么。突然间，可以找到一个可以分割数据的超平面（见[图 16-8](#svm_separable)）。
+从明显的来看，没有一个超平面可以将正例和负例分开。然而，当我们通过将点`x`映射到`(x, x**2)`的方式将这个数据集映射到二维空间时，看看会发生什么。突然间，可以找到一个可以分割数据的超平面（见图 16-8）。
 
-![在更高维度中变得可分离](assets/dsf2_1608.png)
+![在更高维度中变得可分离](img/dsf2_1608.png)
 
 ###### 图 16-8\. 数据集在更高维度中变得可分离
 
@@ -285,6 +285,6 @@ plt.show()
 
 # 进一步调查
 
-+   scikit-learn既有[逻辑回归](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression)模块，也有[支持向量机](https://scikit-learn.org/stable/modules/svm.html)模块。
++   scikit-learn 既有[逻辑回归](https://scikit-learn.org/stable/modules/linear_model.html#logistic-regression)模块，也有[支持向量机](https://scikit-learn.org/stable/modules/svm.html)模块。
 
-+   [LIBSVM](https://www.csie.ntu.edu.tw/~cjlin/libsvm/)是scikit-learn背后使用的支持向量机实现。其网站上有大量关于支持向量机的有用文档。
++   [LIBSVM](https://www.csie.ntu.edu.tw/~cjlin/libsvm/)是 scikit-learn 背后使用的支持向量机实现。其网站上有大量关于支持向量机的有用文档。

@@ -1,4 +1,4 @@
-# 第二章\. R for Pythonistas
+# 第二章：R for Pythonistas
 
 Rick J. Scavetta
 

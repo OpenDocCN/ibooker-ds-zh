@@ -1,4 +1,4 @@
-# 第六章. ArcGIS Python API
+# 第六章：ArcGIS Python API
 
 由 Esri 开发的客户端软件和 GIS 组成的套件被称为 ArcGIS。它不仅是一个 API，还是一个 Python 包，允许用户查询存储在 ArcGIS Online 或 ArcGIS Enterprise 中的信息。它不是开源的，但 Esri 在行业中的领导地位已经产生了大量免费内容和教程，供你访问和探索。我将分享一些学习资源、可访问的工具和信息，你可以通过 ArcGIS Python API 访问它们。你需要使用 Jupyter Notebook 和 ArcGIS Online 来跟进。
 

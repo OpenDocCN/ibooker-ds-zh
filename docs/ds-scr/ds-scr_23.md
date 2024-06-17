@@ -1,4 +1,4 @@
-# 第22章 网络分析
+# 第二十二章：网络分析
 
 > 你与你周围所有事物的连接实际上定义了你是谁。
 > 
@@ -6,15 +6,15 @@
 
 许多有趣的数据问题可以通过*网络*的方式进行有益的思考，网络由某种类型的*节点*和连接它们的*边*组成。
 
-例如，你的Facebook朋友形成一个网络的节点，其边是友谊关系。一个不那么明显的例子是互联网本身，其中每个网页是一个节点，每个从一个页面到另一个页面的超链接是一条边。
+例如，你的 Facebook 朋友形成一个网络的节点，其边是友谊关系。一个不那么明显的例子是互联网本身，其中每个网页是一个节点，每个从一个页面到另一个页面的超链接是一条边。
 
-Facebook友谊是相互的——如果我在Facebook上是你的朋友，那么必然你也是我的朋友。在这种情况下，我们称这些边是*无向*的。而超链接则不是——我的网站链接到*whitehouse.gov*，但（出于我无法理解的原因）*whitehouse.gov*拒绝链接到我的网站。我们称这些类型的边为*有向*的。我们将研究这两种类型的网络。
+Facebook 友谊是相互的——如果我在 Facebook 上是你的朋友，那么必然你也是我的朋友。在这种情况下，我们称这些边是*无向*的。而超链接则不是——我的网站链接到*whitehouse.gov*，但（出于我无法理解的原因）*whitehouse.gov*拒绝链接到我的网站。我们称这些类型的边为*有向*的。我们将研究这两种类型的网络。
 
 # 中介中心性
 
-在[第1章](ch01.html#introduction)中，我们通过计算每个用户拥有的朋友数量来计算DataSciencester网络中的关键连接者。现在我们有足够的机制来看看其他方法。我们将使用相同的网络，但现在我们将使用`NamedTuple`来处理数据。
+在第一章中，我们通过计算每个用户拥有的朋友数量来计算 DataSciencester 网络中的关键连接者。现在我们有足够的机制来看看其他方法。我们将使用相同的网络，但现在我们将使用`NamedTuple`来处理数据。
 
-回想一下，网络（[图22-1](#datasciencester_network_ch21)）包括用户：
+回想一下，网络（图 22-1）包括用户：
 
 ```py
 from typing import NamedTuple
@@ -35,9 +35,9 @@ friend_pairs = [(0, 1), (0, 2), (1, 2), (1, 3), (2, 3), (3, 4),
                 (4, 5), (5, 6), (5, 7), (6, 8), (7, 8), (8, 9)]
 ```
 
-![DataSciencester网络。](assets/dsf2_0101.png)
+![DataSciencester 网络。](img/dsf2_0101.png)
 
-###### 图22-1\. DataSciencester网络
+###### 图 22-1\. DataSciencester 网络
 
 友谊将更容易作为一个`dict`来处理：
 
@@ -61,7 +61,7 @@ assert friendships[8] == [6, 7, 9]
 
 另一种度量标准是*中介中心性*，它识别频繁出现在其他人对之间最短路径上的人。特别地，节点*i*的中介中心性通过为每对节点*j*和*k*添加上通过*i*的最短路径的比例来计算。
 
-也就是说，要弄清楚Thor的中介中心性，我们需要计算所有不是Thor的人之间所有最短路径。然后我们需要计算有多少条这些最短路径通过Thor。例如，Chi（`id` 3）和Clive（`id` 5）之间唯一的最短路径通过Thor，而Hero（`id` 0）和Chi（`id` 3）之间的两条最短路径都不通过Thor。
+也就是说，要弄清楚 Thor 的中介中心性，我们需要计算所有不是 Thor 的人之间所有最短路径。然后我们需要计算有多少条这些最短路径通过 Thor。例如，Chi（`id` 3）和 Clive（`id` 5）之间唯一的最短路径通过 Thor，而 Hero（`id` 0）和 Chi（`id` 3）之间的两条最短路径都不通过 Thor。
 
 因此，作为第一步，我们需要找出所有人之间的最短路径。有一些非常复杂的算法可以高效地完成这个任务，但是（几乎总是如此），我们将使用一种效率较低但更易于理解的算法。
 
@@ -69,11 +69,11 @@ assert friendships[8] == [6, 7, 9]
 
 1.  我们的目标是一个函数，它接受一个`from_user`，并找到到每个其他用户的*所有*最短路径。
 
-1.  我们将路径表示为用户ID的`list`。因为每条路径都从`from_user`开始，我们不会在列表中包含她的ID。这意味着表示路径的列表长度将是路径本身的长度。
+1.  我们将路径表示为用户 ID 的`list`。因为每条路径都从`from_user`开始，我们不会在列表中包含她的 ID。这意味着表示路径的列表长度将是路径本身的长度。
 
-1.  我们将维护一个名为`shortest_paths_to`的字典，其中键是用户ID，值是以指定ID结尾的路径列表。如果有唯一的最短路径，列表将只包含该路径。如果有多条最短路径，则列表将包含所有这些路径。
+1.  我们将维护一个名为`shortest_paths_to`的字典，其中键是用户 ID，值是以指定 ID 结尾的路径列表。如果有唯一的最短路径，列表将只包含该路径。如果有多条最短路径，则列表将包含所有这些路径。
 
-1.  我们还会维护一个称为`frontier`的队列，按照我们希望探索它们的顺序包含我们想要探索的用户。我们将它们存储为对`(prev_user, user)`，这样我们就知道如何到达每一个用户。我们将队列初始化为`from_user`的所有邻居。（我们还没有讨论过队列，它们是优化了“添加到末尾”和“从前面删除”的数据结构。在Python中，它们被实现为`collections.deque`，实际上是一个双端队列。）
+1.  我们还会维护一个称为`frontier`的队列，按照我们希望探索它们的顺序包含我们想要探索的用户。我们将它们存储为对`(prev_user, user)`，这样我们就知道如何到达每一个用户。我们将队列初始化为`from_user`的所有邻居。（我们还没有讨论过队列，它们是优化了“添加到末尾”和“从前面删除”的数据结构。在 Python 中，它们被实现为`collections.deque`，实际上是一个双端队列。）
 
 1.  在探索图形时，每当我们发现新的邻居，而我们还不知道到达它们的最短路径时，我们将它们添加到队列的末尾以供稍后探索，当前用户为`prev_user`。
 
@@ -143,7 +143,7 @@ shortest_paths = {user.id: shortest_paths_from(user.id, friendships)
                   for user in users}
 ```
 
-现在我们终于可以计算介数中心性了。对于每对节点*i*和*j*，我们知道从*i*到*j*的*n*条最短路径。然后，对于每条路径，我们只需将1/n添加到该路径上每个节点的中心性：
+现在我们终于可以计算介数中心性了。对于每对节点*i*和*j*，我们知道从*i*到*j*的*n*条最短路径。然后，对于每条路径，我们只需将 1/n 添加到该路径上每个节点的中心性：
 
 ```py
 betweenness_centrality = {user.id: 0.0 for user in users}
@@ -159,11 +159,11 @@ for source in users:
                         betweenness_centrality[between_id] += contrib
 ```
 
-如[图22-2](#network_sized_by_betweenness)所示，用户0和9的中心性为0（因为它们都不在任何其他用户之间的最短路径上），而3、4和5都具有很高的中心性（因为它们都位于许多最短路径上）。
+如图 22-2 所示，用户 0 和 9 的中心性为 0（因为它们都不在任何其他用户之间的最短路径上），而 3、4 和 5 都具有很高的中心性（因为它们都位于许多最短路径上）。
 
-![DataSciencester网络按介数中心性大小排序。](assets/dsf2_2202.png)
+![DataSciencester 网络按介数中心性大小排序。](img/dsf2_2202.png)
 
-###### 图22-2\. DataSciencester网络按介数中心性大小排序
+###### 图 22-2\. DataSciencester 网络按介数中心性大小排序
 
 ###### 注意
 
@@ -178,15 +178,15 @@ def farness(user_id: int) -> float:
                for paths in shortest_paths[user_id].values())
 ```
 
-之后计算接近中心度（[图22-3](#network_sized_by_closeness)）的工作量就很小：
+之后计算接近中心度（图 22-3）的工作量就很小：
 
 ```py
 closeness_centrality = {user.id: 1 / farness(user.id) for user in users}
 ```
 
-![根据接近中心度调整大小的DataSciencester网络。](assets/dsf2_2203.png)
+![根据接近中心度调整大小的 DataSciencester 网络。](img/dsf2_2203.png)
 
-###### 图22-3\. 根据接近中心度调整大小的DataSciencester网络
+###### 图 22-3\. 根据接近中心度调整大小的 DataSciencester 网络
 
 这里变化很少——即使非常中心的节点距离外围节点也相当远。
 
@@ -204,7 +204,7 @@ closeness_centrality = {user.id: 1 / farness(user.id) for user in users}
 
 这只是*A*的第*i*行（看作向量）与*B*的第*j*列（也看作向量）的点积。
 
-我们可以使用[第四章](ch04.html#linear_algebra)中的`make_matrix`函数来实现这一点：
+我们可以使用第四章中的`make_matrix`函数来实现这一点：
 
 ```py
 from scratch.linear_algebra import Matrix, make_matrix, shape
@@ -238,7 +238,7 @@ def matrix_times_vector(m: Matrix, v: Vector) -> Vector:
 
 当*A*是一个*方阵*时，这个操作将*n*维向量映射到其他*n*维向量。对于某些矩阵*A*和向量*v*，当*A*作用于*v*时，可能得到*v*的一个标量倍数—也就是说，结果是一个指向*v*相同方向的向量。当这种情况发生时（并且此外*v*不是全零向量），我们称*v*是*A*的一个*特征向量*。我们称这个乘数为*特征值*。
 
-找到*A*的一个特征向量的一个可能方法是选择一个起始向量*v*，应用`matrix_times_vector`，重新缩放结果使其大小为1，并重复，直到过程收敛：
+找到*A*的一个特征向量的一个可能方法是选择一个起始向量*v*，应用`matrix_times_vector`，重新缩放结果使其大小为 1，并重复，直到过程收敛：
 
 ```py
 from typing import Tuple
@@ -291,9 +291,9 @@ n = len(users)
 adjacency_matrix = make_matrix(n, n, entry_fn)
 ```
 
-然后，每个用户的特征向量中心性就是在 `find_eigenvector` 返回的特征向量中对应于该用户的条目 ([图 22-4](#network_sized_by_eigenvector))。
+然后，每个用户的特征向量中心性就是在 `find_eigenvector` 返回的特征向量中对应于该用户的条目 (图 22-4)。
 
-![DataSciencester 网络的特征向量中心性大小。](assets/dsf2_2204.png)
+![DataSciencester 网络的特征向量中心性大小。](img/dsf2_2204.png)
 
 ###### 图 22-4\. DataSciencester 网络的特征向量中心性大小
 
@@ -333,7 +333,7 @@ dot(adjacency_matrix[i], eigenvector_centralities)
 
 1.  给每个节点一个新的中心度分数，该分数等于其邻居（旧的）中心度分数的总和。
 
-1.  重新调整中心度向量，使其大小为1。
+1.  重新调整中心度向量，使其大小为 1。
 
 尽管其背后的数学可能一开始看起来有些难懂，但计算本身相对简单（不像介数中心度那样），甚至可以在非常大的图上执行。 （至少，如果你使用真正的线性代数库，那么在大型图上执行起来是很容易的。如果你使用我们的矩阵作为列表的实现，你会有些困难。）
 
@@ -341,9 +341,9 @@ dot(adjacency_matrix[i], eigenvector_centralities)
 
 DataSciencester 并没有得到很多关注，因此收入副总裁考虑从友谊模式转向背书模式。结果表明，没有人特别在意哪些数据科学家*彼此是朋友*，但技术招聘人员非常在意其他数据科学家*受到*其他数据科学家的*尊重*。
 
-在这个新模型中，我们将跟踪不再代表互惠关系的背书`(source, target)`，而是`source`背书`target`作为一个优秀的数据科学家（参见[图 22-5](#datasciencester_network_endorsements)）。
+在这个新模型中，我们将跟踪不再代表互惠关系的背书`(source, target)`，而是`source`背书`target`作为一个优秀的数据科学家（参见图 22-5）。
 
-![数据科学家背书网络。](assets/dsf2_2205.png)
+![数据科学家背书网络。](img/dsf2_2205.png)
 
 ###### 图 22-5\. DataSciencester 的背书网络
 
@@ -363,7 +363,7 @@ from collections import Counter
 endorsement_counts = Counter(target for source, target in endorsements)
 ```
 
-然而，“背书数量”是一个容易操控的度量标准。你所需要做的就是创建假账户，并让它们为你背书。或者与你的朋友安排互相为对方背书。（就像用户0、1和2似乎已经做过的那样。）
+然而，“背书数量”是一个容易操控的度量标准。你所需要做的就是创建假账户，并让它们为你背书。或者与你的朋友安排互相为对方背书。（就像用户 0、1 和 2 似乎已经做过的那样。）
 
 更好的度量标准应考虑*谁*为你背书。来自背书颇多的人的背书应该比来自背书较少的人的背书更有价值。这就是 PageRank 算法的本质，它被谷歌用来根据其他网站链接到它们的网站来排名网站，以及那些链接到这些网站的网站，依此类推。
 
@@ -371,13 +371,13 @@ endorsement_counts = Counter(target for source, target in endorsements)
 
 一个简化版本看起来像这样：
 
-1.  网络中总共有1.0（或100%）的 PageRank。
+1.  网络中总共有 1.0（或 100%）的 PageRank。
 
 1.  最初，这个 PageRank 在节点之间均匀分布。
 
 1.  在每一步中，每个节点的大部分 PageRank 均匀分布在其出链之间。
 
-1.  在每个步骤中，每个节点的PageRank剩余部分均匀分布在所有节点之间。
+1.  在每个步骤中，每个节点的 PageRank 剩余部分均匀分布在所有节点之间。
 
 ```py
 import tqdm
@@ -419,13 +419,13 @@ assert pr[4] > max(page_rank
                    if user_id != 4)
 ```
 
-PageRank（[图 22-6](#network_sized_by_pagerank)）将用户 4（Thor）标识为排名最高的数据科学家。
+PageRank（图 22-6）将用户 4（Thor）标识为排名最高的数据科学家。
 
-![按PageRank排序的数据科学家网络。](assets/dsf2_2206.png)
+![按 PageRank 排序的数据科学家网络。](img/dsf2_2206.png)
 
-###### 图 22-6\. 数据科学家网络按PageRank排序的大小
+###### 图 22-6\. 数据科学家网络按 PageRank 排序的大小
 
-尽管Thor获得的认可少于用户 0、1 和 2（各有两个），但他的认可带来的排名来自他们的认可。此外，他的两个认可者仅认可了他一个人，这意味着他不必与任何其他人分享他们的排名。
+尽管 Thor 获得的认可少于用户 0、1 和 2（各有两个），但他的认可带来的排名来自他们的认可。此外，他的两个认可者仅认可了他一个人，这意味着他不必与任何其他人分享他们的排名。
 
 # 进一步探索
 
@@ -433,4 +433,4 @@ PageRank（[图 22-6](#network_sized_by_pagerank)）将用户 4（Thor）标识
 
 +   [NetworkX](http://networkx.github.io/) 是用于网络分析的 Python 库。它有计算中心度和可视化图形的函数。
 
-+   [Gephi](https://gephi.org/) 是一款爱它或者恨它的基于GUI的网络可视化工具。
++   [Gephi](https://gephi.org/) 是一款爱它或者恨它的基于 GUI 的网络可视化工具。

@@ -1,4 +1,4 @@
-# 第三章\. DNA 的反向互补：字符串操作
+# 第三章：DNA 的反向互补：字符串操作
 
 [Rosalind REVC 挑战](https://oreil.ly/ot4z6)解释 DNA 的碱基形成*A-T*和*G-C*的配对。此外，DNA 具有方向性，通常从 5'-端（*五端*）向 3'-端（*三端*）读取。如图 Figure 3-1 所示，DNA 字符串*AAAACCCGGT*的互补是*TTTTGGGCCA*。然后我反转这个字符串（从 3'-端读取）以获得*ACCGGGTTTT*作为反向互补。
 

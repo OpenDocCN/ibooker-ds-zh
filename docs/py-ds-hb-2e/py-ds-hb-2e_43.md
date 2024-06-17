@@ -1,4 +1,4 @@
-# 第三十八章. 介绍 Scikit-Learn
+# 第三十八章：介绍 Scikit-Learn
 
 几个 Python 库提供了一系列机器学习算法的可靠实现。其中最著名的之一是[Scikit-Learn](http://scikit-learn.org)，它提供了大量常见算法的高效版本。Scikit-Learn 具有清晰、统一和简化的 API，以及非常有用和完整的文档。统一性的好处在于，一旦你理解了 Scikit-Learn 一种类型模型的基本用法和语法，切换到新模型或算法就变得简单。
 

@@ -1,14 +1,14 @@
-# 第14章。简单线性回归
+# 第十四章：简单线性回归
 
 > 艺术，如道德，就在于在某处划出界限。
 > 
 > G. K. Chesterton
 
-在[第5章](ch05.html#statistics)中，我们使用`correlation`函数来衡量两个变量之间线性关系的强度。对于大多数应用程序，知道存在这样一个线性关系是不够的。我们需要理解关系的本质。这就是我们将使用简单线性回归的地方。
+在第五章中，我们使用`correlation`函数来衡量两个变量之间线性关系的强度。对于大多数应用程序，知道存在这样一个线性关系是不够的。我们需要理解关系的本质。这就是我们将使用简单线性回归的地方。
 
 # 模型
 
-回想一下，我们正在研究DataSciencester用户的朋友数量和每天在网站上花费的时间之间的关系。假设您已经确信，拥有更多朋友*导致*人们在网站上花费更多时间，而不是我们讨论过的其他解释之一。
+回想一下，我们正在研究 DataSciencester 用户的朋友数量和每天在网站上花费的时间之间的关系。假设您已经确信，拥有更多朋友*导致*人们在网站上花费更多时间，而不是我们讨论过的其他解释之一。
 
 参与用户参与部长要求您建立描述这种关系的模型。由于您找到了一个相当强的线性关系，线性模型是一个自然的起点。
 
@@ -69,7 +69,7 @@ def least_squares_fit(x: Vector, y: Vector) -> Tuple[float, float]:
 
 不需要详细进行数学推导，让我们思考为什么这可能是一个合理的解决方案。选择`alpha`简单地表示，当我们看到自变量`x`的平均值时，我们预测因变量`y`的平均值。
 
-选择`beta`的意义在于，当输入值增加了`standard_deviation(x)`时，预测值就会增加`correlation(x, y) * standard_deviation(y)`。如果`x`和`y`完全正相关，`x`增加一个标准差会导致预测值增加一个`y`的标准差。当它们完全负相关时，`x`的增加会导致预测值的*减少*。当相关性为0时，`beta`为0，这意味着`x`的变化对预测没有任何影响。
+选择`beta`的意义在于，当输入值增加了`standard_deviation(x)`时，预测值就会增加`correlation(x, y) * standard_deviation(y)`。如果`x`和`y`完全正相关，`x`增加一个标准差会导致预测值增加一个`y`的标准差。当它们完全负相关时，`x`的增加会导致预测值的*减少*。当相关性为 0 时，`beta`为 0，这意味着`x`的变化对预测没有任何影响。
 
 通常情况下，我们来快速测试一下：
 
@@ -81,7 +81,7 @@ y = [3 * i - 5 for i in x]
 assert least_squares_fit(x, y) == (-5, 3)
 ```
 
-现在很容易将其应用于[第5章](ch05.html#statistics)中去除异常值的数据：
+现在很容易将其应用于第五章中去除异常值的数据：
 
 ```py
 from scratch.statistics import num_friends_good, daily_minutes_good
@@ -91,15 +91,15 @@ assert 22.9 < alpha < 23.0
 assert 0.9 < beta < 0.905
 ```
 
-这给出了`alpha` = 22.95和`beta` = 0.903的值。因此，我们的模型表明，我们预计一个没有朋友的用户每天在DataSciencester上花费大约23分钟。对于每个额外的朋友，我们预计用户每天在网站上多花大约一分钟。
+这给出了`alpha` = 22.95 和`beta` = 0.903 的值。因此，我们的模型表明，我们预计一个没有朋友的用户每天在 DataSciencester 上花费大约 23 分钟。对于每个额外的朋友，我们预计用户每天在网站上多花大约一分钟。
 
-在[图14-1](#simple_linear_regression_image)中，我们绘制预测线，以了解模型拟合观察数据的程度。
+在图 14-1 中，我们绘制预测线，以了解模型拟合观察数据的程度。
 
-![简单线性回归。](assets/dsf2_1401.png)
+![简单线性回归。](img/dsf2_1401.png)
 
-###### 图14-1\. 我们的简单线性模型
+###### 图 14-1\. 我们的简单线性模型
 
-当然，我们需要一种比盯着图表更好的方法来确定我们对数据的拟合程度。一个常见的度量是*决定系数*（或*R平方*），它衡量因变量的总变异中模型所捕获的比例：
+当然，我们需要一种比盯着图表更好的方法来确定我们对数据的拟合程度。一个常见的度量是*决定系数*（或*R 平方*），它衡量因变量的总变异中模型所捕获的比例：
 
 ```py
 from scratch.statistics import de_mean
@@ -120,11 +120,11 @@ rsq = r_squared(alpha, beta, num_friends_good, daily_minutes_good)
 assert 0.328 < rsq < 0.330
 ```
 
-记住，我们选择了使预测误差平方和最小化的`alpha`和`beta`。我们可以选择一个线性模型“始终预测`mean(y)`”（对应于`alpha` = mean(y)和`beta` = 0），其预测误差平方和恰好等于总平方和。这意味着R平方为0，表明该模型（在这种情况下显然）的表现不比简单预测均值好。
+记住，我们选择了使预测误差平方和最小化的`alpha`和`beta`。我们可以选择一个线性模型“始终预测`mean(y)`”（对应于`alpha` = mean(y)和`beta` = 0），其预测误差平方和恰好等于总平方和。这意味着 R 平方为 0，表明该模型（在这种情况下显然）的表现不比简单预测均值好。
 
-显然，最小二乘模型至少要与此一样好，这意味着预测误差平方和最多等于总平方和，这意味着R平方至少为0。而预测误差平方和至少为0，这意味着R平方最多为1。
+显然，最小二乘模型至少要与此一样好，这意味着预测误差平方和最多等于总平方和，这意味着 R 平方至少为 0。而预测误差平方和至少为 0，这意味着 R 平方最多为 1。
 
-数字越高，我们的模型拟合数据越好。这里我们计算了一个R平方为0.329，表明我们的模型在拟合数据方面只算是可以接受，显然还有其他因素在起作用。
+数字越高，我们的模型拟合数据越好。这里我们计算了一个 R 平方为 0.329，表明我们的模型在拟合数据方面只算是可以接受，显然还有其他因素在起作用。
 
 # 使用梯度下降法
 
@@ -184,7 +184,7 @@ assert 0.9 < beta < 0.905
 
 在这种方法下，最可能的*θ*是能够最大化这个似然函数的值——即使得观察数据最有可能出现的值。对于连续分布的情况，我们有一个概率分布函数而不是概率质量函数，我们也可以做同样的事情。
 
-回到回归。关于简单回归模型经常做的一个假设是回归误差服从均值为0、某个（已知）标准差*σ*的正态分布。如果是这种情况，那么基于观察到一对`(x_i, y_i)`的似然是：
+回到回归。关于简单回归模型经常做的一个假设是回归误差服从均值为 0、某个（已知）标准差*σ*的正态分布。如果是这种情况，那么基于观察到一对`(x_i, y_i)`的似然是：
 
 <math alttext="upper L left-parenthesis alpha comma beta vertical-bar x Subscript i Baseline comma y Subscript i Baseline comma sigma right-parenthesis equals StartFraction 1 Over StartRoot 2 pi EndRoot sigma EndFraction exp left-parenthesis minus left-parenthesis y Subscript i Baseline minus alpha minus beta x Subscript i Baseline right-parenthesis squared slash 2 sigma squared right-parenthesis" display="block"><mrow><mi>L</mi> <mrow><mo>(</mo> <mi>α</mi> <mo>,</mo> <mi>β</mi> <mo>|</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>,</mo> <msub><mi>y</mi> <mi>i</mi></msub> <mo>,</mo> <mi>σ</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mrow><msqrt><mrow><mn>2</mn><mi>π</mi></mrow></msqrt><mi>σ</mi></mrow></mfrac> <mo form="prefix">exp</mo> <mrow><mo>(</mo> <mo>-</mo> <msup><mrow><mo>(</mo><msub><mi>y</mi> <mi>i</mi></msub> <mo>-</mo><mi>α</mi><mo>-</mo><mi>β</mi><msub><mi>x</mi> <mi>i</mi></msub> <mo>)</mo></mrow> <mn>2</mn></msup> <mo>/</mo> <mn>2</mn> <msup><mi>σ</mi> <mn>2</mn></msup> <mo>)</mo></mrow></mrow></math>
 
@@ -192,4 +192,4 @@ assert 0.9 < beta < 0.905
 
 # 进一步探索
 
-继续阅读关于多元回归的内容在[第15章](ch15.html#multiple_regression)！
+继续阅读关于多元回归的内容在第十五章！

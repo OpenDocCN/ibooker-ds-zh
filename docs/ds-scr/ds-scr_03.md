@@ -1,22 +1,22 @@
-# 第二章。Python速成课程
+# 第二章：Python 速成课程
 
-> 二十五年过去了，人们仍然对Python着迷，这让我难以置信。
+> 二十五年过去了，人们仍然对 Python 着迷，这让我难以置信。
 > 
 > 迈克尔·帕林
 
-在DataSciencester的所有新员工都必须通过新员工入职培训，其中最有趣的部分是Python的速成课程。
+在 DataSciencester 的所有新员工都必须通过新员工入职培训，其中最有趣的部分是 Python 的速成课程。
 
-这不是一篇全面的Python教程，而是旨在突出我们最关心的语言部分的部分（其中一些通常不是Python教程的重点）。如果你以前从未使用过Python，你可能想要补充一些初学者教程。
+这不是一篇全面的 Python 教程，而是旨在突出我们最关心的语言部分的部分（其中一些通常不是 Python 教程的重点）。如果你以前从未使用过 Python，你可能想要补充一些初学者教程。
 
-# Python之禅
+# Python 之禅
 
-Python有一种有点禅意的[设计原则描述](http://legacy.python.org/dev/peps/pep-0020/)，你也可以在Python解释器内部通过输入“import this”来找到它。
+Python 有一种有点禅意的[设计原则描述](http://legacy.python.org/dev/peps/pep-0020/)，你也可以在 Python 解释器内部通过输入“import this”来找到它。
 
 其中最受讨论的之一是：
 
 > 应该有一种——最好只有一种——明显的方法来做到这一点。
 
-根据这种“显而易见”的方式编写的代码（这对于新手来说可能根本不明显）通常被描述为“Pythonic”。尽管这不是一本关于Python的书，我们偶尔会对比Pythonic和非Pythonic的解决方案，并且我们通常会倾向于使用Pythonic的解决方案来解决问题。
+根据这种“显而易见”的方式编写的代码（这对于新手来说可能根本不明显）通常被描述为“Pythonic”。尽管这不是一本关于 Python 的书，我们偶尔会对比 Pythonic 和非 Pythonic 的解决方案，并且我们通常会倾向于使用 Pythonic 的解决方案来解决问题。
 
 还有几个触及美学的：
 
@@ -24,27 +24,27 @@ Python有一种有点禅意的[设计原则描述](http://legacy.python.org/dev/
 
 并代表我们在代码中努力追求的理想。
 
-# 获取Python
+# 获取 Python
 
 ###### 注
 
-由于安装说明可能会更改，而印刷书籍不能，因此关于如何安装Python的最新说明可以在[该书的GitHub仓库](https://github.com/joelgrus/data-science-from-scratch/blob/master/INSTALL.md)中找到。
+由于安装说明可能会更改，而印刷书籍不能，因此关于如何安装 Python 的最新说明可以在[该书的 GitHub 仓库](https://github.com/joelgrus/data-science-from-scratch/blob/master/INSTALL.md)中找到。
 
 如果这里打印的方法对你不起作用，请检查那些方法。
 
-你可以从[Python.org](https://www.python.org/)下载Python。但如果你还没有Python，我建议你安装[Anaconda](https://www.anaconda.com/download/)发行版，它已经包含了你做数据科学所需的大多数库。
+你可以从[Python.org](https://www.python.org/)下载 Python。但如果你还没有 Python，我建议你安装[Anaconda](https://www.anaconda.com/download/)发行版，它已经包含了你做数据科学所需的大多数库。
 
-当我写《从零开始的数据科学》的第一版时，Python 2.7仍然是大多数数据科学家首选的版本。因此，该书的第一版是基于Python 2.7的。
+当我写《从零开始的数据科学》的第一版时，Python 2.7 仍然是大多数数据科学家首选的版本。因此，该书的第一版是基于 Python 2.7 的。
 
-然而，在过去的几年里，几乎所有有份量的人都已经迁移到Python 3。Python的最新版本具有许多功能，使得编写清晰的代码更容易，并且我们将充分利用仅在Python 3.6或更高版本中可用的功能。这意味着你应该获得Python 3.6或更高版本。（此外，许多有用的库正在终止对Python 2.7的支持，这是切换的另一个原因。）
+然而，在过去的几年里，几乎所有有份量的人都已经迁移到 Python 3。Python 的最新版本具有许多功能，使得编写清晰的代码更容易，并且我们将充分利用仅在 Python 3.6 或更高版本中可用的功能。这意味着你应该获得 Python 3.6 或更高版本。（此外，许多有用的库正在终止对 Python 2.7 的支持，这是切换的另一个原因。）
 
 # 虚拟环境
 
-从下一章开始，我们将使用matplotlib库生成图表和图形。这个库不是Python的核心部分；你必须自己安装它。每个数据科学项目都需要某些外部库的组合，有时候具体版本可能与你用于其他项目的版本不同。如果你只有一个Python安装，这些库可能会冲突并引起各种问题。
+从下一章开始，我们将使用 matplotlib 库生成图表和图形。这个库不是 Python 的核心部分；你必须自己安装它。每个数据科学项目都需要某些外部库的组合，有时候具体版本可能与你用于其他项目的版本不同。如果你只有一个 Python 安装，这些库可能会冲突并引起各种问题。
 
-标准解决方案是使用*虚拟环境*，它们是沙箱化的Python环境，维护其自己版本的Python库（根据环境设置，还可能包括Python本身的版本）。
+标准解决方案是使用*虚拟环境*，它们是沙箱化的 Python 环境，维护其自己版本的 Python 库（根据环境设置，还可能包括 Python 本身的版本）。
 
-我建议你安装Anaconda Python发行版，因此在本节中我将解释Anaconda环境的工作原理。如果你不使用Anaconda，可以使用内置的[`venv`](https://docs.python.org/3/library/venv.html)模块或安装[`virtualenv`](https://virtualenv.pypa.io/en/latest/)。在这种情况下，应遵循它们的说明。
+我建议你安装 Anaconda Python 发行版，因此在本节中我将解释 Anaconda 环境的工作原理。如果你不使用 Anaconda，可以使用内置的[`venv`](https://docs.python.org/3/library/venv.html)模块或安装[`virtualenv`](https://virtualenv.pypa.io/en/latest/)。在这种情况下，应遵循它们的说明。
 
 要创建（Anaconda）虚拟环境，只需执行以下操作：
 
@@ -71,15 +71,15 @@ conda create -n dsfs python=3.6
 source activate dsfs
 ```
 
-此时，你的命令提示符应该更改以指示活动环境。在我的MacBook上，提示现在看起来像：
+此时，你的命令提示符应该更改以指示活动环境。在我的 MacBook 上，提示现在看起来像：
 
 ```py
 (dsfs) ip-10-0-0-198:~ joelg$
 ```
 
-只要此环境处于活动状态，你安装的任何库都将仅安装在dsfs环境中。完成本书后，继续进行自己的项目时，应为它们创建自己的环境。
+只要此环境处于活动状态，你安装的任何库都将仅安装在 dsfs 环境中。完成本书后，继续进行自己的项目时，应为它们创建自己的环境。
 
-现在你已经有了自己的环境，值得安装[IPython](http://ipython.org/)，这是一个功能齐全的Python shell：
+现在你已经有了自己的环境，值得安装[IPython](http://ipython.org/)，这是一个功能齐全的 Python shell：
 
 ```py
 python -m pip install ipython
@@ -87,15 +87,15 @@ python -m pip install ipython
 
 ###### 注意
 
-Anaconda带有自己的包管理器`conda`，但你也可以使用标准的Python包管理器`pip`，这是我们将要做的事情。
+Anaconda 带有自己的包管理器`conda`，但你也可以使用标准的 Python 包管理器`pip`，这是我们将要做的事情。
 
-本书的其余部分假设你已经创建并激活了这样一个Python 3.6的虚拟环境（尽管你可以将其命名为任何你想要的名称），后续章节可能会依赖于我在早期章节中要求你安装的库。
+本书的其余部分假设你已经创建并激活了这样一个 Python 3.6 的虚拟环境（尽管你可以将其命名为任何你想要的名称），后续章节可能会依赖于我在早期章节中要求你安装的库。
 
-作为良好纪律的一部分，你应该始终在虚拟环境中工作，而不是使用“基础”Python安装。
+作为良好纪律的一部分，你应该始终在虚拟环境中工作，而不是使用“基础”Python 安装。
 
 # 空白格式化
 
-许多语言使用大括号来界定代码块。Python使用缩进：
+许多语言使用大括号来界定代码块。Python 使用缩进：
 
 ```py
 # The pound sign marks the start of a comment. Python itself
@@ -109,11 +109,11 @@ for i in [1, 2, 3, 4, 5]:
 print("done looping")
 ```
 
-这使得Python代码非常易读，但这也意味着你必须非常注意你的格式。
+这使得 Python 代码非常易读，但这也意味着你必须非常注意你的格式。
 
 ###### 警告
 
-程序员经常争论是否应该使用制表符（tabs）还是空格（spaces）进行缩进。对于许多语言来说，这并不是太重要；然而，Python认为制表符和空格是不同的缩进方式，如果混合使用两者，你的代码将无法正常运行。在编写Python代码时，应始终使用空格，而不是制表符。（如果你在编辑器中编写代码，可以配置Tab键插入空格。）
+程序员经常争论是否应该使用制表符（tabs）还是空格（spaces）进行缩进。对于许多语言来说，这并不是太重要；然而，Python 认为制表符和空格是不同的缩进方式，如果混合使用两者，你的代码将无法正常运行。在编写 Python 代码时，应始终使用空格，而不是制表符。（如果你在编辑器中编写代码，可以配置 Tab 键插入空格。）
 
 圆括号和方括号内的空白会被忽略，这对于冗长的计算很有帮助：
 
@@ -234,7 +234,7 @@ x = apply_to_one(my_double)    # equals 2
 y = apply_to_one(lambda x: x + 4)      # equals 5
 ```
 
-你可以将lambda表达式赋值给变量，尽管大多数人会告诉你应该使用`def`代替：
+你可以将 lambda 表达式赋值给变量，尽管大多数人会告诉你应该使用`def`代替：
 
 ```py
 another_double = lambda x: 2 * x       # don't do this
@@ -331,11 +331,11 @@ except ZeroDivisionError:
     print("cannot divide by zero")
 ```
 
-尽管在许多语言中异常被认为是不好的，但在Python中使用它们来使代码更清晰是无可厚非的，有时我们会这样做。
+尽管在许多语言中异常被认为是不好的，但在 Python 中使用它们来使代码更清晰是无可厚非的，有时我们会这样做。
 
 # 列表
 
-可能是Python中最基本的数据结构是*列表*，它只是一个有序集合（它类似于其他语言中可能被称为*数组*，但具有一些附加功能）：
+可能是 Python 中最基本的数据结构是*列表*，它只是一个有序集合（它类似于其他语言中可能被称为*数组*，但具有一些附加功能）：
 
 ```py
 integer_list = [1, 2, 3]
@@ -507,7 +507,7 @@ grades["Kate"] = 100                  # adds a third entry
 num_students = len(grades)            # equals 3
 ```
 
-正如你在[第 1 章](ch01.html#introduction)看到的，你可以使用字典来表示结构化数据：
+正如你在第一章看到的，你可以使用字典来表示结构化数据：
 
 ```py
 tweet = {
@@ -710,14 +710,14 @@ for x in range(10):
 
 # 真值
 
-Python中的布尔值与大多数其他语言的工作方式相同，只是它们大写了起来。
+Python 中的布尔值与大多数其他语言的工作方式相同，只是它们大写了起来。
 
 ```py
 one_is_less_than_two = 1 < 2          # equals True
 true_equals_false = True == False     # equals False
 ```
 
-Python使用值`None`来表示不存在的值。它类似于其他语言的`null`：
+Python 使用值`None`来表示不存在的值。它类似于其他语言的`null`：
 
 ```py
 x = None
@@ -725,7 +725,7 @@ assert x == None, "this is the not the Pythonic way to check for None"
 assert x is None, "this is the Pythonic way to check for None"
 ```
 
-Python允许你在期望布尔值的地方使用任何值。以下值都是“假”的：
+Python 允许你在期望布尔值的地方使用任何值。以下值都是“假”的：
 
 +   `False`
 
@@ -773,7 +773,7 @@ safe_x = x if x is not None else 0
 
 可能更易读。
 
-Python有一个`all`函数，它接受一个可迭代对象，在每个元素都为真时返回`True`，还有一个`any`函数，当至少一个元素为真时返回`True`：
+Python 有一个`all`函数，它接受一个可迭代对象，在每个元素都为真时返回`True`，还有一个`any`函数，当至少一个元素为真时返回`True`：
 
 ```py
 all([True, 1, {3}])   # True, all are truthy
@@ -785,7 +785,7 @@ any([])               # False, no truthy elements in the list
 
 # 排序
 
-每个Python列表都有一个`sort`方法，它会原地对列表进行排序。如果你不想改变你的列表，可以使用`sorted`函数，它会返回一个新的列表：
+每个 Python 列表都有一个`sort`方法，它会原地对列表进行排序。如果你不想改变你的列表，可以使用`sorted`函数，它会返回一个新的列表：
 
 ```py
 x = [4, 1, 2, 3]
@@ -809,7 +809,7 @@ wc = sorted(word_counts.items(),
 
 # 列表推导
 
-经常情况下，你可能希望通过选择特定的元素、转换元素或两者兼而有之来将一个列表转换为另一个列表。在Python中，实现这一点的方式是使用*列表推导*：
+经常情况下，你可能希望通过选择特定的元素、转换元素或两者兼而有之来将一个列表转换为另一个列表。在 Python 中，实现这一点的方式是使用*列表推导*：
 
 ```py
 even_numbers = [x for x in range(5) if x % 2 == 0]  # [0, 2, 4]
@@ -861,7 +861,7 @@ assert 1 + 1 == 2, "1 + 1 should equal 2 but didn't"
 
 正如你在第二种情况中看到的那样，你可以选择添加一条消息，如果断言失败，该消息将被打印。
 
-断言1 + 1 = 2并不特别有趣。更有趣的是断言你编写的函数是否符合你的预期：
+断言 1 + 1 = 2 并不特别有趣。更有趣的是断言你编写的函数是否符合你的预期：
 
 ```py
 def smallest_item(xs):
@@ -889,9 +889,9 @@ def smallest_item(xs):
 
 在这里，我们将构造一个代表“计数点击器”的类，这种点击器用于跟踪参加“数据科学高级主题”聚会的人数。
 
-它维护一个`count`，可以通过`click`增加计数，允许您`read_count`，并可以通过`reset`重置为零。（在现实生活中，其中一个从9999滚动到0000，但我们不会费心去处理。）
+它维护一个`count`，可以通过`click`增加计数，允许您`read_count`，并可以通过`reset`重置为零。（在现实生活中，其中一个从 9999 滚动到 0000，但我们不会费心去处理。）
 
-要定义一个类，您使用`class`关键字和PascalCase名称：
+要定义一个类，您使用`class`关键字和 PascalCase 名称：
 
 ```py
 class CountingClicker:
@@ -1333,9 +1333,9 @@ add("hi ", "there")  # you'd like this to be not OK
 
     这里我们有一个函数，其 `operation` 参数可以是 `string`、`int`、`float` 或 `bool`。很可能这个函数很脆弱且难以使用，但是当类型明确时，它变得更加清晰。这样做将迫使我们以更少的笨拙方式进行设计，用户会因此受益。
 
-+   使用类型允许您的编辑器帮助您完成诸如自动完成（[图 2-1](#VScode)）之类的事情，并且可以在类型错误时发出警告。
++   使用类型允许您的编辑器帮助您完成诸如自动完成（图 2-1）之类的事情，并且可以在类型错误时发出警告。
 
-![VSCode, but likely your editor does the same.](assets/dsf2_02in01.png)
+![VSCode, but likely your editor does the same.](img/dsf2_02in01.png)
 
 ###### 图 2-1\. VSCode，但可能您的编辑器也是如此。
 

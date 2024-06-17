@@ -1,12 +1,12 @@
-# 第24章 数据库和SQL
+# 第二十四章：数据库和 SQL
 
 > 记忆是人类最好的朋友，也是最坏的敌人。
 > 
 > Gilbert Parker
 
-您需要的数据通常存储在*数据库*中，这些系统专门设计用于高效存储和查询数据。这些大部分是*关系型*数据库，如PostgreSQL、MySQL和SQL Server，它们将数据存储在*表*中，并通常使用结构化查询语言（SQL）进行查询，这是一种用于操作数据的声明性语言。
+您需要的数据通常存储在*数据库*中，这些系统专门设计用于高效存储和查询数据。这些大部分是*关系型*数据库，如 PostgreSQL、MySQL 和 SQL Server，它们将数据存储在*表*中，并通常使用结构化查询语言（SQL）进行查询，这是一种用于操作数据的声明性语言。
 
-SQL是数据科学家工具包中非常重要的一部分。在本章中，我们将创建NotQuiteABase，这是Python实现的一个几乎不是数据库的东西。我们还将介绍SQL的基础知识，并展示它们在我们的几乎不是数据库中的工作方式，这是我能想到的最“从头开始”的方式，帮助您理解它们在做什么。我希望在NotQuiteABase中解决问题将使您对如何使用SQL解决相同问题有一个良好的感觉。
+SQL 是数据科学家工具包中非常重要的一部分。在本章中，我们将创建 NotQuiteABase，这是 Python 实现的一个几乎不是数据库的东西。我们还将介绍 SQL 的基础知识，并展示它们在我们的几乎不是数据库中的工作方式，这是我能想到的最“从头开始”的方式，帮助您理解它们在做什么。我希望在 NotQuiteABase 中解决问题将使您对如何使用 SQL 解决相同问题有一个良好的感觉。
 
 # 创建表和插入
 
@@ -21,7 +21,7 @@ users = [[0, "Hero", 0],
          [3, "Chi", 3]]
 ```
 
-在SQL中，我们可以这样创建这个表：
+在 SQL 中，我们可以这样创建这个表：
 
 ```py
 CREATE TABLE users (
@@ -30,11 +30,11 @@ CREATE TABLE users (
     num_friends INT);
 ```
 
-注意我们指定了`user_id`和`num_friends`必须是整数（并且`user_id`不允许为`NULL`，表示缺少值，类似于我们的`None`），而`name`应该是长度不超过200的字符串。我们将类似地使用Python类型。
+注意我们指定了`user_id`和`num_friends`必须是整数（并且`user_id`不允许为`NULL`，表示缺少值，类似于我们的`None`），而`name`应该是长度不超过 200 的字符串。我们将类似地使用 Python 类型。
 
 ###### 注意
 
-SQL几乎完全不区分大小写和缩进。这里的大写和缩进风格是我喜欢的风格。如果您开始学习SQL，您肯定会遇到其他样式不同的例子。
+SQL 几乎完全不区分大小写和缩进。这里的大写和缩进风格是我喜欢的风格。如果您开始学习 SQL，您肯定会遇到其他样式不同的例子。
 
 您可以使用`INSERT`语句插入行：
 
@@ -42,13 +42,13 @@ SQL几乎完全不区分大小写和缩进。这里的大写和缩进风格是�
 INSERT INTO users (user_id, name, num_friends) VALUES (0, 'Hero', 0);
 ```
 
-还要注意SQL语句需要以分号结尾，并且SQL中字符串需要用单引号括起来。
+还要注意 SQL 语句需要以分号结尾，并且 SQL 中字符串需要用单引号括起来。
 
-在NotQuiteABase中，您将通过指定类似的模式来创建一个`Table`。然后，要插入一行，您将使用表的`insert`方法，该方法接受一个与表列名顺序相同的`list`行值。
+在 NotQuiteABase 中，您将通过指定类似的模式来创建一个`Table`。然后，要插入一行，您将使用表的`insert`方法，该方法接受一个与表列名顺序相同的`list`行值。
 
-在幕后，我们将每一行都存储为一个从列名到值的`dict`。一个真正的数据库永远不会使用这样浪费空间的表示方法，但这样做将使得NotQuiteABase更容易处理。
+在幕后，我们将每一行都存储为一个从列名到值的`dict`。一个真正的数据库永远不会使用这样浪费空间的表示方法，但这样做将使得 NotQuiteABase 更容易处理。
 
-我们将NotQuiteABase `Table`实现为一个巨大的类，我们将一次实现一个方法。让我们先把导入和类型别名处理掉：
+我们将 NotQuiteABase `Table`实现为一个巨大的类，我们将一次实现一个方法。让我们先把导入和类型别名处理掉：
 
 ```py
 from typing import Tuple, Sequence, List, Any, Callable, Dict, Iterator
@@ -60,7 +60,7 @@ WhereClause = Callable[[Row], bool]         # Predicate for a single row
 HavingClause = Callable[[List[Row]], bool]  # Predicate over multiple rows
 ```
 
-让我们从构造函数开始。要创建一个NotQuiteABase表，我们需要传入列名列表和列类型列表，就像您在创建SQL数据库中的表时所做的一样：
+让我们从构造函数开始。要创建一个 NotQuiteABase 表，我们需要传入列名列表和列类型列表，就像您在创建 SQL 数据库中的表时所做的一样：
 
 ```py
 class Table:
@@ -303,9 +303,9 @@ SELECT LENGTH(name) AS name_length FROM users;
 
 ###### 注意
 
-还记得在[第2章](ch02.html#python)中我们说过类型注解实际上什么也不做吗？好吧，这里是反例。但是看看我们必须经历多么复杂的过程才能得到它们。
+还记得在第二章中我们说过类型注解实际上什么也不做吗？好吧，这里是反例。但是看看我们必须经历多么复杂的过程才能得到它们。
 
-我们的`select`返回一个新的`Table`，而典型的SQL `SELECT`仅产生某种临时结果集（除非您将结果明确插入到表中）。
+我们的`select`返回一个新的`Table`，而典型的 SQL `SELECT`仅产生某种临时结果集（除非您将结果明确插入到表中）。
 
 我们还需要`where`和`limit`方法。这两者都很简单：
 
@@ -330,7 +330,7 @@ SELECT LENGTH(name) AS name_length FROM users;
         return limit_table
 ```
 
-然后我们可以轻松地构造与前面的SQL语句相等的NotQuiteABase等效语句：
+然后我们可以轻松地构造与前面的 SQL 语句相等的 NotQuiteABase 等效语句：
 
 ```py
 # SELECT * FROM users;
@@ -366,7 +366,7 @@ assert name_lengths[0]['name_length'] == len("Hero")
 
 # GROUP BY
 
-另一个常见的SQL操作是`GROUP BY`，它将具有指定列中相同值的行分组在一起，并生成诸如`MIN`、`MAX`、`COUNT`和`SUM`之类的聚合值。
+另一个常见的 SQL 操作是`GROUP BY`，它将具有指定列中相同值的行分组在一起，并生成诸如`MIN`、`MAX`、`COUNT`和`SUM`之类的聚合值。
 
 例如，您可能希望找到每个可能的名称长度的用户数和最小的`user_id`：
 
@@ -380,9 +380,9 @@ GROUP BY LENGTH(name);
 
 我们选择的每个字段都需要在`GROUP BY`子句（其中`name_length`是）或聚合计算（`min_user_id`和`num_users`是）中。
 
-SQL还支持一个`HAVING`子句，其行为类似于`WHERE`子句，只是其过滤器应用于聚合（而`WHERE`将在聚合之前过滤行）。
+SQL 还支持一个`HAVING`子句，其行为类似于`WHERE`子句，只是其过滤器应用于聚合（而`WHERE`将在聚合之前过滤行）。
 
-您可能想知道以特定字母开头的用户名的平均朋友数量，但仅查看其对应平均值大于1的字母的结果。（是的，这些示例中有些是人为构造的。）
+您可能想知道以特定字母开头的用户名的平均朋友数量，但仅查看其对应平均值大于 1 的字母的结果。（是的，这些示例中有些是人为构造的。）
 
 ```py
 SELECT SUBSTR(name, 1, 1) AS first_letter,
@@ -404,7 +404,7 @@ FROM users
 WHERE user_id > 1;
 ```
 
-要将此功能添加到NotQuiteABase的`Table`中，我们将添加一个`group_by`方法。它接受您要按组分组的列的名称，您要在每个组上运行的聚合函数的字典，以及一个可选的名为`having`的谓词，该谓词对多行进行操作。
+要将此功能添加到 NotQuiteABase 的`Table`中，我们将添加一个`group_by`方法。它接受您要按组分组的列的名称，您要在每个组上运行的聚合函数的字典，以及一个可选的名为`having`的谓词，该谓词对多行进行操作。
 
 然后执行以下步骤：
 
@@ -450,7 +450,7 @@ WHERE user_id > 1;
 
 实际的数据库几乎肯定会以更有效的方式执行此操作。
 
-同样，让我们看看如何执行与前面的SQL语句等效的操作。`name_length`指标是：
+同样，让我们看看如何执行与前面的 SQL 语句等效的操作。`name_length`指标是：
 
 ```py
 def min_user_id(rows) -> int:
@@ -532,13 +532,13 @@ friendliest_letters = (
 )
 ```
 
-SQL的`ORDER BY`允许您为每个排序字段指定`ASC`（升序）或`DESC`（降序）；在这里，我们必须将其嵌入到我们的`order`函数中。
+SQL 的`ORDER BY`允许您为每个排序字段指定`ASC`（升序）或`DESC`（降序）；在这里，我们必须将其嵌入到我们的`order`函数中。
 
 # JOIN
 
-关系型数据库表通常是*规范化*的，这意味着它们被组织成最小化冗余。例如，当我们在Python中处理用户的兴趣时，我们可以为每个用户分配一个包含其兴趣的`list`。
+关系型数据库表通常是*规范化*的，这意味着它们被组织成最小化冗余。例如，当我们在 Python 中处理用户的兴趣时，我们可以为每个用户分配一个包含其兴趣的`list`。
 
-SQL表通常不能包含列表，所以典型的解决方案是创建第二个表，称为`user_interests`，包含`user_id`和`interest`之间的一对多关系。在SQL中，你可以这样做：
+SQL 表通常不能包含列表，所以典型的解决方案是创建第二个表，称为`user_interests`，包含`user_id`和`interest`之间的一对多关系。在 SQL 中，你可以这样做：
 
 ```py
 CREATE TABLE user_interests (
@@ -547,7 +547,7 @@ CREATE TABLE user_interests (
 );
 ```
 
-而在NotQuiteABase中，你需要创建这样一个表：
+而在 NotQuiteABase 中，你需要创建这样一个表：
 
 ```py
 user_interests = Table(['user_id', 'interest'], [int, str])
@@ -563,7 +563,7 @@ user_interests.insert([2, "MySQL"])
 
 当我们的数据分布在不同的表中时，我们如何分析它？通过将表进行`JOIN`。`JOIN`将左表中的行与右表中相应的行组合在一起，其中“相应”的含义基于我们如何指定连接的方式。
 
-例如，要查找对SQL感兴趣的用户，你会这样查询：
+例如，要查找对 SQL 感兴趣的用户，你会这样查询：
 
 ```py
 SELECT users.name
@@ -590,7 +590,7 @@ ON users.user_id = user_interests.user_id
 
 `LEFT JOIN`确保没有兴趣的用户仍然在连接数据集中具有行（`user_interests`字段的值为`NULL`），而`COUNT`仅计算非`NULL`值。
 
-NotQuiteABase的`join`实现将更为严格 —— 它仅仅在两个表中存在共同列时进行连接。即便如此，编写起来也不是件简单的事情：
+NotQuiteABase 的`join`实现将更为严格 —— 它仅仅在两个表中存在共同列时进行连接。即便如此，编写起来也不是件简单的事情：
 
 ```py
     def join(self, other_table: 'Table', left_join: bool = False) -> 'Table':
@@ -627,7 +627,7 @@ NotQuiteABase的`join`实现将更为严格 —— 它仅仅在两个表中存�
         return join_table
 ```
 
-因此，我们可以找到对SQL感兴趣的用户：
+因此，我们可以找到对 SQL 感兴趣的用户：
 
 ```py
 sql_users = (
@@ -653,18 +653,18 @@ user_interest_counts = (
 )
 ```
 
-在SQL中，还有一种`RIGHT JOIN`，它保留来自右表且没有匹配的行，还有一种`FULL OUTER JOIN`，它保留来自两个表且没有匹配的行。我们不会实现其中任何一种。
+在 SQL 中，还有一种`RIGHT JOIN`，它保留来自右表且没有匹配的行，还有一种`FULL OUTER JOIN`，它保留来自两个表且没有匹配的行。我们不会实现其中任何一种。
 
 # 子查询
 
-在SQL中，您可以从（和`JOIN`）查询的结果中`SELECT`，就像它们是表一样。因此，如果您想找到任何对SQL感兴趣的人中最小的`user_id`，您可以使用子查询。（当然，您也可以使用`JOIN`执行相同的计算，但这不会说明子查询。）
+在 SQL 中，您可以从（和`JOIN`）查询的结果中`SELECT`，就像它们是表一样。因此，如果您想找到任何对 SQL 感兴趣的人中最小的`user_id`，您可以使用子查询。（当然，您也可以使用`JOIN`执行相同的计算，但这不会说明子查询。）
 
 ```py
 SELECT MIN(user_id) AS min_user_id FROM
 (SELECT user_id FROM user_interests WHERE interest = 'SQL') sql_interests;
 ```
 
-鉴于我们设计的NotQuiteABase的方式，我们可以免费获得这些功能。（我们的查询结果是实际的表。）
+鉴于我们设计的 NotQuiteABase 的方式，我们可以免费获得这些功能。（我们的查询结果是实际的表。）
 
 ```py
 likes_sql_user_ids = (
@@ -679,7 +679,7 @@ likes_sql_user_ids.group_by(group_by_columns=[],
 
 # 索引
 
-要查找包含特定值（比如`name`为“Hero”的行），NotQuiteABase必须检查表中的每一行。如果表中有很多行，这可能需要很长时间。
+要查找包含特定值（比如`name`为“Hero”的行），NotQuiteABase 必须检查表中的每一行。如果表中有很多行，这可能需要很长时间。
 
 类似地，我们的`join`算法非常低效。对于左表中的每一行，它都要检查右表中的每一行是否匹配。对于两个大表来说，这可能永远都需要很长时间。
 
@@ -693,7 +693,7 @@ likes_sql_user_ids.group_by(group_by_columns=[],
 
 # 查询优化
 
-回顾查询以查找所有对SQL感兴趣的用户：
+回顾查询以查找所有对 SQL 感兴趣的用户：
 
 ```py
 SELECT users.name
@@ -703,7 +703,7 @@ ON users.user_id = user_interests.user_id
 WHERE user_interests.interest = 'SQL'
 ```
 
-在NotQuiteABase中有（至少）两种不同的方法来编写此查询。您可以在执行连接之前过滤`user_interests`表：
+在 NotQuiteABase 中有（至少）两种不同的方法来编写此查询。您可以在执行连接之前过滤`user_interests`表：
 
 ```py
 (
@@ -727,15 +727,15 @@ WHERE user_interests.interest = 'SQL'
 
 无论哪种方式，最终的结果都是相同的，但是在连接之前过滤几乎肯定更有效，因为在这种情况下，`join`操作的行数要少得多。
 
-在SQL中，您通常不必担心这个问题。您可以“声明”您想要的结果，然后由查询引擎来执行它们（并有效地使用索引）。
+在 SQL 中，您通常不必担心这个问题。您可以“声明”您想要的结果，然后由查询引擎来执行它们（并有效地使用索引）。
 
 # NoSQL
 
-数据库的一个最新趋势是向非关系型的“NoSQL”数据库发展，它们不以表格形式表示数据。例如，MongoDB是一种流行的无模式数据库，其元素是任意复杂的JSON文档，而不是行。
+数据库的一个最新趋势是向非关系型的“NoSQL”数据库发展，它们不以表格形式表示数据。例如，MongoDB 是一种流行的无模式数据库，其元素是任意复杂的 JSON 文档，而不是行。
 
 有列数据库，它们将数据存储在列中而不是行中（当数据具有许多列但查询只需少数列时很好），键/值存储优化了通过键检索单个（复杂）值的数据库，用于存储和遍历图形的数据库，优化用于跨多个数据中心运行的数据库，专为内存运行而设计的数据库，用于存储时间序列数据的数据库等等。
 
-明天的热门可能甚至现在都不存在，所以我不能做更多的事情，只能告诉您NoSQL是一种事物。所以现在您知道了。它是一种事物。
+明天的热门可能甚至现在都不存在，所以我不能做更多的事情，只能告诉您 NoSQL 是一种事物。所以现在您知道了。它是一种事物。
 
 # 进一步探索
 

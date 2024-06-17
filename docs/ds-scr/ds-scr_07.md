@@ -1,12 +1,12 @@
-# 第6章。概率
+# 第六章：概率
 
 > 概率定律，在一般情况下正确，在特定情况下谬误。
 > 
 > 爱德华·吉本
 
-没有对*概率*及其数学的某种理解，数据科学是很难做的。就像我们在[第5章](ch05.html#statistics)中处理统计学一样，我们将在很多地方简化和省略技术细节。
+没有对*概率*及其数学的某种理解，数据科学是很难做的。就像我们在第五章中处理统计学一样，我们将在很多地方简化和省略技术细节。
 
-对于我们的目的，你应该把概率看作是对从某个*事件宇宙*中选择的*事件*的不确定性进行量化的一种方式。与其深究这些术语的技术含义，不如想象掷骰子。事件宇宙包含所有可能的结果。而这些结果的任何子集就是一个事件；例如，“骰子掷出1”或“骰子掷出偶数”。
+对于我们的目的，你应该把概率看作是对从某个*事件宇宙*中选择的*事件*的不确定性进行量化的一种方式。与其深究这些术语的技术含义，不如想象掷骰子。事件宇宙包含所有可能的结果。而这些结果的任何子集就是一个事件；例如，“骰子掷出 1”或“骰子掷出偶数”。
 
 在符号上，我们写 *P*(*E*) 来表示“事件 *E* 发生的概率”。
 
@@ -24,7 +24,7 @@
 
 <math alttext="upper P left-parenthesis upper E comma upper F right-parenthesis equals upper P left-parenthesis upper E right-parenthesis upper P left-parenthesis upper F right-parenthesis" display="block"><mrow><mi>P</mi> <mo>(</mo> <mi>E</mi> <mo>,</mo> <mi>F</mi> <mo>)</mo> <mo>=</mo> <mi>P</mi> <mo>(</mo> <mi>E</mi> <mo>)</mo> <mi>P</mi> <mo>(</mo> <mi>F</mi> <mo>)</mo></mrow></math>
 
-在例子中，“第一次抛硬币为正面”的概率是1/2，“两次抛硬币都为反面”的概率是1/4，但“第一次抛硬币为正面*且*两次抛硬币都为反面”的概率是0。
+在例子中，“第一次抛硬币为正面”的概率是 1/2，“两次抛硬币都为反面”的概率是 1/4，但“第一次抛硬币为正面*且*两次抛硬币都为反面”的概率是 0。
 
 # 条件概率
 
@@ -54,7 +54,7 @@
 
 +   第二个孩子的性别与第一个孩子的性别是独立的。
 
-那么事件“没有女孩”的概率为1/4，事件“一个女孩一个男孩”的概率为1/2，事件“两个女孩”的概率为1/4。
+那么事件“没有女孩”的概率为 1/4，事件“一个女孩一个男孩”的概率为 1/2，事件“两个女孩”的概率为 1/4。
 
 现在我们可以问事件“两个孩子都是女孩”(*B*)在事件“老大是女孩”(*G*)条件下的概率是多少？使用条件概率的定义：
 
@@ -122,43 +122,43 @@ print("P(both | either): ", both_girls / either_girl)  # 0.342 ~ 1/3
 
 这通常是贝叶斯定理的陈述方式。
 
-这个定理经常被用来展示为什么数据科学家比医生更聪明。想象一种影响每10,000人中1人的特定疾病。再想象一种测试这种疾病的方法，它在99%的情况下给出正确结果（如果您有疾病则为“患病”，如果您没有则为“未患病”）。
+这个定理经常被用来展示为什么数据科学家比医生更聪明。想象一种影响每 10,000 人中 1 人的特定疾病。再想象一种测试这种疾病的方法，它在 99%的情况下给出正确结果（如果您有疾病则为“患病”，如果您没有则为“未患病”）。
 
 正测试意味着什么？让我们用*T*表示“您的测试呈阳性”事件，*D*表示“您患有疾病”事件。那么贝叶斯定理表明，在测试呈阳性的条件下，您患有疾病的概率是：
 
 <math alttext="upper P left-parenthesis upper D vertical-bar upper T right-parenthesis equals upper P left-parenthesis upper T vertical-bar upper D right-parenthesis upper P left-parenthesis upper D right-parenthesis slash left-bracket upper P left-parenthesis upper T vertical-bar upper D right-parenthesis upper P left-parenthesis upper D right-parenthesis plus upper P left-parenthesis upper T vertical-bar normal not-sign upper D right-parenthesis upper P left-parenthesis normal not-sign upper D right-parenthesis right-bracket" display="block"><mrow><mi>P</mi> <mo>(</mo> <mi>D</mi> <mo>|</mo> <mi>T</mi> <mo>)</mo> <mo>=</mo> <mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mi>D</mi> <mo>)</mo> <mi>P</mi> <mo>(</mo> <mi>D</mi> <mo>)</mo> <mo>/</mo> <mo>[</mo> <mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mi>D</mi> <mo>)</mo> <mi>P</mi> <mo>(</mo> <mi>D</mi> <mo>)</mo> <mo>+</mo> <mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mo>¬</mo> <mi>D</mi> <mo>)</mo> <mi>P</mi> <mo>(</mo> <mo>¬</mo> <mi>D</mi> <mo>)</mo> <mo>]</mo></mrow></math>
 
-在这里我们知道，<math><mrow><mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mi>D</mi> <mo>)</mo></mrow></math>，即染病者测试阳性的概率，为0.99。*P*(*D*)，即任何给定人患病的概率，为1/10,000 = 0.0001。 <math><mrow><mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mo>¬</mo> <mi>D</mi> <mo>)</mo></mrow></math>，即没有患病者测试阳性的概率，为0.01。而 <math><mrow><mi>P</mi> <mo>(</mo> <mo>¬</mo> <mi>D</mi> <mo>)</mo></mrow></math>，即任何给定人没有患病的概率，为0.9999。如果你把这些数字代入贝叶斯定理，你会发现：
+在这里我们知道，<math><mrow><mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mi>D</mi> <mo>)</mo></mrow></math>，即染病者测试阳性的概率，为 0.99。*P*(*D*)，即任何给定人患病的概率，为 1/10,000 = 0.0001。 <math><mrow><mi>P</mi> <mo>(</mo> <mi>T</mi> <mo>|</mo> <mo>¬</mo> <mi>D</mi> <mo>)</mo></mrow></math>，即没有患病者测试阳性的概率，为 0.01。而 <math><mrow><mi>P</mi> <mo>(</mo> <mo>¬</mo> <mi>D</mi> <mo>)</mo></mrow></math>，即任何给定人没有患病的概率，为 0.9999。如果你把这些数字代入贝叶斯定理，你会发现：
 
 <math alttext="upper P left-parenthesis upper D vertical-bar upper T right-parenthesis equals 0.98 percent-sign" display="block"><mrow><mi>P</mi> <mo>(</mo> <mi>D</mi> <mo>|</mo> <mi>T</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>98</mn> <mo>%</mo></mrow></math>
 
-也就是说，只有不到1%的阳性测试者实际上患有这种疾病。
+也就是说，只有不到 1%的阳性测试者实际上患有这种疾病。
 
 ###### 注
 
 这假设人们更多或更少是随机参加测试的。如果只有具有某些症状的人参加测试，我们将需要在“阳性测试 *和* 症状”事件上进行条件判断，而阳性测试的人数可能会高得多。
 
-更直观地看待这个问题的方法是想象一种100万人口的人群。你会预期其中有100人患有这种疾病，其中有99人测试结果呈阳性。另一方面，你会预期这中间有999,900人没有患有这种疾病，其中有9,999人测试结果呈阳性。这意味着你只会预期(99 + 9999)个阳性测试者中有99人实际上患有这种疾病。
+更直观地看待这个问题的方法是想象一种 100 万人口的人群。你会预期其中有 100 人患有这种疾病，其中有 99 人测试结果呈阳性。另一方面，你会预期这中间有 999,900 人没有患有这种疾病，其中有 9,999 人测试结果呈阳性。这意味着你只会预期(99 + 9999)个阳性测试者中有 99 人实际上患有这种疾病。
 
 # 随机变量
 
-*随机变量*是具有相关概率分布的可能值的变量。一个非常简单的随机变量，如果抛硬币正面朝上则值为1，如果反面朝上则值为0。一个更复杂的随机变量可能会测量你在抛硬币10次时观察到的头像数量，或者从`range(10)`中选取的值，其中每个数字都是同样可能的。
+*随机变量*是具有相关概率分布的可能值的变量。一个非常简单的随机变量，如果抛硬币正面朝上则值为 1，如果反面朝上则值为 0。一个更复杂的随机变量可能会测量你在抛硬币 10 次时观察到的头像数量，或者从`range(10)`中选取的值，其中每个数字都是同样可能的。
 
-相关的分布给出了变量实现其可能值的概率。抛硬币变量等于0的概率为0.5，等于1的概率为0.5。`range(10)`变量具有分布，将0到9中的每个数字分配概率0.1。
+相关的分布给出了变量实现其可能值的概率。抛硬币变量等于 0 的概率为 0.5，等于 1 的概率为 0.5。`range(10)`变量具有分布，将 0 到 9 中的每个数字分配概率 0.1。
 
-有时我们会谈论一个随机变量的*期望值*，这是其值按其概率加权的平均值。抛硬币变量的期望值为1/2（= 0 * 1/2 + 1 * 1/2），而`range(10)`变量的期望值为4.5。
+有时我们会谈论一个随机变量的*期望值*，这是其值按其概率加权的平均值。抛硬币变量的期望值为 1/2（= 0 * 1/2 + 1 * 1/2），而`range(10)`变量的期望值为 4.5。
 
-随机变量可以像其他事件一样被条件化。回到[“条件概率”](#conditional_probability)中的两个孩子示例，如果*X*是表示女孩数量的随机变量，那么*X*等于0的概率为1/4，等于1的概率为1/2，等于2的概率为1/4。
+随机变量可以像其他事件一样被条件化。回到“条件概率”中的两个孩子示例，如果*X*是表示女孩数量的随机变量，那么*X*等于 0 的概率为 1/4，等于 1 的概率为 1/2，等于 2 的概率为 1/4。
 
-我们可以定义一个新的随机变量*Y*，条件是至少有一个孩子是女孩。然后*Y*以2/3的概率等于1，以1/3的概率等于2。还有一个变量*Z*，条件是较大的孩子是女孩，则以1/2的概率等于1，以1/2的概率等于2。
+我们可以定义一个新的随机变量*Y*，条件是至少有一个孩子是女孩。然后*Y*以 2/3 的概率等于 1，以 1/3 的概率等于 2。还有一个变量*Z*，条件是较大的孩子是女孩，则以 1/2 的概率等于 1，以 1/2 的概率等于 2。
 
 大多数情况下，在我们进行的操作中，我们将隐含地使用随机变量，而不特别关注它们。但是如果你深入研究，你会发现它们。
 
 # 连续分布
 
-抛硬币对应于*离散分布*——它将离散结果与正概率关联起来。通常我们希望模拟跨越连续结果的分布。（对我们而言，这些结果将始终是实数，尽管在现实生活中并非总是如此。）例如，*均匀分布*将在0到1之间所有数字上赋予*相等的权重*。
+抛硬币对应于*离散分布*——它将离散结果与正概率关联起来。通常我们希望模拟跨越连续结果的分布。（对我们而言，这些结果将始终是实数，尽管在现实生活中并非总是如此。）例如，*均匀分布*将在 0 到 1 之间所有数字上赋予*相等的权重*。
 
-因为在0和1之间有无穷多个数，这意味着它分配给单个点的权重必然为零。因此，我们用*概率密度函数*（PDF）表示连续分布，使得在某个区间内看到一个值的概率等于该区间上密度函数的积分。
+因为在 0 和 1 之间有无穷多个数，这意味着它分配给单个点的权重必然为零。因此，我们用*概率密度函数*（PDF）表示连续分布，使得在某个区间内看到一个值的概率等于该区间上密度函数的积分。
 
 ###### 注意
 
@@ -171,9 +171,9 @@ def uniform_pdf(x: float) -> float:
     return 1 if 0 <= x < 1 else 0
 ```
 
-按照该分布，随机变量落在0.2到0.3之间的概率是1/10，正如你所期望的那样。Python的`random.random`是一个均匀密度的（伪）随机变量。
+按照该分布，随机变量落在 0.2 到 0.3 之间的概率是 1/10，正如你所期望的那样。Python 的`random.random`是一个均匀密度的（伪）随机变量。
 
-我们通常更感兴趣的是*累积分布函数*（CDF），它给出随机变量小于或等于某个值的概率。对于均匀分布，创建CDF并不困难（见[图6-1](#uniform_cdf)）：
+我们通常更感兴趣的是*累积分布函数*（CDF），它给出随机变量小于或等于某个值的概率。对于均匀分布，创建 CDF 并不困难（见图 6-1）：
 
 ```py
 def uniform_cdf(x: float) -> float:
@@ -183,15 +183,15 @@ def uniform_cdf(x: float) -> float:
     else:       return 1    # uniform random is always less than 1
 ```
 
-![均匀分布的CDF。](assets/dsf2_0601.png)
+![均匀分布的 CDF。](img/dsf2_0601.png)
 
-###### 图6-1\. 均匀分布的累积分布函数
+###### 图 6-1\. 均匀分布的累积分布函数
 
 # 正态分布
 
 正态分布是经典的钟形曲线分布，完全由两个参数确定：其均值*μ*（mu）和标准差*σ*（sigma）。均值表示钟形曲线的中心位置，标准差表示其“宽度”。
 
-它的PDF是：
+它的 PDF 是：
 
 <math alttext="f left-parenthesis x vertical-bar mu comma sigma right-parenthesis equals StartFraction 1 Over StartRoot 2 pi EndRoot sigma EndFraction exp left-parenthesis minus StartFraction left-parenthesis x minus mu right-parenthesis squared Over 2 sigma squared EndFraction right-parenthesis" display="block"><mrow><mi>f</mi> <mrow><mo>(</mo> <mi>x</mi> <mo>|</mo> <mi>μ</mi> <mo>,</mo> <mi>σ</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mrow><msqrt><mrow><mn>2</mn><mi>π</mi></mrow></msqrt><mi>σ</mi></mrow></mfrac> <mo form="prefix">exp</mo> <mo>(</mo> <mrow><mo>-</mo> <mfrac><msup><mrow><mo>(</mo><mi>x</mi><mo>-</mo><mi>μ</mi><mo>)</mo></mrow> <mn>2</mn></msup> <mrow><mn>2</mn><msup><mi>σ</mi> <mn>2</mn></msup></mrow></mfrac> <mrow><mo>)</mo></mrow></mrow></mrow></math>
 
@@ -205,7 +205,7 @@ def normal_pdf(x: float, mu: float = 0, sigma: float = 1) -> float:
     return (math.exp(-(x-mu) ** 2 / 2 / sigma ** 2) / (SQRT_TWO_PI * sigma))
 ```
 
-在[图6-2](#various_normal_pdfs)中，我们绘制了一些这些PDF，看看它们的样子：
+在图 6-2 中，我们绘制了一些这些 PDF，看看它们的样子：
 
 ```py
 import matplotlib.pyplot as plt
@@ -219,11 +219,11 @@ plt.title("Various Normal pdfs")
 plt.show()
 ```
 
-![各种正态分布的PDF。](assets/dsf2_0602.png)
+![各种正态分布的 PDF。](img/dsf2_0602.png)
 
-###### 图6-2\. 各种正态分布的PDF
+###### 图 6-2\. 各种正态分布的 PDF
 
-当*μ* = 0且*σ* = 1时，称为*标准正态分布*。如果*Z*是一个标准正态随机变量，则有：
+当*μ* = 0 且*σ* = 1 时，称为*标准正态分布*。如果*Z*是一个标准正态随机变量，则有：
 
 <math alttext="upper X equals sigma upper Z plus mu" display="block"><mrow><mi>X</mi> <mo>=</mo> <mi>σ</mi> <mi>Z</mi> <mo>+</mo> <mi>μ</mi></mrow></math>
 
@@ -233,14 +233,14 @@ plt.show()
 
 是一个标准正态变量。
 
-正态分布的累积分布函数不能用“基本”的方式写出，但我们可以使用Python的`math.erf` [误差函数](http://en.wikipedia.org/wiki/Error_function)来表示它：
+正态分布的累积分布函数不能用“基本”的方式写出，但我们可以使用 Python 的`math.erf` [误差函数](http://en.wikipedia.org/wiki/Error_function)来表示它：
 
 ```py
 def normal_cdf(x: float, mu: float = 0, sigma: float = 1) -> float:
     return (1 + math.erf((x - mu) / math.sqrt(2) / sigma)) / 2
 ```
 
-再次，在[图 6-3](#various_normal_cdfs)中，我们绘制了几个累积分布函数（CDF）：
+再次，在图 6-3 中，我们绘制了几个累积分布函数（CDF）：
 
 ```py
 xs = [x / 10.0 for x in range(-50, 50)]
@@ -253,7 +253,7 @@ plt.title("Various Normal cdfs")
 plt.show()
 ```
 
-![各种正态分布的CDF。](assets/dsf2_0603.png)
+![各种正态分布的 CDF。](img/dsf2_0603.png)
 
 ###### 图 6-3\. 各种正态分布的累积分布函数
 
@@ -297,9 +297,9 @@ def inverse_normal_cdf(p: float,
 
 <math alttext="StartFraction left-parenthesis x 1 plus ellipsis plus x Subscript n Baseline right-parenthesis minus mu n Over sigma StartRoot n EndRoot EndFraction" display="block"><mfrac><mrow><mo>(</mo><msub><mi>x</mi> <mn>1</mn></msub> <mo>+</mo><mo>...</mo><mo>+</mo><msub><mi>x</mi> <mi>n</mi></msub> <mo>)</mo><mo>-</mo><mi>μ</mi><mi>n</mi></mrow> <mrow><mi>σ</mi><msqrt><mi>n</mi></msqrt></mrow></mfrac></math>
 
-大致上符合均值为0，标准差为1的正态分布。
+大致上符合均值为 0，标准差为 1 的正态分布。
 
-一个易于说明这一点的方法是看*二项式*随机变量，它具有两个参数*n*和*p*。一个二项式(*n*,*p*)随机变量简单地是*n*个独立的伯努利(*p*)随机变量的和，其中每个随机变量以概率*p*等于1，以概率1 - *p*等于0：
+一个易于说明这一点的方法是看*二项式*随机变量，它具有两个参数*n*和*p*。一个二项式(*n*,*p*)随机变量简单地是*n*个独立的伯努利(*p*)随机变量的和，其中每个随机变量以概率*p*等于 1，以概率 1 - *p*等于 0：
 
 ```py
 def bernoulli_trial(p: float) -> int:
@@ -339,16 +339,16 @@ def binomial_histogram(p: float, n: int, num_points: int) -> None:
     plt.show()
 ```
 
-例如，当你调用 `make_hist(0.75, 100, 10000)` 时，你会得到[图 6-4](#make_hist_result)中的图表。
+例如，当你调用 `make_hist(0.75, 100, 10000)` 时，你会得到图 6-4 中的图表。
 
-![调用 binomial_histogram 的结果。](assets/dsf2_0604.png)
+![调用 binomial_histogram 的结果。](img/dsf2_0604.png)
 
 ###### 图 6-4\. 调用 binomial_histogram 的输出
 
-这个近似的道理是，如果你想知道（比如说）在100次投掷中，一个公平硬币出现超过60次正面的概率，你可以估计为一个正态分布（Normal(50,5)）大于60的概率，这比计算二项分布（Binomial(100,0.5)）的累积分布函数要简单。 （尽管在大多数应用中，你可能会使用愿意计算任何你想要的概率的统计软件。）
+这个近似的道理是，如果你想知道（比如说）在 100 次投掷中，一个公平硬币出现超过 60 次正面的概率，你可以估计为一个正态分布（Normal(50,5)）大于 60 的概率，这比计算二项分布（Binomial(100,0.5)）的累积分布函数要简单。 （尽管在大多数应用中，你可能会使用愿意计算任何你想要的概率的统计软件。）
 
 # 进一步探索
 
 +   [scipy.stats](https://docs.scipy.org/doc/scipy/reference/stats.html) 包含大多数流行概率分布的概率密度函数（PDF）和累积分布函数（CDF）。
 
-+   还记得在[第 5 章](ch05.html#statistics)的结尾处我说过，学习一本统计学教材是个好主意吗？学习一本概率论教材也是个好主意。我知道的最好的在线教材是 [*Introduction to Probability*](http://www.dartmouth.edu/~chance/teaching_aids/books_articles/probability_book/book.html)，由 Charles M. Grinstead 和 J. Laurie Snell（美国数学学会）编写。
++   还记得在第 5 章的结尾处我说过，学习一本统计学教材是个好主意吗？学习一本概率论教材也是个好主意。我知道的最好的在线教材是 [*Introduction to Probability*](http://www.dartmouth.edu/~chance/teaching_aids/books_articles/probability_book/book.html)，由 Charles M. Grinstead 和 J. Laurie Snell（美国数学学会）编写。

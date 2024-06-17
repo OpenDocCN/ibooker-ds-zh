@@ -1,10 +1,10 @@
-# 第13章. 贝叶斯朴素分类
+# 第十三章：贝叶斯朴素分类
 
 > 为心灵保持天真，为思想保持成熟。
 > 
 > 阿纳托尔·法朗士
 
-如果人们不能进行社交，那么社交网络就没什么用了。因此，DataSciencester拥有一个受欢迎的功能，允许会员发送消息给其他会员。虽然大多数会员是负责任的公民，只发送受欢迎的“最近好吗？”消息，但一些不法分子坚持不懈地向其他成员发送关于致富计划、无需处方的药物和盈利数据科学证书项目的垃圾邮件。您的用户已经开始抱怨，因此消息副总裁要求您使用数据科学找出一种过滤这些垃圾邮件的方法。
+如果人们不能进行社交，那么社交网络就没什么用了。因此，DataSciencester 拥有一个受欢迎的功能，允许会员发送消息给其他会员。虽然大多数会员是负责任的公民，只发送受欢迎的“最近好吗？”消息，但一些不法分子坚持不懈地向其他成员发送关于致富计划、无需处方的药物和盈利数据科学证书项目的垃圾邮件。您的用户已经开始抱怨，因此消息副总裁要求您使用数据科学找出一种过滤这些垃圾邮件的方法。
 
 # 一个非常愚蠢的垃圾邮件过滤器
 
@@ -18,7 +18,7 @@
 
 <math alttext="left-bracket upper P left-parenthesis upper S vertical-bar upper B right-parenthesis equals upper P left-parenthesis upper B vertical-bar upper S right-parenthesis slash left-bracket upper P left-parenthesis upper B vertical-bar upper S right-parenthesis plus upper P left-parenthesis upper B vertical-bar normal not-sign upper S right-parenthesis right-bracket right-bracket" display="block"><mrow><mi>P</mi> <mo>(</mo> <mi>S</mi> <mo>|</mo> <mi>B</mi> <mo>)</mo> <mo>=</mo> <mi>P</mi> <mo>(</mo> <mi>B</mi> <mo>|</mo> <mi>S</mi> <mo>)</mo> <mo>/</mo> <mo>[</mo> <mi>P</mi> <mo>(</mo> <mi>B</mi> <mo>|</mo> <mi>S</mi> <mo>)</mo> <mo>+</mo> <mi>P</mi> <mo>(</mo> <mi>B</mi> <mo>|</mo> <mo>¬</mo> <mi>S</mi> <mo>)</mo> <mo>]</mo></mrow></math>
 
-例如，如果垃圾邮件中有50%的消息包含*bitcoin*这个词，而非垃圾邮件中只有1%的消息包含，那么包含*bitcoin*的任意邮件是垃圾邮件的概率是：
+例如，如果垃圾邮件中有 50%的消息包含*bitcoin*这个词，而非垃圾邮件中只有 1%的消息包含，那么包含*bitcoin*的任意邮件是垃圾邮件的概率是：
 
 <math alttext="0.5 slash left-parenthesis 0.5 plus 0.01 right-parenthesis equals 98 percent-sign" display="block"><mrow><mn>0</mn> <mo>.</mo> <mn>5</mn> <mo>/</mo> <mo>(</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>01</mn> <mo>)</mo> <mo>=</mo> <mn>98</mn> <mo>%</mo></mrow></math>
 
@@ -42,13 +42,13 @@
 
 朴素贝叶斯假设允许我们通过简单地将每个词汇单词的概率估计相乘来计算右侧的每个概率。
 
-实际操作中，通常要避免将大量概率相乘，以防止*下溢*问题，即计算机无法处理太接近0的浮点数。从代数中记得<math alttext="log left-parenthesis a b right-parenthesis equals log a plus log b"><mrow><mo form="prefix">log</mo> <mo>(</mo> <mi>a</mi> <mi>b</mi> <mo>)</mo> <mo>=</mo> <mo form="prefix">log</mo> <mi>a</mi> <mo>+</mo> <mo form="prefix">log</mo> <mi>b</mi></mrow></math> 和<math alttext="exp left-parenthesis log x right-parenthesis equals x"><mrow><mo form="prefix">exp</mo><mo>(</mo> <mo form="prefix">log</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>x</mi></mrow></math> ，我们通常将<math alttext="p 1 asterisk ellipsis asterisk p Subscript n"><mrow><msub><mi>p</mi> <mn>1</mn></msub> <mo>*</mo> <mo>⋯</mo> <mo>*</mo> <msub><mi>p</mi> <mi>n</mi></msub></mrow></math> 计算为等效的（但更友好于浮点数的）形式：
+实际操作中，通常要避免将大量概率相乘，以防止*下溢*问题，即计算机无法处理太接近 0 的浮点数。从代数中记得<math alttext="log left-parenthesis a b right-parenthesis equals log a plus log b"><mrow><mo form="prefix">log</mo> <mo>(</mo> <mi>a</mi> <mi>b</mi> <mo>)</mo> <mo>=</mo> <mo form="prefix">log</mo> <mi>a</mi> <mo>+</mo> <mo form="prefix">log</mo> <mi>b</mi></mrow></math> 和<math alttext="exp left-parenthesis log x right-parenthesis equals x"><mrow><mo form="prefix">exp</mo><mo>(</mo> <mo form="prefix">log</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>x</mi></mrow></math> ，我们通常将<math alttext="p 1 asterisk ellipsis asterisk p Subscript n"><mrow><msub><mi>p</mi> <mn>1</mn></msub> <mo>*</mo> <mo>⋯</mo> <mo>*</mo> <msub><mi>p</mi> <mi>n</mi></msub></mrow></math> 计算为等效的（但更友好于浮点数的）形式：
 
 <math alttext="exp left-parenthesis log left-parenthesis p 1 right-parenthesis plus ellipsis plus log left-parenthesis p Subscript n Baseline right-parenthesis right-parenthesis" display="block"><mrow><mo form="prefix">exp</mo><mo>(</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <msub><mi>p</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mo>+</mo> <mo>⋯</mo> <mo>+</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <msub><mi>p</mi> <mi>n</mi></msub> <mo>)</mo></mrow> <mo>)</mo></mrow></math>
 
 唯一剩下的挑战是估计<math><mrow><mi>P</mi> <mo>(</mo> <msub><mi>X</mi><mi>i</mi></msub> <mo>|</mo> <mi>S</mi> <mo>)</mo></mrow></math> 和<math><mrow><mi>P</mi> <mo>(</mo> <msub><mi>X</mi><mi>i</mi></msub> <mo>|</mo> <mo>¬</mo> <mi>S</mi> <mo>)</mo></mrow></math> ，即垃圾邮件（或非垃圾邮件）包含单词<math><msub><mi>w</mi> <mi>i</mi></msub></math> 的概率。如果我们有大量标记为垃圾邮件和非垃圾邮件的“训练”邮件，一个明显的第一次尝试是简单地估计<math><mrow><mi>P</mi> <mo>(</mo> <msub><mi>X</mi> <mi>i</mi></msub> <mo>|</mo> <mi>S</mi> <mo>)</mo></mrow></math> 为仅仅是包含单词<math><msub><mi>w</mi> <mi>i</mi></msub></math> 的垃圾邮件的比例。
 
-不过，这会造成一个很大的问题。想象一下，在我们的训练集中，词汇表中的单词*data*只出现在非垃圾邮件中。然后我们会估计<math alttext="upper P left-parenthesis quotation-mark data quotation-mark vertical-bar upper S right-parenthesis equals 0"><mrow><mi>P</mi> <mo>(</mo> <mtext>data</mtext> <mo>|</mo> <mi>S</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn></mrow></math>。结果是，我们的朴素贝叶斯分类器将始终为包含单词*data*的*任何*消息分配垃圾邮件概率0，即使是像“免费比特币和正品劳力士手表数据”这样的消息也是如此。为了避免这个问题，我们通常使用某种平滑技术。
+不过，这会造成一个很大的问题。想象一下，在我们的训练集中，词汇表中的单词*data*只出现在非垃圾邮件中。然后我们会估计<math alttext="upper P left-parenthesis quotation-mark data quotation-mark vertical-bar upper S right-parenthesis equals 0"><mrow><mi>P</mi> <mo>(</mo> <mtext>data</mtext> <mo>|</mo> <mi>S</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn></mrow></math>。结果是，我们的朴素贝叶斯分类器将始终为包含单词*data*的*任何*消息分配垃圾邮件概率 0，即使是像“免费比特币和正品劳力士手表数据”这样的消息也是如此。为了避免这个问题，我们通常使用某种平滑技术。
 
 特别是，我们将选择一个*伪计数*——*k*——并估计在垃圾邮件中看到第*i*个单词的概率为：
 
@@ -56,7 +56,7 @@
 
 我们对<math><mrow><mi>P</mi> <mo>(</mo> <msub><mi>X</mi> <mi>i</mi></msub> <mo>|</mo> <mo>¬</mo> <mi>S</mi> <mo>)</mo></mrow></math>也是类似的。也就是说，当计算第*i*个单词的垃圾邮件概率时，我们假设我们还看到了包含该单词的*k*个额外的非垃圾邮件和*k*个额外的不包含该单词的非垃圾邮件。
 
-例如，如果*data*出现在0/98封垃圾邮件中，如果*k*为1，则我们将*P*(data|*S*)估计为1/100 = 0.01，这使得我们的分类器仍然可以为包含单词*data*的消息分配一些非零的垃圾邮件概率。
+例如，如果*data*出现在 0/98 封垃圾邮件中，如果*k*为 1，则我们将*P*(data|*S*)估计为 1/100 = 0.01，这使得我们的分类器仍然可以为包含单词*data*的消息分配一些非零的垃圾邮件概率。
 
 # 实施
 
@@ -222,7 +222,7 @@ assert model.predict(text) == p_if_spam / (p_if_spam + p_if_ham)
 
 # 使用我们的模型
 
-一个流行的（尽管有些陈旧的）数据集是[SpamAssassin公共语料库](https://spamassassin.apache.org/old/publiccorpus/)。我们将查看以*20021010*为前缀的文件。
+一个流行的（尽管有些陈旧的）数据集是[SpamAssassin 公共语料库](https://spamassassin.apache.org/old/publiccorpus/)。我们将查看以*20021010*为前缀的文件。
 
 这里是一个脚本，将下载并解压它们到您选择的目录（或者您可以手动执行）：
 
@@ -310,7 +310,7 @@ confusion_matrix = Counter((message.is_spam, spam_probability > 0.5)
 print(confusion_matrix)
 ```
 
-这给出了84个真正的阳性（被分类为“垃圾邮件”的垃圾邮件），25个假阳性（被分类为“垃圾邮件”的非垃圾邮件），703个真负（被分类为“非垃圾邮件”的非垃圾邮件）和44个假阴性（被分类为“非垃圾邮件”的垃圾邮件）。这意味着我们的精度是84 /（84 + 25）= 77％，我们的召回率是84 /（84 + 44）= 65％，对于如此简单的模型来说，这些数字并不差。（假设如果我们查看的不仅仅是主题行，我们可能会做得更好。）
+这给出了 84 个真正的阳性（被分类为“垃圾邮件”的垃圾邮件），25 个假阳性（被分类为“垃圾邮件”的非垃圾邮件），703 个真负（被分类为“非垃圾邮件”的非垃圾邮件）和 44 个假阴性（被分类为“非垃圾邮件”的垃圾邮件）。这意味着我们的精度是 84 /（84 + 25）= 77％，我们的召回率是 84 /（84 + 44）= 65％，对于如此简单的模型来说，这些数字并不差。（假设如果我们查看的不仅仅是主题行，我们可能会做得更好。）
 
 我们还可以检查模型的内部，看看哪些单词最少和最具有指示性的垃圾邮件。
 

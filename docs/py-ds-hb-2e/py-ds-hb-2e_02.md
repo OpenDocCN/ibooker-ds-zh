@@ -1,4 +1,4 @@
-# 第一章\. 在 IPython 和 Jupyter 中开始
+# 第一章：在 IPython 和 Jupyter 中开始
 
 在编写数据科学的 Python 代码时，我通常会在三种工作模式之间切换：我使用 IPython shell 尝试短命令序列，使用 Jupyter Notebook 进行更长时间的交互分析和与他人共享内容，并使用诸如 Emacs 或 VSCode 的交互式开发环境（IDE）创建可重复使用的 Python 包。本章重点介绍前两种模式：IPython shell 和 Jupyter Notebook。虽然软件开发中使用 IDE 是数据科学家工具箱中的重要第三工具，但我们在此不会直接讨论它。
 

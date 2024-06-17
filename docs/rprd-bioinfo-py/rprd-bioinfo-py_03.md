@@ -1,4 +1,4 @@
-# 第二章。将 DNA 转录为 mRNA：突变字符串，读写文件
+# 第二章：将 DNA 转录为 mRNA：突变字符串，读写文件
 
 为了表达维持生命所必需的蛋白质，DNA 区域必须被转录成一种称为*messenger RNA*（mRNA）的 RNA 形式。虽然 DNA 和 RNA 之间有许多迷人的生化差异，但就我们的目的而言，唯一的区别是 DNA 序列中代表嘧啶碱基的所有*T*字符需要更改为尿嘧啶字母*U*。正如在[Rosalind RNA 页面](https://oreil.ly/9Dddm)上所描述的那样，我将向您展示如何编写一个接受像`ACGT`这样的 DNA 字符串并打印转录 mRNA `ACGU`的程序。我可以使用 Python 的`str.replace()`函数在一行中完成这个任务：
 
