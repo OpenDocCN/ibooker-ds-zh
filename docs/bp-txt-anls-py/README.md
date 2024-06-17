@@ -1,6 +1,6 @@
-# Python 入门指南
+# Python 文本分析蓝图
 
-> 原文：[`zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92`](https://zh.annas-archive.org/md5/97bc15629f1b51a0671040c56db61b92)
+> 原文：[`zh.annas-archive.org/md5/c63f0fe6d74b904d41494495addce0ab`](https://zh.annas-archive.org/md5/c63f0fe6d74b904d41494495addce0ab)
 > 
 > 译者：[飞龙](https://github.com/wizardforcel)
 > 
