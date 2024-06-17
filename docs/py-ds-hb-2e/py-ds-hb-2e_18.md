@@ -1,6 +1,6 @@
-# 第 15 章。在 Pandas 中操作数据
+# 第十五章。在 Pandas 中操作数据
 
-NumPy 的一个优点是它允许我们执行快速的逐元素操作，包括基本算术（加法、减法、乘法等）和更复杂的操作（三角函数、指数和对数函数等）。Pandas 从 NumPy 继承了许多这些功能，并且在[第 6 章](ch06.xhtml#section-0203-computation-on-arrays-ufuncs)介绍的 ufuncs 对此至关重要。
+NumPy 的一个优点是它允许我们执行快速的逐元素操作，包括基本算术（加法、减法、乘法等）和更复杂的操作（三角函数、指数和对数函数等）。Pandas 从 NumPy 继承了许多这些功能，并且在第六章介绍的 ufuncs 对此至关重要。
 
 然而，Pandas 还包括一些有用的技巧：对于像否定和三角函数这样的一元操作，这些 ufuncs 将在输出中 *保留索引和列标签*；对于像加法和乘法这样的二元操作，当将对象传递给 ufunc 时，Pandas 将自动 *对齐索引*。这意味着保持数据的上下文和组合来自不同来源的数据（这两个任务对于原始 NumPy 数组来说可能是错误的）在 Pandas 中基本上变得十分简单。我们还将看到在一维 `Series` 结构和二维 `DataFrame` 结构之间存在着明确定义的操作。
 
@@ -55,7 +55,7 @@ Out[5]:               A             B         C         D
         2 -7.071068e-01 -7.071068e-01 -0.707107 -0.707107
 ```
 
-任何在[第 6 章](ch06.xhtml#section-0203-computation-on-arrays-ufuncs)中讨论过的 ufunc 都可以以类似的方式使用。
+任何在第六章中讨论过的 ufunc 都可以以类似的方式使用。
 
 # Ufuncs：索引对齐
 
@@ -90,7 +90,7 @@ In [8]: area.index.union(population.index)
 Out[8]: Index(['Alaska', 'California', 'Florida', 'Texas'], dtype='object')
 ```
 
-任何其中一个没有条目的项目都标记有 `NaN`，即“不是数字”，这是 Pandas 标记缺失数据的方式（详见[第 16 章](ch16.xhtml#section-0304-missing-values)对缺失数据的进一步讨论）。对于 Python 内置的任何算术表达式，都会实现这种索引匹配；任何缺失值都将被 `NaN` 标记：
+任何其中一个没有条目的项目都标记有 `NaN`，即“不是数字”，这是 Pandas 标记缺失数据的方式（详见第十六章对缺失数据的进一步讨论）。对于 Python 内置的任何算术表达式，都会实现这种索引匹配；任何缺失值都将被 `NaN` 标记：
 
 ```py
 In [9]: A = pd.Series([2, 4, 6], index=[0, 1, 2])
@@ -155,11 +155,11 @@ Out[14]:        a      b      c
          2  17.25  13.25  14.25
 ```
 
-[表15-1](#table-15-1)列出了Python运算符及其相应的Pandas对象方法。
+表 15-1 列出了 Python 运算符及其相应的 Pandas 对象方法。
 
-表15-1。Python运算符与Pandas方法的映射
+表 15-1。Python 运算符与 Pandas 方法的映射
 
-| Python运算符 | Pandas方法 |
+| Python 运算符 | Pandas 方法 |
 | --- | --- |
 | `+` | `add` |
 | `-` | `sub`, `subtract` |
@@ -169,9 +169,9 @@ Out[14]:        a      b      c
 | `%` | `mod` |
 | `**` | `pow` |
 
-# Ufuncs：DataFrame与Series之间的操作
+# Ufuncs：DataFrame 与 Series 之间的操作
 
-当对`DataFrame`和`Series`进行操作时，索引和列的对齐方式类似地保持，并且结果类似于二维数组和一维NumPy数组之间的操作。考虑一种常见的操作，即查找二维数组与其一行之间的差异：
+当对`DataFrame`和`Series`进行操作时，索引和列的对齐方式类似地保持，并且结果类似于二维数组和一维 NumPy 数组之间的操作。考虑一种常见的操作，即查找二维数组与其一行之间的差异：
 
 ```py
 In [15]: A = rng.integers(10, size=(3, 4))
@@ -188,9 +188,9 @@ Out[16]: array([[ 0,  0,  0,  0],
                 [ 4, -2,  4,  1]])
 ```
 
-根据NumPy的广播规则（参见[第8章](ch08.xhtml#section-0205-computation-on-arrays-broadcasting)），二维数组与其一行之间的减法操作是逐行应用的。
+根据 NumPy 的广播规则（参见第八章），二维数组与其一行之间的减法操作是逐行应用的。
 
-在Pandas中，默认情况下也是逐行操作的约定：
+在 Pandas 中，默认情况下也是逐行操作的约定：
 
 ```py
 In [17]: df = pd.DataFrame(A, columns=['Q', 'R', 'S', 'T'])
@@ -229,4 +229,4 @@ Out[20]:      Q   R    S   T
          2  4.0 NaN  4.0 NaN
 ```
 
-这种索引和列的保留与对齐意味着在Pandas中对数据进行的操作将始终保持数据上下文，这可以防止在原始NumPy数组中处理异构和/或不对齐数据时可能出现的常见错误。
+这种索引和列的保留与对齐意味着在 Pandas 中对数据进行的操作将始终保持数据上下文，这可以防止在原始 NumPy 数组中处理异构和/或不对齐数据时可能出现的常见错误。

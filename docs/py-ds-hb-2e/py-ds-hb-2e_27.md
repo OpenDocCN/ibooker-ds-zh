@@ -1,4 +1,4 @@
-# 第24章。高性能 Pandas：eval 和 query
+# 第二十四章。高性能 Pandas：eval 和 query
 
 正如我们在之前的章节中已经看到的，PyData 栈的强大建立在 NumPy 和 Pandas 将基本操作推送到低级编译代码中的能力上，通过直观的高级语法：例如 NumPy 中的向量化/广播操作，以及 Pandas 中的分组类型操作。虽然这些抽象对许多常见用例是高效和有效的，但它们经常依赖于临时中间对象的创建，这可能会导致计算时间和内存使用的不必要开销。
 
@@ -17,7 +17,7 @@ In [1]: import numpy as np
 Out[1]: 2.21 ms ± 142 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
 ```
 
-如在 [第6章](ch06.xhtml#section-0203-computation-on-arrays-ufuncs) 中讨论的，这比通过 Python 循环或理解式添加要快得多：
+如在 第六章 中讨论的，这比通过 Python 循环或理解式添加要快得多：
 
 ```py
 In [2]: %timeit np.fromiter((xi + yi for xi, yi in zip(x, y)),
@@ -146,11 +146,11 @@ Out[15]: True
 
 其他操作
 
-其他操作，例如函数调用、条件语句、循环和其他更复杂的构造，目前*不*在`pd.eval`中实现。如果你想执行这些更复杂的表达式类型，可以使用NumExpr库本身。
+其他操作，例如函数调用、条件语句、循环和其他更复杂的构造，目前*不*在`pd.eval`中实现。如果你想执行这些更复杂的表达式类型，可以使用 NumExpr 库本身。
 
-# DataFrame.eval进行按列操作
+# DataFrame.eval 进行按列操作
 
-就像Pandas有一个顶级的`pd.eval`函数一样，`DataFrame`对象也有一个`eval`方法，功能类似。`eval`方法的好处是可以按名称引用列。我们将用这个带标签的数组作为示例：
+就像 Pandas 有一个顶级的`pd.eval`函数一样，`DataFrame`对象也有一个`eval`方法，功能类似。`eval`方法的好处是可以按名称引用列。我们将用这个带标签的数组作为示例：
 
 ```py
 In [16]: df = pd.DataFrame(rng.random((1000, 3)), columns=['A', 'B', 'C'])
@@ -182,7 +182,7 @@ Out[18]: True
 
 请注意，在这里我们将*列名视为评估表达式中的变量*，结果正是我们希望的。
 
-## 在DataFrame.eval中的赋值
+## 在 DataFrame.eval 中的赋值
 
 除了刚才讨论的选项之外，`DataFrame.eval`还允许对任何列进行赋值。让我们使用之前的`DataFrame`，它有列`'A'`，`'B'`和`'C'`：
 
@@ -222,9 +222,9 @@ Out[21]:           A         B         C         D
          4  0.818205  0.753384  0.578851  0.111982
 ```
 
-## DataFrame.eval中的本地变量
+## DataFrame.eval 中的本地变量
 
-`DataFrame.eval`方法支持一种额外的语法，使其能够与本地Python变量一起使用。考虑以下内容：
+`DataFrame.eval`方法支持一种额外的语法，使其能够与本地 Python 变量一起使用。考虑以下内容：
 
 ```py
 In [22]: column_mean = df.mean(1)
@@ -234,7 +234,7 @@ In [22]: column_mean = df.mean(1)
 Out[22]: True
 ```
 
-这里的`@`字符标记的是*变量名*而不是*列名*，并且让你能够高效地评估涉及两个“命名空间”的表达式：列的命名空间和Python对象的命名空间。请注意，这个`@`字符只支持`DataFrame.eval`*方法*，而不支持`pandas.eval`*函数*，因为`pandas.eval`函数只能访问一个（Python）命名空间。
+这里的`@`字符标记的是*变量名*而不是*列名*，并且让你能够高效地评估涉及两个“命名空间”的表达式：列的命名空间和 Python 对象的命名空间。请注意，这个`@`字符只支持`DataFrame.eval`*方法*，而不支持`pandas.eval`*函数*，因为`pandas.eval`函数只能访问一个（Python）命名空间。
 
 # `DataFrame.query`方法
 
@@ -267,7 +267,7 @@ Out[25]: True
 
 # 性能：何时使用这些函数
 
-在考虑是否使用`eval`和`query`时，有两个考虑因素：*计算时间*和*内存使用*。内存使用是最可预测的方面。正如前面提到的，涉及NumPy数组或Pandas `DataFrame`的每个复合表达式都会导致临时数组的隐式创建。例如，这个：
+在考虑是否使用`eval`和`query`时，有两个考虑因素：*计算时间*和*内存使用*。内存使用是最可预测的方面。正如前面提到的，涉及 NumPy 数组或 Pandas `DataFrame`的每个复合表达式都会导致临时数组的隐式创建。例如，这个：
 
 ```py
 In [26]: x = df[(df.A < 0.5) & (df.B < 0.5)]
@@ -289,28 +289,28 @@ In [28]: df.values.nbytes
 Out[28]: 32000
 ```
 
-就性能而言，即使您没有使用完系统内存，`eval`可能会更快。问题在于您的临时对象与系统的L1或L2 CPU缓存大小（通常为几兆字节）相比如何；如果它们要大得多，那么`eval`可以避免在不同内存缓存之间移动值时可能出现的某些潜在缓慢。实际上，我发现传统方法与`eval`/`query`方法之间的计算时间差异通常不显著——如果有什么的话，对于较小的数组来说，传统方法更快！`eval`/`query`的好处主要在于节省内存，以及它们有时提供的更清晰的语法。
+就性能而言，即使您没有使用完系统内存，`eval`可能会更快。问题在于您的临时对象与系统的 L1 或 L2 CPU 缓存大小（通常为几兆字节）相比如何；如果它们要大得多，那么`eval`可以避免在不同内存缓存之间移动值时可能出现的某些潜在缓慢。实际上，我发现传统方法与`eval`/`query`方法之间的计算时间差异通常不显著——如果有什么的话，对于较小的数组来说，传统方法更快！`eval`/`query`的好处主要在于节省内存，以及它们有时提供的更清晰的语法。
 
-我们在这里已经涵盖了关于`eval`和`query`的大部分细节；有关更多信息，请参阅Pandas文档。特别是，可以为运行这些查询指定不同的解析器和引擎；有关详细信息，请参阅文档中的[“提升性能”部分](https://oreil.ly/DHNy8)。
+我们在这里已经涵盖了关于`eval`和`query`的大部分细节；有关更多信息，请参阅 Pandas 文档。特别是，可以为运行这些查询指定不同的解析器和引擎；有关详细信息，请参阅文档中的[“提升性能”部分](https://oreil.ly/DHNy8)。
 
 # 更多资源
 
-在本书的这一部分中，我们已经涵盖了有效使用Pandas进行数据分析的许多基础知识。但我们的讨论还有很多内容未涉及。要了解更多关于Pandas的信息，我推荐以下资源：
+在本书的这一部分中，我们已经涵盖了有效使用 Pandas 进行数据分析的许多基础知识。但我们的讨论还有很多内容未涉及。要了解更多关于 Pandas 的信息，我推荐以下资源：
 
-[Pandas在线文档](http://pandas.pydata.org)
+[Pandas 在线文档](http://pandas.pydata.org)
 
 这是完整文档的首选来源。虽然文档中的示例通常基于小型生成的数据集，但选项的描述是全面的，并且通常非常有助于理解各种函数的使用。
 
 [*Python for Data Analysis*](https://oreil.ly/0hdsf)
 
-由Pandas的原始创建者Wes McKinney撰写，这本书包含了比我们在本章中有空间讨论的Pandas包更多的细节。特别是，McKinney深入探讨了用于时间序列的工具，这些工具是他作为金融顾问的核心内容。这本书还包含许多将Pandas应用于从实际数据集中获得洞察的有趣例子。
+由 Pandas 的原始创建者 Wes McKinney 撰写，这本书包含了比我们在本章中有空间讨论的 Pandas 包更多的细节。特别是，McKinney 深入探讨了用于时间序列的工具，这些工具是他作为金融顾问的核心内容。这本书还包含许多将 Pandas 应用于从实际数据集中获得洞察的有趣例子。
 
 [*Effective Pandas*](https://oreil.ly/cn1ls)
 
-Pandas开发者Tom Augspurger的这本简短电子书，简洁地概述了如何有效和惯用地使用Pandas库的全部功能。
+Pandas 开发者 Tom Augspurger 的这本简短电子书，简洁地概述了如何有效和惯用地使用 Pandas 库的全部功能。
 
-[PyVideo上的Pandas](https://oreil.ly/mh4wI)
+[PyVideo 上的 Pandas](https://oreil.ly/mh4wI)
 
-从PyCon到SciPy再到PyData，许多会议都有Pandas开发者和高级用户提供的教程。特别是PyCon的教程通常由经过严格筛选的优秀演讲者提供。
+从 PyCon 到 SciPy 再到 PyData，许多会议都有 Pandas 开发者和高级用户提供的教程。特别是 PyCon 的教程通常由经过严格筛选的优秀演讲者提供。
 
-结合这些资源，再加上这些章节中的详细介绍，我希望你能够准备好使用Pandas解决任何遇到的数据分析问题！
+结合这些资源，再加上这些章节中的详细介绍，我希望你能够准备好使用 Pandas 解决任何遇到的数据分析问题！

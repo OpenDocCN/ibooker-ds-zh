@@ -1,6 +1,6 @@
-# 第41章 深入：朴素贝叶斯分类
+# 第四十一章 深入：朴素贝叶斯分类
 
-前四章概述了机器学习的概念。在[第五部分](part05.xhtml#section-0500-machine-learning)的其余部分，我们将首先更详细地查看四种监督学习算法，然后是四种无监督学习算法。我们从第一个监督方法朴素贝叶斯分类开始。
+前四章概述了机器学习的概念。在第五部分的其余部分，我们将首先更详细地查看四种监督学习算法，然后是四种无监督学习算法。我们从第一个监督方法朴素贝叶斯分类开始。
 
 朴素贝叶斯模型是一组极快速且简单的分类算法，通常适用于非常高维度的数据集。因为它们速度快、可调参数少，所以它们通常用作分类问题的快速基准线。本章将提供朴素贝叶斯分类器工作原理的直观解释，并在一些数据集上展示它们的几个例子。
 
@@ -30,7 +30,7 @@ In [1]: %matplotlib inline
 
 # 高斯朴素贝叶斯
 
-或许最容易理解的朴素贝叶斯分类器是高斯朴素贝叶斯。使用这个分类器，假设*每个标签的数据都来自简单的高斯分布*。想象一下我们有以下数据，显示在[图 41-1](#fig_0505-naive-bayes_files_in_output_5_0)中：
+或许最容易理解的朴素贝叶斯分类器是高斯朴素贝叶斯。使用这个分类器，假设*每个标签的数据都来自简单的高斯分布*。想象一下我们有以下数据，显示在图 41-1 中：
 
 ```py
 In [2]: from sklearn.datasets import make_blobs
@@ -38,19 +38,19 @@ In [2]: from sklearn.datasets import make_blobs
         plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='RdBu');
 ```
 
-![output 5 0](assets/output_5_0.png)
+![output 5 0](img/output_5_0.png)
 
-###### 图 41-1\. 高斯朴素贝叶斯分类数据^([1](ch41.xhtml#idm45858738121616))
+###### 图 41-1\. 高斯朴素贝叶斯分类数据^(1)
 
-最简单的高斯模型假设数据由没有各维度间协方差的高斯分布描述。这个模型可以通过计算每个标签内点的均值和标准差来拟合，这是我们定义这种分布所需的所有内容。这种朴素高斯假设的结果显示在[图 41-2](#fig_images_in_0505-gaussian-nb)中。
+最简单的高斯模型假设数据由没有各维度间协方差的高斯分布描述。这个模型可以通过计算每个标签内点的均值和标准差来拟合，这是我们定义这种分布所需的所有内容。这种朴素高斯假设的结果显示在图 41-2 中。
 
-![05.05 gaussian NB](assets/05.05-gaussian-NB.png)
+![05.05 gaussian NB](img/05.05-gaussian-NB.png)
 
-###### 图 41-2\. 高斯朴素贝叶斯模型可视化^([2](ch41.xhtml#idm45858738117008))
+###### 图 41-2\. 高斯朴素贝叶斯模型可视化^(2)
 
 这里的椭圆代表每个标签的高斯生成模型，中心区域的概率更高。有了每个类别的生成模型，我们可以简单地计算任何数据点的似然<math alttext="upper P left-parenthesis normal f normal e normal a normal t normal u normal r normal e normal s vertical-bar upper L 1 right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>features</mi> <mo>|</mo> <msub><mi>L</mi> <mn>1</mn></msub> <mo>)</mo></mrow></math>，因此我们可以快速计算后验比率，并确定给定点最有可能的标签。
 
-这个过程在Scikit-Learn的`sklearn.naive_bayes.GaussianNB`估计器中实现：
+这个过程在 Scikit-Learn 的`sklearn.naive_bayes.GaussianNB`估计器中实现：
 
 ```py
 In [3]: from sklearn.naive_bayes import GaussianNB
@@ -66,7 +66,7 @@ In [4]: rng = np.random.RandomState(0)
         ynew = model.predict(Xnew)
 ```
 
-现在我们可以绘制这些新数据，以了解决策边界的位置（见[图 41-3](#fig_0505-naive-bayes_files_in_output_13_0)）。
+现在我们可以绘制这些新数据，以了解决策边界的位置（见图 41-3）。
 
 ```py
 In [5]: plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='RdBu')
@@ -75,7 +75,7 @@ In [5]: plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='RdBu')
         plt.axis(lim);
 ```
 
-![output 13 0](assets/output_13_0.png)
+![output 13 0](img/output_13_0.png)
 
 ###### 图 41-3\. 高斯朴素贝叶斯分类可视化
 
@@ -108,7 +108,7 @@ Out[6]: array([[0.89, 0.11],
 
 ## 示例：文本分类
 
-多项式朴素贝叶斯经常用于文本分类的一个场合，其中特征与要分类的文档中的单词计数或频率相关。我们在[第40章](ch40.xhtml#section-0504-feature-engineering)中讨论了从文本中提取这些特征；在这里，我们将使用通过Scikit-Learn提供的20个新闻组语料库中的稀疏单词计数特征来展示如何将这些简短文档分类到不同的类别中。
+多项式朴素贝叶斯经常用于文本分类的一个场合，其中特征与要分类的文档中的单词计数或频率相关。我们在第四十章中讨论了从文本中提取这些特征；在这里，我们将使用通过 Scikit-Learn 提供的 20 个新闻组语料库中的稀疏单词计数特征来展示如何将这些简短文档分类到不同的类别中。
 
 让我们下载数据并查看目标名称：
 
@@ -169,7 +169,7 @@ Out[9]: Subject: Federal Hearing
         2493.
 ```
 
-为了将这些数据用于机器学习，我们需要将每个字符串的内容转换为一个数字向量。为此，我们将使用TF-IDF向量化器（在[第40章](ch40.xhtml#section-0504-feature-engineering)介绍），并创建一个管道，将其附加到多项式朴素贝叶斯分类器：
+为了将这些数据用于机器学习，我们需要将每个字符串的内容转换为一个数字向量。为此，我们将使用 TF-IDF 向量化器（在第四十章介绍），并创建一个管道，将其附加到多项式朴素贝叶斯分类器：
 
 ```py
 In [10]: from sklearn.feature_extraction.text import TfidfVectorizer
@@ -186,7 +186,7 @@ In [11]: model.fit(train.data, train.target)
          labels = model.predict(test.data)
 ```
 
-现在我们已经预测了测试数据的标签，我们可以评估它们以了解估计器的性能。例如，让我们看一下测试数据的真实标签和预测标签之间的混淆矩阵（参见[图41-4](#fig_0505-naive-bayes_files_in_output_29_0)）。
+现在我们已经预测了测试数据的标签，我们可以评估它们以了解估计器的性能。例如，让我们看一下测试数据的真实标签和预测标签之间的混淆矩阵（参见图 41-4）。
 
 ```py
 In [12]: from sklearn.metrics import confusion_matrix
@@ -225,7 +225,7 @@ In [16]: predict_category('determining the screen resolution')
 Out[16]: 'comp.graphics'
 ```
 
-![output 29 0](assets/output_29_0.png)
+![output 29 0](img/output_29_0.png)
 
 ###### 图 41-4\. 多项式朴素贝叶斯文本分类器的混淆矩阵
 
@@ -255,6 +255,6 @@ Out[16]: 'comp.graphics'
 
 最后两点看似不同，但实际上是相关的：随着数据集维度的增长，任何两个点在一起的可能性大大降低（毕竟，它们必须在*每个维度*上都很接近才能在总体上接近）。这意味着在高维空间中，簇通常比低维空间中更为分离，平均而言。基于这个原因，像这里讨论的简单分类器往往在维度增加时表现得同样或更好：一旦你有足够的数据，即使是简单模型也可以非常强大。
 
-^([1](ch41.xhtml#idm45858738121616-marker)) 此图的全彩版本可在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+^(1) 此图的全彩版本可在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^([2](ch41.xhtml#idm45858738117008-marker)) 生成此图的代码可在[在线附录](https://oreil.ly/o0ENq)中找到。
+^(2) 生成此图的代码可在[在线附录](https://oreil.ly/o0ENq)中找到。

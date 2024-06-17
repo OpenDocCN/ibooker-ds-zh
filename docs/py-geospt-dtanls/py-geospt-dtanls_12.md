@@ -1,4 +1,4 @@
-# 参考文献
+# 第十一章：参考文献
 
 +   Bilogur, Aleksey. “Missingno：缺失数据可视化套件。” *开源软件期刊* 3，编号 22（2018 年 2 月）：547。[*https://doi.org/10.21105/joss.00547*](https://doi.org/10.21105/joss.00547)。
 
@@ -18,16 +18,16 @@
 
 +   Mitchell, Bruce, 和 Juan Franco. *HOLC “红线” 地图：隔离的持久结构和经济不平等*。National Community Reinvestment Coalition。2018 年 3 月 20 日。[*https://ncrc.org/holc*](https://ncrc.org/holc)。
 
-+   National Research Council. *学会空间思维*（华盛顿特区：国家学院出版社，2006 年）。[https://doi.org/10.17226/11019](https://doi.org/10.17226/11019)。
++   National Research Council. *学会空间思维*（华盛顿特区：国家学院出版社，2006 年）。[`doi.org/10.17226/11019`](https://doi.org/10.17226/11019)。
 
-+   Open Source Geospatial Foundation. *GDAL/OGR地理空间数据抽象软件库*. [*https://doi.org/10.5281/zenodo.5884351*](https://doi.org/10.5281/zenodo.5884351).
++   Open Source Geospatial Foundation. *GDAL/OGR 地理空间数据抽象软件库*. [*https://doi.org/10.5281/zenodo.5884351*](https://doi.org/10.5281/zenodo.5884351).
 
 +   Tobler, W. R. “一部模拟底特律地区城市增长的计算机电影。” *Economic Geography* 46 (June 1970): 234–240\. [*https://doi.org/10.2307/143141*](https://doi.org/10.2307/143141).
 
-+   Vancutsem, C., F. Achard, J.-F. Pekel, G. Vieilledent, S. Carboni, D. Simonetti, J. Gallego, L.E.O.C. Aragão, and R. Nasi. “长期（1990–2019年）监测热带湿地森林覆盖变化。” *Science Advances* 7, no. 10 (March 2021): 1–22\. [*https://doi.org/10.1126/sciadv.abe1603*](https://doi.org/10.1126/sciadv.abe1603).
++   Vancutsem, C., F. Achard, J.-F. Pekel, G. Vieilledent, S. Carboni, D. Simonetti, J. Gallego, L.E.O.C. Aragão, and R. Nasi. “长期（1990–2019 年）监测热带湿地森林覆盖变化。” *Science Advances* 7, no. 10 (March 2021): 1–22\. [*https://doi.org/10.1126/sciadv.abe1603*](https://doi.org/10.1126/sciadv.abe1603).
 
-+   Vieilledent, Ghislain. “forestatrisk: 用于模拟和预测热带地区森林砍伐的Python包。” *Journal of Open Source Software* 6, no. 59 (March 2021): 2975\. [*https://doi.org/10.21105/joss.02975*](https://doi.org/10.21105/joss.02975).
++   Vieilledent, Ghislain. “forestatrisk: 用于模拟和预测热带地区森林砍伐的 Python 包。” *Journal of Open Source Software* 6, no. 59 (March 2021): 2975\. [*https://doi.org/10.21105/joss.02975*](https://doi.org/10.21105/joss.02975).
 
-+   Wu, Qiusheng. “geemap: 一个用于与Google Earth Engine交互地图的Python包。” *Journal of Open Source Software* 5, no. 51 (July 2020): 2305\. [*https://doi.org/10.21105/joss.02305*](https://doi.org/10.21105/joss.02305).
++   Wu, Qiusheng. “geemap: 一个用于与 Google Earth Engine 交互地图的 Python 包。” *Journal of Open Source Software* 5, no. 51 (July 2020): 2305\. [*https://doi.org/10.21105/joss.02305*](https://doi.org/10.21105/joss.02305).
 
-+   Wu, Qiusheng, Charles R. Lane, Xuecao Li, Kaiguang Zhao, Yuyu Zhou, Nicolas Clinton, Ben DeVries, Heather E. Golden, and Megan W. Lang. “结合LiDAR数据和多时相航空影像利用Google Earth Engine绘制湿地入侵动态。” *Remote Sensing of Environment* 228 (2019): 1-13\. [*https://doi.org/10.1016/j.rse.2019.04.015*](https://doi.org/10.1016/j.rse.2019.04.015).
++   Wu, Qiusheng, Charles R. Lane, Xuecao Li, Kaiguang Zhao, Yuyu Zhou, Nicolas Clinton, Ben DeVries, Heather E. Golden, and Megan W. Lang. “结合 LiDAR 数据和多时相航空影像利用 Google Earth Engine 绘制湿地入侵动态。” *Remote Sensing of Environment* 228 (2019): 1-13\. [*https://doi.org/10.1016/j.rse.2019.04.015*](https://doi.org/10.1016/j.rse.2019.04.015).

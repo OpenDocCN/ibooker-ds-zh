@@ -1,46 +1,46 @@
-# 附加材料
+# 第二十二章：附加材料
 
 在这里收集了多种资源，更深入地探讨了本书中的主题。除了这些主题的建议，我们还提供了轻描淡写的几个主题的资源。这些资源按照它们在书中出现的顺序进行组织：
 
-+   Shumway, Robert 和 David Stoffer。[*时间序列分析及其应用*](https://doi.org/10.1007/978-3-319-52452-8)。纽约：Springer，2017年。
++   Shumway, Robert 和 David Stoffer。[*时间序列分析及其应用*](https://doi.org/10.1007/978-3-319-52452-8)。纽约：Springer，2017 年。
 
 本书涵盖了如何分析时间序列数据，比如谷歌流感趋势。
 
-+   Speed, Terry. [“问题、答案和统计”](https://oreil.ly/Nw0Rg) *ICOTS*（1986年）：18–28页。
++   Speed, Terry. [“问题、答案和统计”](https://oreil.ly/Nw0Rg) *ICOTS*（1986 年）：18–28 页。
 
-+   Leek, Jeffery 和 Roger Peng。[“什么是问题？”](https://doi.org/10.1126/science.aaa6146) *Science* 347, no. 6228 (2015年2月)：1314–1315页。
++   Leek, Jeffery 和 Roger Peng。[“什么是问题？”](https://doi.org/10.1126/science.aaa6146) *Science* 347, no. 6228 (2015 年 2 月)：1314–1315 页。
 
 如果您希望了解问题与数据之间的相互作用，我们推荐阅读“问题、答案和统计”。《什么是问题？》将问题与所需分析类型联系起来。
 
-+   Lohr, Sharon。[*抽样：设计与分析*](https://doi.org/10.1201/9780429298899)，第3版。纽约：Chapman and Hall，2021年。
++   Lohr, Sharon。[*抽样：设计与分析*](https://doi.org/10.1201/9780429298899)，第 3 版。纽约：Chapman and Hall，2021 年。
 
 更多有关抽样主题的内容可在*抽样：设计与分析*中找到。该书还包括了目标人群、访问框架、抽样方法和偏见来源的处理。
 
-+   加州大学伯克利分校，计算机、数据科学和社会学院。[“HCE工具包。”](https://oreil.ly/vzkBn) 访问于2023年9月15日。*https://oreil.ly/vzkBn*。
++   加州大学伯克利分校，计算机、数据科学和社会学院。[“HCE 工具包。”](https://oreil.ly/vzkBn) 访问于 2023 年 9 月 15 日。*https://oreil.ly/vzkBn*。
 
-    图斯基吉大学。[“国家生物伦理与研究及医疗护理中心。”](https://oreil.ly/XLsYx) 访问于2023年9月15日。*https://oreil.ly/XLsYx*。
+    图斯基吉大学。[“国家生物伦理与研究及医疗护理中心。”](https://oreil.ly/XLsYx) 访问于 2023 年 9 月 15 日。*https://oreil.ly/XLsYx*。
 
 这些工具包将帮助您更多了解数据的人文背景和伦理道德。
 
-+   总统办公厅。[*大数据：抓住机遇，保护价值*](https://oreil.ly/hTlpq)。2014年5月。
++   总统办公厅。[*大数据：抓住机遇，保护价值*](https://oreil.ly/hTlpq)。2014 年 5 月。
 
 这份简明的白宫报告提供了数据隐私的指导原则和理由。
 
-+   Ramdas, Aaditya。[“为什么最容易欺骗的人是你自己。”](https://oreil.ly/dYiKe) 访问于2023年9月15日。*https://oreil.ly/dYiKe*。
++   Ramdas, Aaditya。[“为什么最容易欺骗的人是你自己。”](https://oreil.ly/dYiKe) 访问于 2023 年 9 月 15 日。*https://oreil.ly/dYiKe*。
 
-Ramdas 在我们2019年秋季的“数据科学原理与技术”课上就偏见、辛普森悖论、p-值调整等主题进行了一场有趣且富有启发性的讲座。我们推荐从讲座中获取他的幻灯片。
+Ramdas 在我们 2019 年秋季的“数据科学原理与技术”课上就偏见、辛普森悖论、p-值调整等主题进行了一场有趣且富有启发性的讲座。我们推荐从讲座中获取他的幻灯片。
 
-+   Freedman, David 等人。[*统计学*](https://wwnorton.com/books/Statistics/)，第4版。纽约：Norton，2007年。
++   Freedman, David 等人。[*统计学*](https://wwnorton.com/books/Statistics/)，第 4 版。纽约：Norton，2007 年。
 
 参见*统计学*，了解关于瓮模型、置信区间和假设检验的入门处理。
 
-+   Owen, Art B. [*蒙特卡洛理论、方法和实例*](https://artowen.su.domains/mc)。自出版，2013年。
++   Owen, Art B. [*蒙特卡洛理论、方法和实例*](https://artowen.su.domains/mc)。自出版，2013 年。
 
 Owen 的在线文本为模拟提供了坚实的入门。
 
-+   Pitman, Jim。[*概率论*](https://doi.org/10.1007/978-1-4612-4374-8)。纽约：Springer，1993年。
++   Pitman, Jim。[*概率论*](https://doi.org/10.1007/978-1-4612-4374-8)。纽约：Springer，1993 年。
 
-    Blitzstein, Joseph K. 和 Jessica Hwang。[*概率论导论*](https://doi.org/10.1201/b17221)。纽约：Chapman and Hall，2014年。
+    Blitzstein, Joseph K. 和 Jessica Hwang。[*概率论导论*](https://doi.org/10.1201/b17221)。纽约：Chapman and Hall，2014 年。
 
 我们建议阅读*Probability*和*Introduction to Probability*，以更全面地学习概率。
 
@@ -54,11 +54,11 @@ Owen 的在线文本为模拟提供了坚实的入门。
 
 +   Roland, F.D. [*The Essence of Databases*](https://dl.acm.org/doi/book/10.5555/274800). Upper Saddle River, NJ: Prentice Hall, 1998.
 
-    W3Schools，[Introduction to SQL](https://w3schools.com/sql/sql_intro.asp)。于2023年9月15日访问。*https://w3schools.com/sql/sql_intro.asp*.
+    W3Schools，[Introduction to SQL](https://w3schools.com/sql/sql_intro.asp)。于 2023 年 9 月 15 日访问。*https://w3schools.com/sql/sql_intro.asp*.
 
     Kleppmann, Martin. [*Designing Data-Intensive Applications*](https://www.oreilly.com/library/view/designing-data-intensive-applications/9781491903063/). Sebastopol, CA: O’Reilly, 2017.
 
-经典著作*The Essence of Databases*正式介绍了SQL。W3Schools提供了SQL基础知识。*Designing Data-Intensive Applications*调查并比较了不同的数据存储系统，包括SQL数据库。
+经典著作*The Essence of Databases*正式介绍了 SQL。W3Schools 提供了 SQL 基础知识。*Designing Data-Intensive Applications*调查并比较了不同的数据存储系统，包括 SQL 数据库。
 
 +   Hellerstein, Joseph M. et al. [*Principles of Data Wrangling: Practical Techniques for Data Preparation*](https://www.oreilly.com/library/view/principles-of-data/9781491938911/). Sebastopol, CA: O’Reilly, 2017.
 
@@ -68,11 +68,11 @@ Owen 的在线文本为模拟提供了坚实的入门。
 
     Little, Roderick J. A., and Donald B. Rubin. [*Statistical Analysis with Missing Data*](https://www.wiley.com/en-us/Statistical+Analysis+with+Missing+Data,+3rd+Edition-p-9780470526798). Hoboken, NJ: Wiley, 2019.
 
-如何处理缺失数据，请参阅*Sampling: Design and Analysis*中的第8章以及*Statistical Analysis with Missing Data*。
+如何处理缺失数据，请参阅*Sampling: Design and Analysis*中的第八章以及*Statistical Analysis with Missing Data*。
 
 +   Tukey, John Wilder. [*Exploratory Data Analysis*](https://archive.org/details/exploratorydataa00tuke_0). Reading, MA: Addison-Wesley, 1977.
 
-*Exploratory Data Analysis*提供了对EDA的优秀介绍。
+*Exploratory Data Analysis*提供了对 EDA 的优秀介绍。
 
 +   Silverman, Bernard W. [*Density Estimation for Statistics and Data Analysis*](https://www.routledge.com/Density-Estimation-for-Statistics-and-Data-Analysis/Silverman/p/book/9780412246203). New York: Chapman and Hall, 1998.
 
@@ -162,7 +162,7 @@ Owen 的在线文本为模拟提供了坚实的入门。
 
     James et al. [*统计学习导论*](https://www.statlearning.com/)。
 
-“应用回归分析和广义线性模型”中的“Logit和Probit模型用于分类响应变量”涵盖了逻辑回归的最大似然方法。而“分类”在*统计学习导论*中更详细地涵盖了灵敏度和特异度。
+“应用回归分析和广义线性模型”中的“Logit 和 Probit 模型用于分类响应变量”涵盖了逻辑回归的最大似然方法。而“分类”在*统计学习导论*中更详细地涵盖了灵敏度和特异度。
 
 +   Wasserman, Larry. “统计决策理论。”在[*统计学全景*](https://doi.org/10.1007/978-0-387-21736-9)。纽约：Springer，2004.
 
@@ -172,6 +172,6 @@ Owen 的在线文本为模拟提供了坚实的入门。
 
 *编程集体智能* covers the topic of optimization
 
-+   Bengfort, Benjamin et al. [*Python应用文本分析*](https://www.oreilly.com/library/view/applied-text-analysis/9781491963036/)。Sebastopol：O’Reilly，2018.
++   Bengfort, Benjamin et al. [*Python 应用文本分析*](https://www.oreilly.com/library/view/applied-text-analysis/9781491963036/)。Sebastopol：O’Reilly，2018.
 
-See *Python应用文本分析* for more on text analysis.
+See *Python 应用文本分析* for more on text analysis.

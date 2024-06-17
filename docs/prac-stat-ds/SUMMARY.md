@@ -1,0 +1,8 @@
++   [前言](prac-stat-ds_0.md)
++   [第一章\. 探索性数据分析](prac-stat-ds_1.md)
++   [第二章 数据和抽样分布](prac-stat-ds_2.md)
++   [第三章\. 统计实验和显著性测试](prac-stat-ds_3.md)
++   [第四章 回归与预测](prac-stat-ds_4.md)
++   [第五章\. 分类](prac-stat-ds_5.md)
++   [第六章 统计机器学习](prac-stat-ds_6.md)
++   [第七章 无监督学习](prac-stat-ds_7.md)

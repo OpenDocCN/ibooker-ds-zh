@@ -1,6 +1,6 @@
-# 第 8 章\. 数组上的计算：广播
+# 第八章\. 数组上的计算：广播
 
-我们在[第 6 章](ch06.xhtml#section-0203-computation-on-arrays-ufuncs)看到 NumPy 的通用函数如何用于*向量化*操作，从而消除缓慢的 Python 循环。本章讨论*广播*：这是 NumPy 允许你在不同大小和形状的数组之间应用二元操作（如加法、减法、乘法等）的一组规则。
+我们在第六章看到 NumPy 的通用函数如何用于*向量化*操作，从而消除缓慢的 Python 循环。本章讨论*广播*：这是 NumPy 允许你在不同大小和形状的数组之间应用二元操作（如加法、减法、乘法等）的一组规则。
 
 # 引入广播
 
@@ -66,13 +66,13 @@ Out[7]: array([[0, 1, 2],
                [2, 3, 4]])
 ```
 
-就像之前我们将一个值拉伸或广播到另一个形状相匹配的数组一样，这里我们拉伸了`a`和`b`，使它们匹配一个公共形状，结果是一个二维数组！这些示例的几何形状在[图 8-1](#fig_images_in_0205-broadcasting)中可视化。
+就像之前我们将一个值拉伸或广播到另一个形状相匹配的数组一样，这里我们拉伸了`a`和`b`，使它们匹配一个公共形状，结果是一个二维数组！这些示例的几何形状在图 8-1 中可视化。
 
 浅色框表示广播的值。这种关于广播的思考方式可能会引发关于其内存使用效率的疑问，但不用担心：NumPy 广播实际上不会在内存中复制广播的值。尽管如此，这种思维模型在我们思考广播时仍然很有用。
 
-![02.05 broadcasting](assets/02.05-broadcasting.png)
+![02.05 broadcasting](img/02.05-broadcasting.png)
 
-###### 图 8-1\. NumPy 广播可视化（改编自 [astroML 文档](http://astroml.org)，并获得许可使用）^([1](ch08.xhtml#idm45858801111664))
+###### 图 8-1\. NumPy 广播可视化（改编自 [astroML 文档](http://astroml.org)，并获得许可使用）^(1)
 
 # Broadcasting 规则
 
@@ -197,7 +197,7 @@ In [13]: M + a
 ValueError: operands could not be broadcast together with shapes (3,2) (3,)
 ```
 
-注意这里的潜在混淆：你可以想象通过在右侧而不是左侧用 `1` 填充 `a` 的形状来使 `a` 和 `M` 兼容。但这不是广播规则的工作方式！这种灵活性在某些情况下可能很有用，但它会导致潜在的歧义。如果你想要右侧填充，你可以通过显式地重新塑造数组来实现（我们将在[第 5 章](ch05.xhtml#section-0202-the-basics-of-numpy-arrays)介绍 `np.newaxis` 关键字来实现这一点）：
+注意这里的潜在混淆：你可以想象通过在右侧而不是左侧用 `1` 填充 `a` 的形状来使 `a` 和 `M` 兼容。但这不是广播规则的工作方式！这种灵活性在某些情况下可能很有用，但它会导致潜在的歧义。如果你想要右侧填充，你可以通过显式地重新塑造数组来实现（我们将在第五章介绍 `np.newaxis` 关键字来实现这一点）：
 
 ```py
 In [14]: a[:, np.newaxis].shape
@@ -220,7 +220,7 @@ Out[16]: array([[1.31326169, 1.31326169],
                 [2.31326169, 2.31326169]])
 ```
 
-欲知更多关于多个可用的通用函数的信息，请参阅[第 6 章](ch06.xhtml#section-0203-computation-on-arrays-ufuncs)。
+欲知更多关于多个可用的通用函数的信息，请参阅第六章。
 
 # 实际广播应用
 
@@ -228,7 +228,7 @@ Out[16]: array([[1.31326169, 1.31326169],
 
 ## 数组居中
 
-在[第 6 章](ch06.xhtml#section-0203-computation-on-arrays-ufuncs)中，我们看到 ufunc 允许 NumPy 用户避免显式编写缓慢的 Python 循环。广播扩展了这种能力。数据科学中经常见到的一个例子是从数据数组中减去逐行均值。假设我们有一个由 10 个观测组成的数组，每个观测包含 3 个值。按照标准惯例（参见[第 38 章](ch38.xhtml#section-0502-introducing-scikit-learn)），我们将其存储在一个<math alttext="10 times 3"><mrow><mn>10</mn> <mo>×</mo> <mn>3</mn></mrow></math>数组中：
+在第 6 章中，我们看到 ufunc 允许 NumPy 用户避免显式编写缓慢的 Python 循环。广播扩展了这种能力。数据科学中经常见到的一个例子是从数据数组中减去逐行均值。假设我们有一个由 10 个观测组成的数组，每个观测包含 3 个值。按照标准惯例（参见第 38 章），我们将其存储在一个<math alttext="10 times 3"><mrow><mn>10</mn> <mo>×</mo> <mn>3</mn></mrow></math>数组中：
 
 ```py
 In [17]: rng = np.random.default_rng(seed=1701)
@@ -270,7 +270,7 @@ In [21]: # x and y have 50 steps from 0 to 5
          z = np.sin(x) ** 10 + np.cos(10 + y * x) * np.cos(x)
 ```
 
-我们将使用 Matplotlib 绘制这个二维数组，如[图 8-2](#fig_0205-computation-on-arrays-broadcasting_files_in_output_52_0)所示（这些工具将在[第 28 章](ch28.xhtml#section-0404-density-and-contour-plots)中全面讨论）：
+我们将使用 Matplotlib 绘制这个二维数组，如图 8-2 所示（这些工具将在第 28 章中全面讨论）：
 
 ```py
 In [22]: %matplotlib inline
@@ -282,10 +282,10 @@ In [23]: plt.imshow(z, origin='lower', extent=[0, 5, 0, 5])
          plt.colorbar();
 ```
 
-![output 52 0](assets/output_52_0.png)
+![output 52 0](img/output_52_0.png)
 
 ###### 图 8-2\. 二维数组的可视化
 
 结果是二维函数引人注目的可视化。
 
-^([1](ch08.xhtml#idm45858801111664-marker)) 生成此图的代码可在在线[附录](https://oreil.ly/gtOaU)中找到。
+^(1) 生成此图的代码可在在线[附录](https://oreil.ly/gtOaU)中找到。

@@ -1,4 +1,6 @@
-第 8 章\. 使用读取器和写入器包进行 Excel 文件操作
+# 第十二章
+
+第八章\. 使用读取器和写入器包进行 Excel 文件操作
 
 本章介绍了 OpenPyXL、XlsxWriter、pyxlsb、xlrd 和 xlwt：这些是可以读写 Excel 文件的包，并且在调用 `read_excel` 或 `to_excel` 函数时被 pandas 底层使用。直接使用读取器和写入器包可以让您创建更复杂的 Excel 报告，并且可以微调读取过程。此外，如果您曾经需要在一个只需要读写 Excel 文件而不需要其他 pandas 功能的项目中工作，安装完整的 NumPy/pandas 堆栈可能会有些过火。我们将从学习何时使用哪个包以及它们的语法工作开始本章，然后再讨论一些高级主题，包括如何处理大型 Excel 文件以及如何将 pandas 与读取器和写入器包结合起来以改进 DataFrame 的样式。最后，我们将再次回顾上一章开头的案例研究，并通过格式化表格和添加图表来增强 Excel 报告。与上一章类似，本章不需要安装 Excel，这意味着所有的代码示例都可以在 Windows、macOS 和 Linux 上运行。
 
@@ -22,7 +24,7 @@
 +   > > > > 
 +   > > > > [xlutils](https://oreil.ly/MTFOL)
 
-要了解哪个包可以做什么，请查看[表 8-1](#filepos964418)。例如，要读取 xlsx 文件格式，您将需要使用 OpenPyXL 包：
+要了解哪个包可以做什么，请查看表 8-1。例如，要读取 xlsx 文件格式，您将需要使用 OpenPyXL 包：
 
 表 8-1\. 何时使用哪个包
 
@@ -46,7 +48,7 @@
 +   > > > > 
 > XLWINGS 在哪里？
 > 
-> 如果你想知道表 [表 8-1](index_split_020.html#filepos964418) 中的 xlwings 在哪里，答案是无处不在或无处不在，这取决于你的用例：与本章中的任何包不同，xlwings 依赖于 Excel 应用程序，这通常是不可用的，例如，如果你需要在 Linux 上运行你的脚本。另一方面，如果你愿意在 Windows 或 macOS 上运行你的脚本，那么你就可以访问安装的 Excel，xlwings 确实可以作为本章中所有包的替代品使用。由于 Excel 依赖性是 xlwings 与所有其他 Excel 包之间的基本差异，我会在下一章中介绍 xlwings，这一章开始了本书的 [第四部分](index_split_023.html#filepos1235617)。
+> 如果你想知道表 表 8-1 中的 xlwings 在哪里，答案是无处不在或无处不在，这取决于你的用例：与本章中的任何包不同，xlwings 依赖于 Excel 应用程序，这通常是不可用的，例如，如果你需要在 Linux 上运行你的脚本。另一方面，如果你愿意在 Windows 或 macOS 上运行你的脚本，那么你就可以访问安装的 Excel，xlwings 确实可以作为本章中所有包的替代品使用。由于 Excel 依赖性是 xlwings 与所有其他 Excel 包之间的基本差异，我会在下一章中介绍 xlwings，这一章开始了本书的 第四部分。
 
 pandas 使用它能找到的 writer 包，如果你同时安装了 OpenPyXL 和 XlsxWriter，XlsxWriter 就是默认的。如果你想选择 pandas 应该使用哪个包，请在 `read_excel` 或 `to_excel` 函数的 `engine` 参数中指定，或者在 `ExcelFile` 和 `ExcelWriter` 类中分别指定。引擎是包名的小写形式，因此要使用 OpenPyXL 而不是 XlsxWriter 写文件，运行以下命令：
 
@@ -74,7 +76,7 @@ excel.py 模块
 
 > `import``excel``values``=``excel``.``read``(``sheet_object``,``first_cell``=``"A1"``,``last_cell``=``None``)``excel``.``write``(``sheet_object``,``values``,``first_cell``=``"A1"``)`
 
-`read` 函数接受来自以下包之一的 `sheet` 对象：xlrd、OpenPyXL 或 pyxlsb。它还接受可选参数 `first_cell` 和 `last_cell`。它们可以以 `A1` 表示法或带有 Excel 基于一的索引的行列元组 `(1, 1)` 提供。`first_cell` 的默认值是 `A1`，而 `last_cell` 的默认值是已使用范围的右下角。因此，如果只提供 `sheet` 对象，它将读取整个工作表。`write` 函数工作方式类似：它期望来自 xlwt、OpenPyXL 或 XlsxWriter 的 `sheet` 对象以及作为嵌套列表的值，以及一个可选的 `first_cell`，它标记了嵌套列表将写入的左上角位置。`excel.py` 模块还展示了如 [表 8-2](#filepos977881) 所示的数据类型转换的协调工作。
+`read` 函数接受来自以下包之一的 `sheet` 对象：xlrd、OpenPyXL 或 pyxlsb。它还接受可选参数 `first_cell` 和 `last_cell`。它们可以以 `A1` 表示法或带有 Excel 基于一的索引的行列元组 `(1, 1)` 提供。`first_cell` 的默认值是 `A1`，而 `last_cell` 的默认值是已使用范围的右下角。因此，如果只提供 `sheet` 对象，它将读取整个工作表。`write` 函数工作方式类似：它期望来自 xlwt、OpenPyXL 或 XlsxWriter 的 `sheet` 对象以及作为嵌套列表的值，以及一个可选的 `first_cell`，它标记了嵌套列表将写入的左上角位置。`excel.py` 模块还展示了如 表 8-2 所示的数据类型转换的协调工作。
 
 表 8-2\. 数据类型转换
 
@@ -87,11 +89,11 @@ excel.py 模块
 |  字符串  |   `str` |
 |  浮点数  |   `float` 或 `int` |
 
-现在我们装备好使用 `excel.py` 模块，准备深入探讨以下几个包：OpenPyXL、XlsxWriter、pyxlsb 和 xlrd/xlwt/xlutils。这些部分都采用了食谱式的样式，让你可以快速入门每个包。建议你根据 [表 8-1](index_split_020.html#filepos964418) 选择你需要的包，然后直接跳转到相应的章节，而不是顺序阅读。
+现在我们装备好使用 `excel.py` 模块，准备深入探讨以下几个包：OpenPyXL、XlsxWriter、pyxlsb 和 xlrd/xlwt/xlutils。这些部分都采用了食谱式的样式，让你可以快速入门每个包。建议你根据 表 8-1 选择你需要的包，然后直接跳转到相应的章节，而不是顺序阅读。
 
 > WITH 语句
 > 
-> 本章中我们会在多个场合使用 `with` 语句。如果需要温习，请参阅第7章侧边栏 [“上下文管理器和 with 语句”](index_split_019.html#filepos910476)。
+> 本章中我们会在多个场合使用 `with` 语句。如果需要温习，请参阅第七章侧边栏 “上下文管理器和 with 语句”。
 
 OpenPyXL
 
@@ -105,7 +107,7 @@ OpenPyXL 是本节唯一一个既能读取又能写入 Excel 文件的包。你�
 > 
 > `In``[``2``]:``# 打开工作簿以读取单元格值。``# 加载数据后文件会自动关闭。``book``=``openpyxl``.``load_workbook``(``"xl/stores.xlsx"``,``data_only``=``True``)`
 > 
-> `In``[``3``]:``# 根据名称或索引（从0开始）获取工作表对象``sheet``=``book``[``"2019"``]``sheet``=``book``.``worksheets``[``0``]`
+> `In``[``3``]:``# 根据名称或索引（从 0 开始）获取工作表对象``sheet``=``book``[``"2019"``]``sheet``=``book``.``worksheets``[``0``]`
 > 
 > `In``[``4``]:``# 获取包含所有工作表名称的列表``book``.``sheetnames`
 > 
@@ -119,7 +121,7 @@ OpenPyXL 是本节唯一一个既能读取又能写入 Excel 文件的包。你�
 > 
 > `Out[6]: (8, 6)`
 > 
-> `In``[``7``]:``# 读取单个单元格的值``# 使用 "A1" 表示法和单元格索引（基于1的索引）``sheet``[``"B6"``]``.``value``sheet``.``cell``(``row``=``6``,``column``=``2``)``.``value`
+> `In``[``7``]:``# 读取单个单元格的值``# 使用 "A1" 表示法和单元格索引（基于 1 的索引）``sheet``[``"B6"``]``.``value``sheet``.``cell``(``row``=``6``,``column``=``2``)``.``value`
 > 
 > `Out[7]: 'Boston'`
 > 
@@ -129,41 +131,41 @@ OpenPyXL 是本节唯一一个既能读取又能写入 Excel 文件的包。你�
 
 使用 OpenPyXL 进行写入
 
-OpenPyXL 在内存中构建 Excel 文件，并在调用 `save` 方法时写出文件。以下代码生成了 [图 8-1](#filepos1032954) 中显示的文件：
+OpenPyXL 在内存中构建 Excel 文件，并在调用 `save` 方法时写出文件。以下代码生成了 图 8-1 中显示的文件：
 
 > `In``[``9``]:``import``openpyxl``from``openpyxl.drawing.image``import``Image``from``openpyxl.chart``import``BarChart``,``Reference``from``openpyxl.styles``import``Font``,``colors``from``openpyxl.styles.borders``import``Border``,``Side``from``openpyxl.styles.alignment``import``Alignment``from``openpyxl.styles.fills``import``PatternFill``import``excel`
 > 
-> `In``[``10``]:``# 实例化一个工作簿``book``=``openpyxl``.``Workbook``()``# 获取第一个工作表并命名``sheet``=``book``.``active``sheet``.``title``=``"Sheet1"``# 使用A1表示法和单元格索引（从1开始）写入单个单元格``sheet``[``"A1"``]``.``value``=``"Hello 1"``sheet``.``cell``(``row``=``2``,``column``=``1``,``value``=``"Hello 2"``)``# 格式化：填充颜色，对齐，边框和字体``font_format``=``Font``(``color``=``"FF0000"``,``bold``=``True``)``thin``=``Side``(``border_style``=``"thin"``,``color``=``"FF0000"``)``sheet``[``"A3"``]``.``value``=``"Hello 3"``sheet``[``"A3"``]``.``font``=``font_format``sheet``[``"A3"``]``.``border``=``Border``(``top``=``thin``,``left``=``thin``,``right``=``thin``,``bottom``=``thin``)``sheet``[``"A3"``]``.``alignment``=``Alignment``(``horizontal``=``"center"``)``sheet``[``"A3"``]``.``fill``=``PatternFill``(``fgColor``=``"FFFF00"``,``fill_type``=``"solid"``)``# 数字格式化（使用Excel的格式字符串）``sheet``[``"A4"``]``.``value``=``3.3333``sheet``[``"A4"``]``.``number_format``=``"0.00"``# 日期格式化（使用Excel的格式字符串）``sheet``[``"A5"``]``.``value``=``dt``.``date``(``2016``,``10``,``13``)``sheet``[``"A5"``]``.``number_format``=``"mm/dd/yy"``# 公式：必须使用公式的英文名称``# 并使用逗号作为分隔符``sheet``[``"A6"``]``.``value``=``"=SUM(A4, 2)"``# 图像``sheet``.``add_image``(``Image``(``"images/python.png"``),``"C1"``)``# 二维列表（我们正在使用我们的excel模块）``data``=``[[``None``,``"North"``,``"South"``],``[``"Last Year"``,``2``,``5``],``[``"This Year"``,``3``,``6``]]``excel``.``write``(``sheet``,``data``,``"A10"``)``# 图表``chart``=``BarChart``()``chart``.``type``=``"col"``chart``.``title``=``"按地区销售"``chart``.``x_axis``.``title``=``"地区"``chart``.``y_axis``.``title``=``"销售额"``chart_data``=``Reference``(``sheet``,``min_row``=``11``,``min_col``=``1``,``max_row``=``12``,``max_col``=``3``)``chart_categories``=``Reference``(``sheet``,``min_row``=``10``,``min_col``=``2``,``max_row``=``10``,``max_col``=``3``)``# from_rows解释了数据，与在Excel中手动添加图表的方式相同``chart``.``add_data``(``chart_data``,``titles_from_data``=``True``,``from_rows``=``True``)``chart``.``set_categories``(``chart_categories``)``sheet``.``add_chart``(``chart``,``"A15"``)``# 保存工作簿将文件保存到磁盘``book``.``save``(``"openpyxl.xlsx"``)
+> `In``[``10``]:``# 实例化一个工作簿``book``=``openpyxl``.``Workbook``()``# 获取第一个工作表并命名``sheet``=``book``.``active``sheet``.``title``=``"Sheet1"``# 使用 A1 表示法和单元格索引（从 1 开始）写入单个单元格``sheet``[``"A1"``]``.``value``=``"Hello 1"``sheet``.``cell``(``row``=``2``,``column``=``1``,``value``=``"Hello 2"``)``# 格式化：填充颜色，对齐，边框和字体``font_format``=``Font``(``color``=``"FF0000"``,``bold``=``True``)``thin``=``Side``(``border_style``=``"thin"``,``color``=``"FF0000"``)``sheet``[``"A3"``]``.``value``=``"Hello 3"``sheet``[``"A3"``]``.``font``=``font_format``sheet``[``"A3"``]``.``border``=``Border``(``top``=``thin``,``left``=``thin``,``right``=``thin``,``bottom``=``thin``)``sheet``[``"A3"``]``.``alignment``=``Alignment``(``horizontal``=``"center"``)``sheet``[``"A3"``]``.``fill``=``PatternFill``(``fgColor``=``"FFFF00"``,``fill_type``=``"solid"``)``# 数字格式化（使用 Excel 的格式字符串）``sheet``[``"A4"``]``.``value``=``3.3333``sheet``[``"A4"``]``.``number_format``=``"0.00"``# 日期格式化（使用 Excel 的格式字符串）``sheet``[``"A5"``]``.``value``=``dt``.``date``(``2016``,``10``,``13``)``sheet``[``"A5"``]``.``number_format``=``"mm/dd/yy"``# 公式：必须使用公式的英文名称``# 并使用逗号作为分隔符``sheet``[``"A6"``]``.``value``=``"=SUM(A4, 2)"``# 图像``sheet``.``add_image``(``Image``(``"images/python.png"``),``"C1"``)``# 二维列表（我们正在使用我们的 excel 模块）``data``=``[[``None``,``"North"``,``"South"``],``[``"Last Year"``,``2``,``5``],``[``"This Year"``,``3``,``6``]]``excel``.``write``(``sheet``,``data``,``"A10"``)``# 图表``chart``=``BarChart``()``chart``.``type``=``"col"``chart``.``title``=``"按地区销售"``chart``.``x_axis``.``title``=``"地区"``chart``.``y_axis``.``title``=``"销售额"``chart_data``=``Reference``(``sheet``,``min_row``=``11``,``min_col``=``1``,``max_row``=``12``,``max_col``=``3``)``chart_categories``=``Reference``(``sheet``,``min_row``=``10``,``min_col``=``2``,``max_row``=``10``,``max_col``=``3``)``# from_rows 解释了数据，与在 Excel 中手动添加图表的方式相同``chart``.``add_data``(``chart_data``,``titles_from_data``=``True``,``from_rows``=``True``)``chart``.``set_categories``(``chart_categories``)``sheet``.``add_chart``(``chart``,``"A15"``)``# 保存工作簿将文件保存到磁盘``book``.``save``(``"openpyxl.xlsx"``)
 
-如果你想要编写一个Excel模板文件，在保存之前，你需要将`template`属性设置为`True`：
+如果你想要编写一个 Excel 模板文件，在保存之前，你需要将`template`属性设置为`True`：
 
 > `In``[``11``]:``book``=``openpyxl``.``Workbook``()``sheet``=``book``.``active``sheet``[``"A1"``]``.``value``=``"这是一个模板"``book``.``template``=``True``book``.``save``(``"template.xltx"``)`
 
-正如您在代码中所见，OpenPyXL通过提供类似`FF0000`的字符串来设置颜色。该值由三个十六进制值（`FF`、`00`和`00`）组成，分别对应所需颜色的红/绿/蓝值。十六进制表示十六进制数，使用十六进制基数而不是我们标准十进制系统使用的十进制基数。
+正如您在代码中所见，OpenPyXL 通过提供类似`FF0000`的字符串来设置颜色。该值由三个十六进制值（`FF`、`00`和`00`）组成，分别对应所需颜色的红/绿/蓝值。十六进制表示十六进制数，使用十六进制基数而不是我们标准十进制系统使用的十进制基数。
 
 > 查找颜色的十六进制值
 > 
-> 要在Excel中找到所需颜色的十六进制值，请单击用于更改单元格填充颜色的油漆下拉菜单，然后选择更多颜色。现在选择您的颜色，并从菜单中读取其十六进制值。
+> 要在 Excel 中找到所需颜色的十六进制值，请单击用于更改单元格填充颜色的油漆下拉菜单，然后选择更多颜色。现在选择您的颜色，并从菜单中读取其十六进制值。
 
-![](images/00026.jpg)
+![](img/00026.jpg)
 
-图8-1\. 由OpenPyXL编写的文件（openpyxl.xlsx）
+图 8-1\. 由 OpenPyXL 编写的文件（openpyxl.xlsx）
 
-使用OpenPyXL进行编辑
+使用 OpenPyXL 进行编辑
 
-没有读取/写入包可以真正编辑Excel文件：实际上，OpenPyXL读取文件时理解其中的一切，然后再次从头开始编写文件——包括您在其中进行的任何更改。这对于主要包含格式化单元格及数据和公式的简单Excel文件非常有用，但对于包含图表和其他更高级内容的电子表格而言，其功能有限，因为OpenPyXL要么会更改它们，要么完全删除它们。例如，截至v3.0.5，OpenPyXL会重命名图表并删除它们的标题。这里是一个简单的编辑示例：
+没有读取/写入包可以真正编辑 Excel 文件：实际上，OpenPyXL 读取文件时理解其中的一切，然后再次从头开始编写文件——包括您在其中进行的任何更改。这对于主要包含格式化单元格及数据和公式的简单 Excel 文件非常有用，但对于包含图表和其他更高级内容的电子表格而言，其功能有限，因为 OpenPyXL 要么会更改它们，要么完全删除它们。例如，截至 v3.0.5，OpenPyXL 会重命名图表并删除它们的标题。这里是一个简单的编辑示例：
 
-> `In``[``12``]:``# 读取stores.xlsx文件，更改单元格# 并将其存储在新位置/名称下。``book``=``openpyxl``.``load_workbook``(``"xl/stores.xlsx"``)``book``[``"2019"``][``"A1"``]``.``value``=``"modified"``book``.``save``(``"stores_edited.xlsx"``)`
+> `In``[``12``]:``# 读取 stores.xlsx 文件，更改单元格# 并将其存储在新位置/名称下。``book``=``openpyxl``.``load_workbook``(``"xl/stores.xlsx"``)``book``[``"2019"``][``"A1"``]``.``value``=``"modified"``book``.``save``(``"stores_edited.xlsx"``)`
 
-如果您想要编写一个xlsm文件，OpenPyXL必须基于一个现有文件进行操作，您需要使用`keep_vba`参数设置为`True`加载该文件：
+如果您想要编写一个 xlsm 文件，OpenPyXL 必须基于一个现有文件进行操作，您需要使用`keep_vba`参数设置为`True`加载该文件：
 
 > `In``[``13``]:``book``=``openpyxl``.``load_workbook``(``"xl/macro.xlsm"``,``keep_vba``=``True``)``book``[``"Sheet1"``][``"A1"``]``.``value``=``"Click the button!"``book``.``save``(``"macro_openpyxl.xlsm"``)`
 
-示例文件中的按钮调用了一个显示消息框的宏。 OpenPyXL涵盖的功能远比我在本节中能够覆盖的要多；因此，建议查看[官方文档](https://oreil.ly/7qfYL)。在本章末尾，当我们再次接手上一章的案例研究时，我们还将看到更多功能。
+示例文件中的按钮调用了一个显示消息框的宏。 OpenPyXL 涵盖的功能远比我在本节中能够覆盖的要多；因此，建议查看[官方文档](https://oreil.ly/7qfYL)。在本章末尾，当我们再次接手上一章的案例研究时，我们还将看到更多功能。
 
 XlsxWriter
 
-正如其名称所示，XlsxWriter只能编写Excel文件。以下代码生成了与我们先前用OpenPyXL生成的相同工作簿，如[图8-1](#filepos1032954)所示。请注意，XlsxWriter使用从零开始的单元格索引，而OpenPyXL使用从一开始的单元格索引——如果您在这两种包之间切换，请务必注意这一点：
+正如其名称所示，XlsxWriter 只能编写 Excel 文件。以下代码生成了与我们先前用 OpenPyXL 生成的相同工作簿，如图 8-1 所示。请注意，XlsxWriter 使用从零开始的单元格索引，而 OpenPyXL 使用从一开始的单元格索引——如果您在这两种包之间切换，请务必注意这一点：
 
 > `In``[``14``]:``import``datetime``as``dt``import``xlsxwriter``import``excel`
 > 
@@ -183,17 +185,17 @@ Windows
 
 macOS
 
-> > 在macOS上，该命令可作为可执行脚本使用，并可以像这样运行：
+> > 在 macOS 上，该命令可作为可执行脚本使用，并可以像这样运行：
 > > 
 > > `(base)>` `cd /Users/``username``/python-for-excel/xl` `(base)>` `vba_extract.py macro.xlsm`
 
-这将在运行命令的目录中保存文件vbaProject.bin。我还在伴随的存储库的xl文件夹中包含了提取的文件。我们将在下面的示例中使用它来编写一个带有宏按钮的工作簿：
+这将在运行命令的目录中保存文件 vbaProject.bin。我还在伴随的存储库的 xl 文件夹中包含了提取的文件。我们将在下面的示例中使用它来编写一个带有宏按钮的工作簿：
 
 > `In``[``16``]:``book``=``xlsxwriter``.``Workbook``(``"macro_xlxswriter.xlsm"``)``sheet``=``book``.``add_worksheet``(``"Sheet1"``)``sheet``.``write``(``"A1"``,``"点击按钮！"``)``book``.``add_vba_project``(``"xl/vbaProject.bin"``)``sheet``.``insert_button``(``"A3"``,``{``"macro"``:``"Hello"``,``"caption"``:``"Button 1"``,``"width"``:``130``,``"height"``:``35``})``book``.``close``()`  
 
 pyxlsb
 
-与其他读取库相比，pyxlsb提供的功能较少，但它是读取二进制xlsb格式Excel文件的唯一选择。pyxlsb不是Anaconda的一部分，因此如果尚未安装，您需要安装它。目前，它也不支持通过Conda安装，因此请使用pip安装：
+与其他读取库相比，pyxlsb 提供的功能较少，但它是读取二进制 xlsb 格式 Excel 文件的唯一选择。pyxlsb 不是 Anaconda 的一部分，因此如果尚未安装，您需要安装它。目前，它也不支持通过 Conda 安装，因此请使用 pip 安装：
 
 > `(base)>` `pip install pyxlsb`
 
@@ -201,25 +203,25 @@ pyxlsb
 
 > `In``[``17``]:``import``pyxlsb``import``excel`
 > 
-> `In``[``18``]:``# 循环遍历工作表。使用pyxlsb，工作簿和工作表对象可以用作上下文管理器。book.sheets返回的是工作表名称列表，而不是对象！要获取工作表对象，请使用get_sheet()。``with``pyxlsb``.``open_workbook``(``"xl/stores.xlsb"``)``as``book``:``for``sheet_name``in``book``.``sheets``:``with``book``.``get_sheet``(``sheet_name``)``as``sheet``:``dim``=``sheet``.``dimension````print``(``f``"工作表 '{sheet_name}' 有 "``f``"{dim.h} 行 {dim.w} 列"``)`
+> `In``[``18``]:``# 循环遍历工作表。使用 pyxlsb，工作簿和工作表对象可以用作上下文管理器。book.sheets 返回的是工作表名称列表，而不是对象！要获取工作表对象，请使用 get_sheet()。``with``pyxlsb``.``open_workbook``(``"xl/stores.xlsb"``)``as``book``:``for``sheet_name``in``book``.``sheets``:``with``book``.``get_sheet``(``sheet_name``)``as``sheet``:``dim``=``sheet``.``dimension````print``(``f``"工作表 '{sheet_name}' 有 "``f``"{dim.h} 行 {dim.w} 列"``)`
 > 
 > `工作表 '2019' 有 7 行 5 列 工作表 '2020' 有 7 行 5 列 工作表 '2019-2020' 有 20 行 5 列`
 > 
-> `In``[``19``]:``# 通过我们的excel模块读取一段单元格范围的值。与其使用"2019"，您也可以使用它的索引（从1开始）。``with``pyxlsb``.``open_workbook``(``"xl/stores.xlsb"``)``as``book``:``with``book``.``get_sheet``(``"2019"``)``as``sheet``:``data``=``excel``.``read``(``sheet``,``"B2"``)``data``[:``2``]``# 打印前两行`
+> `In``[``19``]:``# 通过我们的 excel 模块读取一段单元格范围的值。与其使用"2019"，您也可以使用它的索引（从 1 开始）。``with``pyxlsb``.``open_workbook``(``"xl/stores.xlsb"``)``as``book``:``with``book``.``get_sheet``(``"2019"``)``as``sheet``:``data``=``excel``.``read``(``sheet``,``"B2"``)``data``[:``2``]``# 打印前两行`
 > 
 > `Out[19]: [['Store', 'Employees', 'Manager', 'Since', 'Flagship'],           ['纽约', 10.0, '莎拉', 43301.0, False]]`
 
-pyxlsb目前没有识别日期单元格的方法，因此您必须手动将日期格式的单元格值转换为`datetime`对象，如下所示：
+pyxlsb 目前没有识别日期单元格的方法，因此您必须手动将日期格式的单元格值转换为`datetime`对象，如下所示：
 
 > `In``[``20``]:``from``pyxlsb``import``convert_date``convert_date``(``data``[``1``][``3``])`
 > 
 > `Out[20]: datetime.datetime(2018, 7, 20, 0, 0)`
 
-请记住，如果您使用的是低于1.3版本的pandas，需要显式指定引擎来读取xlsb文件格式：
+请记住，如果您使用的是低于 1.3 版本的 pandas，需要显式指定引擎来读取 xlsb 文件格式：
 
 > `In``[``21``]:``df``=``pd``.``read_excel``(``"xl/stores.xlsb"``,``engine``=``"pyxlsb"``)`
 
-xlrd、xlwt和xlutils
+xlrd、xlwt 和 xlutils
 
 xlrd、xlwt 和 xlutils 的组合为旧版 xls 格式提供了与 OpenPyXL 对 xlsx 格式提供的大致相同的功能：xlrd 读取、xlwt 写入、xlutils 编辑 xls 文件。这些包已经不再积极开发，但只要仍然有 xls 文件存在，它们可能还会有用。xlutils 不是 Anaconda 的一部分，所以如果还没有安装它，请安装：
 
@@ -263,7 +265,7 @@ xlrd、xlwt 和 xlutils 的组合为旧版 xls 格式提供了与 OpenPyXL 对 x
 
 使用 xlwt 进行写入
 
-下面的代码复现了我们之前用 OpenPyXL 和 XlsxWriter 完成的工作，如 [图 8-1](index_split_021.html#filepos1032954) 所示。但是，xlwt 无法生成图表，只支持 `bmp` 格式的图片：
+下面的代码复现了我们之前用 OpenPyXL 和 XlsxWriter 完成的工作，如 图 8-1 所示。但是，xlwt 无法生成图表，只支持 `bmp` 格式的图片：
 
 > `In``[``30``]:``import``xlwt``from``xlwt.Utils``import``cell_to_rowcol2``import``datetime``as``dt``import``excel`
 > 
@@ -319,19 +321,19 @@ XlsxWriter 有一个类似于 OpenPyXL 的选项叫做`constant_memory`。它也
 
 当你使用 pandas 的 `read_excel` 函数读取大型工作簿的多个工作表时，你会发现这需要很长时间（我们稍后会举一个具体的例子）。原因在于 pandas 会顺序地读取工作表，即一个接一个地。为了加快速度，你可以并行读取工作表。虽然由于文件内部结构的原因，写入工作簿的并行化没有简单的方法，但读取多个工作表并行却很简单。然而，由于并行化是一个高级话题，我没有在 Python 介绍中涉及，并且在这里也不会详细讨论。
 
-在Python中，如果你想利用每台现代计算机都具备的多个CPU核心，你可以使用标准库中的`multiprocessing`包。这将会生成多个Python解释器（通常每个CPU核心一个），并行处理任务。与逐个处理表格不同，你可以让一个Python解释器处理第一个表格，同时第二个Python解释器处理第二个表格，以此类推。然而，每个额外的Python解释器启动需要一些时间，并且使用额外的内存，所以如果你有小文件，当你并行化读取过程时，它们可能比串行化处理更慢。但对于包含多个大表格的大文件，`multiprocessing`可以显著加快处理速度——前提是你的系统具备足够的内存来处理工作负载。如果像[第2章](index_split_008.html#filepos96824)展示的那样在Binder上运行Jupyter笔记本，你可能没有足够的内存，因此并行化版本的运行速度会较慢。在伴随的存储库中，你会找到`parallel_pandas.py`，它是使用OpenPyXL作为引擎的简单实现，用于并行读取表格。使用起来非常简单，因此你不需要了解`multiprocessing`的任何内容。
+在 Python 中，如果你想利用每台现代计算机都具备的多个 CPU 核心，你可以使用标准库中的`multiprocessing`包。这将会生成多个 Python 解释器（通常每个 CPU 核心一个），并行处理任务。与逐个处理表格不同，你可以让一个 Python 解释器处理第一个表格，同时第二个 Python 解释器处理第二个表格，以此类推。然而，每个额外的 Python 解释器启动需要一些时间，并且使用额外的内存，所以如果你有小文件，当你并行化读取过程时，它们可能比串行化处理更慢。但对于包含多个大表格的大文件，`multiprocessing`可以显著加快处理速度——前提是你的系统具备足够的内存来处理工作负载。如果像第二章展示的那样在 Binder 上运行 Jupyter 笔记本，你可能没有足够的内存，因此并行化版本的运行速度会较慢。在伴随的存储库中，你会找到`parallel_pandas.py`，它是使用 OpenPyXL 作为引擎的简单实现，用于并行读取表格。使用起来非常简单，因此你不需要了解`multiprocessing`的任何内容。
 
 > `import``parallel_pandas``parallel_pandas``.``read_excel``(``filename``,``sheet_name``=``None``)`
 
-默认情况下，它会读取所有表格，但你可以提供一个要处理的表格名称列表。像pandas一样，该函数返回一个字典，形式如`{"表格名称": df}`，即键是表格名称，值是DataFrame。
+默认情况下，它会读取所有表格，但你可以提供一个要处理的表格名称列表。像 pandas 一样，该函数返回一个字典，形式如`{"表格名称": df}`，即键是表格名称，值是 DataFrame。
 
-> **%%TIME魔术命令**
+> **%%TIME 魔术命令**
 > 
-> 在接下来的示例中，我将使用`%%time`单元格魔术命令。我在[第5章](index_split_015.html#filepos482650)中与Matplotlib一起介绍了魔术命令。`%%time`是一个非常有用的单元格魔术命令，可以用于简单的性能调优，因为它可以轻松比较包含不同代码片段的两个单元格的执行时间。墙时间是从程序（即单元格）开始到结束的经过时间。如果你在macOS或Linux上，你不仅会得到墙时间，还会得到类似以下这样的CPU时间额外行：
+> 在接下来的示例中，我将使用`%%time`单元格魔术命令。我在第五章中与 Matplotlib 一起介绍了魔术命令。`%%time`是一个非常有用的单元格魔术命令，可以用于简单的性能调优，因为它可以轻松比较包含不同代码片段的两个单元格的执行时间。墙时间是从程序（即单元格）开始到结束的经过时间。如果你在 macOS 或 Linux 上，你不仅会得到墙时间，还会得到类似以下这样的 CPU 时间额外行：
 > 
 > `CPU times: user 49.4 s, sys: 108 ms, total: 49.5 s`
 > 
-> CPU时间测量CPU上花费的时间，这可能低于墙时间（如果程序必须等待CPU可用）或高于墙时间（如果程序在多个CPU核心上并行运行）。为了更准确地测量时间，请使用`%%timeit`代替`%%time`，它会多次运行单元格并取所有运行的平均值。`%%time`和`%%timeit`是单元格魔术命令，即它们需要在单元格的第一行，并测量整个单元格的执行时间。如果你想测量单独一行代码的时间，可以使用`%time`或`%timeit`。
+> CPU 时间测量 CPU 上花费的时间，这可能低于墙时间（如果程序必须等待 CPU 可用）或高于墙时间（如果程序在多个 CPU 核心上并行运行）。为了更准确地测量时间，请使用`%%timeit`代替`%%time`，它会多次运行单元格并取所有运行的平均值。`%%time`和`%%timeit`是单元格魔术命令，即它们需要在单元格的第一行，并测量整个单元格的执行时间。如果你想测量单独一行代码的时间，可以使用`%time`或`%timeit`。
 
 让我们看看并行化版本在读取 companion repo 的 xl 文件夹中的 big.xlsx 文件时快多少：
 
@@ -347,7 +349,7 @@ XlsxWriter 有一个类似于 OpenPyXL 的选项叫做`constant_memory`。它也
 
 > 使用 MODIN 并行读取表格
 > 
-> 如果你只读取一个巨大的表格，那么看看 [Modin](https://oreil.ly/wQszH) 值得一试，这是一个可以替代 pandas 的项目。它并行化了单表的读取过程，并提供了令人印象深刻的速度改进。由于 Modin 需要特定版本的 pandas，在安装时可能会降级 Anaconda 自带的版本。如果你想测试它，我建议你为此创建一个单独的 Conda 环境，以确保不会影响到基础环境。有关如何创建 Conda 环境的更详细说明，请参阅 [附录 A](index_split_029.html#filepos1810552)：
+> 如果你只读取一个巨大的表格，那么看看 [Modin](https://oreil.ly/wQszH) 值得一试，这是一个可以替代 pandas 的项目。它并行化了单表的读取过程，并提供了令人印象深刻的速度改进。由于 Modin 需要特定版本的 pandas，在安装时可能会降级 Anaconda 自带的版本。如果你想测试它，我建议你为此创建一个单独的 Conda 环境，以确保不会影响到基础环境。有关如何创建 Conda 环境的更详细说明，请参阅 附录 A：
 > 
 > `(base)>` `conda create --name modin python=3.8 -y` `(base)>` `conda activate modin` `(modin)>` `conda install -c conda-forge modin -y`
 > 
@@ -361,23 +363,23 @@ XlsxWriter 有一个类似于 OpenPyXL 的选项叫做`constant_memory`。它也
 
 要按我们想要的方式格式化 Excel 中的 DataFrame，我们可以编写代码，使用 pandas 与 OpenPyXL 或 XlsxWriter 结合使用。我们首先使用这种组合为导出的 DataFrame 添加一个标题。然后在包装这一部分之前，格式化 DataFrame 的标题和索引。将 pandas 与 OpenPyXL 结合用于读取有时也可能很有用，所以让我们从这里开始：
 
-> `In``[``41``]:``with``pd``.``ExcelFile``(``"xl/stores.xlsx"``,``engine``=``"openpyxl"``)``as``xlfile``:``# 读取DataFrame``df``=``pd``.``read_excel``(``xlfile``,``sheet_name``=``"2020"``)``# 获取OpenPyXL的工作簿对象``book``=``xlfile``.``book``# 从这里开始是OpenPyXL代码``sheet``=``book``[``"2019"``]``value``=``sheet``[``"B3"``]``.``value``# 读取单个值`
+> `In``[``41``]:``with``pd``.``ExcelFile``(``"xl/stores.xlsx"``,``engine``=``"openpyxl"``)``as``xlfile``:``# 读取 DataFrame``df``=``pd``.``read_excel``(``xlfile``,``sheet_name``=``"2020"``)``# 获取 OpenPyXL 的工作簿对象``book``=``xlfile``.``book``# 从这里开始是 OpenPyXL 代码``sheet``=``book``[``"2019"``]``value``=``sheet``[``"B3"``]``.``value``# 读取单个值`
 
-在写入工作簿时，它的功能类似，允许我们轻松地向我们的DataFrame报告添加一个标题：
+在写入工作簿时，它的功能类似，允许我们轻松地向我们的 DataFrame 报告添加一个标题：
 
-> `In``[``42``]:``with``pd``.``ExcelWriter``(``"pandas_and_openpyxl.xlsx"``,``engine``=``"openpyxl"``)``as``writer``:``df``=``pd``.``DataFrame``({``"col1"``:``[``1``,``2``,``3``,``4``],``"col2"``:``[``5``,``6``,``7``,``8``]})``# 写入DataFrame``df``.``to_excel``(``writer``,``"Sheet1"``,``startrow``=``4``,``startcol``=``2``)``# 获取OpenPyXL的工作簿和表对象``book``=``writer``.``book``sheet``=``writer``.``sheets``[``"Sheet1"``]``# 从这里开始是OpenPyXL代码``sheet``[``"A1"``]``.``value``=``"这是一个标题"``# 写入单元格值`
+> `In``[``42``]:``with``pd``.``ExcelWriter``(``"pandas_and_openpyxl.xlsx"``,``engine``=``"openpyxl"``)``as``writer``:``df``=``pd``.``DataFrame``({``"col1"``:``[``1``,``2``,``3``,``4``],``"col2"``:``[``5``,``6``,``7``,``8``]})``# 写入 DataFrame``df``.``to_excel``(``writer``,``"Sheet1"``,``startrow``=``4``,``startcol``=``2``)``# 获取 OpenPyXL 的工作簿和表对象``book``=``writer``.``book``sheet``=``writer``.``sheets``[``"Sheet1"``]``# 从这里开始是 OpenPyXL 代码``sheet``[``"A1"``]``.``value``=``"这是一个标题"``# 写入单元格值`
 
-这些示例使用了OpenPyXL，但概念上与其他包相同。接下来我们继续了解如何格式化DataFrame的索引和标头。
+这些示例使用了 OpenPyXL，但概念上与其他包相同。接下来我们继续了解如何格式化 DataFrame 的索引和标头。
 
-格式化DataFrame的索引和标头
+格式化 DataFrame 的索引和标头
 
-要完全控制索引和列标题的格式化，最简单的方法是直接编写它们。以下示例分别演示了如何使用OpenPyXL和XlsxWriter做到这一点。您可以在[图 8-2](#filepos1205246)中查看输出。让我们从创建一个DataFrame开始：
+要完全控制索引和列标题的格式化，最简单的方法是直接编写它们。以下示例分别演示了如何使用 OpenPyXL 和 XlsxWriter 做到这一点。您可以在图 8-2 中查看输出。让我们从创建一个 DataFrame 开始：
 
 > `In``[``43``]:``df``=``pd``.``DataFrame``({``"col1"``:``[``1``,``-``2``],``"col2"``:``[``-``3``,``4``]},``index``=``[``"row1"``,``"row2"``])``df``.``index``.``name``=``"ix"``df`
 > 
 > `Out[43]:       col1  col2          ix          row1     1    -3          row2    -2     4`
 
-要使用OpenPyXL格式化索引和标头，请按以下步骤操作：
+要使用 OpenPyXL 格式化索引和标头，请按以下步骤操作：
 
 > `In``[``44``]:``from``openpyxl.styles``import``PatternFill`
 > 
@@ -389,39 +391,39 @@ XlsxWriter 有一个类似于 OpenPyXL 的选项叫做`constant_memory`。它也
 
 现在索引和标题都已格式化好了，让我们看看如何对数据部分进行样式设置！
 
-![](images/00054.jpg)
+![](img/00054.jpg)
 
 图 8-2\. 默认格式的 DataFrame（左）和自定义格式（右）
 
 格式化 DataFrame 数据部分
 
-格式化DataFrame数据部分的可能性取决于您使用的包：如果使用pandas的`to_excel`方法，OpenPyXL可以对每个单元格应用格式，而XlsxWriter只能按行或列的方式应用格式。例如，要设置单元格的数字格式为三位小数并居中显示内容，如[图 8-3](#filepos1221576)中所示，使用OpenPyXL可以按以下步骤进行：
+格式化 DataFrame 数据部分的可能性取决于您使用的包：如果使用 pandas 的`to_excel`方法，OpenPyXL 可以对每个单元格应用格式，而 XlsxWriter 只能按行或列的方式应用格式。例如，要设置单元格的数字格式为三位小数并居中显示内容，如图 8-3 中所示，使用 OpenPyXL 可以按以下步骤进行：
 
 > `In``[``47``]:``from``openpyxl.styles``import``Alignment`
 > 
-> `In``[``48``]:``with``pd``.``ExcelWriter``(``"data_format_openpyxl.xlsx"``,``engine``=``"openpyxl"``)``as``writer``:``# 写出DataFrame``df``.``to_excel``(``writer``)``# 获取工作簿和工作表对象``book``=``writer``.``book``sheet``=``writer``.``sheets``[``"Sheet1"``]``# 格式化单个单元格``nrows``,``ncols``=``df``.``shape``for``row``in``range``(``nrows``):``for``col``in``range``(``ncols``):``# +1 考虑到标题/索引``# +1 因为OpenPyXL基于1``base````cell``=``sheet``.``cell``(``row``=``row``+``2``,``column``=``col``+``2``)``cell``.``number_format``=``"0.000"``cell``.``alignment``=``Alignment``(``horizontal``=``"center"``)`
+> `In``[``48``]:``with``pd``.``ExcelWriter``(``"data_format_openpyxl.xlsx"``,``engine``=``"openpyxl"``)``as``writer``:``# 写出 DataFrame``df``.``to_excel``(``writer``)``# 获取工作簿和工作表对象``book``=``writer``.``book``sheet``=``writer``.``sheets``[``"Sheet1"``]``# 格式化单个单元格``nrows``,``ncols``=``df``.``shape``for``row``in``range``(``nrows``):``for``col``in``range``(``ncols``):``# +1 考虑到标题/索引``# +1 因为 OpenPyXL 基于 1``base````cell``=``sheet``.``cell``(``row``=``row``+``2``,``column``=``col``+``2``)``cell``.``number_format``=``"0.000"``cell``.``alignment``=``Alignment``(``horizontal``=``"center"``)`
 
-对于XlsxWriter，调整代码如下：
+对于 XlsxWriter，调整代码如下：
 
-> `In``[``49``]:``with``pd``.``ExcelWriter``(``"data_format_xlsxwriter.xlsx"``,``engine``=``"xlsxwriter"``)``as``writer``:``# 写出DataFrame``df``.``to_excel``(``writer``)``# 获取工作簿和工作表对象``book``=``writer``.``book``sheet``=``writer``.``sheets``[``"Sheet1"``]``# 格式化列（无法格式化单个单元格）``number_format``=``book``.``add_format``({``"num_format"``:``"0.000"``,``"align"``:``"center"``})``sheet``.``set_column``(``first_col``=``1``,``last_col``=``2``,``cell_format``=``number_format``)`
+> `In``[``49``]:``with``pd``.``ExcelWriter``(``"data_format_xlsxwriter.xlsx"``,``engine``=``"xlsxwriter"``)``as``writer``:``# 写出 DataFrame``df``.``to_excel``(``writer``)``# 获取工作簿和工作表对象``book``=``writer``.``book``sheet``=``writer``.``sheets``[``"Sheet1"``]``# 格式化列（无法格式化单个单元格）``number_format``=``book``.``add_format``({``"num_format"``:``"0.000"``,``"align"``:``"center"``})``sheet``.``set_column``(``first_col``=``1``,``last_col``=``2``,``cell_format``=``number_format``)`
 
-![](images/00046.jpg)
+![](img/00046.jpg)
 
-图 8-3\. 数据部分格式化的DataFrame
+图 8-3\. 数据部分格式化的 DataFrame
 
-作为替代方案，pandas为DataFrame的`style`属性提供了实验性支持。实验性意味着语法随时可能更改。由于样式用于在HTML格式中格式化DataFrame，因此它们使用CSS语法。CSS代表层叠样式表，用于定义HTML元素的样式。要应用与前面示例相同的格式（三位小数和居中对齐），您需要通过`applymap`函数将函数应用于`Styler`对象的每个元素。您可以通过`df.style`属性获得`Styler`对象：
+作为替代方案，pandas 为 DataFrame 的`style`属性提供了实验性支持。实验性意味着语法随时可能更改。由于样式用于在 HTML 格式中格式化 DataFrame，因此它们使用 CSS 语法。CSS 代表层叠样式表，用于定义 HTML 元素的样式。要应用与前面示例相同的格式（三位小数和居中对齐），您需要通过`applymap`函数将函数应用于`Styler`对象的每个元素。您可以通过`df.style`属性获得`Styler`对象：
 
 > `In``[``50``]:``df``.``style``.``applymap``(``lambda``x``:``"number-format: 0.000;"``"text-align: center"``)``\` `.``to_excel``(``"styled.xlsx"``)`
 
-这段代码的输出结果与[图 8-3](#filepos1221576)中显示的一样。有关DataFrame样式方法的更多详细信息，请直接参阅[样式文档](https://oreil.ly/_JzfP)。
+这段代码的输出结果与图 8-3 中显示的一样。有关 DataFrame 样式方法的更多详细信息，请直接参阅[样式文档](https://oreil.ly/_JzfP)。
 
-无需依赖样式属性，pandas提供了对日期和日期时间对象进行格式化的支持，如[图 8-4](#filepos1229706)所示：
+无需依赖样式属性，pandas 提供了对日期和日期时间对象进行格式化的支持，如图 8-4 所示：
 
 > `In``[``51``]:``df``=``pd``.``DataFrame``({``"Date"``:``[``dt``.``date``(``2020``,``1``,``1``)],``"Datetime"``:``[``dt``.``datetime``(``2020``,``1``,``1``,``10``)]})``with``pd``.``ExcelWriter``(``"date.xlsx"``,``date_format``=``"yyyy-mm-dd"``,``datetime_format``=``"yyyy-mm-dd hh:mm:ss"``)``as``writer``:``df``.``to_excel``(``writer``)`
 
-![](images/00013.jpg)
+![](img/00013.jpg)
 
-图8-4。带有格式化日期的数据框
+图 8-4。带有格式化日期的数据框
 
 > 其他读取器和写入器包
 > 
@@ -429,40 +431,40 @@ XlsxWriter 有一个类似于 OpenPyXL 的选项叫做`constant_memory`。它也
 > 
 > pyexcel
 > 
-> > [pyexcel](http://pyexcel.org)提供了一种在不同的Excel包和其他文件格式（包括CSV文件和OpenOffice文件）之间统一的语法。
+> > [pyexcel](http://pyexcel.org)提供了一种在不同的 Excel 包和其他文件格式（包括 CSV 文件和 OpenOffice 文件）之间统一的语法。
 > > 
 > PyExcelerate
 > 
-> > [PyExcelerate](https://oreil.ly/yJax7)的目标是以最快的速度编写Excel文件。
+> > [PyExcelerate](https://oreil.ly/yJax7)的目标是以最快的速度编写 Excel 文件。
 > > 
 > pylightxl
 > 
-> > [pylightxl](https://oreil.ly/efjt4)可以读取xlsx和xlsm文件，并写入xlsx文件。
+> > [pylightxl](https://oreil.ly/efjt4)可以读取 xlsx 和 xlsm 文件，并写入 xlsx 文件。
 > > 
 > styleframe
 > 
-> > [styleframe](https://oreil.ly/nQUg9)封装了pandas和OpenPyXL，以产生带有精美格式的数据框的Excel文件。
+> > [styleframe](https://oreil.ly/nQUg9)封装了 pandas 和 OpenPyXL，以产生带有精美格式的数据框的 Excel 文件。
 > > 
 > oletools
 > 
-> > [oletools](https://oreil.ly/SG-Jy)并不是一个传统的读取器或写入器包，但可以用于分析Microsoft Office文档，例如，用于恶意软件分析。它提供了一种方便的方法来从Excel工作簿中提取VBA代码。
+> > [oletools](https://oreil.ly/SG-Jy)并不是一个传统的读取器或写入器包，但可以用于分析 Microsoft Office 文档，例如，用于恶意软件分析。它提供了一种方便的方法来从 Excel 工作簿中提取 VBA 代码。
 
-现在你知道如何在Excel中格式化数据框了，是时候重新审视上一章的案例研究，看看我们是否能够运用本章的知识来改进Excel报告了！
+现在你知道如何在 Excel 中格式化数据框了，是时候重新审视上一章的案例研究，看看我们是否能够运用本章的知识来改进 Excel 报告了！
 
-案例研究（再访）：Excel报告
+案例研究（再访）：Excel 报告
 
-翻译到了本章的最后，您已经了解足够的知识，可以回到上一章的Excel报告，并使其在视觉上更具吸引力。如果您愿意，可以回到附带存储库中的sales_report_pandas.py，并尝试将其转换为[Figue 8-5](#filepos1233720)中显示的报告。
+翻译到了本章的最后，您已经了解足够的知识，可以回到上一章的 Excel 报告，并使其在视觉上更具吸引力。如果您愿意，可以回到附带存储库中的 sales_report_pandas.py，并尝试将其转换为 Figue 8-5 中显示的报告。
 
-红色数字是低于20,000的销售数字。本章未涉及所有格式设置的每个方面（比如如何应用条件格式设置），因此您需要使用您选择的软件包的文档。为了比较您的解决方案，我在附带的存储库中包含了生成此报告的两个脚本版本。第一个版本基于OpenPyXL（sales_report_openpyxl.py），另一个版本基于XlsxWriter（sales_report_xlsxwriter.py）。并排查看脚本可能还能让您更明智地决定下一次要选择哪个软件包来完成您的写入任务。我们将在下一章再次回到这个案例研究：在那里，我们将依赖于Microsoft Excel的安装来处理报告模板。
+红色数字是低于 20,000 的销售数字。本章未涉及所有格式设置的每个方面（比如如何应用条件格式设置），因此您需要使用您选择的软件包的文档。为了比较您的解决方案，我在附带的存储库中包含了生成此报告的两个脚本版本。第一个版本基于 OpenPyXL（sales_report_openpyxl.py），另一个版本基于 XlsxWriter（sales_report_xlsxwriter.py）。并排查看脚本可能还能让您更明智地决定下一次要选择哪个软件包来完成您的写入任务。我们将在下一章再次回到这个案例研究：在那里，我们将依赖于 Microsoft Excel 的安装来处理报告模板。
 
-![](images/00081.jpg)
+![](img/00081.jpg)
 
-图8-5。由sales_report_openpyxl.py创建的重新审视的销售报告
+图 8-5。由 sales_report_openpyxl.py 创建的重新审视的销售报告
 
 结论
 
 在本章中，我向您介绍了 pandas 在底层使用的读取器和写入器包。直接使用它们允许我们读取和写入 Excel 工作簿，而无需安装 pandas。然而，与 pandas 结合使用使我们能够通过添加标题、图表和格式来增强 Excel DataFrame 报告。虽然当前的读取器和写入器包非常强大，但我仍然希望有一天能看到一个像 "NumPy 时刻" 那样将所有开发者的努力统一到一个项目中。能够在不必首先查看表格的情况下知道使用哪个包，并且在不必为每种类型的 Excel 文件使用不同的语法的情况下使用它，这将是很棒的。从这个意义上说，从 pandas 开始，只有在需要 pandas 未涵盖的附加功能时才退而使用读取器和写入器包，这是有道理的。
 
-然而，Excel 不仅仅是一个数据文件或报告：Excel 应用程序是最直观的用户界面之一，用户可以输入几个数字，并让它显示他们正在寻找的信息。自动化 Excel 应用程序而不是读写 Excel 文件，开启了我们将在[第四部分](index_split_023.html#filepos1235617)探索的全新功能范围。下一章将通过向您展示如何从 Python 远程控制 Excel 来开始这段旅程。
+然而，Excel 不仅仅是一个数据文件或报告：Excel 应用程序是最直观的用户界面之一，用户可以输入几个数字，并让它显示他们正在寻找的信息。自动化 Excel 应用程序而不是读写 Excel 文件，开启了我们将在第四部分探索的全新功能范围。下一章将通过向您展示如何从 Python 远程控制 Excel 来开始这段旅程。
 
 第四部分：使用 xlwings 编程 Excel 应用程序

@@ -1,6 +1,6 @@
-# 第 10 章。利用词嵌入探索语义关系
+# 第十章。利用词嵌入探索语义关系
 
-相似性的概念对所有机器学习任务都是基础性的。在[第 5 章](ch05.xhtml#ch-vectorization)中，我们解释了如何基于词袋模型计算文本相似性。给定两个文档的 TF-IDF 向量，它们的余弦相似度可以轻松计算，我们可以使用这些信息来搜索、聚类或分类相似的文档。
+相似性的概念对所有机器学习任务都是基础性的。在第五章中，我们解释了如何基于词袋模型计算文本相似性。给定两个文档的 TF-IDF 向量，它们的余弦相似度可以轻松计算，我们可以使用这些信息来搜索、聚类或分类相似的文档。
 
 然而，在词袋模型中，相似性的概念完全基于两个文档中共同单词的数量。如果文档没有共享任何标记，文档向量的点积以及因此的余弦相似度将为零。考虑以下关于一部新电影的两条社交平台评论：
 
@@ -14,9 +14,9 @@
 
 对于我们的用例，我们假设我们是市场研究人员，希望使用关于汽车的文本来更好地理解汽车市场中的一些关系。具体而言，我们想探索汽车品牌和型号之间的相似性。例如，品牌 A 的哪些型号与品牌 B 的特定型号最相似？
 
-我们的语料库包括 Reddit 自我帖子数据集汽车类别中的 20 个子社区，这在[第 4 章](ch04.xhtml#ch-preparation)中已经使用过。每个子社区都包含关于 Mercedes、Toyota、Ford 和 Harley-Davidson 等品牌的汽车和摩托车的 1,000 条帖子。由于这些帖子是用户编写的问题、答案和评论，我们实际上可以了解到这些用户隐含地认为什么是相似的。
+我们的语料库包括 Reddit 自我帖子数据集汽车类别中的 20 个子社区，这在第四章中已经使用过。每个子社区都包含关于 Mercedes、Toyota、Ford 和 Harley-Davidson 等品牌的汽车和摩托车的 1,000 条帖子。由于这些帖子是用户编写的问题、答案和评论，我们实际上可以了解到这些用户隐含地认为什么是相似的。
 
-我们将再次使用[Gensim 库](https://oreil.ly/HaYkR)，这在[第 8 章](ch08.xhtml#ch-topicmodels)中已经介绍过。它提供了一个良好的 API 来训练不同类型的嵌入，并使用这些模型进行语义推理。
+我们将再次使用[Gensim 库](https://oreil.ly/HaYkR)，这在第八章中已经介绍过。它提供了一个良好的 API 来训练不同类型的嵌入，并使用这些模型进行语义推理。
 
 学习本章后，您将能够使用词嵌入进行语义分析。您将知道如何使用预训练的嵌入，如何训练自己的嵌入，如何比较不同的模型以及如何可视化它们。您可以在我们的[GitHub 代码库](https://oreil.ly/W1ztU)中找到本章的源代码以及部分图像。
 
@@ -36,33 +36,33 @@
 
 ## 单词嵌入
 
-嵌入算法的目标可以定义如下：给定一个维度<math alttext="d"><mi>d</mi></math>，找到单词的向量表示，使得具有相似含义的单词具有相似的向量。维度<math alttext="d"><mi>d</mi></math>是任何单词嵌入算法的超参数。通常设置在50到300之间。
+嵌入算法的目标可以定义如下：给定一个维度<math alttext="d"><mi>d</mi></math>，找到单词的向量表示，使得具有相似含义的单词具有相似的向量。维度<math alttext="d"><mi>d</mi></math>是任何单词嵌入算法的超参数。通常设置在 50 到 300 之间。
 
-维度本身没有预定义或人类可理解的含义。相反，模型从文本中学习单词之间的潜在关系。[图 10-1](#fig-embeddings)（左）展示了这一概念。我们对每个单词有五维向量。这些维度中的每一个代表单词之间某种关系，使得在这一维度上相似的单词具有类似的值。所示的维度名称是对这些值的可能解释。
+维度本身没有预定义或人类可理解的含义。相反，模型从文本中学习单词之间的潜在关系。图 10-1（左）展示了这一概念。我们对每个单词有五维向量。这些维度中的每一个代表单词之间某种关系，使得在这一维度上相似的单词具有类似的值。所示的维度名称是对这些值的可能解释。
 
-![](Images/btap_1001.jpg)
+![](img/btap_1001.jpg)
 
-###### 图 10-1\. 密集向量表示语义相似性的标注（左）可用于回答类比问题（右）。我们对向量维度命名为“Royalty”等来展示可能的解释。^([1](ch10.xhtml#idm45634182078904))
+###### 图 10-1\. 密集向量表示语义相似性的标注（左）可用于回答类比问题（右）。我们对向量维度命名为“Royalty”等来展示可能的解释。^(1)
 
-训练的基本思想是在相似上下文中出现的单词具有相似的含义。这被称为*分布假设*。例如，以下描述*tesgüino*的句子：^([2](ch10.xhtml#idm45634182074280))
+训练的基本思想是在相似上下文中出现的单词具有相似的含义。这被称为*分布假设*。例如，以下描述*tesgüino*的句子：^(2)
 
-+   桌子上有一瓶___。
++   桌子上有一瓶 ___。
 
-+   每个人都喜欢___。
++   每个人都喜欢 ___。
 
-+   开车前不要___。
++   开车前不要 ___。
 
-+   我们用玉米制造___。
++   我们用玉米制造 ___。
 
 即使不了解*tesgüino*这个词，通过分析典型语境，你也能对其含义有相当好的理解。你还可以识别语义上相似的单词，因为你知道它是一种酒精饮料。
 
 ## 使用单词嵌入进行类比推理
 
-真正令人惊讶的是，用这种方法构建的词向量使我们能够通过向量代数检测类似于“queen is to king like woman is to man”的类比（见[图 10-1](#fig-embeddings)右侧）。设 <math alttext="v left-parenthesis w right-parenthesis"><mrow><mi>v</mi> <mo>(</mo> <mi>w</mi> <mo>)</mo></mrow></math> 为单词 <math alttext="w"><mi>w</mi></math> 的词嵌入。那么这个类比可以用数学方式表达如下：
+真正令人惊讶的是，用这种方法构建的词向量使我们能够通过向量代数检测类似于“queen is to king like woman is to man”的类比（见图 10-1 右侧）。设 <math alttext="v left-parenthesis w right-parenthesis"><mrow><mi>v</mi> <mo>(</mo> <mi>w</mi> <mo>)</mo></mrow></math> 为单词 <math alttext="w"><mi>w</mi></math> 的词嵌入。那么这个类比可以用数学方式表达如下：
 
 <math alttext="v left-parenthesis q u e e n right-parenthesis minus v left-parenthesis k i n g right-parenthesis almost-equals v left-parenthesis w o m a n right-parenthesis minus v left-parenthesis m a n right-parenthesis" display="block"><mrow><mi>v</mi> <mo>(</mo> <mi>q</mi> <mi>u</mi> <mi>e</mi> <mi>e</mi> <mi>n</mi> <mo>)</mo> <mo>-</mo> <mi>v</mi> <mo>(</mo> <mi>k</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mo>)</mo> <mo>≈</mo> <mi>v</mi> <mo>(</mo> <mi>w</mi> <mi>o</mi> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo> <mo>-</mo> <mi>v</mi> <mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo></mrow></math>
 
-如果这个近似等式成立，我们可以将这个类比重述为一个问题：像“king”对应于“man”，“woman”对应于什么？或者数学上表示为：^([3](ch10.xhtml#idm45634182038552))
+如果这个近似等式成立，我们可以将这个类比重述为一个问题：像“king”对应于“man”，“woman”对应于什么？或者数学上表示为：^(3)
 
 <math alttext="v left-parenthesis w o m a n right-parenthesis plus left-bracket v left-parenthesis k i n g right-parenthesis minus v left-parenthesis m a n right-parenthesis right-bracket almost-equals question-mark" display="block"><mrow><mi>v</mi> <mrow><mo>(</mo> <mi>w</mi> <mi>o</mi> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo></mrow> <mo>+</mo> <mfenced separators="" open="[" close="]"><mi>v</mi> <mo>(</mo> <mi>k</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mo>)</mo> <mo>-</mo> <mi>v</mi> <mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo></mfenced> <mo>≈</mo> <mo>?</mo></mrow></math>
 
@@ -74,33 +74,33 @@
 
 ### Word2Vec
 
-尽管之前已经有过词嵌入的方法，但谷歌的 Tomáš Mikolov（Mikolov 等人，2013年）的工作标志着一个里程碑，因为它在类比任务上显著优于以前的方法，特别是刚刚解释的那些任务。Word2Vec 有两个变体，即*连续词袋模型*（CBOW）和*跳字模型*（见[图 10-2](#fig-word2vec)）。
+尽管之前已经有过词嵌入的方法，但谷歌的 Tomáš Mikolov（Mikolov 等人，2013 年）的工作标志着一个里程碑，因为它在类比任务上显著优于以前的方法，特别是刚刚解释的那些任务。Word2Vec 有两个变体，即*连续词袋模型*（CBOW）和*跳字模型*（见图 10-2）。
 
-![](Images/btap_1002.jpg)
+![](img/btap_1002.jpg)
 
 ###### 图 10-2\. 连续词袋模型（左）与跳字模型（右）。
 
-这两种算法都在文本上使用一个滑动窗口，由目标词 <math alttext="w Subscript t"><msub><mi>w</mi> <mi>t</mi></msub></math> 和上下文窗口大小 <math alttext="c"><mi>c</mi></math> 定义。在这个例子中，<math alttext="c equals 2"><mrow><mi>c</mi> <mo>=</mo> <mn>2</mn></mrow></math> ，即训练样本由五个词组成 <math alttext="w Subscript t minus 2 Baseline comma ellipsis comma w Subscript t plus 2 Baseline"><mrow><msub><mi>w</mi> <mrow><mi>t</mi><mo>-</mo><mn>2</mn></mrow></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>w</mi> <mrow><mi>t</mi><mo>+</mo><mn>2</mn></mrow></msub></mrow></math> 。其中一种训练样本以粗体显示：**... is trying *things* to see ...**。在CBOW架构（左侧），模型被训练来预测从上下文词到目标词。这里，一个训练样本由上下文词的独热编码向量的总和或平均值以及目标词作为标签。相比之下，skip-gram模型（右侧）被训练来预测给定目标词的上下文词。在这种情况下，每个目标词为每个上下文词生成一个单独的训练样本；没有向量平均。因此，skip-gram训练速度较慢（对于大窗口大小来说要慢得多！），但通常能够更好地处理不常见的词语。
+这两种算法都在文本上使用一个滑动窗口，由目标词 <math alttext="w Subscript t"><msub><mi>w</mi> <mi>t</mi></msub></math> 和上下文窗口大小 <math alttext="c"><mi>c</mi></math> 定义。在这个例子中，<math alttext="c equals 2"><mrow><mi>c</mi> <mo>=</mo> <mn>2</mn></mrow></math> ，即训练样本由五个词组成 <math alttext="w Subscript t minus 2 Baseline comma ellipsis comma w Subscript t plus 2 Baseline"><mrow><msub><mi>w</mi> <mrow><mi>t</mi><mo>-</mo><mn>2</mn></mrow></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>w</mi> <mrow><mi>t</mi><mo>+</mo><mn>2</mn></mrow></msub></mrow></math> 。其中一种训练样本以粗体显示：**... is trying *things* to see ...**。在 CBOW 架构（左侧），模型被训练来预测从上下文词到目标词。这里，一个训练样本由上下文词的独热编码向量的总和或平均值以及目标词作为标签。相比之下，skip-gram 模型（右侧）被训练来预测给定目标词的上下文词。在这种情况下，每个目标词为每个上下文词生成一个单独的训练样本；没有向量平均。因此，skip-gram 训练速度较慢（对于大窗口大小来说要慢得多！），但通常能够更好地处理不常见的词语。
 
-这两种嵌入算法都使用了一个简单的单层神经网络和一些技巧来进行快速和可扩展的训练。学习到的嵌入实际上是由隐藏层的权重矩阵定义的。因此，如果你想学习100维的向量表示，隐藏层必须由100个神经元组成。输入和输出的词语都由独热向量表示。嵌入的维度和上下文窗口的大小 <math alttext="c"><mi>c</mi></math> 都是所有这里介绍的嵌入方法中的超参数。我们将在本章后面探讨它们对嵌入的影响。
+这两种嵌入算法都使用了一个简单的单层神经网络和一些技巧来进行快速和可扩展的训练。学习到的嵌入实际上是由隐藏层的权重矩阵定义的。因此，如果你想学习 100 维的向量表示，隐藏层必须由 100 个神经元组成。输入和输出的词语都由独热向量表示。嵌入的维度和上下文窗口的大小 <math alttext="c"><mi>c</mi></math> 都是所有这里介绍的嵌入方法中的超参数。我们将在本章后面探讨它们对嵌入的影响。
 
 ### GloVe
 
-[全局向量（GloVe）方法](https://oreil.ly/7hIGW)，由斯坦福自然语言处理组在2014年开发，使用全局共现矩阵来计算词向量，而不是一个预测任务（Pennington等，2014年）。一个大小为 <math alttext="upper V"><mi>V</mi></math> 的词汇的共现矩阵具有维度 <math alttext="upper V times upper V"><mrow><mi>V</mi> <mo>×</mo> <mi>V</mi></mrow></math> 。矩阵中的每个单元 <math alttext="left-parenthesis i comma j right-parenthesis"><mrow><mo>(</mo> <mi>i</mi> <mo>,</mo> <mi>j</mi> <mo>)</mo></mrow></math> 包含基于固定上下文窗口大小的词 <math alttext="w Subscript i"><msub><mi>w</mi> <mi>i</mi></msub></math> 和 <math alttext="w Subscript j"><msub><mi>w</mi> <mi>j</mi></msub></math> 的共现次数。这些嵌入是通过类似于主题建模或降维技术中使用的矩阵分解技术来推导的。
+[全局向量（GloVe）方法](https://oreil.ly/7hIGW)，由斯坦福自然语言处理组在 2014 年开发，使用全局共现矩阵来计算词向量，而不是一个预测任务（Pennington 等，2014 年）。一个大小为 <math alttext="upper V"><mi>V</mi></math> 的词汇的共现矩阵具有维度 <math alttext="upper V times upper V"><mrow><mi>V</mi> <mo>×</mo> <mi>V</mi></mrow></math> 。矩阵中的每个单元 <math alttext="left-parenthesis i comma j right-parenthesis"><mrow><mo>(</mo> <mi>i</mi> <mo>,</mo> <mi>j</mi> <mo>)</mo></mrow></math> 包含基于固定上下文窗口大小的词 <math alttext="w Subscript i"><msub><mi>w</mi> <mi>i</mi></msub></math> 和 <math alttext="w Subscript j"><msub><mi>w</mi> <mi>j</mi></msub></math> 的共现次数。这些嵌入是通过类似于主题建模或降维技术中使用的矩阵分解技术来推导的。
 
-这个模型被称为*全局*，因为共现矩阵捕获全局语料库统计，与只使用局部上下文窗口进行预测任务的Word2Vec形成对比。 GloVe通常不比Word2Vec表现更好，但根据训练数据和任务的不同，它产生类似的好结果（参见Levy等人，2014年，进行讨论）。
+这个模型被称为*全局*，因为共现矩阵捕获全局语料库统计，与只使用局部上下文窗口进行预测任务的 Word2Vec 形成对比。 GloVe 通常不比 Word2Vec 表现更好，但根据训练数据和任务的不同，它产生类似的好结果（参见 Levy 等人，2014 年，进行讨论）。
 
 ### FastText
 
-我们介绍的第三种模型再次由一支由**Tomáš Mikolov**领导的团队在Facebook开发（Joulin等人，2017年）。 主要动机是处理词汇外的词汇。 无论是Word2Vec还是GloVe，都仅为训练语料库中包含的词汇生成词嵌入。 相比之下，[FastText](https://fasttext.cc)利用字符n-gram的子词信息来推导向量表示。 例如，*fasttext*的字符三元组是*fas*，*ast*，*stt*，*tte*，*tex*和*ext*。 使用的n-gram长度（最小和最大）是模型的超参数。
+我们介绍的第三种模型再次由一支由**Tomáš Mikolov**领导的团队在 Facebook 开发（Joulin 等人，2017 年）。 主要动机是处理词汇外的词汇。 无论是 Word2Vec 还是 GloVe，都仅为训练语料库中包含的词汇生成词嵌入。 相比之下，[FastText](https://fasttext.cc)利用字符 n-gram 的子词信息来推导向量表示。 例如，*fasttext*的字符三元组是*fas*，*ast*，*stt*，*tte*，*tex*和*ext*。 使用的 n-gram 长度（最小和最大）是模型的超参数。
 
-任何单词向量都是从其字符n-grams的嵌入构建的。 并且即使是模型以前未见过的单词，大多数字符n-gram也有嵌入。 例如，*fasttext*的向量将类似于*fast*和*text*，因为它们有共同的n-grams。 因此，FastText非常擅长为通常是词汇外的拼写错误的单词找到嵌入。
+任何单词向量都是从其字符 n-grams 的嵌入构建的。 并且即使是模型以前未见过的单词，大多数字符 n-gram 也有嵌入。 例如，*fasttext*的向量将类似于*fast*和*text*，因为它们有共同的 n-grams。 因此，FastText 非常擅长为通常是词汇外的拼写错误的单词找到嵌入。
 
 ### 深度上下文化的嵌入
 
-单词的语义含义往往取决于其上下文。 想想“我是对的”和“请右转”中*right*一词的不同含义^（[4](ch10.xhtml#idm45634181941800)）。 所有这三种模型（Word2Vec，GloVe和FastText）每个单词仅有一个向量表示；它们无法区分依赖上下文的语义。
+单词的语义含义往往取决于其上下文。 想想“我是对的”和“请右转”中*right*一词的不同含义^（4）。 所有这三种模型（Word2Vec，GloVe 和 FastText）每个单词仅有一个向量表示；它们无法区分依赖上下文的语义。
 
-类似*来自语言模型的嵌入*（ELMo）的上下文化嵌入考虑上下文，即前后的单词（Peters等人，2018年）。 没有为每个单词存储一个可以简单查找的单词向量。 相反，ELMo通过多层双向长短期记忆神经网络（LSTM）传递整个句子，并从内部层的权重组合每个单词的向量。 最近的模型如BERT及其后继模型通过使用注意力变换器而不是双向LSTM改进了这种方法。 所有这些模型的主要优点是迁移学习：能够使用预训练的语言模型并针对特定的下游任务（如分类或问题回答）进行微调。 我们将在[第11章](ch11.xhtml#ch-sentiment)中更详细地介绍这个概念。
+类似*来自语言模型的嵌入*（ELMo）的上下文化嵌入考虑上下文，即前后的单词（Peters 等人，2018 年）。 没有为每个单词存储一个可以简单查找的单词向量。 相反，ELMo 通过多层双向长短期记忆神经网络（LSTM）传递整个句子，并从内部层的权重组合每个单词的向量。 最近的模型如 BERT 及其后继模型通过使用注意力变换器而不是双向 LSTM 改进了这种方法。 所有这些模型的主要优点是迁移学习：能够使用预训练的语言模型并针对特定的下游任务（如分类或问题回答）进行微调。 我们将在第十一章中更详细地介绍这个概念。
 
 # 蓝图：在预训练模型上使用相似性查询
 
@@ -108,7 +108,7 @@
 
 ## 加载预训练模型
 
-几个模型可以公开下载。^([5](ch10.xhtml#idm45634181919512)) 我们稍后会描述如何加载自定义模型，但在这里，我们将使用 Gensim 的方便下载 API。
+几个模型可以公开下载。^(5) 我们稍后会描述如何加载自定义模型，但在这里，我们将使用 Gensim 的方便下载 API。
 
 根据默认设置，Gensim 将模型存储在 `~/gensim-data` 下。如果您想将其更改为自定义路径，可以在导入下载器 API 之前设置环境变量 `GENSIM_DATA_DIR`。我们将所有模型存储在本地目录 `models` 中：
 
@@ -184,9 +184,9 @@ model.most_similar('king', topn=3)
 
 ```
 
-实际上，男性的*prince*比*queen*更相似，但*queen*在列表中排名第二，其后是罗马数字II，因为许多国王被称为“第二”。
+实际上，男性的*prince*比*queen*更相似，但*queen*在列表中排名第二，其后是罗马数字 II，因为许多国王被称为“第二”。
 
-单词向量的相似性分数通常通过余弦相似度计算，这在[第5章](ch05.xhtml#ch-vectorization)中介绍过。Gensim提供了几种变体的相似性函数。例如，`cosine_similarities`方法计算单词向量与其他单词向量数组之间的相似度。让我们比较*king*与更多单词：
+单词向量的相似性分数通常通过余弦相似度计算，这在第五章中介绍过。Gensim 提供了几种变体的相似性函数。例如，`cosine_similarities`方法计算单词向量与其他单词向量数组之间的相似度。让我们比较*king*与更多单词：
 
 ```py
 v_lion = model['lion']
@@ -203,11 +203,11 @@ array([ 0.784,  0.478, -0.255], dtype=float32)
 
 ```
 
-基于模型的训练数据（维基百科和Gigaword），模型假设单词*king*与*queen*相似，与*lion*略有相似，但与*nanotechnology*完全不相似。需要注意的是，与非负TF-IDF向量不同，单词嵌入在某些维度上也可能是负的。因此，相似度值范围从<math alttext="plus 1"><mrow><mo>+</mo> <mn>1</mn></mrow></math>到<math alttext="negative 1"><mrow><mo>-</mo> <mn>1</mn></mrow></math>不等。
+基于模型的训练数据（维基百科和 Gigaword），模型假设单词*king*与*queen*相似，与*lion*略有相似，但与*nanotechnology*完全不相似。需要注意的是，与非负 TF-IDF 向量不同，单词嵌入在某些维度上也可能是负的。因此，相似度值范围从<math alttext="plus 1"><mrow><mo>+</mo> <mn>1</mn></mrow></math>到<math alttext="negative 1"><mrow><mo>-</mo> <mn>1</mn></mrow></math>不等。
 
 先前使用的`most_similar()`函数还允许两个参数，`positive`和`negative`，每个参数都是向量列表。如果<math alttext="p o s i t i v e equals left-bracket p o s 1 comma ellipsis comma p o s Subscript n Baseline right-bracket"><mrow><mi>p</mi> <mi>o</mi> <mi>s</mi> <mi>i</mi> <mi>t</mi> <mi>i</mi> <mi>v</mi> <mi>e</mi> <mo>=</mo> <mo>[</mo> <mi>p</mi> <mi>o</mi> <msub><mi>s</mi> <mn>1</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <mi>p</mi> <mi>o</mi> <msub><mi>s</mi> <mi>n</mi></msub> <mo>]</mo></mrow></math>和<math alttext="n e g a t i v e equals left-bracket n e g 1 comma ellipsis comma n e g Subscript m Baseline right-bracket"><mrow><mi>n</mi> <mi>e</mi> <mi>g</mi> <mi>a</mi> <mi>t</mi> <mi>i</mi> <mi>v</mi> <mi>e</mi> <mo>=</mo> <mo>[</mo> <mi>n</mi> <mi>e</mi> <msub><mi>g</mi> <mn>1</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <mi>n</mi> <mi>e</mi> <msub><mi>g</mi> <mi>m</mi></msub> <mo>]</mo></mrow></math>，那么此函数将找到与<math alttext="sigma-summation Underscript i equals 1 Overscript n Endscripts p o s Subscript i minus sigma-summation Underscript j equals 1 Overscript m Endscripts n e g Subscript j"><mrow><msubsup><mo>∑</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>n</mi></msubsup> <mi>p</mi> <mi>o</mi> <msub><mi>s</mi> <mi>i</mi></msub> <mo>-</mo> <msubsup><mo>∑</mo> <mrow><mi>j</mi><mo>=</mo><mn>1</mn></mrow> <mi>m</mi></msubsup> <mi>n</mi> <mi>e</mi> <msub><mi>g</mi> <mi>j</mi></msub></mrow></math>最相似的单词向量。
 
-因此，我们可以用Gensim来制定关于皇室的类比查询：
+因此，我们可以用 Gensim 来制定关于皇室的类比查询：
 
 ```py
 model.most_similar(positive=['woman', 'king'], negative=['man'], topn=3)
@@ -267,17 +267,17 @@ model.most_similar(positive=['greece', 'capital'], topn=3)
 
 ###### 注意
 
-Gensim还提供了余弦相似度的一种变体，`most_similar_cosmul`。这对于类比查询比前面显示的方法更有效，因为它平滑了一个大相似性项主导方程的效果（Levy等，2015）。然而，对于前面的例子，返回的单词将是相同的，但相似性分数将更高。
+Gensim 还提供了余弦相似度的一种变体，`most_similar_cosmul`。这对于类比查询比前面显示的方法更有效，因为它平滑了一个大相似性项主导方程的效果（Levy 等，2015）。然而，对于前面的例子，返回的单词将是相同的，但相似性分数将更高。
 
-如果您使用来自维基百科和新闻文章的编辑文本来训练嵌入，您的模型将能够很好地捕捉到类似首都-国家的事实关系。但是，对于市场研究问题，比较不同品牌产品的情况呢？通常这些信息在维基百科上找不到，而是在最新的社交平台上，人们在讨论产品。如果您在社交平台上使用用户评论来训练嵌入，您的模型将学习到来自用户讨论的词语关联。这样，它就成为了人们对关系的*认知*表示，独立于其是否客观真实。这是一个有趣的副作用，您应该意识到。通常，您希望捕捉到这种特定应用的偏见，这也是我们接下来要做的事情。但是请注意，每个训练语料库都包含一定的偏见，这可能还会导致一些不希望的副作用（参见[“男人对计算机程序员如同女人对家庭主妇”](#man_computer)）。
+如果您使用来自维基百科和新闻文章的编辑文本来训练嵌入，您的模型将能够很好地捕捉到类似首都-国家的事实关系。但是，对于市场研究问题，比较不同品牌产品的情况呢？通常这些信息在维基百科上找不到，而是在最新的社交平台上，人们在讨论产品。如果您在社交平台上使用用户评论来训练嵌入，您的模型将学习到来自用户讨论的词语关联。这样，它就成为了人们对关系的*认知*表示，独立于其是否客观真实。这是一个有趣的副作用，您应该意识到。通常，您希望捕捉到这种特定应用的偏见，这也是我们接下来要做的事情。但是请注意，每个训练语料库都包含一定的偏见，这可能还会导致一些不希望的副作用（参见“男人对计算机程序员如同女人对家庭主妇”）。
 
 # 训练和评估自己嵌入的蓝图
 
-在本节中，我们将在Reddit Selfposts数据集中的2万个关于汽车的用户帖子上训练和评估特定领域的嵌入。在开始训练之前，我们必须考虑数据准备的选项，因为这总是对模型在特定任务中的实用性产生重要影响的因素。
+在本节中，我们将在 Reddit Selfposts 数据集中的 2 万个关于汽车的用户帖子上训练和评估特定领域的嵌入。在开始训练之前，我们必须考虑数据准备的选项，因为这总是对模型在特定任务中的实用性产生重要影响的因素。
 
 ## 数据准备
 
-Gensim要求输入训练的令牌序列。除了分词之外，还有一些其他方面需要考虑数据准备。根据分布假设，经常一起出现或在相似上下文中的单词将获得相似的向量。因此，我们应确保确实识别了这些共现关系。如果像我们这里的示例一样训练句子不多，您应在预处理中包括这些步骤：
+Gensim 要求输入训练的令牌序列。除了分词之外，还有一些其他方面需要考虑数据准备。根据分布假设，经常一起出现或在相似上下文中的单词将获得相似的向量。因此，我们应确保确实识别了这些共现关系。如果像我们这里的示例一样训练句子不多，您应在预处理中包括这些步骤：
 
 1.  清理文本，去除不需要的标记（符号、标签等）。
 
@@ -297,7 +297,7 @@ Gensim要求输入训练的令牌序列。除了分词之外，还有一些其�
 
 另一个问题是我们是否应该按句子拆分，还是仅保留帖子的原样。考虑虚构帖子“I like the BMW 328\. But the Mercedes C300 is also great.”这两个句子在我们的相似性任务中应该被视为两个不同的帖子吗？可能不应该。因此，我们将所有用户帖子中的所有词形的列表视为一个单独的“句子”用于训练。
 
-我们已经为[第四章](ch04.xhtml#ch-preparation)中的2万条Reddit汽车帖子准备了词形。因此，在这里我们可以跳过数据准备的这一部分，直接将词形加载到Pandas的`DataFrame`中：
+我们已经为第四章中的 2 万条 Reddit 汽车帖子准备了词形。因此，在这里我们可以跳过数据准备的这一部分，直接将词形加载到 Pandas 的`DataFrame`中：
 
 ```py
 db_name = "reddit-selfposts.db"
@@ -314,9 +314,9 @@ sents = df['lemmas'] # our training "sentences"
 
 特别是在英语中，如果一个词是复合短语的一部分，那么该词的含义可能会发生变化。例如，*timing belt*，*seat belt*或*rust belt*。所有这些复合词虽然都可以在我们的语料库中找到，但它们的含义各不相同。因此，将这些复合词视为单个标记可能更为合适。
 
-我们可以使用任何算法来检测这些短语，例如spaCy检测名词块（见[“使用spaCy进行语言处理”](ch04.xhtml#ch4-spacy)）。还有许多统计算法可用于识别这样的搭配，如异常频繁的n-gram。原始的Word2Vec论文（Mikolov等人，2013）使用了一种简单但有效的基于*点间互信息*（PMI）的算法，基本上衡量了两个词出现之间的统计依赖性。
+我们可以使用任何算法来检测这些短语，例如 spaCy 检测名词块（见“使用 spaCy 进行语言处理”）。还有许多统计算法可用于识别这样的搭配，如异常频繁的 n-gram。原始的 Word2Vec 论文（Mikolov 等人，2013）使用了一种简单但有效的基于*点间互信息*（PMI）的算法，基本上衡量了两个词出现之间的统计依赖性。
 
-对于我们现在正在训练的模型，我们使用了一个高级版本，称为*归一化点间互信息*（NPMI），因为它能提供更稳健的结果。鉴于其值范围有限，从<math alttext="negative 1"><mrow><mo>-</mo> <mn>1</mn></mrow></math>到<math alttext="plus 1"><mrow><mo>+</mo> <mn>1</mn></mrow></math>，它也更容易调整。我们在初始运行中将NPMI阈值设定为一个相当低的值，即0.3\. 我们选择使用连字符作为短语中单词的分隔符。这将生成类似*harley-davidson*的复合标记，无论如何这些标记都会在文本中找到。如果使用默认的下划线分隔符，则会产生不同的标记：
+对于我们现在正在训练的模型，我们使用了一个高级版本，称为*归一化点间互信息*（NPMI），因为它能提供更稳健的结果。鉴于其值范围有限，从<math alttext="negative 1"><mrow><mo>-</mo> <mn>1</mn></mrow></math>到<math alttext="plus 1"><mrow><mo>+</mo> <mn>1</mn></mrow></math>，它也更容易调整。我们在初始运行中将 NPMI 阈值设定为一个相当低的值，即 0.3\. 我们选择使用连字符作为短语中单词的分隔符。这将生成类似*harley-davidson*的复合标记，无论如何这些标记都会在文本中找到。如果使用默认的下划线分隔符，则会产生不同的标记：
 
 ```py
 from gensim.models.phrases import Phrases, npmi_scorer
@@ -365,7 +365,7 @@ phrase_df[phrase_df['phrase'].str.contains('mercedes')]
 | 83 | 奔驰 | 0.80 |
 | 1417 | 奔驰 c300 | 0.47 |
 
-如我们所见，阈值应该大于0.5且小于0.8。通过检查*宝马*、*福特*或*哈雷戴维森*等几个其他品牌，我们确定0.7是一个很好的阈值，可以识别复合供应商名称，但保持品牌和型号分开。实际上，即使是0.7这样严格的阈值，短语模型仍然保留了许多相关的词组，例如*street glide*（哈雷戴维森）、*land cruiser*（丰田）、*forester xt*（斯巴鲁）、*water pump*、*spark plug*或*timing belt*。
+如我们所见，阈值应该大于 0.5 且小于 0.8。通过检查*宝马*、*福特*或*哈雷戴维森*等几个其他品牌，我们确定 0.7 是一个很好的阈值，可以识别复合供应商名称，但保持品牌和型号分开。实际上，即使是 0.7 这样严格的阈值，短语模型仍然保留了许多相关的词组，例如*street glide*（哈雷戴维森）、*land cruiser*（丰田）、*forester xt*（斯巴鲁）、*water pump*、*spark plug*或*timing belt*。
 
 我们重建了我们的短语分析器，并在我们的`DataFrame`中为复合词创建了一个新列，该列包含单词标记：
 
@@ -380,9 +380,9 @@ sents = df['phrased_lemmas']
 
 我们数据准备步骤的结果是由词形和短语组成的句子。现在，我们将训练不同的嵌入模型，并检查我们能从中获得哪些见解。
 
-## 蓝图：使用Gensim训练模型
+## 蓝图：使用 Gensim 训练模型
 
-使用Gensim可以方便地训练Word2Vec和FastText嵌入。以下调用`Word2Vec`在语料库上训练了100维的Word2Vec嵌入，窗口大小为2，即目标词的±2个上下文词。为了说明，还传递了一些其他相关超参数。我们使用skip-gram算法，并在四个线程中训练网络五次迭代：
+使用 Gensim 可以方便地训练 Word2Vec 和 FastText 嵌入。以下调用`Word2Vec`在语料库上训练了 100 维的 Word2Vec 嵌入，窗口大小为 2，即目标词的±2 个上下文词。为了说明，还传递了一些其他相关超参数。我们使用 skip-gram 算法，并在四个线程中训练网络五次迭代：
 
 ```py
 from gensim.models import Word2Vec
@@ -398,7 +398,7 @@ model = Word2Vec(sents,       # tokenized input sentences
 
 ```
 
-在i7笔记本电脑上，处理2万个句子大约需要30秒，速度相当快。增加样本数和迭代次数，以及更长的向量和更大的上下文窗口，会增加训练时间。例如，在这种设置下训练30大小的100维向量，跳跃图算法大约需要5分钟。相比之下，CBOW的训练时间与上下文窗口的大小无关。
+在 i7 笔记本电脑上，处理 2 万个句子大约需要 30 秒，速度相当快。增加样本数和迭代次数，以及更长的向量和更大的上下文窗口，会增加训练时间。例如，在这种设置下训练 30 大小的 100 维向量，跳跃图算法大约需要 5 分钟。相比之下，CBOW 的训练时间与上下文窗口的大小无关。
 
 以下调用将完整模型保存到磁盘。*完整模型*意味着包括所有内部状态的完整神经网络。这样，模型可以再次加载并进一步训练：
 
@@ -407,7 +407,7 @@ model.save('./models/autos_w2v_100_2_full.bin')
 
 ```
 
-算法的选择以及这些超参数对生成的模型影响很大。因此，我们提供了一个训练和检查不同模型的蓝图。参数网格定义了将为Word2Vec或FastText训练哪些算法变体（CBOW或skip-gram）和窗口大小。我们也可以在这里变化向量大小，但这个参数的影响不是很大。根据我们的经验，在较小的语料库中，50或100维的向量效果很好。因此，我们在实验中将向量大小固定为100：
+算法的选择以及这些超参数对生成的模型影响很大。因此，我们提供了一个训练和检查不同模型的蓝图。参数网格定义了将为 Word2Vec 或 FastText 训练哪些算法变体（CBOW 或 skip-gram）和窗口大小。我们也可以在这里变化向量大小，但这个参数的影响不是很大。根据我们的经验，在较小的语料库中，50 或 100 维的向量效果很好。因此，我们在实验中将向量大小固定为 100：
 
 ```py
 from gensim.models import Word2Vec, FastText
@@ -488,17 +488,17 @@ compare_models([(n, models[n]) for n in names], positive='bmw', topn=10)
 | 5 | 沃尔沃 0.792 | 奔驰 0.695 | x-drive 0.708 | 535i 0.755 | 梅赛德斯-奔驰 0.765 |
 | 6 | 哈雷 0.783 | 梅赛德斯 0.693 | 135i 0.703 | 宝马 0.745 | 奔驰 0.760 |
 | 7 | 保时捷 0.781 | 奔驰-奔驰 0.680 | 梅赛德斯 0.690 | x-drive 0.740 | 35i 0.747 |
-| 8 | 斯巴鲁 0.777 | 奥迪 0.675 | e92 0.685 | 5系列 0.736 | 奔驰 0.747 |
+| 8 | 斯巴鲁 0.777 | 奥迪 0.675 | e92 0.685 | 5 系列 0.736 | 奔驰 0.747 |
 | 9 | MB 0.769 | 335i 0.670 | 奔驰-奔驰 0.680 | 550i 0.728 | 135i 0.746 |
 | 10 | 大众 0.768 | 135i 0.662 | 奔驰 0.679 | 435i 0.726 | 435i 0.744 |
 
-有趣的是，窗口大小为2的第一批模型主要生成其他汽车品牌，而窗口大小为30的模型基本上生成了不同BMW型号的列表。事实上，较短的窗口强调范式关系，即可以在句子中互换的词语。在我们的案例中，这将是品牌，因为我们正在寻找类似*BMW*的词语。较大的窗口捕获更多的语法关系，其中词语之间的相似性在于它们经常在相同的上下文中出现。窗口大小为5，即默认值，产生了两者的混合。对于我们的数据，CBOW模型最好地表示了范式关系，而语法关系则需要较大的窗口大小，因此更适合由skip-gram模型捕获。FastText模型的输出显示了其性质，即拼写相似的词语得到相似的分数。
+有趣的是，窗口大小为 2 的第一批模型主要生成其他汽车品牌，而窗口大小为 30 的模型基本上生成了不同 BMW 型号的列表。事实上，较短的窗口强调范式关系，即可以在句子中互换的词语。在我们的案例中，这将是品牌，因为我们正在寻找类似*BMW*的词语。较大的窗口捕获更多的语法关系，其中词语之间的相似性在于它们经常在相同的上下文中出现。窗口大小为 5，即默认值，产生了两者的混合。对于我们的数据，CBOW 模型最好地表示了范式关系，而语法关系则需要较大的窗口大小，因此更适合由 skip-gram 模型捕获。FastText 模型的输出显示了其性质，即拼写相似的词语得到相似的分数。
 
 ### 寻找相似概念
 
-窗口大小为2的CBOW向量在范式关系上非常精确。从一些已知术语开始，我们可以使用这样的模型来识别领域的核心术语和概念。[表 10-1](#tab-most-sim) 展示了在模型`autos_w2v_cbow_2`上进行一些相似性查询的输出。列`concept`是我们添加的，以突出我们预期的输出词语类型。
+窗口大小为 2 的 CBOW 向量在范式关系上非常精确。从一些已知术语开始，我们可以使用这样的模型来识别领域的核心术语和概念。表 10-1 展示了在模型`autos_w2v_cbow_2`上进行一些相似性查询的输出。列`concept`是我们添加的，以突出我们预期的输出词语类型。
 
-表10-1\. 使用CBOW模型和窗口大小为2查找选定词语的最相似邻居
+表 10-1\. 使用 CBOW 模型和窗口大小为 2 查找选定词语的最相似邻居
 
 | Word | Concept | Most Similar |
 | --- | --- | --- |
@@ -529,7 +529,7 @@ compare_models([(n, models[n]) for n in names],
 | autos_w2v_sg_30 | 4runner 0.742 | tacoma 0.739 | 4runners 0.707 | 4wd 0.678 | tacomas 0.658 |
 | autos_ft_sg_5 | toyotas 0.777 | toyo 0.762 | tacoma 0.748 | tacomas 0.745 | f150s 0.744 |
 
-实际上，Toyota Tacoma直接与F-150以及Toyota Tundra竞争。考虑到这一点，窗口大小为5的跳字模型给出了最佳结果。[^6]实际上，如果你用*gmc*替换*toyota*，你会得到*sierra*，如果你要*chevy*，你会得到*silverado*作为这个模型最相似的车型。所有这些都是竞争激烈的全尺寸皮卡。对于其他品牌和车型，这也效果很好，但当然最适合那些在Reddit论坛中广泛讨论的模型。
+实际上，Toyota Tacoma 直接与 F-150 以及 Toyota Tundra 竞争。考虑到这一点，窗口大小为 5 的跳字模型给出了最佳结果。[⁶]实际上，如果你用*gmc*替换*toyota*，你会得到*sierra*，如果你要*chevy*，你会得到*silverado*作为这个模型最相似的车型。所有这些都是竞争激烈的全尺寸皮卡。对于其他品牌和车型，这也效果很好，但当然最适合那些在 Reddit 论坛中广泛讨论的模型。
 
 # 可视化嵌入的蓝图
 
@@ -537,11 +537,11 @@ compare_models([(n, models[n]) for n in names],
 
 ## 应用降维蓝图
 
-高维向量可以通过将数据投影到二维或三维来进行可视化。如果投影效果良好，可以直观地检测到相关术语的聚类，并更深入地理解语料库中的语义概念。我们将寻找相关词汇的聚类，并使用窗口大小为30的模型探索某些关键词的语义邻域，这有利于同位语关系。因此，我们期望看到一个“BMW”词汇组，包含BMW相关术语，一个“Toyota”词汇组，包含Toyota相关术语，等等。
+高维向量可以通过将数据投影到二维或三维来进行可视化。如果投影效果良好，可以直观地检测到相关术语的聚类，并更深入地理解语料库中的语义概念。我们将寻找相关词汇的聚类，并使用窗口大小为 30 的模型探索某些关键词的语义邻域，这有利于同位语关系。因此，我们期望看到一个“BMW”词汇组，包含 BMW 相关术语，一个“Toyota”词汇组，包含 Toyota 相关术语，等等。
 
-在机器学习领域，降维也有许多用例。一些学习算法对高维且常稀疏的数据存在问题。诸如 PCA、t-SNE 或 UMAP（见[“降维技术”](#drt)）之类的降维技术试图通过投影来保留或甚至突出数据分布的重要方面。其一般思想是以一种方式投影数据，使得在高维空间中彼此接近的对象在投影中也接近，而远离的对象仍然保持距离。在我们的示例中，我们将使用 UMAP 算法，因为它为可视化提供了最佳结果。但是由于 `umap` 库实现了 scikit-learn 的估算器接口，你可以轻松地用 scikit-learn 的 `PCA` 或 `TSNE` 类替换 UMAP 缩减器。
+在机器学习领域，降维也有许多用例。一些学习算法对高维且常稀疏的数据存在问题。诸如 PCA、t-SNE 或 UMAP（见“降维技术”）之类的降维技术试图通过投影来保留或甚至突出数据分布的重要方面。其一般思想是以一种方式投影数据，使得在高维空间中彼此接近的对象在投影中也接近，而远离的对象仍然保持距离。在我们的示例中，我们将使用 UMAP 算法，因为它为可视化提供了最佳结果。但是由于 `umap` 库实现了 scikit-learn 的估算器接口，你可以轻松地用 scikit-learn 的 `PCA` 或 `TSNE` 类替换 UMAP 缩减器。
 
-下面的代码块包含了使用 UMAP 将嵌入投影到二维空间的基本操作，如 [图 10-3](#fig-umap-all) 所示。在选择嵌入模型和要绘制的词（在本例中我们采用整个词汇表）之后，我们使用目标维数 `n_components=2` 实例化 UMAP 降维器。我们像往常一样使用余弦而不是标准的欧氏距离度量。然后通过调用 `reducer.fit_transform(wv)` 将嵌入投影到 2D。
+下面的代码块包含了使用 UMAP 将嵌入投影到二维空间的基本操作，如 图 10-3 所示。在选择嵌入模型和要绘制的词（在本例中我们采用整个词汇表）之后，我们使用目标维数 `n_components=2` 实例化 UMAP 降维器。我们像往常一样使用余弦而不是标准的欧氏距离度量。然后通过调用 `reducer.fit_transform(wv)` 将嵌入投影到 2D。
 
 ```py
 from umap import UMAP
@@ -555,7 +555,7 @@ reduced_wv = reducer.fit_transform(wv)
 
 ```
 
-![](Images/btap_1003.jpg)
+![](img/btap_1003.jpg)
 
 ###### 图 10-3\. 我们模型的所有词嵌入的二维 UMAP 投影。突出显示了一些词及其最相似的邻居，以解释此散点图中的一些聚类。
 
@@ -574,7 +574,7 @@ fig.show()
 
 ```
 
-你可以在我们的 [GitHub 仓库](https://oreil.ly/gX6Ti) 中的 `embeddings` 包中找到一个更通用的蓝图函数 `plot_embeddings`。它允许你选择降维算法，并突出显示低维投影中的选定搜索词及其最相似的邻居。对于 [图 10-3](#fig-umap-all) 中的绘图，我们事先手动检查了一些聚类，然后明确命名了一些典型的搜索词来着色聚类。^([7](ch10.xhtml#idm45634179916184)) 在交互视图中，你可以在悬停在点上时看到这些词。
+你可以在我们的 [GitHub 仓库](https://oreil.ly/gX6Ti) 中的 `embeddings` 包中找到一个更通用的蓝图函数 `plot_embeddings`。它允许你选择降维算法，并突出显示低维投影中的选定搜索词及其最相似的邻居。对于 图 10-3 中的绘图，我们事先手动检查了一些聚类，然后明确命名了一些典型的搜索词来着色聚类。^(7) 在交互视图中，你可以在悬停在点上时看到这些词。
 
 下面是生成此图的代码：
 
@@ -589,7 +589,7 @@ plot_embeddings(model, search, topn=50, show_all=True, labels=False,
 
 ```
 
-对于数据探索，仅可视化搜索词集合及其最相似的邻居可能更有趣。[图 10-4](#fig-umap-selected-2d) 展示了以下几行代码生成的示例。展示的是搜索词及其前 10 个最相似的邻居：
+对于数据探索，仅可视化搜索词集合及其最相似的邻居可能更有趣。图 10-4 展示了以下几行代码生成的示例。展示的是搜索词及其前 10 个最相似的邻居：
 
 ```py
 search = ['ford', 'bmw', 'toyota', 'tesla', 'audi', 'mercedes', 'hyundai']
@@ -599,11 +599,11 @@ plot_embeddings(model, search, topn=10, show_all=False, labels=True,
 
 ```
 
-![](Images/btap_1004.jpg)
+![](img/btap_1004.jpg)
 
 ###### 图 10-4\. 选定关键词及其最相似邻居的二维 UMAP 投影。
 
-[图 10-5](#fig-umap-selected-3d) 显示了相同的关键词，但具有更多相似邻居的三维绘图。Plotly 允许您旋转和缩放点云，这样可以轻松调查感兴趣的区域。以下是生成该图的调用：
+图 10-5 显示了相同的关键词，但具有更多相似邻居的三维绘图。Plotly 允许您旋转和缩放点云，这样可以轻松调查感兴趣的区域。以下是生成该图的调用：
 
 ```py
 plot_embeddings(model, search, topn=30, n_dims=3,
@@ -613,7 +613,7 @@ plot_embeddings(model, search, topn=30, n_dims=3,
 
 要可视化如 *tacoma is to toyota like f150 is to ford* 的类比，应使用线性 PCA 转换。UMAP 和 t-SNE 都以非线性方式扭曲原始空间。因此，投影空间中的差异向量方向可能与原始方向毫无关联。即使 PCA 也因剪切而扭曲，但效果不及 UMAP 或 t-SNE 明显。
 
-![](Images/btap_1005.jpg)
+![](img/btap_1005.jpg)
 
 ###### 图 10-5\. 选定关键词及其最相似邻居的三维 UMAP 投影。
 
@@ -640,23 +640,23 @@ with open(f'{model_path}/{name}_vecs.tsv', 'w', encoding='utf-8') as tsvfile:
 
 ```
 
-现在我们可以将我们的嵌入加载到投影仪中，并浏览 3D 可视化效果。要检测聚类，应使用 UMAP 或 t-SNE。[图 10-6](#fig-tf-projector) 显示了我们嵌入的 UMAP 投影的截图。在投影仪中，您可以单击任何数据点或搜索单词，并突出显示其前 100 个邻居。我们选择 *harley* 作为起点来探索与哈雷 - 戴维森相关的术语。正如您所见，这种可视化在探索领域重要术语及其语义关系时非常有帮助。
+现在我们可以将我们的嵌入加载到投影仪中，并浏览 3D 可视化效果。要检测聚类，应使用 UMAP 或 t-SNE。图 10-6 显示了我们嵌入的 UMAP 投影的截图。在投影仪中，您可以单击任何数据点或搜索单词，并突出显示其前 100 个邻居。我们选择 *harley* 作为起点来探索与哈雷 - 戴维森相关的术语。正如您所见，这种可视化在探索领域重要术语及其语义关系时非常有帮助。
 
-![](Images/btap_1006.jpg)
+![](img/btap_1006.jpg)
 
 ###### 图 10-6\. 使用 TensorFlow Embedding Projector 可视化嵌入。
 
 ## 蓝图：构建相似性树
 
-这些词及其相似关系可以被解释为网络图，如下所示：词表示图的节点，当两个节点“非常”相似时，就创建一条边。此标准可以是节点位于它们的前n个最相似邻居之间，或者是相似度分数的阈值。然而，一个词附近的大多数词不仅与该词相似，而且彼此也相似。因此，即使对于少量词的子集，完整的网络图也会有太多的边，以至于无法理解的可视化。因此，我们从略微不同的角度出发，创建这个网络的子图，即相似性树。[图 10-7](#fig-sim-tree-noise) 展示了这样一个根词 *noise* 的相似性树。
+这些词及其相似关系可以被解释为网络图，如下所示：词表示图的节点，当两个节点“非常”相似时，就创建一条边。此标准可以是节点位于它们的前 n 个最相似邻居之间，或者是相似度分数的阈值。然而，一个词附近的大多数词不仅与该词相似，而且彼此也相似。因此，即使对于少量词的子集，完整的网络图也会有太多的边，以至于无法理解的可视化。因此，我们从略微不同的角度出发，创建这个网络的子图，即相似性树。图 10-7 展示了这样一个根词 *noise* 的相似性树。
 
-![](Images/btap_1007.jpg)
+![](img/btap_1007.jpg)
 
 ###### 图 10-7\. *noise* 最相似的单词的相似性树。
 
 我们提供两个蓝图函数来创建这样的可视化效果。第一个函数 `sim_tree` 从根词开始生成相似性树。第二个函数 `plot_tree` 创建绘图。我们在两个函数中都使用 Python 的图形库 `networkx`。
 
-让我们首先看一下 `sim_tree`。从根词开始，我们寻找前n个最相似的邻居。它们被添加到图中，并且相应地创建边。然后，我们对每个新发现的邻居及其邻居执行相同的操作，依此类推，直到达到与根节点的最大距离。在内部，我们使用队列 (`collections.deque`) 实现广度优先搜索。边的权重由相似度确定，稍后用于设置线宽：
+让我们首先看一下 `sim_tree`。从根词开始，我们寻找前 n 个最相似的邻居。它们被添加到图中，并且相应地创建边。然后，我们对每个新发现的邻居及其邻居执行相同的操作，依此类推，直到达到与根节点的最大距离。在内部，我们使用队列 (`collections.deque`) 实现广度优先搜索。边的权重由相似度确定，稍后用于设置线宽：
 
 ```py
 import networkx as nx
@@ -703,7 +703,7 @@ def plot_tree(graph, node_size=1000, font_size=12):
 
 ```
 
-[图 10-7](#fig-sim-tree-noise) 使用这些函数和参数生成。
+图 10-7 使用这些函数和参数生成。
 
 ```py
 model = models['autos_w2v_sg_2']
@@ -712,9 +712,9 @@ plot_tree(graph, node_size=500, font_size=8)
 
 ```
 
-它展示了与 *noise* 最相似的单词及其与 *noise* 的最相似单词，直到设想的距离为3。可视化表明，我们创建了一种分类法，但实际上并非如此。我们只选择在我们的图中包含可能的边的子集，以突出“父”词与其最相似的“子”词之间的关系。这种方法忽略了兄弟之间或祖父辈之间可能的边。然而，视觉呈现有助于探索围绕根词的特定应用领域的词汇。然而，Gensim 还实现了用于学习单词之间分层关系的 [Poincaré embeddings](https://oreil.ly/mff7p)。
+它展示了与 *noise* 最相似的单词及其与 *noise* 的最相似单词，直到设想的距离为 3。可视化表明，我们创建了一种分类法，但实际上并非如此。我们只选择在我们的图中包含可能的边的子集，以突出“父”词与其最相似的“子”词之间的关系。这种方法忽略了兄弟之间或祖父辈之间可能的边。然而，视觉呈现有助于探索围绕根词的特定应用领域的词汇。然而，Gensim 还实现了用于学习单词之间分层关系的 [Poincaré embeddings](https://oreil.ly/mff7p)。
 
-本图使用了窗口大小为 2 的模型，突显了不同种类和同义词的噪声。如果我们选择较大的窗口大小，我们将得到与根词相关的更多概念。[图 10-8](#fig-sim-tree-plug) 是使用以下参数创建的：
+本图使用了窗口大小为 2 的模型，突显了不同种类和同义词的噪声。如果我们选择较大的窗口大小，我们将得到与根词相关的更多概念。图 10-8 是使用以下参数创建的：
 
 ```py
 model = models['autos_w2v_sg_30']
@@ -723,7 +723,7 @@ plot_tree(graph, node_size=500, font_size=8)
 
 ```
 
-![](Images/btap_1008.jpg)
+![](img/btap_1008.jpg)
 
 ###### 图 10-8\. 与火花塞最相似的单词的相似性树。
 
@@ -761,20 +761,20 @@ plot_tree(graph, node_size=500, font_size=8)
 
 +   Pennington, Jeffrey, Richard Socher 和 Christopher Manning. *Glove: Global Vectors for Word Representation*. 2014\. [*https://nlp.stanford.edu/pubs/glove.pdf*](https://nlp.stanford.edu/pubs/glove.pdf).
 
-+   Peters, Matthew E., Mark Neumann, Mohit Iyyer等人。*深度上下文化的词表示*. 2018\. [*https://arxiv.org/abs/1802.05365*](https://arxiv.org/abs/1802.05365)。
++   Peters, Matthew E., Mark Neumann, Mohit Iyyer 等人。*深度上下文化的词表示*. 2018\. [*https://arxiv.org/abs/1802.05365*](https://arxiv.org/abs/1802.05365)。
 
 +   Wolf, Thomas。*通用词向量和句子向量的最新进展*. 2018\. [*https://medium.com/huggingface/universal-word-sentence-embeddings-ce48ddc8fc3a*](https://medium.com/huggingface/universal-word-sentence-embeddings-ce48ddc8fc3a)。
 
-^([1](ch10.xhtml#idm45634182078904-marker)) 受到Adrian Colyer的[“词向量的惊人力量”博文](https://oreil.ly/8iMPF)的启发。
+^(1) 受到 Adrian Colyer 的[“词向量的惊人力量”博文](https://oreil.ly/8iMPF)的启发。
 
-^([2](ch10.xhtml#idm45634182074280-marker)) 这个经常被引用的例子最初来自语言学家尤金·尼达，于1975年提出。
+^(2) 这个经常被引用的例子最初来自语言学家尤金·尼达，于 1975 年提出。
 
-^([3](ch10.xhtml#idm45634182038552-marker)) Jay Alammar的博文[“图解Word2Vec”](https://oreil.ly/TZNTT)生动地解释了这个方程。
+^(3) Jay Alammar 的博文[“图解 Word2Vec”](https://oreil.ly/TZNTT)生动地解释了这个方程。
 
-^([4](ch10.xhtml#idm45634181941800-marker)) 拥有相同发音但不同意义的单词被称为*同音异义词*。如果它们拼写相同，则被称为*同形异义词*。
+^(4) 拥有相同发音但不同意义的单词被称为*同音异义词*。如果它们拼写相同，则被称为*同形异义词*。
 
-^([5](ch10.xhtml#idm45634181919512-marker)) 例如，来自[RaRe Technologies](https://oreil.ly/two0R)和[3Top](https://oreil.ly/4DwDy)。
+^(5) 例如，来自[RaRe Technologies](https://oreil.ly/two0R)和[3Top](https://oreil.ly/4DwDy)。
 
-^([6](ch10.xhtml#idm45634180172056-marker)) 如果你自己运行这段代码，由于随机初始化的原因，结果可能会与书中打印的略有不同。
+^(6) 如果你自己运行这段代码，由于随机初始化的原因，结果可能会与书中打印的略有不同。
 
-^([7](ch10.xhtml#idm45634179916184-marker)) 你可以在电子版和[GitHub](https://oreil.ly/MWJLd)上找到彩色的图表。
+^(7) 你可以在电子版和[GitHub](https://oreil.ly/MWJLd)上找到彩色的图表。

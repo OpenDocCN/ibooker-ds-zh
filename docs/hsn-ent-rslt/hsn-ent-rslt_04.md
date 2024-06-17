@@ -1,20 +1,20 @@
-# 第4章 概率匹配
+# 第四章 概率匹配
 
-在[第3章](ch03.html#chapter_3)中，我们探讨了如何使用近似匹配技术来衡量属性值之间的相似程度。我们设定了一个阈值，超过此阈值我们宣布它们等价，并将这些匹配特征以相等的权重结合起来，以确定两条记录指代同一实体。我们仅针对精确匹配评估了我们的性能。
+在第三章中，我们探讨了如何使用近似匹配技术来衡量属性值之间的相似程度。我们设定了一个阈值，超过此阈值我们宣布它们等价，并将这些匹配特征以相等的权重结合起来，以确定两条记录指代同一实体。我们仅针对精确匹配评估了我们的性能。
 
-本章中，我们将探讨如何使用基于概率的技术来计算每个等效属性的最佳加权，以计算整体实体匹配的可能性。这种基于概率的方法允许我们在最具统计显著性的属性等价（精确或近似）时宣布匹配，但那些重要性较低的属性不足够相似时则不匹配。它还允许我们对匹配声明的信心进行分级，并应用适当的匹配阈值。本节将介绍的模型被称为Fellegi-Sunter（FS）模型。
+本章中，我们将探讨如何使用基于概率的技术来计算每个等效属性的最佳加权，以计算整体实体匹配的可能性。这种基于概率的方法允许我们在最具统计显著性的属性等价（精确或近似）时宣布匹配，但那些重要性较低的属性不足够相似时则不匹配。它还允许我们对匹配声明的信心进行分级，并应用适当的匹配阈值。本节将介绍的模型被称为 Fellegi-Sunter（FS）模型。
 
-我们还将介绍一种概率实体解析框架Splink，该框架将帮助我们计算这些指标并解决我们的实体问题。
+我们还将介绍一种概率实体解析框架 Splink，该框架将帮助我们计算这些指标并解决我们的实体问题。
 
 # 示例问题
 
-让我们回到从[第2章](ch02.html#chapter_2)末尾的精确匹配结果。打开*Chapter4.ipynb*笔记本，我们重新加载维基百科和TheyWorkForYou网站的标准化数据集。与[第3章](ch03.html#chapter_3)一样，我们首先通过以下方式计算两个数据集的笛卡尔积或交叉乘积：
+让我们回到从第二章末尾的精确匹配结果。打开*Chapter4.ipynb*笔记本，我们重新加载维基百科和 TheyWorkForYou 网站的标准化数据集。与第三章一样，我们首先通过以下方式计算两个数据集的笛卡尔积或交叉乘积：
 
 ```py
 cross = df_w.merge(df_t, how='cross', suffixes=('_w', '_t'))
 ```
 
-这为我们提供了650 × 650 = 422,500对记录的总人口——维基百科和TheyWorkForYou数据集之间每个姓名组合的一对。
+这为我们提供了 650 × 650 = 422,500 对记录的总人口——维基百科和 TheyWorkForYou 数据集之间每个姓名组合的一对。
 
 在本章中，我们将多次使用每个记录对的`Firstname`、`Lastname`和`Constituency`字段之间的精确匹配。因此，一次计算这些匹配并将它们存储为额外的特征列更为高效：
 
@@ -31,7 +31,7 @@ cross['Tmatch'] =
     sum([cross['Fmatch'],cross['Lmatch'],cross['Cmatch']]) 
 ```
 
-根据我们在[第2章](ch02.html#chapter_2)中对数据的探索，我们知道在总共422,500个组合中，有637对记录具有选区和名字中的第一个名字或姓氏的精确匹配。这是我们的`match`人口：
+根据我们在第二章中对数据的探索，我们知道在总共 422,500 个组合中，有 637 对记录具有选区和名字中的第一个名字或姓氏的精确匹配。这是我们的`match`人口：
 
 ```py
 match = cross[cross['Cmatch'] & (cross['Fmatch'] |
@@ -45,7 +45,7 @@ notmatch = cross[(~cross['Cmatch']) | (~cross['Fmatch'] &
     ~cross['Lmatch'])]
 ```
 
-这些组合总结在[表 4-1](#table-4-1)中。
+这些组合总结在表 4-1 中。
 
 Table 4-1\. 匹配与不匹配的组合
 
@@ -81,9 +81,9 @@ len(first_match)
 632
 ```
 
-对于其他三种匹配/不匹配组合以及名字等价性或非等价性的重复，我们可以制作一个人口分布图，如[图 4-1](#fig-4-1)所示。
+对于其他三种匹配/不匹配组合以及名字等价性或非等价性的重复，我们可以制作一个人口分布图，如图 4-1 所示。
 
-![](assets/hoer_0401.png)
+![](img/hoer_0401.png)
 
 ###### 图 4-1\. 名字人口分布图
 
@@ -101,7 +101,7 @@ len(first_match)
 
 <math alttext="p r o b normal bar m a t c h normal bar f i r s t equals StartFraction l e n left-parenthesis f i r s t normal bar m a t c h right-parenthesis Over left-parenthesis l e n left-parenthesis f i r s t normal bar m a t c h right-parenthesis plus l e n left-parenthesis f i r s t normal bar n o t m a t c h right-parenthesis right-parenthesis EndFraction equals StartFraction 632 Over left-parenthesis 632 plus 2052 right-parenthesis EndFraction almost-equals 0.2355"><mrow><mi>p</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mo>_</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>_</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>=</mo> <mfrac><mrow><mi>l</mi><mi>e</mi><mi>n</mi><mo>(</mo><mi>f</mi><mi>i</mi><mi>r</mi><mi>s</mi><mi>t</mi><mo>_</mo><mi>m</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mo>)</mo></mrow> <mrow><mo>(</mo><mi>l</mi><mi>e</mi><mi>n</mi><mo>(</mo><mi>f</mi><mi>i</mi><mi>r</mi><mi>s</mi><mi>t</mi><mo>_</mo><mi>m</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mo>)</mo><mo>+</mo><mi>l</mi><mi>e</mi><mi>n</mi><mo>(</mo><mi>f</mi><mi>i</mi><mi>r</mi><mi>s</mi><mi>t</mi><mo>_</mo><mi>n</mi><mi>o</mi><mi>t</mi><mi>m</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mo>)</mo><mo>)</mo></mrow></mfrac> <mo>=</mo> <mfrac><mn>632</mn> <mrow><mo>(</mo><mn>632</mn><mo>+</mo><mn>2052</mn><mo>)</mo></mrow></mfrac> <mo>≈</mo> <mn>0</mn> <mo>.</mo> <mn>2355</mn></mrow></math>
 
-从中可以看出，仅有约23%的名字等价性并不是两个记录匹配的很好预测器。这个值是一个条件概率，即在名字匹配的条件下是真正匹配的概率。可以写成：
+从中可以看出，仅有约 23%的名字等价性并不是两个记录匹配的很好预测器。这个值是一个条件概率，即在名字匹配的条件下是真正匹配的概率。可以写成：
 
 <math alttext="upper P left-parenthesis m a t c h vertical-bar f i r s t right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>|</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>)</mo></mrow></math>
 
@@ -109,9 +109,9 @@ len(first_match)
 
 ## 姓氏匹配概率
 
-将相同的计算应用于姓氏，我们可以制作第二个人口分布图，如[图 4-2](#fig-4-2)所示。
+将相同的计算应用于姓氏，我们可以制作第二个人口分布图，如图 4-2 所示。
 
-![](assets/hoer_0402.png)
+![](img/hoer_0402.png)
 
 ###### 图 4-2\. 姓氏人口分布图
 
@@ -127,11 +127,11 @@ len(first_match)
 
 # 多属性匹配概率
 
-现在，如果我们考虑同时名字和姓氏的等效性，我们可以进一步将我们的人口地图细分。从我们的名字地图开始，进一步将每个名字类别细分为姓氏等效和非等效，我们可以查看我们的人口如[图4-3](#fig-4-3)所示。
+现在，如果我们考虑同时名字和姓氏的等效性，我们可以进一步将我们的人口地图细分。从我们的名字地图开始，进一步将每个名字类别细分为姓氏等效和非等效，我们可以查看我们的人口如图 4-3 所示。
 
-![](assets/hoer_0403.png)
+![](img/hoer_0403.png)
 
-###### 图4-3\. 名字，姓氏人口地图
+###### 图 4-3\. 名字，姓氏人口地图
 
 将我们的计算扩展到同时名字和姓氏完全匹配，我们可以计算给定名字和姓氏等效的真正正匹配的概率为：
 
@@ -155,7 +155,7 @@ len(first_match)
 
 这并不奇怪，因为我们定义了真正正匹配为在成分上具有完全匹配和名字或姓氏之一的记录。
 
-总之，我们可以利用这些概率来指导我们是否可能有一个真正的正匹配。在这个例子中，我们会更加重视姓氏匹配而不是名字匹配。这是我们在[第三章](ch03.html#chapter_3)中方法的改进，我们在那里给了它们相同的权重（并要求它们都等效）来声明匹配。
+总之，我们可以利用这些概率来指导我们是否可能有一个真正的正匹配。在这个例子中，我们会更加重视姓氏匹配而不是名字匹配。这是我们在第三章中方法的改进，我们在那里给了它们相同的权重（并要求它们都等效）来声明匹配。
 
 但是等等，我们有一个问题。在前面的例子中，我们从已知的匹配人口开始，用于计算名字和姓氏等效是否等于匹配的概率。然而，在大多数情况下，我们没有已知的`match`人口；否则我们一开始就不需要执行匹配！我们如何克服这一点呢？为了做到这一点，我们需要稍微重新构思我们的计算，然后使用一些聪明的估算技术。
 
@@ -169,7 +169,7 @@ len(first_match)
 
 *贝叶斯定理*，以托马斯·贝叶斯命名，陈述了一个事件的条件概率，基于另一个事件的发生，等于第一个事件的概率乘以第二个事件发生的概率。
 
-考虑随机选择两条记录是真正正匹配的概率P(match)，乘以在这些匹配中名字匹配的概率P(first|match)：
+考虑随机选择两条记录是真正正匹配的概率 P(match)，乘以在这些匹配中名字匹配的概率 P(first|match)：
 
 <math alttext="upper P left-parenthesis f i r s t vertical-bar m a t c h right-parenthesis times upper P left-parenthesis m a t c h right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>|</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>)</mo> <mo>×</mo> <mi>P</mi> <mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>)</mo></mrow></math>
 
@@ -185,7 +185,7 @@ len(first_match)
 
 <math alttext="upper P left-parenthesis m a t c h vertical-bar f i r s t right-parenthesis equals StartFraction upper P left-parenthesis f i r s t vertical-bar m a t c h right-parenthesis times upper P left-parenthesis m a t c h right-parenthesis Over upper P left-parenthesis f i r s t right-parenthesis EndFraction"><mrow><mi>P</mi> <mrow><mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>|</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mrow><mi>P</mi><mo>(</mo><mi>f</mi><mi>i</mi><mi>r</mi><mi>s</mi><mi>t</mi><mo>|</mo><mi>m</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mo>)</mo><mo>×</mo><mi>P</mi><mo>(</mo><mi>m</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mo>)</mo></mrow> <mrow><mi>P</mi><mo>(</mo><mi>f</mi><mi>i</mi><mi>r</mi><mi>s</mi><mi>t</mi><mo>)</mo></mrow></mfrac></mrow></math>
 
-我们可以计算P(first)为`match`和`notmatch`人口的概率之和：
+我们可以计算 P(first)为`match`和`notmatch`人口的概率之和：
 
 <math display="block"><mtable columnalign="right left" displaystyle="true"><mtr><mtd class="tml-right" style="padding:0.7ex 0em 0.7ex 0em;"><mrow><mi>P</mi> <mo form="prefix" stretchy="false">(</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo form="postfix" stretchy="false">)</mo></mrow></mtd> <mtd class="tml-left" style="padding:0.7ex 0em 0.7ex 0em;"><mrow><mo>=</mo> <mo form="prefix" stretchy="false">(</mo> <mi>P</mi> <mo form="prefix" stretchy="false">(</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mi>|</mi> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo form="postfix" stretchy="false">)</mo> <mo>×</mo> <mi>P</mi> <mo form="prefix" stretchy="false">(</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo form="postfix" stretchy="false">)</mo></mrow></mtd></mtr> <mtr><mtd class="tml-left" style="padding:0.7ex 0em 0.7ex 0em;"><mrow><mo>+</mo> <mi>P</mi> <mo form="prefix" stretchy="false">(</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mi>|</mi> <mi>n</mi> <mi>o</mi> <mi>t</mi> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo form="postfix" stretchy="false">)</mo> <mo>×</mo> <mi>P</mi> <mo form="prefix" stretchy="false">(</mo> <mi>n</mi> <mi>o</mi> <mi>t</mi> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo form="postfix" stretchy="false">)</mo> <mo form="postfix" stretchy="false">)</mo></mrow></mtd></mtr></mtable></math>
 
@@ -201,17 +201,17 @@ len(first_match)
 
 让我们稍微详细地检查这些值，随着符号的简化而进行。
 
-## m值
+## m 值
 
-在整个`match`人口中，一个属性将会相等的条件概率被称为*m值*。使用我们的`Firstname`示例，我们可以表示为：
+在整个`match`人口中，一个属性将会相等的条件概率被称为*m 值*。使用我们的`Firstname`示例，我们可以表示为：
 
 <math alttext="m Subscript f Baseline equals upper P left-parenthesis f i r s t vertical-bar m a t c h right-parenthesis"><mrow><msub><mi>m</mi> <mi>f</mi></msub> <mo>=</mo> <mi>P</mi> <mrow><mo>(</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>|</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>)</mo></mrow></mrow></math>
 
-在完美的数据集中，`match`人口中的所有名字将完全相等，*m*值将为1。因此，这个值可以被认为是数据质量的一种度量，即属性在数据集中被捕捉到的变异程度。更高的值表示更高质量的属性。
+在完美的数据集中，`match`人口中的所有名字将完全相等，*m*值将为 1。因此，这个值可以被认为是数据质量的一种度量，即属性在数据集中被捕捉到的变异程度。更高的值表示更高质量的属性。
 
-## u值
+## u 值
 
-在整个`notmatch`人口中，一个属性将会相等的条件概率被称为*u值*。同样地，使用我们的`Firstname`示例，我们可以表示为：
+在整个`notmatch`人口中，一个属性将会相等的条件概率被称为*u 值*。同样地，使用我们的`Firstname`示例，我们可以表示为：
 
 <math alttext="u Subscript f Baseline equals upper P left-parenthesis f i r s t vertical-bar n o t m a t c h right-parenthesis"><mrow><msub><mi>u</mi> <mi>f</mi></msub> <mo>=</mo> <mi>P</mi> <mrow><mo>(</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>|</mo> <mi>n</mi> <mi>o</mi> <mi>t</mi> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>)</mo></mrow></mrow></math>
 
@@ -241,9 +241,9 @@ len(first_match)
 
 ## 费勒吉-桑特模型
 
-费勒吉-桑特模型，以伊凡·P·费勒吉和艾伦·B·桑特命名，^([1](ch04.html#id429)) 描述了我们如何扩展简单的贝叶斯方法，结合多个属性的贡献，计算匹配的总体可能性。它依赖于属性之间条件独立的简化假设，也称为*朴素贝叶斯*。
+费勒吉-桑特模型，以伊凡·P·费勒吉和艾伦·B·桑特命名，^(1) 描述了我们如何扩展简单的贝叶斯方法，结合多个属性的贡献，计算匹配的总体可能性。它依赖于属性之间条件独立的简化假设，也称为*朴素贝叶斯*。
 
-使用FS模型，我们可以通过简单地将记录中每个属性的贝叶斯因子相乘来组合它们。以我们的`Firstname`示例为例，考虑`Lastname`也等效时：
+使用 FS 模型，我们可以通过简单地将记录中每个属性的贝叶斯因子相乘来组合它们。以我们的`Firstname`示例为例，考虑`Lastname`也等效时：
 
 <math alttext="upper P left-parenthesis m a t c h StartAbsoluteValue l a s t EndAbsoluteValue f i r s t right-parenthesis equals 1 minus left-parenthesis 1 plus StartFraction m Subscript f Baseline Over u Subscript f Baseline EndFraction times StartFraction m Subscript l Baseline Over u Subscript l Baseline EndFraction times StartFraction lamda Over left-parenthesis 1 minus lamda right-parenthesis EndFraction right-parenthesis Superscript negative 1"><mrow><mi>P</mi> <mrow><mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>|</mo> <mi>l</mi> <mi>a</mi> <mi>s</mi> <mi>t</mi> <mo>|</mo> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>1</mn> <mo>-</mo> <msup><mrow><mo>(</mo><mn>1</mn><mo>+</mo><mfrac><msub><mi>m</mi> <mi>f</mi></msub> <msub><mi>u</mi> <mi>f</mi></msub></mfrac> <mo>×</mo><mfrac><msub><mi>m</mi> <mi>l</mi></msub> <msub><mi>u</mi> <mi>l</mi></msub></mfrac> <mo>×</mo><mfrac><mi>λ</mi> <mrow><mo>(</mo><mn>1</mn><mo>-</mo><mi>λ</mi><mo>)</mo></mrow></mfrac><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup></mrow></math>
 
@@ -253,7 +253,7 @@ len(first_match)
 
 一旦我们可以计算每个属性的*m*和*u*值，以及整体数据集的 <math alttext="lamda"><mi>λ</mi></math> 值，我们可以轻松地计算每对记录的概率。我们只需确定每个属性的等效性（精确或适当的近似），选择适当的贝叶斯因子，并使用前述公式将它们相乘，以计算该记录对的总体概率。
 
-对于我们的简单示例，我们的贝叶斯因子如 [Table 4-2](#table-4-2) 所示计算。
+对于我们的简单示例，我们的贝叶斯因子如 Table 4-2 所示计算。
 
 表 4-2\. `Firstname`，`Lastname` 匹配因子计算
 
@@ -268,7 +268,7 @@ len(first_match)
 
 为了使整体匹配计算更直观，有时会使用贝叶斯因子的对数，这样它们可以相加而不是相乘。这样可以更容易地可视化每个属性对总体分数的相对贡献。
 
-对于我们简单的名字等价示例，可以计算对数匹配权重（使用基数2）如下：
+对于我们简单的名字等价示例，可以计算对数匹配权重（使用基数 2）如下：
 
 <math alttext="upper M a t c h upper W e i g h t equals l o g 2 StartFraction m Subscript f Baseline Over u Subscript f Baseline EndFraction plus l o g 2 StartFraction m Subscript l Baseline Over u Subscript l Baseline EndFraction plus l o g 2 StartFraction lamda Over left-parenthesis 1 minus lamda right-parenthesis EndFraction"><mrow><mi>M</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mi>W</mi> <mi>e</mi> <mi>i</mi> <mi>g</mi> <mi>h</mi> <mi>t</mi> <mo>=</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mfrac><msub><mi>m</mi> <mi>f</mi></msub> <msub><mi>u</mi> <mi>f</mi></msub></mfrac> <mo>+</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mfrac><msub><mi>m</mi> <mi>l</mi></msub> <msub><mi>u</mi> <mi>l</mi></msub></mfrac> <mo>+</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mfrac><mi>λ</mi> <mrow><mo>(</mo><mn>1</mn><mo>-</mo><mi>λ</mi><mo>)</mo></mrow></mfrac></mrow></math>
 
@@ -276,7 +276,7 @@ len(first_match)
 
 <math alttext="upper P r o b a b i l i t y equals 1 minus left-parenthesis 1 plus 2 Superscript upper M a t c h upper W e i g h t Baseline right-parenthesis Superscript negative 1"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mi>a</mi> <mi>b</mi> <mi>i</mi> <mi>l</mi> <mi>i</mi> <mi>t</mi> <mi>y</mi> <mo>=</mo> <mn>1</mn> <mo>-</mo> <msup><mrow><mo>(</mo><mn>1</mn><mo>+</mo><msup><mn>2</mn> <mrow><mi>M</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mi>W</mi><mi>e</mi><mi>i</mi><mi>g</mi><mi>h</mi><mi>t</mi></mrow></msup> <mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup></mrow></math>
 
-现在我们了解了如何将个体属性的概率或匹配权重组合在一起，让我们考虑在没有已知`match`群体时如何估计我们的 <math alttext="lamda"><mi>λ</mi></math> 值以及每个属性的*m*和*u*值。我们可以使用的一种技术称为[*期望最大化算法（EM算法）*](https://oreil.ly/kvWD3)。
+现在我们了解了如何将个体属性的概率或匹配权重组合在一起，让我们考虑在没有已知`match`群体时如何估计我们的 <math alttext="lamda"><mi>λ</mi></math> 值以及每个属性的*m*和*u*值。我们可以使用的一种技术称为[*期望最大化算法（EM 算法）*](https://oreil.ly/kvWD3)。
 
 # 期望最大化算法
 
@@ -294,7 +294,7 @@ len(it1_match)
 637
 ```
 
-这为我们提供了一个伪匹配人口 `it1_match`，共 637 条记录。除了我们在 [第 2 章](ch02.html#chapter_2) 中找到的 628 个完美匹配外，我们还有 9 个匹配，其中 `Firstname` 或 `Lastname`（但不是两者同时）不匹配，如图 4-4 所示：
+这为我们提供了一个伪匹配人口 `it1_match`，共 637 条记录。除了我们在 第二章 中找到的 628 个完美匹配外，我们还有 9 个匹配，其中 `Firstname` 或 `Lastname`（但不是两者同时）不匹配，如图 4-4 所示：
 
 ```py
 it1_match[~it1_match['Fmatch'] | ~it1_match['Lmatch']]
@@ -302,7 +302,7 @@ it1_match[~it1_match['Fmatch'] | ~it1_match['Lmatch']]
       'Lastname_w','Lastname_t']]
 ```
 
-![](assets/hoer_0404.png)
+![](img/hoer_0404.png)
 
 ###### 图 4-4\. 期望最大化迭代 1 附加匹配
 
@@ -328,7 +328,7 @@ uli1 = len(it1_notmatch[it1_notmatch['Lmatch']])/len(it1_notmatch)
 uci1 = len(it1_notmatch[it1_notmatch['Cmatch']])/len(it1_notmatch)
 ```
 
-[表 4-3](#table-4-3) 显示了这些值以及每个属性的匹配权重值。
+表 4-3 显示了这些值以及每个属性的匹配权重值。
 
 表 4-3\. 迭代 1 的 *m* 和 *u* 值
 
@@ -379,9 +379,9 @@ cross['prob'] = cross.apply(lambda x: match_prb(
 
 一旦我们计算了这些值，我们可以再次迭代，根据计算出的匹配概率重新将我们的人口分成`match`和`notmatch`人口。
 
-## 迭代2
+## 迭代 2
 
-为了说明目的，我们使用大于0.99的总体匹配概率来定义我们的新假设`match`人口，并将任何匹配概率等于或低于此值的记录分配给我们的`notmatch`人口：
+为了说明目的，我们使用大于 0.99 的总体匹配概率来定义我们的新假设`match`人口，并将任何匹配概率等于或低于此值的记录分配给我们的`notmatch`人口：
 
 ```py
 it2_match = cross[cross['prob']>0.99]
@@ -391,26 +391,26 @@ len(it2_match)
 633
 ```
 
-将这个0.99的阈值应用于我们略微减少的`match`人口，即633人。让我们看看为什么。如果我们选择略低于阈值的记录，我们可以看到：
+将这个 0.99 的阈值应用于我们略微减少的`match`人口，即 633 人。让我们看看为什么。如果我们选择略低于阈值的记录，我们可以看到：
 
 ```py
 it2_notmatch[it2_notmatch['prob']>0.9]
    [['Constituency_w', 'Lastname_w','Lastname_t','prob']]
 ```
 
-![](assets/hoer_0405.png)
+![](img/hoer_0405.png)
 
-###### 图4-5。迭代2下线匹配阈值的记录
+###### 图 4-5。迭代 2 下线匹配阈值的记录
 
-正如我们在[图4-5](#fig-4-5)中看到的，如果`Lastname`不等效，新的匹配概率就会略低于我们的0.99阈值。使用这些新的`match`和`notmatch`人口，我们可以修订我们的 <math alttext="lamda"><mi>λ</mi></math> 、*m* 和 *u* 值，并再次迭代，重新计算每对记录的匹配概率。
+正如我们在图 4-5 中看到的，如果`Lastname`不等效，新的匹配概率就会略低于我们的 0.99 阈值。使用这些新的`match`和`notmatch`人口，我们可以修订我们的 <math alttext="lamda"><mi>λ</mi></math> 、*m* 和 *u* 值，并再次迭代，重新计算每对记录的匹配概率。
 
 在这种情况下，我们的 <math alttext="lamda"><mi>λ</mi></math> 实际上没有太大变化：
 
 <math alttext="lamda 2 equals StartFraction 633 Over 650 times 650 EndFraction almost-equals 0.0015"><mrow><msub><mi>λ</mi> <mn>2</mn></msub> <mo>=</mo> <mfrac><mn>633</mn> <mrow><mn>650</mn><mo>×</mo><mn>650</mn></mrow></mfrac> <mo>≈</mo> <mn>0</mn> <mo>.</mo> <mn>0015</mn></mrow></math>
 
-只有`Lastname`的值稍微改变，如表格4-4所示。
+只有`Lastname`的值稍微改变，如表格 4-4 所示。
 
-表格4-4。迭代2 *m* 和 *u* 值
+表格 4-4。迭代 2 *m* 和 *u* 值
 
 | 属性 | *m* 值 | *u* 值 | 匹配贝叶斯因子 | 匹配权重 | 不匹配贝叶斯因子 | 不匹配权重 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -420,7 +420,7 @@ it2_notmatch[it2_notmatch['prob']>0.9]
 
 ## Iteration 3
 
-在这个简单的例子中，这一次迭代不会改变`match`人口，仍然为633，因为EM算法已经收敛。
+在这个简单的例子中，这一次迭代不会改变`match`人口，仍然为 633，因为 EM 算法已经收敛。
 
 这给我们我们的最终参数值：
 
@@ -452,7 +452,7 @@ it2_notmatch[it2_notmatch['prob']>0.9]
 
 <math alttext="upper P left-parenthesis m a t c h StartAbsoluteValue n o t f i r s t EndAbsoluteValue n o t l a s t right-parenthesis equals 1 minus left-parenthesis 1 plus StartFraction left-parenthesis 1 minus m Subscript f Baseline right-parenthesis Over left-parenthesis 1 minus u Subscript f Baseline right-parenthesis EndFraction times StartFraction left-parenthesis 1 minus m Subscript l Baseline right-parenthesis Over left-parenthesis 1 minus u Subscript l Baseline right-parenthesis EndFraction times StartFraction lamda Over left-parenthesis 1 minus lamda right-parenthesis EndFraction right-parenthesis Superscript negative 1 Baseline equals 0"><mrow><mi>P</mi> <mrow><mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>|</mo> <mi>n</mi> <mi>o</mi> <mi>t</mi> <mi>f</mi> <mi>i</mi> <mi>r</mi> <mi>s</mi> <mi>t</mi> <mo>|</mo> <mi>n</mi> <mi>o</mi> <mi>t</mi> <mi>l</mi> <mi>a</mi> <mi>s</mi> <mi>t</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>1</mn> <mo>-</mo> <msup><mrow><mo>(</mo><mn>1</mn><mo>+</mo><mfrac><mrow><mo>(</mo><mn>1</mn><mo>-</mo><msub><mi>m</mi> <mi>f</mi></msub> <mo>)</mo></mrow> <mrow><mo>(</mo><mn>1</mn><mo>-</mo><msub><mi>u</mi> <mi>f</mi></msub> <mo>)</mo></mrow></mfrac><mo>×</mo><mfrac><mrow><mo>(</mo><mn>1</mn><mo>-</mo><msub><mi>m</mi> <mi>l</mi></msub> <mo>)</mo></mrow> <mrow><mo>(</mo><mn>1</mn><mo>-</mo><msub><mi>u</mi> <mi>l</mi></msub> <mo>)</mo></mrow></mfrac><mo>×</mo><mfrac><mi>λ</mi> <mrow><mo>(</mo><mn>1</mn><mo>-</mo><mi>λ</mi><mo>)</mo></mrow></mfrac><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <mo>=</mo> <mn>0</mn></mrow></math>
 
-如预期的那样，这些概率与我们在[图4-3](#fig-4-3)中使用概率图计算的值相匹配，当我们预先知道`match`和`notmatch`人口时。
+如预期的那样，这些概率与我们在图 4-3 中使用概率图计算的值相匹配，当我们预先知道`match`和`notmatch`人口时。
 
 总之，我们现在能够对属性等价的各种排列组合进行匹配概率估计，而无需事先了解`match`人口。这种概率方法既强大又可扩展，适用于具有多个属性的大型数据集。为了帮助我们更轻松地应用这些技术，我们在下一节中介绍了一个性能卓越且易于使用的开源库 Splink。
 
@@ -513,7 +513,7 @@ Splink 支持对单个数据集中的记录进行去重，也支持在一个或�
 linker.profile_columns(['Firstname','Lastname','Constituency'])
 ```
 
-我们在 [图 4-6](#fig-4-6) 中看到的图表显示了两个数据集的综合人口。
+我们在 图 4-6 中看到的图表显示了两个数据集的综合人口。
 
 从名字分布开始，我们可以从图表的右下方看到，在 352 个不同名称的人口中，大约有 35% 仅出现两次，很可能一次在每个数据集中。然后，从右到左移动，我们看到频率逐渐增加到最受欢迎的名称，有 32 次出现。按值计数查看前 10 个值时，我们发现 John 是最流行的名字，其次是 Andrew、David 等。这告诉我们，`Firstname`是一个合理的匹配属性，但单独使用，它会导致一些误报。
 
@@ -521,11 +521,11 @@ linker.profile_columns(['Firstname','Lastname','Constituency'])
 
 预料之中，两个数据集之间的选区是唯一配对的，因此所有数值都恰好出现两次。
 
-![](assets/hoer_0406.png)
+![](img/hoer_0406.png)
 
 ###### 图 4-6\. Splink 列配置
 
-在这个简单的示例中，我们将要求Splink使用我们之前介绍的期望最大化算法来计算模型的所有参数。初始的`True`参数告诉Splink比较两个数据集中所有的记录而不进行阻塞（我们将在下一章看到）。我们还告诉Splink在每次迭代时重新计算*u*值，通过设置`fix_u_probabilities`为`False`。将`fix_probability_two_random_records_match`设置为`False`意味着<math alttext="lamda"><mi>λ</mi></math>值（两个数据集之间的总体匹配概率）将在每次迭代时重新计算。最后，我们告诉Splink在计算记录对的概率时使用更新后的<math alttext="lamda"><mi>λ</mi></math>值：
+在这个简单的示例中，我们将要求 Splink 使用我们之前介绍的期望最大化算法来计算模型的所有参数。初始的`True`参数告诉 Splink 比较两个数据集中所有的记录而不进行阻塞（我们将在下一章看到）。我们还告诉 Splink 在每次迭代时重新计算*u*值，通过设置`fix_u_probabilities`为`False`。将`fix_probability_two_random_records_match`设置为`False`意味着<math alttext="lamda"><mi>λ</mi></math>值（两个数据集之间的总体匹配概率）将在每次迭代时重新计算。最后，我们告诉 Splink 在计算记录对的概率时使用更新后的<math alttext="lamda"><mi>λ</mi></math>值：
 
 ```py
 em_session = linker.estimate_parameters_using_expectation_maximisation(
@@ -538,17 +538,17 @@ em_session = linker.estimate_parameters_using_expectation_maximisation(
 
 ## Splink 性能
 
-EM模型在三次迭代后收敛。Splink生成一个交互式图表，显示相对匹配权重值的迭代进展：
+EM 模型在三次迭代后收敛。Splink 生成一个交互式图表，显示相对匹配权重值的迭代进展：
 
 ```py
 em_session.match_weights_interactive_history_chart()
 ```
 
-![](assets/hoer_0407.png)
+![](img/hoer_0407.png)
 
 ###### 图 4-7\. Splink 匹配权重
 
-[图 4-7](#fig-4-7)显示了Splink在第三次迭代后计算的最终匹配权重。首先，我们有先验（起始）匹配权重，这是两个随机选择的记录匹配的可能性的度量。如果你将鼠标悬停在匹配权重条上，你可以看到计算出的匹配权重值以及底层的*m*和*u*参数。这些计算方法如下：
+图 4-7 显示了 Splink 在第三次迭代后计算的最终匹配权重。首先，我们有先验（起始）匹配权重，这是两个随机选择的记录匹配的可能性的度量。如果你将鼠标悬停在匹配权重条上，你可以看到计算出的匹配权重值以及底层的*m*和*u*参数。这些计算方法如下：
 
 <math alttext="upper P r i o r left-parenthesis s t a r t i n g right-parenthesis m a t c h w e i g h t equals l o g 2 StartFraction lamda Over left-parenthesis 1 minus lamda right-parenthesis EndFraction almost-equals negative 9.38"><mrow><mi>P</mi> <mi>r</mi> <mi>i</mi> <mi>o</mi> <mi>r</mi> <mrow><mo>(</mo> <mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>r</mi> <mi>t</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mo>)</mo></mrow> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mi>w</mi> <mi>e</mi> <mi>i</mi> <mi>g</mi> <mi>h</mi> <mi>t</mi> <mo>=</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mfrac><mi>λ</mi> <mrow><mo>(</mo><mn>1</mn><mo>-</mo><mi>λ</mi><mo>)</mo></mrow></mfrac> <mo>≈</mo> <mo>-</mo> <mn>9</mn> <mo>.</mo> <mn>38</mn></mrow></math>
 
@@ -562,9 +562,9 @@ em_session.match_weights_interactive_history_chart()
 
 <math alttext="upper C o n s t i t u e n c y m a t c h w e i g h t left-parenthesis e x a c t m a t c h right-parenthesis equals l o g 2 StartFraction m Subscript c Baseline Over u Subscript c Baseline EndFraction almost-equals 14.98"><mrow><mi>C</mi> <mi>o</mi> <mi>n</mi> <mi>s</mi> <mi>t</mi> <mi>i</mi> <mi>t</mi> <mi>u</mi> <mi>e</mi> <mi>n</mi> <mi>c</mi> <mi>y</mi> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mi>w</mi> <mi>e</mi> <mi>i</mi> <mi>g</mi> <mi>h</mi> <mi>t</mi> <mrow><mo>(</mo> <mi>e</mi> <mi>x</mi> <mi>a</mi> <mi>c</mi> <mi>t</mi> <mi>m</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mfrac><msub><mi>m</mi> <mi>c</mi></msub> <msub><mi>u</mi> <mi>c</mi></msub></mfrac> <mo>≈</mo> <mn>14</mn> <mo>.</mo> <mn>98</mn></mrow></math>
 
-为了说明，Splink将`Constituency`的非精确匹配权重近似为负无穷，并以不同颜色显示。这是因为没有情况下`Firstname`和`Lastname`属性匹配但`Constituency`不匹配。
+为了说明，Splink 将`Constituency`的非精确匹配权重近似为负无穷，并以不同颜色显示。这是因为没有情况下`Firstname`和`Lastname`属性匹配但`Constituency`不匹配。
 
-我们可以看到Splink使用以下方法计算的离散值：
+我们可以看到 Splink 使用以下方法计算的离散值：
 
 ```py
 linker.save_settings_to_json("Chapter4_Splink_Settings.json",
@@ -634,7 +634,7 @@ len(pres)
 633
 ```
 
-对这些预测的分析显示，所有的633个都是真正例，剩下13个补选真负例和4个假负例。我们可以用以下方式查看这4个假负例：
+对这些预测的分析显示，所有的 633 个都是真正例，剩下 13 个补选真负例和 4 个假负例。我们可以用以下方式查看这 4 个假负例：
 
 ```py
 m_outer = match.merge(
@@ -647,13 +647,13 @@ m_outer[m_outer['Constituency_t']!=m_outer['Constituency_l']]
    [['Constituency_w','Lastname_w','Lastname_t']]
 ```
 
-输出结果，如[图 4-8](#fig-4-8)所示，显示`Lastname`不匹配是这些实体未达到匹配阈值的原因。
+输出结果，如图 4-8 所示，显示`Lastname`不匹配是这些实体未达到匹配阈值的原因。
 
-![](assets/hoer_0408.png)
+![](img/hoer_0408.png)
 
 ###### 图 4-8\. Splink 由于`Lastname`不匹配而低于阈值
 
-与[第三章](ch03.html#chapter_3)中的非加权结果相比，Splink认为“Liz Truss”与“Elizabeth Truss”匹配，但不将“Anne Marie Morris”与“Anne Morris”，以及“Martin Docherty-Hughes”与“Martin Docherty”匹配。这是因为它更受到`Lastname`不匹配的影响，统计上它是一个更好的负面预测因子，而不是`Firstname`不匹配。
+与第三章中的非加权结果相比，Splink 认为“Liz Truss”与“Elizabeth Truss”匹配，但不将“Anne Marie Morris”与“Anne Morris”，以及“Martin Docherty-Hughes”与“Martin Docherty”匹配。这是因为它更受到`Lastname`不匹配的影响，统计上它是一个更好的负面预测因子，而不是`Firstname`不匹配。
 
 # 摘要
 
@@ -661,8 +661,8 @@ m_outer[m_outer['Constituency_t']!=m_outer['Constituency_l']]
 
 我们看到如何在没有已知`match`人群的情况下，利用概率论来使用迭代期望最大化算法计算匹配权重。
 
-最后，我们介绍了概率实体解析框架Splink，它在组合多个属性时大大简化了计算，并帮助我们可视化和理解我们的匹配结果。
+最后，我们介绍了概率实体解析框架 Splink，它在组合多个属性时大大简化了计算，并帮助我们可视化和理解我们的匹配结果。
 
 现在我们已经通过一个小规模示例了解了如何在更大规模上应用近似和概率匹配的技术。
 
-^([1](ch04.html#id429-marker)) 原始论文可以在[网上](https://oreil.ly/gcfWx)找到。
+^(1) 原始论文可以在[网上](https://oreil.ly/gcfWx)找到。

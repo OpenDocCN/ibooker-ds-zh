@@ -1,8 +1,8 @@
-# 第13章\. 位置限制位点：使用、测试和共享代码
+# 第十三章\. 位置限制位点：使用、测试和共享代码
 
-DNA中的*回文*序列是指其5'到3'碱基序列在两条链上是相同的。例如，[图 13-1](#fig_13.1)显示DNA序列*GCATGC*的反向互补序列是该序列本身。
+DNA 中的*回文*序列是指其 5'到 3'碱基序列在两条链上是相同的。例如，图 13-1 显示 DNA 序列*GCATGC*的反向互补序列是该序列本身。
 
-![mpfb 1301](assets/mpfb_1301.png)
+![mpfb 1301](img/mpfb_1301.png)
 
 ###### 图 13-1\. 反向回文等于其反向互补序列
 
@@ -15,7 +15,7 @@ DNA中的*回文*序列是指其5'到3'碱基序列在两条链上是相同的�
 True
 ```
 
-正如在[Rosalind REVP挑战](https://oreil.ly/w3Tdm)中描述的那样，限制酶识别和切割DNA中特定的回文序列，称为限制位点。它们通常具有4到12个核苷酸的长度。这个练习的目标是找到每个可能的限制酶在DNA序列中的位置。解决这个问题的代码可能非常复杂，但对一些函数式编程技术的清晰理解有助于创建一个简短而优雅的解决方案。我将探索`map()`、`zip()`和`enumerate()`以及许多小的、经过测试的函数。
+正如在[Rosalind REVP 挑战](https://oreil.ly/w3Tdm)中描述的那样，限制酶识别和切割 DNA 中特定的回文序列，称为限制位点。它们通常具有 4 到 12 个核苷酸的长度。这个练习的目标是找到每个可能的限制酶在 DNA 序列中的位置。解决这个问题的代码可能非常复杂，但对一些函数式编程技术的清晰理解有助于创建一个简短而优雅的解决方案。我将探索`map()`、`zip()`和`enumerate()`以及许多小的、经过测试的函数。
 
 你将学到：
 
@@ -43,17 +43,17 @@ usage: revp.py [-h] FILE
 Locating Restriction Sites
 
 positional arguments:
-  FILE        Input FASTA file ![1](assets/1.png)
+  FILE        Input FASTA file ![1](img/1.png)
 
 optional arguments:
   -h, --help  show this help message and exit
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO1-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO1-1)
 
-唯一必需的参数是一个FASTA格式的DNA序列的单个位置文件。
+唯一必需的参数是一个 FASTA 格式的 DNA 序列的单个位置文件。
 
-先看一下第一个测试输入文件。其内容与Rosalind页面上的示例相同：
+先看一下第一个测试输入文件。其内容与 Rosalind 页面上的示例相同：
 
 ```py
 $ cat tests/inputs/1.fa
@@ -61,7 +61,7 @@ $ cat tests/inputs/1.fa
 TCAATGCATGCGGGTCTATATGCAT
 ```
 
-运行程序，使用此输入，并验证你是否看到每个字符串中长度介于4到12之间的每个反向回文的位置（使用基于1的计数），如[图 13-2](#fig_13.2)所示。注意，结果的顺序无关紧要：
+运行程序，使用此输入，并验证你是否看到每个字符串中长度介于 4 到 12 之间的每个反向回文的位置（使用基于 1 的计数），如图 13-2 所示。注意，结果的顺序无关紧要：
 
 ```py
 $ ./revp.py tests/inputs/1.fa
@@ -75,7 +75,7 @@ $ ./revp.py tests/inputs/1.fa
 20 6
 ```
 
-![mpfb 1302](assets/mpfb_1302.png)
+![mpfb 1302](img/mpfb_1302.png)
 
 ###### 图 13-2\. 在序列*TCAATGCATGCGGGTCTATATGCAT*中找到的八个反向回文的位置。
 
@@ -91,7 +91,7 @@ Done, see new script "revp.py".
 ```py
 class Args(NamedTuple):
     """ Command-line arguments """
-    file: TextIO ![1](assets/1.png)
+    file: TextIO ![1](img/1.png)
 
 def get_args() -> Args:
     """ Get command-line arguments """
@@ -100,7 +100,7 @@ def get_args() -> Args:
         description='Locating Restriction Sites',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('file', ![2](assets/2.png)
+    parser.add_argument('file', ![2](img/2.png)
                         help='Input FASTA file',
                         metavar='FILE',
                         type=argparse.FileType('rt'))
@@ -110,11 +110,11 @@ def get_args() -> Args:
     return Args(args.file)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO2-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO2-1)
 
 唯一的参数是一个文件。
 
-[![2](assets/2.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO2-2)
+![2](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO2-2)
 
 定义一个必须是可读文本文件的参数。
 
@@ -135,7 +135,7 @@ tests/inputs/1.fa
 
 运行**`make test`**，你应该发现通过了一些测试。现在你可以编写程序的基础部分了。
 
-## 使用K-mer查找所有子序列
+## 使用 K-mer 查找所有子序列
 
 第一步是从 FASTA 输入文件中读取序列。我可以使用 `SeqIO.parse()` 创建一个惰性迭代器，然后使用 `next()` 获取第一个序列：
 
@@ -161,7 +161,7 @@ Traceback (most recent call last):
 StopIteration
 ```
 
-我需要找到所有长度在 4 到 12 之间的序列。这听起来又是 k-mer 的工作，所以我将从 [第9章](ch09.html#ch09) 中引入 `find_kmers()` 函数：
+我需要找到所有长度在 4 到 12 之间的序列。这听起来又是 k-mer 的工作，所以我将从 第九章 中引入 `find_kmers()` 函数：
 
 ```py
 >>> def find_kmers(seq, k):
@@ -189,7 +189,7 @@ StopIteration
 
 ## 查找所有反向互补序列
 
-在 [第3章](ch03.html#ch03) 中，我展示了许多找到反向互补的方法，结论是 `Bio.Seq.reverse_complement()` 可能是最简单的方法。首先找到所有的 12-mer：
+在 第三章 中，我展示了许多找到反向互补的方法，结论是 `Bio.Seq.reverse_complement()` 可能是最简单的方法。首先找到所有的 12-mer：
 
 ```py
 >>> kmers = find_kmers(seq, 12)
@@ -225,7 +225,7 @@ StopIteration
 
 ## 将所有内容整合在一起
 
-你应该已经具备完成这个挑战所需的一切。首先，将所有的 k-mer 与它们的反向互补配对，找出相同的那些，并打印它们的位置。你可以使用 `for` 循环来遍历它们，或者考虑使用我们在 [第6章](ch06.html#ch06) 中首次介绍的 `zip()` 函数来创建这些配对。这是一个有趣的挑战，我相信在阅读我的解决方案之前，你能找到一个可行的解决方案。
+你应该已经具备完成这个挑战所需的一切。首先，将所有的 k-mer 与它们的反向互补配对，找出相同的那些，并打印它们的位置。你可以使用 `for` 循环来遍历它们，或者考虑使用我们在 第六章 中首次介绍的 `zip()` 函数来创建这些配对。这是一个有趣的挑战，我相信在阅读我的解决方案之前，你能找到一个可行的解决方案。
 
 # 解决方案
 
@@ -277,7 +277,7 @@ StopIteration
 [5, 7, 17, 18, 21]
 ```
 
-在 [第11章](ch11.html#ch11) 中，我介绍了用于获取二元组中第一个或第二个元素的函数 `fst()` 和 `snd()`。我想在这里使用它们，这样就不必再用元组索引了。我还继续使用之前章节中的 `find_kmers()` 函数。现在看起来是时候将这些函数放入一个单独的模块中，这样我就可以根据需要导入它们，而不是复制它们了。
+在 第十一章 中，我介绍了用于获取二元组中第一个或第二个元素的函数 `fst()` 和 `snd()`。我想在这里使用它们，这样就不必再用元组索引了。我还继续使用之前章节中的 `find_kmers()` 函数。现在看起来是时候将这些函数放入一个单独的模块中，这样我就可以根据需要导入它们，而不是复制它们了。
 
 如果检查 `common.py` 模块，你会看到这些函数及其测试。我可以运行 `pytest` 确保它们全部通过：
 
@@ -306,57 +306,57 @@ common.py::test_find_kmers PASSED                                        [100%]
 ```py
 def main() -> None:
     args = get_args()
-    for rec in SeqIO.parse(args.file, 'fasta'): ![1](assets/1.png)
-        for k in range(4, 13): ![2](assets/2.png)
-            kmers = find_kmers(str(rec.seq), k) ![3](assets/3.png)
-            revc = list(map(Seq.reverse_complement, kmers)) ![4](assets/4.png)
+    for rec in SeqIO.parse(args.file, 'fasta'): ![1](img/1.png)
+        for k in range(4, 13): ![2](img/2.png)
+            kmers = find_kmers(str(rec.seq), k) ![3](img/3.png)
+            revc = list(map(Seq.reverse_complement, kmers)) ![4](img/4.png)
 
-            for pos, pair in enumerate(zip(kmers, revc)): ![5](assets/5.png)
-                if fst(pair) == snd(pair): ![6](assets/6.png)
-                    print(pos + 1, k) ![7](assets/7.png)
+            for pos, pair in enumerate(zip(kmers, revc)): ![5](img/5.png)
+                if fst(pair) == snd(pair): ![6](img/6.png)
+                    print(pos + 1, k) ![7](img/7.png)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-1)
 
 遍历 FASTA 文件中的记录。
 
-[![2](assets/2.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-2)
+![2](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-2)
 
 遍历所有 `k` 的值。
 
-[![3](assets/3.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-3)
+![3](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-3)
 
 找到这个 `k` 的 k-mer。
 
-[![4](assets/4.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-4)
+![4](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-4)
 
 找到 k-mer 的反向互补。
 
-[![5](assets/5.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-5)
+![5](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-5)
 
 遍历位置和 k-mer/反向互补对。
 
-[![6](assets/6.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-6)
+![6](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-6)
 
 检查对的第一个元素是否与第二个元素相同。
 
-[![7](assets/7.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-7)
+![7](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO3-7)
 
-打印位置加1（以修正基于0的索引）和序列 `k` 的大小。
+打印位置加 1（以修正基于 0 的索引）和序列 `k` 的大小。
 
 ## 解决方案 2：使用 `operator.eq()` 函数
 
-虽然我喜欢 `fst()` 和 `snd()` 函数，并想强调如何共享模块和函数，但我却重复了 `operator.eq()` 函数。我在[第6章](ch06.html#ch06)首次引入了这个模块，用于使用 `operator.ne()`（不等于）函数，并且在其他地方也使用了 `operator.le()`（小于或等于）和 `operator.add()` 函数。
+虽然我喜欢 `fst()` 和 `snd()` 函数，并想强调如何共享模块和函数，但我却重复了 `operator.eq()` 函数。我在第六章首次引入了这个模块，用于使用 `operator.ne()`（不等于）函数，并且在其他地方也使用了 `operator.le()`（小于或等于）和 `operator.add()` 函数。
 
 我可以像这样重写前面解决方案的一部分：
 
 ```py
 for pos, pair in enumerate(zip(kmers, revc)):
-    if operator.eq(*pair): ![1](assets/1.png)
+    if operator.eq(*pair): ![1](img/1.png)
         print(pos + 1, k)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO4-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO4-1)
 
 使用函数版本的 `==` 操作符来比较对的元素。请注意需要展开对以将元组扩展为其两个值。
 
@@ -371,11 +371,11 @@ def main() -> None:
             revc = map(Seq.reverse_complement, kmers)
             pairs = enumerate(zip(kmers, revc))
 
-            for pos in [pos + 1 for pos, pair in pairs if operator.eq(*pair)]: ![1](assets/1.png)
+            for pos in [pos + 1 for pos, pair in pairs if operator.eq(*pair)]: ![1](img/1.png)
                 print(pos, k)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO5-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO5-1)
 
 使用守卫进行相等比较，并在列表推导中修正位置。
 
@@ -386,21 +386,21 @@ def main() -> None:
 如往常一样，我设想函数的签名：
 
 ```py
-def revp(seq: str, k: int) -> List[int]: ![1](assets/1.png)
+def revp(seq: str, k: int) -> List[int]: ![1](img/1.png)
     """ Return positions of reverse palindromes """
 
-    return [] ![2](assets/2.png)
+    return [] ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO6-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO6-1)
 
 我想传入一个序列和一个`k`值，以获取反向回文字符串的位置列表。
 
-[![2](assets/2.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO6-2)
+![2](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO6-2)
 
 目前，返回空列表。
 
-这是我编写的测试。请注意，我决定该函数应该校正索引以进行基于1的计数：
+这是我编写的测试。请注意，我决定该函数应该校正索引以进行基于 1 的计数：
 
 ```py
 def test_revp() -> None:
@@ -433,31 +433,31 @@ def revp(seq: str, k: int) -> List[int]:
 def main() -> None:
     args = get_args()
     for rec in SeqIO.parse(args.file, 'fasta'):
-        for k in range(4, 13): ![1](assets/1.png)
-            for pos in revp(str(rec.seq), k): ![2](assets/2.png)
-                print(pos, k) ![3](assets/3.png)
+        for k in range(4, 13): ![1](img/1.png)
+            for pos in revp(str(rec.seq), k): ![2](img/2.png)
+                print(pos, k) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO7-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO7-1)
 
 遍历每个`k`值。
 
-[![2](assets/2.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO7-2)
+![2](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO7-2)
 
 遍历在序列中找到的每个大小为`k`的反向回文字符串。
 
-[![3](assets/3.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO7-3)
+![3](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO7-3)
 
 打印反向回文的位置和大小。
 
 请注意，可以在列表推导式中使用多个迭代器。我可以将两个`for`循环合并成一个，如下所示：
 
 ```py
-for k, pos in [(k, pos) for k in range(4, 13) for pos in revp(seq, k)]: ![1](assets/1.png)
+for k, pos in [(k, pos) for k in range(4, 13) for pos in revp(seq, k)]: ![1](img/1.png)
     print(pos, k)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO8-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO8-1)
 
 首先迭代`k`值，然后使用这些值迭代`revp()`值，并将两者作为元组返回。
 
@@ -497,49 +497,49 @@ $ cat tests/inputs/1.fa.out
 20 6
 ```
 
-第二个输入文件比第一个大得多。这在 Rosalind 问题中很常见，因此试图在测试程序中包含输入和输出值作为字面字符串是不合适的。第二个文件的预期输出长度为70行。最后一个测试是针对空文件，预期输出为空字符串。虽然这似乎是显而易见的，但重点是检查程序在空输入文件时是否会抛出异常。
+第二个输入文件比第一个大得多。这在 Rosalind 问题中很常见，因此试图在测试程序中包含输入和输出值作为字面字符串是不合适的。第二个文件的预期输出长度为 70 行。最后一个测试是针对空文件，预期输出为空字符串。虽然这似乎是显而易见的，但重点是检查程序在空输入文件时是否会抛出异常。
 
 在 *tests/revp_test.py* 中，我编写了一个 `run()` 辅助函数，该函数接受输入文件的名称，读取预期输出文件名，并运行程序以检查输出：
 
 ```py
-def run(file: str) -> None: ![1](assets/1.png)
+def run(file: str) -> None: ![1](img/1.png)
     """ Run the test """
 
-    expected_file = file + '.out' ![2](assets/2.png)
-    assert os.path.isfile(expected_file) ![3](assets/3.png)
+    expected_file = file + '.out' ![2](img/2.png)
+    assert os.path.isfile(expected_file) ![3](img/3.png)
 
-    rv, out = getstatusoutput(f'{PRG} {file}') ![4](assets/4.png)
-    assert rv == 0 ![5](assets/5.png)
+    rv, out = getstatusoutput(f'{PRG} {file}') ![4](img/4.png)
+    assert rv == 0 ![5](img/5.png)
 
-    expected = set(open(expected_file).read().splitlines()) ![6](assets/6.png)
-    assert set(out.splitlines()) == expected ![7](assets/7.png)
+    expected = set(open(expected_file).read().splitlines()) ![6](img/6.png)
+    assert set(out.splitlines()) == expected ![7](img/7.png)
 ```
 
-[![1](assets/1.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-1)
+![1](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-1)
 
 函数接受输入文件的名称。
 
-[![2](assets/2.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-2)
+![2](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-2)
 
 输出文件是输入文件名加上 *.out*。
 
-[![3](assets/3.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-3)
+![3](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-3)
 
 确保输出文件存在。
 
-[![4](assets/4.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-4)
+![4](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-4)
 
 使用输入文件运行程序并捕获返回值和输出。
 
-[![5](assets/5.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-5)
+![5](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-5)
 
 确保程序报告了成功运行。
 
-[![6](assets/6.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-6)
+![6](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-6)
 
 读取预期输出文件，将内容按行分割并创建结果字符串的集合。
 
-[![7](assets/7.png)](#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-7)
+![7](img/#co_location_restriction_sites___span_class__keep_together__using__testing__and_sharing_code__span__CO9-7)
 
 将程序的输出按行分割并创建一个集合，以便与预期结果进行比较。集合使我能够忽略行的顺序。
 

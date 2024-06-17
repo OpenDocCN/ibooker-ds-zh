@@ -1,6 +1,6 @@
-# 第7章\. mRNA翻译成蛋白质：更多的函数式编程
+# 第七章\. mRNA 翻译成蛋白质：更多的函数式编程
 
-根据分子生物学的中心法则，*DNA生成mRNA，mRNA生成蛋白质*。在[第2章](ch02.html#ch02)中，我展示了如何将DNA转录成mRNA，现在是时候将mRNA翻译成蛋白质序列了。正如在[Rosalind PROT页面](https://oreil.ly/OgBcW)上描述的那样，现在我需要编写一个接受mRNA字符串并生成氨基酸序列的程序。我将展示几种解决方案，包括列表、`for`循环、列表推导、字典和高阶函数，但最后我会用Biopython函数结束。不过，这将会非常有趣。
+根据分子生物学的中心法则，*DNA 生成 mRNA，mRNA 生成蛋白质*。在第二章中，我展示了如何将 DNA 转录成 mRNA，现在是时候将 mRNA 翻译成蛋白质序列了。正如在[Rosalind PROT 页面](https://oreil.ly/OgBcW)上描述的那样，现在我需要编写一个接受 mRNA 字符串并生成氨基酸序列的程序。我将展示几种解决方案，包括列表、`for`循环、列表推导、字典和高阶函数，但最后我会用 Biopython 函数结束。不过，这将会非常有趣。
 
 大部分时间我会专注于如何编写、测试和组合小函数来创建解决方案。你将学到：
 
@@ -12,7 +12,7 @@
 
 +   如何使用`takewhile()`和`partial()`函数
 
-+   如何使用`Bio.Seq`模块将mRNA翻译成蛋白质
++   如何使用`Bio.Seq`模块将 mRNA 翻译成蛋白质
 
 # 入门指南
 
@@ -32,7 +32,7 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-该程序需要一个RNA序列作为单个位置参数。从现在开始，我会使用术语*RNA*，但要知道我指的是*mRNA*。以下是使用Rosalind页面示例字符串的结果：
+该程序需要一个 RNA 序列作为单个位置参数。从现在开始，我会使用术语*RNA*，但要知道我指的是*mRNA*。以下是使用 Rosalind 页面示例字符串的结果：
 
 ```py
 $ ./prot.py AUGGCCAUGGCGCCCAGAACUGAGAUCAAUAGUACCCGUAUUAACGGGUGA
@@ -51,7 +51,7 @@ Done, see new script "prot.py".
 ```py
 class Args(NamedTuple):
     """ Command-line arguments """
-    rna: str ![1](assets/1.png)
+    rna: str ![1](img/1.png)
 
 def get_args() -> Args:
     """Get command-line arguments"""
@@ -60,22 +60,22 @@ def get_args() -> Args:
         description='Translate RNA to proteins',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('rna', type=str, metavar='RNA', help='RNA sequence') ![2](assets/2.png)
+    parser.add_argument('rna', type=str, metavar='RNA', help='RNA sequence') ![2](img/2.png)
 
     args = parser.parse_args()
 
     return Args(args.rna)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO1-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO1-1)
 
-唯一的参数是一串mRNA。
+唯一的参数是一串 mRNA。
 
-[![2](assets/2.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO1-2)
+![2](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO1-2)
 
 定义`rna`作为一个位置字符串。
 
-修改你的参数，直到程序能够产生正确的用法，然后修改你的`main()`函数以打印输入的RNA字符串：
+修改你的参数，直到程序能够产生正确的用法，然后修改你的`main()`函数以打印输入的 RNA 字符串：
 
 ```py
 def main() -> None:
@@ -92,11 +92,11 @@ AUGGCCAUGGCGCCCAGAACUGAGAUCAAUAGUACCCGUAUUAACGGGUGA
 
 运行**`pytest`**或**`make test`**来查看你的表现。你的程序应该通过前两个测试，并且在第三个测试中失败，输出应该是蛋白质翻译。如果你认为你能解决这个问题，继续执行你的解决方案。挣扎是完全可以接受的。没有什么可着急的，所以如果需要的话可以多花几天时间。确保除了专注编码时间外，还包括小睡和散步（扩散思维时间）。如果需要帮助，请继续阅读。
 
-## K-mers和密码子
+## K-mers 和密码子
 
-到目前为止，你已经看到了许多关于如何迭代字符串字符的例子，比如DNA的碱基。在这里，我需要将RNA的碱基分组成三个一组，以便读取每个密码子，即三个核苷酸序列，对应一个氨基酸。共有64个密码子，如[表 7-1](#table_7.1)所示。
+到目前为止，你已经看到了许多关于如何迭代字符串字符的例子，比如 DNA 的碱基。在这里，我需要将 RNA 的碱基分组成三个一组，以便读取每个密码子，即三个核苷酸序列，对应一个氨基酸。共有 64 个密码子，如表 7-1 所示。
 
-表格 7-1\. RNA密码子表描述了RNA的三联体如何编码22种氨基酸
+表格 7-1\. RNA 密码子表描述了 RNA 的三联体如何编码 22 种氨基酸
 
 | AAA K | AAC N | AAG K | AAU N | ACA T |
 | --- | --- | --- | --- | --- |
@@ -113,37 +113,37 @@ AUGGCCAUGGCGCCCAGAACUGAGAUCAAUAGUACCCGUAUUAACGGGUGA
 | UGG W | UGU C | UUA L | UUC F | UUG L |
 | UUU F | UAA 终止 | UAG 终止 | UGA 终止 |  |
 
-给定一些RNA字符串：
+给定一些 RNA 字符串：
 
 ```py
 >>> rna = 'AUGGCCAUGGCGCCCAGAACUGAGAUCAAUAGUACCCGUAUUAACGGGUGA'
 ```
 
-我想读取前三个碱基，*AUG*。如图[7-1](#fig_7.1)所示，我可以使用字符串切片从索引0到3手动抓取字符（请记住上界不包括在内）：
+我想读取前三个碱基，*AUG*。如图 7-1 所示，我可以使用字符串切片从索引 0 到 3 手动抓取字符（请记住上界不包括在内）：
 
 ```py
 >>> rna[0:3]
 'AUG'
 ```
 
-![mpfb 0701](assets/mpfb_0701.png)
+![mpfb 0701](img/mpfb_0701.png)
 
-###### 图7-1\. 使用字符串切片从RNA中提取密码子
+###### 图 7-1\. 使用字符串切片从 RNA 中提取密码子
 
-下一个密码子可通过将起始和停止位置加3来找到：
+下一个密码子可通过将起始和停止位置加 3 来找到：
 
 ```py
 >>> rna[3:6]
 'GCC'
 ```
 
-你能看出出现了什么模式吗？对于第一个数字，我需要从0开始加3。对于第二个数字，我需要在第一个数字上加3（见图[7-2](#fig_7.2)）。
+你能看出出现了什么模式吗？对于第一个数字，我需要从 0 开始加 3。对于第二个数字，我需要在第一个数字上加 3（见图 7-2）。
 
-![mpfb 0702](assets/mpfb_0702.png)
+![mpfb 0702](img/mpfb_0702.png)
 
-###### 图7-2\. 每个切片是密码子起始位置的函数，可以使用`range()`函数找到
+###### 图 7-2\. 每个切片是密码子起始位置的函数，可以使用`range()`函数找到
 
-我可以使用`range()`函数处理第一部分，它可以接受一、两或三个参数。给定一个参数，它将生成从0到给定值但不包括给定值的所有数字。请注意这是一个惰性函数，我将使用`list()`来强制它：
+我可以使用`range()`函数处理第一部分，它可以接受一、两或三个参数。给定一个参数，它将生成从 0 到给定值但不包括给定值的所有数字。请注意这是一个惰性函数，我将使用`list()`来强制它：
 
 ```py
 >>> list(range(10))
@@ -157,52 +157,52 @@ AUGGCCAUGGCGCCCAGAACUGAGAUCAAUAGUACCCGUAUUAACGGGUGA
 [5, 6, 7, 8, 9]
 ```
 
-第三个参数将被解释为步长。在[第三章](ch03.html#ch03)中，我使用`range()`没有起始或停止位置，步长为`-1`来反转字符串。在这种情况下，我想从0开始计数直到RNA的长度，步长为3。这些是密码子的起始位置：
+第三个参数将被解释为步长。在第三章中，我使用`range()`没有起始或停止位置，步长为`-1`来反转字符串。在这种情况下，我想从 0 开始计数直到 RNA 的长度，步长为 3。这些是密码子的起始位置：
 
 ```py
 >>> list(range(0, len(rna), 3))
 [0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48]
 ```
 
-我可以使用列表推导生成起始和停止值作为元组。停止位置比起始位置多3。这里仅展示前五个：
+我可以使用列表推导生成起始和停止值作为元组。停止位置比起始位置多 3。这里仅展示前五个：
 
 ```py
 >>> [(n, n + 3) for n in range(0, len(rna), 3)][:5]
 [(0, 3), (3, 6), (6, 9), (9, 12), (12, 15)]
 ```
 
-我可以使用这些值来对RNA进行切片：
+我可以使用这些值来对 RNA 进行切片：
 
 ```py
 >>> [rna[n:n + 3] for n in range(0, len(rna), 3)][:5]
 ['AUG', 'GCC', 'AUG', 'GCG', 'CCC']
 ```
 
-密码子是RNA的子序列，类似于*k-mers*。这里的*k*是大小，为3，*mer*类似于*聚合物*中的*共享*。通常用k-mers的大小来指代它们，所以这里我可能称之为*3-mer*。k-mers重叠一个字符，所以窗口向右移动一个碱基。图[7-3](#fig_7.3)展示了输入RNA的前九个碱基中找到的前七个3-mer。
+密码子是 RNA 的子序列，类似于*k-mers*。这里的*k*是大小，为 3，*mer*类似于*聚合物*中的*共享*。通常用 k-mers 的大小来指代它们，所以这里我可能称之为*3-mer*。k-mers 重叠一个字符，所以窗口向右移动一个碱基。图 7-3 展示了输入 RNA 的前九个碱基中找到的前七个 3-mer。
 
-![mpfb 0703](assets/mpfb_0703.png)
+![mpfb 0703](img/mpfb_0703.png)
 
-###### 图7-3\. RNA序列前九个碱基中的所有3-mer
+###### 图 7-3\. RNA 序列前九个碱基中的所有 3-mer
 
-任何序列*s*中k-mers的数量*n*为：
+任何序列*s*中 k-mers 的数量*n*为：
 
 <math alttext="n equals l e n left-parenthesis s right-parenthesis minus k plus 1" display="block"><mrow><mi>n</mi> <mo>=</mo> <mi>l</mi> <mi>e</mi> <mi>n</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>-</mo> <mi>k</mi> <mo>+</mo> <mn>1</mn></mrow></math>
 
-该RNA序列的长度为51，因此包含49个3-mer：
+该 RNA 序列的长度为 51，因此包含 49 个 3-mer：
 
 ```py
 >>> len(rna) - k + 1
 49
 ```
 
-除了考虑多帧翻译（我将在[第 14 章](ch14.html#ch14)中展示），密码子不重叠，因此每次移动 3 个位置（参见[图 7-4](#fig_7.4)），留下 17 个密码子：
+除了考虑多帧翻译（我将在第十四章中展示），密码子不重叠，因此每次移动 3 个位置（参见图 7-4），留下 17 个密码子：
 
 ```py
 >>> len([rna[n:n + 3] for n in range(0, len(rna), 3)])
 17
 ```
 
-![mpfb 0704](assets/mpfb_0704.png)
+![mpfb 0704](img/mpfb_0704.png)
 
 ###### 图 7-4\. 密码子是非重叠的 3-mers
 
@@ -255,8 +255,8 @@ UGG W      CGG R      AGG R      GGG G
 ```py
 def main() -> None:
     args = get_args()
-    rna = args.rna.upper() ![1](assets/1.png)
-    codon_to_aa = { ![2](assets/2.png)
+    rna = args.rna.upper() ![1](img/1.png)
+    codon_to_aa = { ![2](img/2.png)
         'AAA': 'K', 'AAC': 'N', 'AAG': 'K', 'AAU': 'N', 'ACA': 'T',
         'ACC': 'T', 'ACG': 'T', 'ACU': 'T', 'AGA': 'R', 'AGC': 'S',
         'AGG': 'R', 'AGU': 'S', 'AUA': 'I', 'AUC': 'I', 'AUG': 'M',
@@ -272,75 +272,75 @@ def main() -> None:
         'UUU': 'F', 'UAA': '*', 'UAG': '*', 'UGA': '*',
     }
 
-    k = 3 ![3](assets/3.png)
-    protein = '' ![4](assets/4.png)
-    for codon in [rna[i:i + k] for i in range(0, len(rna), k)]: ![5](assets/5.png)
-        aa = codon_to_aa.get(codon, '-') ![6](assets/6.png)
-        if aa == '*': ![7](assets/7.png)
-            break ![8](assets/8.png)
-        protein += aa ![9](assets/9.png)
+    k = 3 ![3](img/3.png)
+    protein = '' ![4](img/4.png)
+    for codon in [rna[i:i + k] for i in range(0, len(rna), k)]: ![5](img/5.png)
+        aa = codon_to_aa.get(codon, '-') ![6](img/6.png)
+        if aa == '*': ![7](img/7.png)
+            break ![8](img/8.png)
+        protein += aa ![9](img/9.png)
 
-    print(protein) ![10](assets/10.png)
+    print(protein) ![10](img/10.png)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-1)
 
 复制传入的 RNA，并强制转换为大写。
 
-[![2](assets/2.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-2)
+![2](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-2)
 
 使用字典创建密码子/氨基酸查找表。
 
-[![3](assets/3.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-3)
+![3](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-3)
 
 确定用于查找 k-mer 的 `k` 的大小。
 
-[![4](assets/4.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-4)
+![4](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-4)
 
 初始化蛋白质序列为空字符串。
 
-[![5](assets/5.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-5)
+![5](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-5)
 
 遍历 RNA 的密码子。
 
-[![6](assets/6.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-6)
+![6](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-6)
 
 使用 `dict.get()` 查找这个密码子对应的氨基酸，并在找不到时返回短横线。
 
-[![7](assets/7.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-7)
+![7](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-7)
 
 检查这是否为终止密码子。
 
-[![8](assets/8.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-8)
+![8](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-8)
 
 退出`for`循环。
 
-[![9](assets/9.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-9)
+![9](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-9)
 
 将氨基酸追加到蛋白质序列中。
 
-[![10](assets/10.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-10)
+![10](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO2-10)
 
 打印蛋白质序列。
 
-## 解决方案2：添加单元测试
+## 解决方案 2：添加单元测试
 
-第一个解决方案工作得相当好，对于如此简短的程序，它的组织也相当不错。问题在于，短程序通常会变成长程序。函数变得越来越长是很常见的，因此我想展示如何将`main()`中的代码拆分为几个更小的函数，并附带测试。一般来说，我喜欢看到一个函数在50行或更少的情况下适合，至于一个函数可以有多短，我不反对只有一行代码。
+第一个解决方案工作得相当好，对于如此简短的程序，它的组织也相当不错。问题在于，短程序通常会变成长程序。函数变得越来越长是很常见的，因此我想展示如何将`main()`中的代码拆分为几个更小的函数，并附带测试。一般来说，我喜欢看到一个函数在 50 行或更少的情况下适合，至于一个函数可以有多短，我不反对只有一行代码。
 
 我的第一直觉是提取找到密码子的代码，并将其变成一个带有单元测试的函数。我可以先定义一个函数的占位符，类型签名帮助我思考函数接受什么参数并返回什么结果：
 
 ```py
-def codons(seq: str) -> List[str]: ![1](assets/1.png)
+def codons(seq: str) -> List[str]: ![1](img/1.png)
     """ Extract codons from a sequence """
 
-    return [] ![2](assets/2.png)
+    return [] ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO3-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO3-1)
 
 函数将接受一个字符串，并返回一个字符串列表。
 
-[![2](assets/2.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO3-2)
+![2](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO3-2)
 
 现在，只返回一个空列表。
 
@@ -404,7 +404,7 @@ def main() -> None:
     }
 
     protein = ''
-    for codon in codons(rna): ![1](assets/1.png)
+    for codon in codons(rna): ![1](img/1.png)
         aa = codon_to_aa.get(codon, '-')
         if aa == '*':
             break
@@ -413,7 +413,7 @@ def main() -> None:
     print(protein)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO4-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO4-1)
 
 寻找密码子的复杂性隐藏在一个函数中。
 
@@ -441,15 +441,15 @@ def main() -> None:
 Python *程序* 也是可重复使用代码的 *模块*。有时你执行一个源代码文件，它就变成了一个程序，但在 Python 中程序和模块之间并没有很大区别。这就是所有程序末尾对联的含义：
 
 ```py
-if __name__ == '__main__': ![1](assets/1.png)
-    main() ![2](assets/2.png)
+if __name__ == '__main__': ![1](img/1.png)
+    main() ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO5-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO5-1)
 
 当一个 Python 程序作为程序 *执行* 时，`__name__` 的值是 `__main__`。
 
-[![2](assets/2.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO5-2)
+![2](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO5-2)
 
 调用 `main()` 函数启动程序。
 
@@ -465,32 +465,32 @@ if __name__ == '__main__': ![1](assets/1.png)
 def test_translate() -> None:
     """ Test translate """
 
-    assert translate('') == '' ![1](assets/1.png)
-    assert translate('AUG') == 'M' ![2](assets/2.png)
-    assert translate('AUGCCGUAAUCU') == 'MP' ![3](assets/3.png)
-    assert translate('AUGGCCAUGGCGCCCAGAACUGAGAU' ![4](assets/4.png)
-                     'CAAUAGUACCCGUAUUAACGGGUGA') == 'MAMAPRTEINSTRING' ![5](assets/5.png)
+    assert translate('') == '' ![1](img/1.png)
+    assert translate('AUG') == 'M' ![2](img/2.png)
+    assert translate('AUGCCGUAAUCU') == 'MP' ![3](img/3.png)
+    assert translate('AUGGCCAUGGCGCCCAGAACUGAGAU' ![4](img/4.png)
+                     'CAAUAGUACCCGUAUUAACGGGUGA') == 'MAMAPRTEINSTRING' ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-1)
 
 我通常用空字符串来测试字符串参数。
 
-[![2](assets/2.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-2)
+![2](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-2)
 
 测试单个氨基酸。
 
-[![3](assets/3.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-3)
+![3](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-3)
 
 在序列结束之前使用终止密码测试。
 
-[![4](assets/4.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-4)
+![4](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-4)
 
 注意相邻的字符串文字被合并为一个字符串。这是在源代码中换行的一个有用方法。
 
-[![5](assets/5.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-5)
+![5](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO6-5)
 
-使用来自Rosalind的示例进行测试。
+使用来自 Rosalind 的示例进行测试。
 
 我将所有代码从`main()`移到这里，将`for`循环改为列表推导，并使用列表切片来截断蛋白质在终止密码子处：
 
@@ -514,30 +514,30 @@ def translate(rna: str) -> str:
         'UUU': 'F', 'UAA': '*', 'UAG': '*', 'UGA': '*',
     }
 
-    aa = [codon_to_aa.get(codon, '-') for codon in codons(rna)] ![1](assets/1.png)
-    if '*' in aa: ![2](assets/2.png)
-        aa = aa[:aa.index('*')] ![3](assets/3.png)
+    aa = [codon_to_aa.get(codon, '-') for codon in codons(rna)] ![1](img/1.png)
+    if '*' in aa: ![2](img/2.png)
+        aa = aa[:aa.index('*')] ![3](img/3.png)
 
-    return ''.join(aa) ![4](assets/4.png)
+    return ''.join(aa) ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-1)
+![1](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-1)
 
 使用列表推导将密码子列表转换为氨基酸列表。
 
-[![2](assets/2.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-2)
+![2](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-2)
 
 查看列表中是否存在终止（`*`）密码子。
 
-[![3](assets/3.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-3)
+![3](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-3)
 
 使用列表切片覆盖氨基酸直到终止密码子的索引处。
 
-[![4](assets/4.png)](#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-4)
+![4](img/#co_translating_mrna_into_protein___span_class__keep_together__more_functional_programming__span__CO7-4)
 
 将氨基酸连接在空字符串上并返回新的蛋白质序列。
 
-要理解这一点，请考虑以下RNA序列：
+要理解这一点，请考虑以下 RNA 序列：
 
 ```py
 >>> rna = 'AUGCCGUAAUCU'
@@ -615,9 +615,9 @@ def main() -> None:
 
 ## 解决方案 4：使用 `map()`、`partial()` 和 `takewhile()` 函数进行函数式编程
 
-对于下一个解决方案，我想展示如何使用三个高阶函数 `map()`、`partial()` 和 `takewhile()` 重写一些逻辑。[图 7-5](#fig_7.5) 显示列表推导如何被重写为 `map()`。
+对于下一个解决方案，我想展示如何使用三个高阶函数 `map()`、`partial()` 和 `takewhile()` 重写一些逻辑。图 7-5 显示列表推导如何被重写为 `map()`。
 
-![mpfb 0705](assets/mpfb_0705.png)
+![mpfb 0705](img/mpfb_0705.png)
 
 ###### 图 7-5\. 列表推导可以被重写为 `map()`
 
@@ -642,7 +642,7 @@ def main() -> None:
 ['M', 'P']
 ```
 
-如果你喜欢使用这些高阶函数，可以通过使用我在 [第四章](ch04.html#ch04) 中展示的 `functools.partial()` 函数更进一步。这里我想部分应用 `operator.ne()`（不等于）函数：
+如果你喜欢使用这些高阶函数，可以通过使用我在 第四章 中展示的 `functools.partial()` 函数更进一步。这里我想部分应用 `operator.ne()`（不等于）函数：
 
 ```py
 >>> from functools import partial
@@ -694,7 +694,7 @@ def translate(rna: str) -> str:
 
 ## 解决方案 5：使用 Bio.Seq.translate()
 
-如约，最后的解决方案使用了 Biopython。在 [第三章](ch03.html#ch03) 中，我使用了 `Bio.Seq.reverse_complement()` 函数，这里可以使用 `Bio.Seq.translate()`。首先，导入 `Bio.Seq` 类：
+如约，最后的解决方案使用了 Biopython。在 第三章 中，我使用了 `Bio.Seq.reverse_complement()` 函数，这里可以使用 `Bio.Seq.translate()`。首先，导入 `Bio.Seq` 类：
 
 ```py
 >>> from Bio import Seq
@@ -734,7 +734,7 @@ def main() -> None:
 
 # 基准测试
 
-哪种方法最快？我可以使用我在 [第四章](ch04.html#ch04) 中介绍的 `hyperfine` 基准测试程序来比较程序的运行时间。因为这是一个非常简短的程序，我决定至少运行每个程序 1,000 次，正如在仓库中的 `bench.sh` 程序中所记录的那样。
+哪种方法最快？我可以使用我在 第四章 中介绍的 `hyperfine` 基准测试程序来比较程序的运行时间。因为这是一个非常简短的程序，我决定至少运行每个程序 1,000 次，正如在仓库中的 `bench.sh` 程序中所记录的那样。
 
 尽管第二种解决方案运行速度最快，可能比 Biopython 版本快多达 1.5 倍，但我仍然建议使用后者，因为这是一个在社区广泛使用并且有详细文档和测试的模块。
 

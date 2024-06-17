@@ -1,4 +1,6 @@
-第 5 章\. 使用 pandas 进行数据分析
+# 第八章
+
+第五章\. 使用 pandas 进行数据分析
 
 本章将为您介绍 pandas，即 Python 数据分析库，或者——我喜欢这样说——具有超能力的基于 Python 的电子表格。它非常强大，以至于我曾与一些公司合作时，他们完全放弃了 Excel，而是用 Jupyter 笔记本和 pandas 的组合来替代它。然而，作为本书的读者，我假设您会继续使用 Excel，在这种情况下，pandas 将作为在电子表格中获取数据的接口。pandas 使在 Excel 中特别痛苦的任务变得更加简单、快速和少出错。其中一些任务包括从外部源获取大型数据集以及处理统计数据、时间序列和交互式图表。pandas 最重要的超能力是向量化和数据对齐。正如我们在上一章中看到的使用 NumPy 数组一样，向量化使您能够编写简洁的基于数组的代码，而数据对齐则确保在处理多个数据集时不会出现数据不匹配的情况。
 
@@ -6,15 +8,15 @@
 
 DataFrame 和 Series
 
-DataFrame 和 Series 是 pandas 中的核心数据结构。在本节中，我将介绍它们，并重点介绍 DataFrame 的主要组成部分：索引、列和数据。DataFrame 类似于二维 NumPy 数组，但它带有列和行标签，每列可以容纳不同的数据类型。通过从 DataFrame 中提取单列或单行，您会得到一个一维 Series。同样，Series 类似于带有标签的一维 NumPy 数组。当您查看 [图 5-1](#filepos485286) 中 DataFrame 的结构时，您会很容易想象到，DataFrame 就是您基于 Python 的电子表格。
+DataFrame 和 Series 是 pandas 中的核心数据结构。在本节中，我将介绍它们，并重点介绍 DataFrame 的主要组成部分：索引、列和数据。DataFrame 类似于二维 NumPy 数组，但它带有列和行标签，每列可以容纳不同的数据类型。通过从 DataFrame 中提取单列或单行，您会得到一个一维 Series。同样，Series 类似于带有标签的一维 NumPy 数组。当您查看 图 5-1 中 DataFrame 的结构时，您会很容易想象到，DataFrame 就是您基于 Python 的电子表格。
 
-![](images/00069.jpg)
+![](img/00069.jpg)
 
 图 5-1\. 一个 pandas Series 和 DataFrame
 
-要展示从电子表格转换到 DataFrame 有多容易，请考虑下面的 Excel 表格 [图 5-2](#filepos485969)，它显示了在线课程的参与者及其分数。您可以在伴随仓库的 xl 文件夹中找到相应的文件 course_participants.xlsx。
+要展示从电子表格转换到 DataFrame 有多容易，请考虑下面的 Excel 表格 图 5-2，它显示了在线课程的参与者及其分数。您可以在伴随仓库的 xl 文件夹中找到相应的文件 course_participants.xlsx。
 
-![](images/00077.jpg)
+![](img/00077.jpg)
 
 图 5-2\. course_participants.xlsx
 
@@ -26,11 +28,11 @@ DataFrame 和 Series 是 pandas 中的核心数据结构。在本节中，我将
 > 
 > `Out[2]:    user_id   name  age  country  score continent         0     1001   Mark   55    Italy    4.5    Europe         1     1000   John   33      USA    6.7   America         2     1002    Tim   41      USA    3.9   America         3     1003  Jenny   12  Germany    9.0    Europe`
 > 
-> PYTHON 3.9下的READ_EXCEL函数
+> PYTHON 3.9 下的 READ_EXCEL 函数
 > 
-> 如果你在使用Python 3.9或更高版本运行`pd.read_excel`，请确保至少使用pandas 1.2，否则在读取xlsx文件时会出错。
+> 如果你在使用 Python 3.9 或更高版本运行`pd.read_excel`，请确保至少使用 pandas 1.2，否则在读取 xlsx 文件时会出错。
 
-如果你在Jupyter笔记本中运行这段代码，DataFrame将以HTML表格的形式进行漂亮的格式化，这使得它与Excel中的表格更加接近。我将在[第7章](index_split_019.html#filepos863345)中详细介绍使用pandas读写Excel文件，因此这只是一个介绍性的示例，展示电子表格和DataFrame确实非常相似。现在让我们从头开始重新创建这个DataFrame，而不是从Excel文件中读取它：创建DataFrame的一种方法是提供数据作为嵌套列表，并为`columns`和`index`提供值：
+如果你在 Jupyter 笔记本中运行这段代码，DataFrame 将以 HTML 表格的形式进行漂亮的格式化，这使得它与 Excel 中的表格更加接近。我将在第七章中详细介绍使用 pandas 读写 Excel 文件，因此这只是一个介绍性的示例，展示电子表格和 DataFrame 确实非常相似。现在让我们从头开始重新创建这个 DataFrame，而不是从 Excel 文件中读取它：创建 DataFrame 的一种方法是提供数据作为嵌套列表，并为`columns`和`index`提供值：
 
 > `In``[``3``]:``data``=``[[``"Mark"``,``55``,``"Italy"``,``4.5``,``"Europe"``],``[``"John"``,``33``,``"USA"``,``6.7``,``"America"``],``[``"Tim"``,``41``,``"USA"``,``3.9``,``"America"``],``[``"Jenny"``,``12``,``"Germany"``,``9.0``,``"Europe"``]]``df``=``pd``.``DataFrame``(``data``=``data``,``columns``=``[``"name"``,``"age"``,``"country"``,``"score"``,``"continent"``],``index``=``[``1001``,``1000``,``1002``,``1003``])``df`
 > 
@@ -42,25 +44,25 @@ DataFrame 和 Series 是 pandas 中的核心数据结构。在本节中，我将
 > 
 > `<class 'pandas.core.frame.DataFrame'> Int64Index: 4 entries, 1001 to 1003 Data columns (total 5 columns): #   Column     Non-Null Count  Dtype ---  ------     --------------  ----- 0   name       4 non-null      object 1   age        4 non-null      int64 2   country    4 non-null      object 3   score      4 non-null      float64 4   continent  4 non-null      object dtypes: float64(1), int64(1), object(3) memory usage: 192.0+ bytes`
 
-如果你只对列的数据类型感兴趣，请运行`df.dtypes`。字符串或混合数据类型的列将具有数据类型`object`。[1](index_split_016.html#filepos767133) 现在让我们更详细地看一下DataFrame的索引和列。
+如果你只对列的数据类型感兴趣，请运行`df.dtypes`。字符串或混合数据类型的列将具有数据类型`object`。1 现在让我们更详细地看一下 DataFrame 的索引和列。
 
 索引
 
-DataFrame的行标签称为索引。如果没有有意义的索引，请在构造DataFrame时将其省略。pandas将自动创建从零开始的整数索引。我们在从Excel文件读取DataFrame的第一个示例中看到了这一点。索引将允许pandas更快地查找数据，并对许多常见操作至关重要，例如合并两个DataFrame。您可以像以下方式访问索引对象：
+DataFrame 的行标签称为索引。如果没有有意义的索引，请在构造 DataFrame 时将其省略。pandas 将自动创建从零开始的整数索引。我们在从 Excel 文件读取 DataFrame 的第一个示例中看到了这一点。索引将允许 pandas 更快地查找数据，并对许多常见操作至关重要，例如合并两个 DataFrame。您可以像以下方式访问索引对象：
 
 > `In``[``5``]:``df``.``index`
 > 
 > `Out[5]: Int64Index([1001, 1000, 1002, 1003], dtype='int64')`
 
-如果有意义，给索引起个名字。让我们按照Excel表格的方式，并给它命名为`user_id`：
+如果有意义，给索引起个名字。让我们按照 Excel 表格的方式，并给它命名为`user_id`：
 
 > `In``[``6``]:``df``.``index``.``name``=``"user_id"``df`
 > 
 > `Out[6]:           name  age  country  score continent         user_id         1001      Mark   55    Italy    4.5    Europe         1000      John   33      USA    6.7   America         1002       Tim   41      USA    3.9   America         1003     Jenny   12  Germany    9.0    Europe`
 
-与数据库的主键不同，DataFrame索引可以具有重复项，但在这种情况下查找值可能较慢。要将索引转换为常规列，请使用`reset_index`，要设置新索引，请使用`set_index`。如果您不想在设置新索引时丢失现有索引，请确保首先重置它：
+与数据库的主键不同，DataFrame 索引可以具有重复项，但在这种情况下查找值可能较慢。要将索引转换为常规列，请使用`reset_index`，要设置新索引，请使用`set_index`。如果您不想在设置新索引时丢失现有索引，请确保首先重置它：
 
-> `In``[``7``]:``# "reset_index"将索引转换为列，用默认索引替换``# 从最开始加载的DataFrame对应的数据框``df``.``reset_index``()`
+> `In``[``7``]:``# "reset_index"将索引转换为列，用默认索引替换``# 从最开始加载的 DataFrame 对应的数据框``df``.``reset_index``()`
 > 
 > `Out[7]:    user_id   name  age  country  score continent         0     1001   Mark   55    Italy    4.5    Europe         1     1000   John   33      USA    6.7   America         2     1002    Tim   41      USA    3.9   America         3     1003  Jenny   12  Germany    9.0    Europe`
 > 
@@ -68,11 +70,11 @@ DataFrame的行标签称为索引。如果没有有意义的索引，请在构�
 > 
 > `Out[8]:        user_id  age  country  score continent         name         Mark      1001   55    Italy    4.5    Europe         John      1000   33      USA    6.7   America         Tim       1002   41      USA    3.9   America         Jenny     1003   12  Germany    9.0    Europe`
 
-使用`df.reset_index().set_index("name")`时，您正在使用方法链接：因为`reset_index()`返回一个DataFrame，所以您可以直接调用另一个DataFrame方法，而不必先编写中间结果。
+使用`df.reset_index().set_index("name")`时，您正在使用方法链接：因为`reset_index()`返回一个 DataFrame，所以您可以直接调用另一个 DataFrame 方法，而不必先编写中间结果。
 
 > DATAFRAME METHODS RETURN COPIES
 > 
-> 每当您在DataFrame上调用形式为`df.method_name()`的方法时，您将获得一个应用了该方法的DataFrame副本，保留原始DataFrame不变。我们刚刚通过调用`df.reset_index()`做到了这一点。如果您想要更改原始DataFrame，您需要将返回值分配回原始变量，如下所示：
+> 每当您在 DataFrame 上调用形式为`df.method_name()`的方法时，您将获得一个应用了该方法的 DataFrame 副本，保留原始 DataFrame 不变。我们刚刚通过调用`df.reset_index()`做到了这一点。如果您想要更改原始 DataFrame，您需要将返回值分配回原始变量，如下所示：
 > 
 > > `df = df.reset_index()`
 > > 
@@ -128,13 +130,13 @@ DataFrame的行标签称为索引。如果没有有意义的索引，请在构�
 > 
 > `Out[15]: properties  age  score continent          user_id          1001         55    4.5    Europe          1002         41    3.9   America`
 
-DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转置DataFrame来将列变为行，反之亦然：
+DataFrame 的列和索引都由一个`Index`对象表示，因此可以通过转置 DataFrame 来将列变为行，反之亦然：
 
 > `In``[``16``]:``df``.``T``# df.transpose()的快捷方式`
 > 
 > `Out[16]: user_id       1001     1000     1002     1003          properties          name          Mark     John      Tim    Jenny          age             55       33       41       12          country      Italy      USA      USA  Germany          score          4.5      6.7      3.9        9          continent   Europe  America  America   Europe`
 
-值得在这里记住的是，我们的DataFrame `df` 仍然没有改变，因为我们从未将方法调用返回的DataFrame重新分配给原始的 `df` 变量。如果想要重新排列DataFrame的列，可以使用我们与索引一起使用的`reindex`方法，但通常更直观的是按所需顺序选择列：
+值得在这里记住的是，我们的 DataFrame `df` 仍然没有改变，因为我们从未将方法调用返回的 DataFrame 重新分配给原始的 `df` 变量。如果想要重新排列 DataFrame 的列，可以使用我们与索引一起使用的`reindex`方法，但通常更直观的是按所需顺序选择列：
 
 > `In``[``17``]:``df``.``loc``[:,``[``"continent"``,``"country"``,``"name"``,``"age"``,``"score"``]]`
 > 
@@ -144,7 +146,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 
 数据操作
 
-现实世界中的数据很少是一成不变的，因此在处理数据之前，您需要清理数据并将其转换为可消化的形式。我们将从查找如何从DataFrame中选择数据开始，如何更改数据，以及如何处理缺失和重复数据。然后，我们将对DataFrame执行几个计算，并查看如何处理文本数据。最后，我们将了解pandas在返回数据视图与副本时的情况。本节中有许多概念与我们在上一章中使用NumPy数组时所见的概念相关。
+现实世界中的数据很少是一成不变的，因此在处理数据之前，您需要清理数据并将其转换为可消化的形式。我们将从查找如何从 DataFrame 中选择数据开始，如何更改数据，以及如何处理缺失和重复数据。然后，我们将对 DataFrame 执行几个计算，并查看如何处理文本数据。最后，我们将了解 pandas 在返回数据视图与副本时的情况。本节中有许多概念与我们在上一章中使用 NumPy 数组时所见的概念相关。
 
 数据选择
 
@@ -156,7 +158,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 
 > `df``.``loc``[``row_selection``,``column_selection``]`
 
-`loc` 支持切片表示法，因此可以接受冒号来分别选择所有行或列。另外，您还可以提供标签列表以及单个列或行名称。请查看[表格 5-1](#filepos526726)以查看从我们的样本 DataFrame `df` 中选择不同部分的几个示例。
+`loc` 支持切片表示法，因此可以接受冒号来分别选择所有行或列。另外，您还可以提供标签列表以及单个列或行名称。请查看表格 5-1 以查看从我们的样本 DataFrame `df` 中选择不同部分的几个示例。
 
 表 5-1\. 按标签选择数据
 
@@ -176,7 +178,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > 使用标签的切片表示法与 Python 和 pandas 中其他一切的工作方式不一致：它们包括上限端点。
 
-应用我们从[表格 5-1](#filepos526726)中获得的知识，让我们使用 `loc` 来选择标量、Series 和 DataFrames：
+应用我们从表格 5-1 中获得的知识，让我们使用 `loc` 来选择标量、Series 和 DataFrames：
 
 > `In``[``18``]:``# 对行和列选择使用标量返回标量``df``.``loc``[``1001``,``"name"``]`
 > 
@@ -210,7 +212,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 
 > `df``.``iloc``[``row_selection``,``column_selection``]`
 
-在使用切片时，你要处理标准的半开区间。[表 5-2](#filepos540243) 给出了与我们之前在 [表 5-1](#filepos526726) 中查看的相同案例。
+在使用切片时，你要处理标准的半开区间。表 5-2 给出了与我们之前在 表 5-1 中查看的相同案例。
 
 表 5-2\. 按位置选择数据
 
@@ -254,11 +256,11 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[25]: properties name  age country  score continent          user_id          1002        Tim   41     USA    3.9   America`
 
-这里有两件事需要解释。首先，由于技术限制，你不能在数据框（DataFrames）中像[第三章](index_split_010.html#filepos178328)中那样使用Python的布尔运算符。相反，你需要使用如[表5-3](#filepos554254)所示的符号。
+这里有两件事需要解释。首先，由于技术限制，你不能在数据框（DataFrames）中像第三章中那样使用 Python 的布尔运算符。相反，你需要使用如表 5-3 所示的符号。
 
-表5-3\. 布尔运算符
+表 5-3\. 布尔运算符
 
-|  基本Python数据类型  |  数据框和Series  |
+|  基本 Python 数据类型  |  数据框和 Series  |
 | --- | --- |
 |   `and` |   `&` |
 |   `or` |   `&#124;` |
@@ -274,17 +276,17 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[26]: properties   name  age  country  score continent          user_id          1002          Tim   41      USA    3.9   America          1003        Jenny   12  Germany    9.0    Europe`
 
-如果你想在基本的Python数据结构（如列表）中使用`in`操作符，那么在Series中使用`isin`来过滤你的数据框（DataFrame）以选择来自意大利和德国的参与者：
+如果你想在基本的 Python 数据结构（如列表）中使用`in`操作符，那么在 Series 中使用`isin`来过滤你的数据框（DataFrame）以选择来自意大利和德国的参与者：
 
 > `In``[``27``]:``df``.``loc``[``df``[``"country"``]``.``isin``([``"Italy"``,``"Germany"``]),``:]`
 > 
 > `Out[27]: properties   name  age  country  score continent          user_id          1001         Mark   55    Italy    4.5    Europe          1003        Jenny   12  Germany    9.0    Europe`
 
-当你使用`loc`来提供一个布尔Series时，数据框提供了一个特殊的语法，无需`loc`即可选择给定完整布尔DataFrame的值：
+当你使用`loc`来提供一个布尔 Series 时，数据框提供了一个特殊的语法，无需`loc`即可选择给定完整布尔 DataFrame 的值：
 
 > `df``[``boolean_df``]`
 
-如果你的数据框（DataFrame）仅包含数字，这将特别有帮助。提供一个布尔DataFrame将在布尔DataFrame为`False`时在数据框中返回`NaN`。稍后将更详细地讨论`NaN`。让我们从创建一个名为`rainfall`的新样本数据框开始，其中只包含数字：
+如果你的数据框（DataFrame）仅包含数字，这将特别有帮助。提供一个布尔 DataFrame 将在布尔 DataFrame 为`False`时在数据框中返回`NaN`。稍后将更详细地讨论`NaN`。让我们从创建一个名为`rainfall`的新样本数据框开始，其中只包含数字：
 
 > `In``[``28``]:``# 这可能是以毫米为单位的年降雨量``rainfall``=``pd``.``DataFrame``(``data``=``{``"City 1"``:``[``300.1``,``100.2``],``"City 2"``:``[``400.3``,``300.4``],``"City 3"``:``[``1000.5``,``1100.6``]})``rainfall`
 > 
@@ -298,13 +300,13 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[30]:    City 1  City 2  City 3          0   300.1     NaN     NaN          1   100.2   300.4     NaN`
 
-注意，在这个例子中，我使用了字典来构建一个新的DataFrame——如果数据已经以这种形式存在，这通常很方便。以这种方式使用布尔值通常用于过滤特定值，如异常值。
+注意，在这个例子中，我使用了字典来构建一个新的 DataFrame——如果数据已经以这种形式存在，这通常很方便。以这种方式使用布尔值通常用于过滤特定值，如异常值。
 
-结束数据选择部分之前，我将介绍一种特殊类型的索引称为MultiIndex。
+结束数据选择部分之前，我将介绍一种特殊类型的索引称为 MultiIndex。
 
-使用MultiIndex进行选择
+使用 MultiIndex 进行选择
 
-一个**MultiIndex**是一个具有多个层级的索引。它允许你按层次分组数据，并轻松访问子集。例如，如果将我们示例DataFrame `df` 的索引设置为 `continent` 和 `country` 的组合，你可以轻松选择特定大陆的所有行：
+一个**MultiIndex**是一个具有多个层级的索引。它允许你按层次分组数据，并轻松访问子集。例如，如果将我们示例 DataFrame `df` 的索引设置为 `continent` 和 `country` 的组合，你可以轻松选择特定大陆的所有行：
 
 > `In[31]:` # MultiIndex 需要排序`df_multi`=`df`.`reset_index`()`.`set_index`([``"continent"``,``"country"``])`df_multi`=`df_multi`.`sort_index`()``df_multi`
 > 
@@ -314,25 +316,25 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[32]: properties  user_id   name  age  score          country          Germany        1003  Jenny   12    9.0          Italy          1001   Mark   55    4.5`
 
-请注意，pandas通过不重复左侧索引级别（大陆）来美化MultiIndex的输出。而是在每行更改时仅打印大陆。通过提供元组来选择多个索引级别：
+请注意，pandas 通过不重复左侧索引级别（大陆）来美化 MultiIndex 的输出。而是在每行更改时仅打印大陆。通过提供元组来选择多个索引级别：
 
 > `In[33]:` `df_multi`.`loc``[(``"Europe"``,``"Italy"``),``:]`
 > 
 > `Out[33]: properties         user_id  name  age  score          continent country          Europe    Italy       1001  Mark   55    4.5`
 
-如果要选择性地重置MultiIndex的部分，请提供级别作为参数。从左侧开始，零是第一列：
+如果要选择性地重置 MultiIndex 的部分，请提供级别作为参数。从左侧开始，零是第一列：
 
 > `In[34]:` `df_multi`.`reset_index`(``level``=``0``)`
 > 
 > `Out[34]: properties continent  user_id   name  age  score          country          USA          America     1000   John   33    6.7          USA          America     1002    Tim   41    3.9          Germany       Europe     1003  Jenny   12    9.0          Italy         Europe     1001   Mark   55    4.5`
 
-虽然我们在本书中不会手动创建MultiIndex，但像`groupby`这样的某些操作将导致pandas返回带有MultiIndex的DataFrame，因此了解它是很好的。我们将在本章后面介绍`groupby`。
+虽然我们在本书中不会手动创建 MultiIndex，但像`groupby`这样的某些操作将导致 pandas 返回带有 MultiIndex 的 DataFrame，因此了解它是很好的。我们将在本章后面介绍`groupby`。
 
 现在你知道了各种选择数据的方法，现在是时候学习如何更改数据了。
 
 数据设置
 
-更改DataFrame数据的最简单方法是使用`loc`或`iloc`属性为特定元素分配值。这是本节的起点，在转向操作现有DataFrame的其他方法之前：替换值和添加新列。
+更改 DataFrame 数据的最简单方法是使用`loc`或`iloc`属性为特定元素分配值。这是本节的起点，在转向操作现有 DataFrame 的其他方法之前：替换值和添加新列。
 
 通过标签或位置设置数据
 
@@ -344,7 +346,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[36]: properties   name  age  country  score continent          user_id          1001         Mark   55    Italy    4.5    Europe          1000         JOHN   33      USA    6.7   America          1002          Tim   41      USA    3.9   America          1003        Jenny   12  Germany    9.0    Europe`
 
-你也可以同时更改多个值。改变ID为1000和1001的用户的分数的一种方法是使用列表：
+你也可以同时更改多个值。改变 ID 为 1000 和 1001 的用户的分数的一种方法是使用列表：
 
 > `In``[``37``]:``df2``.``loc``[[``1000``,``1001``],``"score"``]``=``[``3``,``4``]``df2`
 > 
@@ -354,7 +356,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 
 通过布尔索引设置数据
 
-布尔索引，我们用来过滤行的方式，也可以用来在数据框中赋值。想象一下，你需要匿名化所有年龄低于20岁或来自美国的人的姓名：
+布尔索引，我们用来过滤行的方式，也可以用来在数据框中赋值。想象一下，你需要匿名化所有年龄低于 20 岁或来自美国的人的姓名：
 
 > `In``[``38``]:``tf``=``(``df2``[``"age"``]``<``20``)``|``(``df2``[``"country"``]``==``"USA"``)``df2``.``loc``[``tf``,``"name"``]``=``"xxx"``df2`
 > 
@@ -366,7 +368,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[39]:    城市 1  城市 2  城市 3          0   300.1   400.3  1000.5          1   100.2   300.4  1100.6`
 > 
-> `In``[``40``]:``# 将低于400的值设为0``rainfall2``[``rainfall2``<``400``]``=``0``rainfall2`
+> `In``[``40``]:``# 将低于 400 的值设为 0``rainfall2``[``rainfall2``<``400``]``=``0``rainfall2`
 > 
 > `Out[40]:    City 1  City 2  City 3          0     0.0   400.3  1000.5          1     0.0     0.0  1100.6`
 
@@ -374,7 +376,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 
 通过替换值设置数据
 
-如果要在整个DataFrame或选定列中替换某个值，请使用`replace`方法：
+如果要在整个 DataFrame 或选定列中替换某个值，请使用`replace`方法：
 
 > `In``[``41``]:``df2``.``replace``(``"USA"``,``"U.S."``)`
 > 
@@ -384,11 +386,11 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 
 > `df2``.``replace``({``"country"``:``{``"USA"``:``"U.S."``}})`
 
-在这种情况下，由于`USA`只出现在`country`列中，它产生了与前一个示例相同的结果。让我们看看如何向DataFrame添加额外列，以结束这一节。
+在这种情况下，由于`USA`只出现在`country`列中，它产生了与前一个示例相同的结果。让我们看看如何向 DataFrame 添加额外列，以结束这一节。
 
 通过添加新列设置数据
 
-要向DataFrame添加新列，请为新列名称分配值。例如，您可以使用标量或列表向DataFrame添加新列：
+要向 DataFrame 添加新列，请为新列名称分配值。例如，您可以使用标量或列表向 DataFrame 添加新列：
 
 > `In``[``42``]:``df2``.``loc``[:,``"discount"``]``=``0``df2``.``loc``[:,``"price"``]``=``[``49.9``,``49.9``,``99.9``,``99.9``]``df2`
 > 
@@ -400,7 +402,7 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[43]: properties   name  age  country  score continent  birth year          user_id          1001         Mark   55    Italy    4.5    Europe        1966          1000         John   33      USA    6.7   America        1988          1002          Tim   41      USA    3.9   America        1980          1003        Jenny   12  Germany    9.0    Europe        2009`
 
-我稍后会向你展示更多关于DataFrame计算的内容，但在我们到达那之前，请记住我已经多次使用了`NaN`吗？下一节将为您提供有关缺失数据主题的更多背景。
+我稍后会向你展示更多关于 DataFrame 计算的内容，但在我们到达那之前，请记住我已经多次使用了`NaN`吗？下一节将为您提供有关缺失数据主题的更多背景。
 
 缺失数据
 
@@ -454,9 +456,9 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[51]: array(['Italy', 'USA', 'Germany'], dtype=object)`  
 
-最后，要了解哪些行是重复的，请使用`duplicated`方法，它返回一个布尔值系列：默认情况下，它使用参数`keep="first"`，保留第一次出现并仅标记重复为`True`。通过设置参数`keep=False`，它将对所有行返回`True`，包括第一次出现，从而轻松获取包含所有重复行的DataFrame。在以下示例中，我们查看`country`列是否有重复，但实际上，您经常查看索引或整个行。在这种情况下，您必须使用`df.index.duplicated()`或`df.duplicated()`代替：  
+最后，要了解哪些行是重复的，请使用`duplicated`方法，它返回一个布尔值系列：默认情况下，它使用参数`keep="first"`，保留第一次出现并仅标记重复为`True`。通过设置参数`keep=False`，它将对所有行返回`True`，包括第一次出现，从而轻松获取包含所有重复行的 DataFrame。在以下示例中，我们查看`country`列是否有重复，但实际上，您经常查看索引或整个行。在这种情况下，您必须使用`df.index.duplicated()`或`df.duplicated()`代替：  
 
-> `In``[``52``]:``# 默认情况下，它仅标记重复项为True，即没有第一次出现``df``[``"country"``]``.``duplicated``()`  
+> `In``[``52``]:``# 默认情况下，它仅标记重复项为 True，即没有第一次出现``df``[``"country"``]``.``duplicated``()`  
 > 
 > `Out[52]: user_id          1001    False          1000    False          1002     True          1003    False          Name: country, dtype: bool`  
 > 
@@ -464,11 +466,11 @@ DataFrame的列和索引都由一个`Index`对象表示，因此可以通过转�
 > 
 > `Out[53]: properties  name  age country  score continent          user_id          1000        John   33     USA    6.7   America          1002         Tim   41     USA    3.9   America`  
 
-一旦您通过删除缺失和重复数据清理了您的DataFrame，您可能希望执行一些算术运算-下一节将为您介绍如何执行这些操作。  
+一旦您通过删除缺失和重复数据清理了您的 DataFrame，您可能希望执行一些算术运算-下一节将为您介绍如何执行这些操作。  
 
 算术运算  
 
-像NumPy数组一样，DataFrame和Series利用向量化。例如，要将数字添加到`rainfall` DataFrame中的每个值，只需执行以下操作：  
+像 NumPy 数组一样，DataFrame 和 Series 利用向量化。例如，要将数字添加到`rainfall` DataFrame 中的每个值，只需执行以下操作：  
 
 > `In``[``54``]:``rainfall`  
 > 
@@ -530,9 +532,9 @@ Table 5-4\. 算术运算符
 
 处理文本列
 
-正如我们在本章开头所见，包含文本或混合数据类型的列具有数据类型`object`。要对包含文本字符串的列执行操作，请使用`str`属性，该属性使您可以访问Python的字符串方法。我们在[第3章](index_split_010.html#filepos178328)中已经了解了一些字符串方法，但查看一下[Python文档](https://oreil.ly/-e7SC)中提供的方法也无妨。例如，要去除前导和尾随空格，请使用`strip`方法；要将所有首字母大写，可以使用`capitalize`方法。将这些方法链在一起将清理手动输入数据产生的混乱文本列：
+正如我们在本章开头所见，包含文本或混合数据类型的列具有数据类型`object`。要对包含文本字符串的列执行操作，请使用`str`属性，该属性使您可以访问 Python 的字符串方法。我们在第三章中已经了解了一些字符串方法，但查看一下[Python 文档](https://oreil.ly/-e7SC)中提供的方法也无妨。例如，要去除前导和尾随空格，请使用`strip`方法；要将所有首字母大写，可以使用`capitalize`方法。将这些方法链在一起将清理手动输入数据产生的混乱文本列：
 
-> `In``[``63``]:``# 让我们创建一个新的DataFrame``users``=``pd``.``DataFrame``(``data``=``[``" mArk "``,``"JOHN  "``,``"Tim"``,``" jenny"``],``columns``=``[``"name"``])``users`
+> `In``[``63``]:``# 让我们创建一个新的 DataFrame``users``=``pd``.``DataFrame``(``data``=``[``" mArk "``,``"JOHN  "``,``"Tim"``,``" jenny"``],``columns``=``[``"name"``])``users`
 > 
 > `Out[63]:      name          0   mArk          1  JOHN          2     Tim          3   jenny`
 > 
@@ -546,11 +548,11 @@ Table 5-4\. 算术运算符
 > 
 > `Out[65]: 0    False          1     True          2    False          3     True          Name: name, dtype: bool`
 
-字符串方法很容易使用，但有时您可能需要以不内置的方式操作DataFrame。在这种情况下，创建自己的函数并将其应用于DataFrame，如下一节所示。
+字符串方法很容易使用，但有时您可能需要以不内置的方式操作 DataFrame。在这种情况下，创建自己的函数并将其应用于 DataFrame，如下一节所示。
 
 应用函数
 
-数据框提供了`applymap`方法，该方法将应用于每个单独的元素，如果没有NumPy ufuncs可用，则非常有用。例如，没有用于字符串格式化的ufuncs，因此我们可以像这样格式化DataFrame的每个元素：
+数据框提供了`applymap`方法，该方法将应用于每个单独的元素，如果没有 NumPy ufuncs 可用，则非常有用。例如，没有用于字符串格式化的 ufuncs，因此我们可以像这样格式化 DataFrame 的每个元素：
 
 > `In``[``66``]:``rainfall`
 > 
@@ -558,11 +560,11 @@ Table 5-4\. 算术运算符
 > 
 > `In``[``67``]:``def``format_string``(``x``):``return``f``"{x:,.2f}"`
 > 
-> `In``[``68``]:``# 注意，我们传递函数时不要调用它，即format_string而不是format_string()！``rainfall``.``applymap``(``format_string``)`
+> `In``[``68``]:``# 注意，我们传递函数时不要调用它，即 format_string 而不是 format_string()！``rainfall``.``applymap``(``format_string``)`
 > 
 > `Out[68]:    City 1  City 2    City 3          0  300.10  400.30  1,000.50          1  100.20  300.40  1,100.60`
 
-要分解这个过程：下面的f-string将`x`返回为一个字符串：`f"{x}"`。要添加格式化，将冒号附加到变量后面，然后是格式化字符串`,.2f`。逗号是千位分隔符，`.2f`表示小数点后两位的固定点表示法。要获取有关如何格式化字符串的更多详细信息，请参阅[格式规范迷你语言](https://oreil.ly/NgsG8)，它是Python文档的一部分。
+要分解这个过程：下面的 f-string 将`x`返回为一个字符串：`f"{x}"`。要添加格式化，将冒号附加到变量后面，然后是格式化字符串`,.2f`。逗号是千位分隔符，`.2f`表示小数点后两位的固定点表示法。要获取有关如何格式化字符串的更多详细信息，请参阅[格式规范迷你语言](https://oreil.ly/NgsG8)，它是 Python 文档的一部分。
 
 对于这种用例，lambda 表达式（见侧边栏）被广泛使用，因为它们允许你在一行内写出同样的内容，而无需定义单独的函数。利用 lambda 表达式，我们可以将前面的例子重写为以下形式：
 
@@ -574,11 +576,11 @@ Table 5-4\. 算术运算符
 > 
 > Python 允许你通过 lambda 表达式在一行内定义函数。Lambda 表达式是匿名函数，这意味着它是一个没有名称的函数。考虑这个函数：
 > 
-> `def``函数名``(``参数1``,``参数2``,``...``):``return``返回值`
+> `def``函数名``(``参数 1``,``参数 2``,``...``):``return``返回值`
 > 
 > 这个函数可以重写为如下的 lambda 表达式：
 > 
-> `lambda``参数1``,``参数2``,``...``:``返回值`
+> `lambda``参数 1``,``参数 2``,``...``:``返回值`
 > 
 > 本质上，你用 lambda 替换 `def`，省略 `return` 关键字和函数名，并把所有内容放在一行上。就像我们在 `applymap` 方法中看到的那样，在这种情况下，这样做非常方便，因为我们不需要为仅被使用一次的事情定义一个函数。
 
@@ -600,11 +602,11 @@ Table 5-4\. 算术运算符
 
 合并数据框
 
-在Excel中组合不同的数据集可能是一个繁琐的任务，通常涉及大量的`VLOOKUP`公式。幸运的是，pandas的合并DataFrame功能是其杀手级功能之一，其数据对齐能力将极大地简化你的生活，从而大大减少引入错误的可能性。合并和连接DataFrame可以通过各种方式进行；本节只讨论使用`concat`、`join`和`merge`的最常见情况。虽然它们有重叠之处，但每个函数都使特定任务变得非常简单。我将从`concat`函数开始，然后解释使用`join`的不同选项，最后介绍最通用的`merge`函数。
+在 Excel 中组合不同的数据集可能是一个繁琐的任务，通常涉及大量的`VLOOKUP`公式。幸运的是，pandas 的合并 DataFrame 功能是其杀手级功能之一，其数据对齐能力将极大地简化你的生活，从而大大减少引入错误的可能性。合并和连接 DataFrame 可以通过各种方式进行；本节只讨论使用`concat`、`join`和`merge`的最常见情况。虽然它们有重叠之处，但每个函数都使特定任务变得非常简单。我将从`concat`函数开始，然后解释使用`join`的不同选项，最后介绍最通用的`merge`函数。
 
 连接
 
-简单地将多个DataFrame粘合在一起，`concat`函数是你的好帮手。正如函数名称所示，这个过程有一个技术名字叫做连接。默认情况下，`concat`沿着行将DataFrame粘合在一起，并自动对齐列。在下面的示例中，我创建了另一个DataFrame `more_users`，并将其附加到我们样本DataFrame `df`的底部：
+简单地将多个 DataFrame 粘合在一起，`concat`函数是你的好帮手。正如函数名称所示，这个过程有一个技术名字叫做连接。默认情况下，`concat`沿着行将 DataFrame 粘合在一起，并自动对齐列。在下面的示例中，我创建了另一个 DataFrame `more_users`，并将其附加到我们样本 DataFrame `df`的底部：
 
 > `In``[``70``]:``data``=``[[``15``,``"法国"``,``4.1``,``"贝基"``],``[``44``,``"加拿大"``,``6.1``,``"莉安"``]]``more_users``=``pd``.``DataFrame``(``data``=``data``,``columns``=``[``"年龄"``,``"国家"``,``"得分"``,``"姓名"``],``index``=``[``1000``,``1011``])``more_users`
 > 
@@ -614,7 +616,7 @@ Table 5-4\. 算术运算符
 > 
 > `Out[71]:         姓名  年龄  国家  得分 大陆          1001    马克   55    意大利    4.5    欧洲          1000    约翰   33      美国    6.7   美洲          1002     蒂姆   41      美国    3.9   美洲          1003   珍妮   12  德国    9.0    欧洲          1000   贝基   15   法国    4.1       NaN          1011  莉安   44   加拿大    6.1       NaN`
 
-现在你注意到，由于`concat`在指定轴（行）上将数据粘合在一起，并且仅在另一个轴（列）上对齐数据，所以你现在有重复的索引元素！即使两个DataFrame中的列名不同序，它们也会自动匹配列名！如果你想沿着列将两个DataFrame粘合在一起，请设置`axis=1`：
+现在你注意到，由于`concat`在指定轴（行）上将数据粘合在一起，并且仅在另一个轴（列）上对齐数据，所以你现在有重复的索引元素！即使两个 DataFrame 中的列名不同序，它们也会自动匹配列名！如果你想沿着列将两个 DataFrame 粘合在一起，请设置`axis=1`：
 
 > `In``[``72``]:``data``=``[[``3``,``4``],``[``5``,``6``]]``more_categories``=``pd``.``DataFrame``(``data``=``data``,``columns``=``[``"测验"``,``"登录"``],``index``=``[``1000``,``2000``])``more_categories`
 > 
@@ -632,13 +634,13 @@ Table 5-4\. 算术运算符
 
 连接与合并
 
-当你连接两个 DataFrame 时，你将每个 DataFrame 的列合并到一个新的 DataFrame 中，同时根据集合理论决定行的处理方式。如果你之前有过与关系数据库的工作经验，那么这与 SQL 查询中的 `JOIN` 子句是相同的概念。[图 5-3](#filepos668317) 显示了内连接、左连接、右连接和外连接四种连接类型如何通过使用两个示例 DataFrame `df1` 和 `df2` 进行操作。
+当你连接两个 DataFrame 时，你将每个 DataFrame 的列合并到一个新的 DataFrame 中，同时根据集合理论决定行的处理方式。如果你之前有过与关系数据库的工作经验，那么这与 SQL 查询中的 `JOIN` 子句是相同的概念。图 5-3 显示了内连接、左连接、右连接和外连接四种连接类型如何通过使用两个示例 DataFrame `df1` 和 `df2` 进行操作。
 
-![](images/00002.jpg)
+![](img/00002.jpg)
 
 图 5-3\. 连接类型
 
-使用 `join` 方法，pandas 使用两个 DataFrame 的索引来对齐行。内连接返回仅在索引重叠的行的 DataFrame。左连接获取左侧 DataFrame `df1` 的所有行，并在右侧 DataFrame `df2` 上匹配索引。在 `df2` 中没有匹配行的地方，pandas 将填充 `NaN`。左连接对应于 Excel 中的 `VLOOKUP` 情况。右连接获取右表 `df2` 的所有行，并将它们与 `df1` 的行在索引上匹配。最后，全外连接（即完全外连接）获取两个 DataFrame 的索引的并集，并在可能的情况下匹配值。[表 5-5](#filepos669531) 是文本形式中 [图 5-3](#filepos668317) 的等效内容。
+使用 `join` 方法，pandas 使用两个 DataFrame 的索引来对齐行。内连接返回仅在索引重叠的行的 DataFrame。左连接获取左侧 DataFrame `df1` 的所有行，并在右侧 DataFrame `df2` 上匹配索引。在 `df2` 中没有匹配行的地方，pandas 将填充 `NaN`。左连接对应于 Excel 中的 `VLOOKUP` 情况。右连接获取右表 `df2` 的所有行，并将它们与 `df1` 的行在索引上匹配。最后，全外连接（即完全外连接）获取两个 DataFrame 的索引的并集，并在可能的情况下匹配值。表 5-5 是文本形式中 图 5-3 的等效内容。
 
 表 5-5\. 连接类型
 
@@ -649,7 +651,7 @@ Table 5-4\. 算术运算符
 |   `right` |  从右 DataFrame 中获取所有行，匹配左 DataFrame 的行  |
 |   `outer` |  从两个 DataFrame 中获取所有行的并集  |
 
-让我们看看实际操作中的情况，将 [图 5-3](#filepos668317) 中的示例活现出来：
+让我们看看实际操作中的情况，将 图 5-3 中的示例活现出来：
 
 > `In``[``74``]:``df1``=``pd``.``DataFrame``(``data``=``[[``1``,``2``],``[``3``,``4``],``[``5``,``6``]],``columns``=``[``"A"``,``"B"``])``df1`
 > 
@@ -675,9 +677,9 @@ Table 5-4\. 算术运算符
 > 
 > `Out[79]:      A    B     C     D          0  1.0  2.0   NaN   NaN          1  3.0  4.0  10.0  20.0          2  5.0  6.0   NaN   NaN          3  NaN  NaN  30.0  40.0`
 
-如果你想要根据一个或多个DataFrame列进行连接而不是依赖索引，使用`merge`而不是`join`。`merge`接受`on`参数作为连接条件：这些列必须存在于两个DataFrame中，并用于匹配行：
+如果你想要根据一个或多个 DataFrame 列进行连接而不是依赖索引，使用`merge`而不是`join`。`merge`接受`on`参数作为连接条件：这些列必须存在于两个 DataFrame 中，并用于匹配行：
 
-> `In``[``80``]:``# 给两个DataFrame都添加一个名为"category"的列``df1``[``"category"``]``=``[``"a"``,``"b"``,``"c"``]``df2``[``"category"``]``=``[``"c"``,``"b"``]`
+> `In``[``80``]:``# 给两个 DataFrame 都添加一个名为"category"的列``df1``[``"category"``]``=``[``"a"``,``"b"``,``"c"``]``df2``[``"category"``]``=``[``"c"``,``"b"``]`
 > 
 > `In``[``81``]:``df1`
 > 
@@ -697,15 +699,15 @@ Table 5-4\. 算术运算符
 
 由于`join`和`merge`接受许多可选参数来适应更复杂的场景，我建议你查看[官方文档](https://oreil.ly/OZ4WV)以了解更多信息。
 
-你现在知道如何操作一个或多个DataFrame，这将引导我们数据分析旅程的下一步：理解数据。
+你现在知道如何操作一个或多个 DataFrame，这将引导我们数据分析旅程的下一步：理解数据。
 
 描述性统计和数据聚合
 
-在理解大数据集的一种方法是计算描述统计，如总和或平均值，可以针对整个数据集或有意义的子集。本节首先介绍了在pandas中如何进行这种操作，然后介绍了两种数据聚合到子集的方式：`groupby`方法和`pivot_table`函数。
+在理解大数据集的一种方法是计算描述统计，如总和或平均值，可以针对整个数据集或有意义的子集。本节首先介绍了在 pandas 中如何进行这种操作，然后介绍了两种数据聚合到子集的方式：`groupby`方法和`pivot_table`函数。
 
 描述性统计
 
-描述性统计允许你通过使用定量的方法对数据集进行总结。例如，数据点的数量是一个简单的描述性统计量。像均值、中位数或众数这样的平均数也是其他流行的例子。DataFrame和Series允许你通过诸如`sum`、`mean`和`count`之类的方法方便地访问描述性统计信息。在本书中你将会遇到许多这样的方法，并且完整的列表可以通过[pandas文档](https://oreil.ly/t2q9Q)获取。默认情况下，它们返回沿着`axis=0`的Series，这意味着你得到了列的统计信息：
+描述性统计允许你通过使用定量的方法对数据集进行总结。例如，数据点的数量是一个简单的描述性统计量。像均值、中位数或众数这样的平均数也是其他流行的例子。DataFrame 和 Series 允许你通过诸如`sum`、`mean`和`count`之类的方法方便地访问描述性统计信息。在本书中你将会遇到许多这样的方法，并且完整的列表可以通过[pandas 文档](https://oreil.ly/t2q9Q)获取。默认情况下，它们返回沿着`axis=0`的 Series，这意味着你得到了列的统计信息：
 
 > `In``[``85``]:``rainfall`
 > 
@@ -721,25 +723,25 @@ Table 5-4\. 算术运算符
 > 
 > `Out[87]: 0    566.966667          1    500.400000          dtype: float64`
 
-默认情况下，描述性统计不包括缺失值，这与Excel处理空单元格的方式一致，因此在带有空单元格的范围上使用Excel的`AVERAGE`公式将给出与在具有相同数字和`NaN`值而不是空单元格的Series上应用`mean`方法相同的结果。
+默认情况下，描述性统计不包括缺失值，这与 Excel 处理空单元格的方式一致，因此在带有空单元格的范围上使用 Excel 的`AVERAGE`公式将给出与在具有相同数字和`NaN`值而不是空单元格的 Series 上应用`mean`方法相同的结果。
 
-有时仅仅获取DataFrame所有行的统计数据是不够的，你需要更详细的信息——例如每个类别的平均值。让我们看看如何实现！
+有时仅仅获取 DataFrame 所有行的统计数据是不够的，你需要更详细的信息——例如每个类别的平均值。让我们看看如何实现！
 
 分组
 
-使用我们的示例DataFrame `df`，让我们再次找出每个大陆的平均分数！为此，首先按大陆分组行，然后应用`mean`方法，该方法将计算每个组的平均值。所有非数字列将自动排除：
+使用我们的示例 DataFrame `df`，让我们再次找出每个大陆的平均分数！为此，首先按大陆分组行，然后应用`mean`方法，该方法将计算每个组的平均值。所有非数字列将自动排除：
 
 > `In``[``88``]:``df``.``groupby``([``"continent"``])``.``mean``()`
 > 
 > `Out[88]: properties   age  score          continent          America     37.0   5.30          Europe      33.5   6.75`
 
-如果包括多于一个列，生成的DataFrame将具有层次化索引——我们之前遇到的MultiIndex：
+如果包括多于一个列，生成的 DataFrame 将具有层次化索引——我们之前遇到的 MultiIndex：
 
 > `In``[``89``]:``df``.``groupby``([``"continent"``,``"country"``])``.``mean``()`
 > 
 > `Out[89]: properties         age  score          continent country          America   USA       37    5.3          Europe    Germany   12    9.0                    Italy     55    4.5`
 
-你可以使用大多数由pandas提供的描述性统计量，如果想使用自己的函数，可以使用`agg`方法。例如，这是如何获取每个组最大值与最小值之差的方法：
+你可以使用大多数由 pandas 提供的描述性统计量，如果想使用自己的函数，可以使用`agg`方法。例如，这是如何获取每个组最大值与最小值之差的方法：
 
 > `In``[``90``]:``df``.``groupby``([``"continent"``])``.``agg``(``lambda``x``:``x``.``max``()``-``x``.``min``())`
 > 
@@ -749,7 +751,7 @@ Table 5-4\. 算术运算符
 
 数据透视和数据融合
 
-如果您在Excel中使用数据透视表，可以毫不费力地应用 pandas 的`pivot_table`函数，因为它的使用方式基本相同。下面的 DataFrame 中的数据组织方式与通常在数据库中存储记录的方式类似；每一行显示了特定水果在特定地区的销售交易：
+如果您在 Excel 中使用数据透视表，可以毫不费力地应用 pandas 的`pivot_table`函数，因为它的使用方式基本相同。下面的 DataFrame 中的数据组织方式与通常在数据库中存储记录的方式类似；每一行显示了特定水果在特定地区的销售交易：
 
 > `In``[``91``]:``data``=``[[``"Oranges"``,``"North"``,``12.30``],``[``"Apples"``,``"South"``,``10.55``],``[``"Oranges"``,``"South"``,``22.00``],``[``"Bananas"``,``"South"``,``5.90``],``[``"Bananas"``,``"North"``,``31.30``],``[``"Oranges"``,``"North"``,``13.10``]]``sales``=``pd``.``DataFrame``(``data``=``data``,``columns``=``[``"Fruit"``,``"Region"``,``"Revenue"``])``sales`
 > 
@@ -769,17 +771,17 @@ Table 5-4\. 算术运算符
 
 在这里，我将我们的透视表作为输入提供，但我使用`iloc`来去除总行和列。我还重置索引，以便所有信息都作为常规列可用。然后，我提供`id_vars`以指示标识符，并提供`value_vars`以定义我要“解构”的列。如果您希望准备数据以便将其存储回预期以此格式存储的数据库中，熔断可能会很有用。
 
-使用聚合统计数据有助于理解数据，但没有人喜欢阅读满篇数字。为了使信息易于理解，创建可视化效果最有效，这是我们接下来要讨论的内容。虽然Excel使用术语图表，但pandas通常称之为图。在本书中，我会交替使用这些术语。
+使用聚合统计数据有助于理解数据，但没有人喜欢阅读满篇数字。为了使信息易于理解，创建可视化效果最有效，这是我们接下来要讨论的内容。虽然 Excel 使用术语图表，但 pandas 通常称之为图。在本书中，我会交替使用这些术语。
 
 绘图
 
-绘图允许您可视化数据分析的发现，可能是整个过程中最重要的一步。对于绘图，我们将使用两个库：首先是Matplotlib，pandas的默认绘图库，然后是Plotly，这是一个现代绘图库，在Jupyter笔记本中提供更交互式的体验。
+绘图允许您可视化数据分析的发现，可能是整个过程中最重要的一步。对于绘图，我们将使用两个库：首先是 Matplotlib，pandas 的默认绘图库，然后是 Plotly，这是一个现代绘图库，在 Jupyter 笔记本中提供更交互式的体验。
 
 Matplotlib
 
-Matplotlib是一个长期存在的绘图包，包含在Anaconda发行版中。您可以使用它生成多种格式的图表，包括高质量打印的矢量图形。当您调用DataFrame的`plot`方法时，pandas默认会生成一个Matplotlib图。
+Matplotlib 是一个长期存在的绘图包，包含在 Anaconda 发行版中。您可以使用它生成多种格式的图表，包括高质量打印的矢量图形。当您调用 DataFrame 的`plot`方法时，pandas 默认会生成一个 Matplotlib 图。
 
-要在Jupyter笔记本中使用Matplotlib，您需要首先运行两个魔术命令中的一个（参见侧边栏[“魔术命令”](#filepos726690)）：`%matplotlib inline`或`%matplotlib notebook`。它们配置笔记本以便在笔记本本身中显示图表。后者命令增加了一些交互性，允许您更改图表的大小或缩放系数。让我们开始，并使用pandas和Matplotlib创建第一个图表（见[图5-4](#filepos726089)）：
+要在 Jupyter 笔记本中使用 Matplotlib，您需要首先运行两个魔术命令中的一个（参见侧边栏“魔术命令”）：`%matplotlib inline`或`%matplotlib notebook`。它们配置笔记本以便在笔记本本身中显示图表。后者命令增加了一些交互性，允许您更改图表的大小或缩放系数。让我们开始，并使用 pandas 和 Matplotlib 创建第一个图表（见图 5-4）：
 
 > `In``[``94``]:``import``numpy``as``np``%``matplotlib``inline``# Or %matplotlib notebook`
 > 
@@ -791,7 +793,7 @@ Matplotlib是一个长期存在的绘图包，包含在Anaconda发行版中。�
 > 
 > `Out[96]: <AxesSubplot:xlabel='Quarters'>`
 
-![](images/00008.jpg)
+![](img/00008.jpg)
 
 图 5-4\. Matplotlib 绘图
 
@@ -811,19 +813,19 @@ Plotly 是基于 JavaScript 的库，自版本 4.8.0 起，可以作为 pandas �
 
 > `(base)>` `conda install plotly`
 
-运行此单元格后，整个笔记本的绘图后端将设置为 Plotly，如果重新运行之前的单元格，它也将呈现为 Plotly 图表。对于 Plotly，你只需在能够绘制 [5-5](#filepos731078) 和 [5-6](#filepos732496) 图形之前将其设置为后端：
+运行此单元格后，整个笔记本的绘图后端将设置为 Plotly，如果重新运行之前的单元格，它也将呈现为 Plotly 图表。对于 Plotly，你只需在能够绘制 5-5 和 5-6 图形之前将其设置为后端：
 
 > `In``[``97``]:``# 将绘图后端设置为 Plotly``pd``.``options``.``plotting``.``backend``=``"plotly"`
 > 
 > `In``[``98``]:``data``.``plot``()``
 
-![](images/00016.jpg)
+![](img/00016.jpg)
 
 图 5-5\. Plotly 折线图
 
 > `In``[``99``]:``# 显示相同数据的条形图``data``.``plot``.``bar``(``barmode``=``"group"``)`
 
-![](images/00021.jpg)
+![](img/00021.jpg)
 
 图 5-6\. Plotly 条形图
 
@@ -831,7 +833,7 @@ Plotly 是基于 JavaScript 的库，自版本 4.8.0 起，可以作为 pandas �
 > 
 > 如果您使用 Plotly 作为绘图后端，您需要直接在 Plotly 文档中检查绘图方法的接受参数。例如，您可以查看 [Plotly 条形图文档](https://oreil.ly/Ekurd) 中的 `barmode=group` 参数。
 
-pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几乎任何期望的方式格式化图表。也可以将多个图表安排到子图系列中。总览见 [表 5-6](#filepos733705) 显示了可用的绘图类型。
+pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几乎任何期望的方式格式化图表。也可以将多个图表安排到子图系列中。总览见 表 5-6 显示了可用的绘图类型。
 
 表 5-6\. pandas 绘图类型
 
@@ -874,9 +876,9 @@ pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几�
 
 导入和导出数据帧
 
-到目前为止，我们使用嵌套列表、字典或NumPy数组从头构建了 DataFrame。了解这些技术很重要，但通常数据已经可用，您只需将其转换为 DataFrame。为此，pandas 提供了各种读取函数。但即使您需要访问 pandas 不提供内置读取器的专有系统，您通常也可以使用 Python 包连接到该系统，一旦获取数据，将其转换为 DataFrame 就很容易。在 Excel 中，数据导入通常是使用 Power Query 处理的工作类型。
+到目前为止，我们使用嵌套列表、字典或 NumPy 数组从头构建了 DataFrame。了解这些技术很重要，但通常数据已经可用，您只需将其转换为 DataFrame。为此，pandas 提供了各种读取函数。但即使您需要访问 pandas 不提供内置读取器的专有系统，您通常也可以使用 Python 包连接到该系统，一旦获取数据，将其转换为 DataFrame 就很容易。在 Excel 中，数据导入通常是使用 Power Query 处理的工作类型。
 
-分析和更改数据集后，您可能希望将结果推回数据库或将其导出为 CSV 文件或者——考虑到本书的标题——将其呈现在 Excel 工作簿中供您的经理查看。要导出 pandas DataFrame，请使用DataFrame提供的导出器方法之一。[表格 5-7](#filepos741567)显示了最常见的导入和导出方法概述。
+分析和更改数据集后，您可能希望将结果推回数据库或将其导出为 CSV 文件或者——考虑到本书的标题——将其呈现在 Excel 工作簿中供您的经理查看。要导出 pandas DataFrame，请使用 DataFrame 提供的导出器方法之一。表格 5-7 显示了最常见的导入和导出方法概述。
 
 表格 5-7\. 导入和导出数据框
 
@@ -889,7 +891,7 @@ pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几�
 |  Excel 文件  |   `pd.read_excel` |   `df.to_excel` |
 |  SQL 数据库  |   `pd.read_sql` |   `df.to_sql` |
 
-我们将在[第 11 章](index_split_027.html#filepos1487255)中遇到 `pd.read_sql` 和 `pd.to_sql`，在那里我们将把它们作为案例研究的一部分使用。并且由于我打算在整个[第 7 章](index_split_019.html#filepos863345)中专门讨论使用 pandas 读取和写入 Excel 文件的主题，因此在本节中我将重点讨论导入和导出 CSV 文件。让我们从导出现有的 DataFrame 开始！
+我们将在第十一章中遇到 `pd.read_sql` 和 `pd.to_sql`，在那里我们将把它们作为案例研究的一部分使用。并且由于我打算在整个第七章中专门讨论使用 pandas 读取和写入 Excel 文件的主题，因此在本节中我将重点讨论导入和导出 CSV 文件。让我们从导出现有的 DataFrame 开始！
 
 导出 CSV 文件
 
@@ -915,7 +917,7 @@ pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几�
 
 > `In``[``101``]:``msft``=``pd``.``read_csv``(``"csv/MSFT.csv"``)`
 
-经常需要向`read_csv`提供比仅文件名更多的参数。例如，`sep`参数允许您告诉 pandas CSV 文件使用的分隔符或分隔符，以防它不是默认的逗号。在下一章中，我们将使用更多的参数，但是为了全面了解，请查看[pandas文档](https://oreil.ly/2GMhW)。
+经常需要向`read_csv`提供比仅文件名更多的参数。例如，`sep`参数允许您告诉 pandas CSV 文件使用的分隔符或分隔符，以防它不是默认的逗号。在下一章中，我们将使用更多的参数，但是为了全面了解，请查看[pandas 文档](https://oreil.ly/2GMhW)。
 
 现在我们正在处理具有数千行的大型 DataFrame，通常第一步是运行`info`方法以获取 DataFrame 的摘要信息。接下来，您可能希望使用`head`和`tail`方法查看 DataFrame 的前几行和最后几行。这些方法默认返回五行，但可以通过提供所需行数作为参数来更改。您还可以运行`describe`方法获取一些基本统计信息：
 
@@ -935,7 +937,7 @@ pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几�
 > 
 > `Out[105]:          Adj Close        Volume           count  8622.000000  8.622000e+03           mean     24.921952  6.030722e+07           std      31.838096  3.877805e+07           min       0.057762  2.304000e+06           25%       2.247503  3.651632e+07           50%      18.454313  5.350380e+07           75%      25.699224  7.397560e+07           max     187.663330  1.031789e+09`
 
-`Adj Close` 代表调整后的收盘价格，校正了股票价格如股票拆分等公司行动。 `Volume` 是交易的股票数量。我总结了本章中看到的各种 DataFrame 探索方法在 [表 5-8](#filepos758607) 中。
+`Adj Close` 代表调整后的收盘价格，校正了股票价格如股票拆分等公司行动。 `Volume` 是交易的股票数量。我总结了本章中看到的各种 DataFrame 探索方法在 表 5-8 中。
 
 表格 5-8\. DataFrame 探索方法和属性
 
@@ -943,8 +945,8 @@ pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几�
 | --- | --- |
 |   `df.info()` |  提供数据点数量、索引类型、数据类型和内存使用情况。  |
 |   `df.describe()` |  提供基本统计信息，包括计数、均值、标准差、最小值、最大值和百分位数。  |
-|   `df.head(n=5)` |  返回DataFrame的前  n 行。 |
-|   `df.tail(n=5)` |  返回DataFrame的最后  n 行。 |
+|   `df.head(n=5)` |  返回 DataFrame 的前  n 行。 |
+|   `df.tail(n=5)` |  返回 DataFrame 的最后  n 行。 |
 |   `df.dtypes` |  返回每列的数据类型。  |
 
 `read_csv` 函数还可以接受 URL 而不是本地 CSV 文件。以下是直接从配套仓库读取 CSV 文件的方法：
@@ -963,20 +965,20 @@ pandas 和底层绘图库提供了丰富的图表类型和选项，可以以几�
 
 自动筛选功能
 
-> > 参见 [“通过布尔索引进行选择”](index_split_015.html#filepos549613)。
+> > 参见 “通过布尔索引进行选择”。
 
 VLOOKUP 公式
 
-> > 参见 [“连接和合并”](#filepos667627)。
+> > 参见 “连接和合并”。
 
 数据透视表
 
-> > 参见 [“数据透视和融合”](#filepos701398)。
+> > 参见 “数据透视和融合”。
 
 Power Query
 
-> > 这是 [“导入和导出数据框”](#filepos740294)、[“数据操作”](index_split_015.html#filepos524268) 和 [“合并数据框”](#filepos652519) 的结合。
+> > 这是 “导入和导出数据框”、“数据操作” 和 “合并数据框” 的结合。
 
 下一章讲述的是时间序列分析，这一功能使得 pandas 在金融行业广泛应用。让我们看看为什么 pandas 的这一部分比 Excel 更具优势！
 
-> [1  ](index_split_015.html#filepos498666) pandas 1.0.0 引入了专门的`string`数据类型，以使某些操作更容易且与文本更一致。由于它仍处于实验阶段，我在本书中不打算使用它。
+> 1   pandas 1.0.0 引入了专门的`string`数据类型，以使某些操作更容易且与文本更一致。由于它仍处于实验阶段，我在本书中不打算使用它。

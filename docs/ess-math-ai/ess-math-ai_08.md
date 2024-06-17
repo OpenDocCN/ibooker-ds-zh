@@ -1,6 +1,6 @@
-# 第8章。概率生成模型
+# 第八章。概率生成模型
 
-> *AI将我所知道的所有数学联系在一起，我已经学习数学多年了。*
+> *AI 将我所知道的所有数学联系在一起，我已经学习数学多年了。*
 
 如果机器要理解周围的世界，并且能够像我们想象、梦想、绘画、创作歌曲、电影或写书时那样重新创造它，那么生成模型是朝着这个方向迈出的一大步。如果我们要实现通用人工智能，就需要正确地构建这些模型。
 
@@ -40,7 +40,7 @@
 
 此外，生成模型是建立在从所需概率分布中抽取多个样本以生成多个可接受输出的基础上的。这与我们的确定性模型不同，确定性模型在训练过程中使用均方误差损失函数或其他平均损失函数对具有不同特征的输出进行平均。这里的缺点是生成模型也可能生成一些不好的样本。
 
-一种生成模型，即[*生成对抗网络*](https://proceedings.neurips.cc/paper/2014/file/5ca3e9b122f61f8f06494c97b1afccf3-Paper.pdf)（2014年由Ian Goodfellow等人发明），具有极大的潜力，并且具有广泛的应用，从增加数据集到完成遮蔽的人脸，再到天体物理学和高能物理学，比如模拟类似于CERN大型强子对撞机产生的数据集，或模拟暗物质的分布并预测引力透镜效应。生成对抗模型建立了两个神经网络，它们在一个零和博弈中相互竞争（想象数学中的博弈论），直到机器本身无法区分真实图像和计算机生成的图像之间的区别。这就是为什么它们的输出看起来非常接近现实。
+一种生成模型，即[*生成对抗网络*](https://proceedings.neurips.cc/paper/2014/file/5ca3e9b122f61f8f06494c97b1afccf3-Paper.pdf)（2014 年由 Ian Goodfellow 等人发明），具有极大的潜力，并且具有广泛的应用，从增加数据集到完成遮蔽的人脸，再到天体物理学和高能物理学，比如模拟类似于 CERN 大型强子对撞机产生的数据集，或模拟暗物质的分布并预测引力透镜效应。生成对抗模型建立了两个神经网络，它们在一个零和博弈中相互竞争（想象数学中的博弈论），直到机器本身无法区分真实图像和计算机生成的图像之间的区别。这就是为什么它们的输出看起来非常接近现实。
 
 前一章，主要针对自然语言处理，涉及到生成模型，但没有明确指出。自然语言处理的大多数应用，不是简单的分类模型（垃圾邮件或非垃圾邮件，积极情绪或消极情绪，词性标注），包括语言生成。这些例子包括：我们智能手机或电子邮件上的自动完成，机器翻译，文本摘要，聊天机器人和图像标题。
 
@@ -58,7 +58,7 @@
 
 这在许多概率书籍中都有很好的记录，我们很快就会从中提取我们需要的内容。我们必须应用的正确函数是什么？一种方法是训练我们的模型来*学习*它。我们现在知道神经网络有能力表示各种函数，因此我们可以通过神经网络传递我们开始的简单概率分布（神经网络将是我们正在寻找的确定性函数的公式），然后通过最小化给定数据的经验分布与网络输出的分布之间的误差来学习网络的参数。
 
-1.  我们如何衡量概率分布之间的误差？概率论为我们提供了一些衡量两个概率分布之间差异的方法，比如Kullback-Leibler（KL）散度。这也与信息论中的交叉熵有关。
+1.  我们如何衡量概率分布之间的误差？概率论为我们提供了一些衡量两个概率分布之间差异的方法，比如 Kullback-Leibler（KL）散度。这也与信息论中的交叉熵有关。
 
 1.  所有生成模型都是这样工作的吗？是和不是。是指它们都试图学习生成训练数据的联合概率分布。换句话说，生成模型试图学习最大化训练数据的似然性的联合概率分布的公式和参数。不是指我们只概述了一种明确的逼近我们所需的联合概率分布的方法。这是一种思维方式。一般来说，一个定义了明确且可处理的概率密度函数的模型允许我们直接操作训练数据的对数似然性，计算其梯度，并应用可用的优化算法来搜索最大值。还有其他提供明确但难以处理的概率密度函数的模型，这种情况下，我们必须使用逼近方法来最大化似然性。我们如何*近似*解决优化问题？我们可以使用确定性逼近，依赖于*变分方法*（变分自动编码器模型），或者使用随机逼近，依赖于马尔可夫链蒙特卡洛方法。最后，还有*隐式*的方法来逼近我们所需的联合概率分布。隐式模型学习从未明确定义公式的未知分布中抽样。生成对抗网络属于这一类别。
 
@@ -68,17 +68,17 @@
 
 +   变分模型提供明确但难以处理的概率密度函数。我们在概率图模型框架内逼近优化问题的解，其中我们最大化数据对数似然性的下界，因为直接最大化数据的对数似然性是难以处理的；
 
-+   *完全可见信念网络*，提供明确且可处理的概率密度函数，如[Pixel卷积神经网络（PixelCNN）2016](https://arxiv.org/pdf/1606.05328.pdf)和[WaveNet（2016）](https://arxiv.org/abs/1609.03499)。这些模型通过将联合概率分布分解为每个单独维度的概率分布的乘积，条件于之前的维度，并逐个学习这些分布来学习。这种分解得益于概率的乘法规则或链规则。例如，PixelCNN训练一个网络，学习图像中每个单独像素的条件概率分布，给定之前的像素（左侧和顶部），而WaveNet训练一个网络，学习声波中每个单独音频信号的条件概率分布，条件于之前的信号。这里的缺点是这些模型只能一次生成一个条目，并且不允许并行化。这显著减慢了生成过程。例如，WaveNet需要两分钟的计算时间才能生成一秒的音频，因此我们无法用它进行实时的来回对话。
++   *完全可见信念网络*，提供明确且可处理的概率密度函数，如[Pixel 卷积神经网络（PixelCNN）2016](https://arxiv.org/pdf/1606.05328.pdf)和[WaveNet（2016）](https://arxiv.org/abs/1609.03499)。这些模型通过将联合概率分布分解为每个单独维度的概率分布的乘积，条件于之前的维度，并逐个学习这些分布来学习。这种分解得益于概率的乘法规则或链规则。例如，PixelCNN 训练一个网络，学习图像中每个单独像素的条件概率分布，给定之前的像素（左侧和顶部），而 WaveNet 训练一个网络，学习声波中每个单独音频信号的条件概率分布，条件于之前的信号。这里的缺点是这些模型只能一次生成一个条目，并且不允许并行化。这显著减慢了生成过程。例如，WaveNet 需要两分钟的计算时间才能生成一秒的音频，因此我们无法用它进行实时的来回对话。
 
 还有其他生成模型属于上述类别，但由于昂贵的计算要求或选择密度函数及/或其变换的困难而不太受欢迎。这些模型包括需要变量变换的模型，例如非线性独立成分估计（显式和可计算密度模型）、玻尔兹曼机模型（显式但不可计算密度模型，通过随机马尔可夫链近似解决最大化问题）、生成随机网络模型（隐式密度模型再次取决于马尔可夫链以达到其近似最大似然）。我们在本章末尾简要调查这些模型。在实践中，远离数学理论和分析，由于计算成本高昂且不愿意迅速收敛，马尔可夫链方法不受青睐。
 
 # 从确定性思维转变为概率性思维
 
-在这一章中，我们正在慢慢将我们的大脑从确定性思维转变为概率性思维。到目前为止，在这本书中，我们只使用确定性函数来进行预测。训练函数是数据特征的线性组合，有时与非线性激活器组合，损失函数是真实值和预测值之间的确定性鉴别器，优化方法基于确定性梯度下降方法。随机性或随机性仅在我们需要使模型的确定性组件的计算变得更加经济时引入，例如随机梯度下降或随机奇异值分解，当我们将数据集分成训练、验证和测试子集时，当我们选择我们的小批量时，当我们遍历一些超参数空间时，或者当我们将数据样本的分数传递到softmax函数中时，这是一个确定性函数，并将结果值解释为概率。在所有这些设置中，随机性和相关的概率分布仅与模型的特定组件相关，仅作为实现和计算确定性模型的手段：从来没有构成模型的核心组成部分。
+在这一章中，我们正在慢慢将我们的大脑从确定性思维转变为概率性思维。到目前为止，在这本书中，我们只使用确定性函数来进行预测。训练函数是数据特征的线性组合，有时与非线性激活器组合，损失函数是真实值和预测值之间的确定性鉴别器，优化方法基于确定性梯度下降方法。随机性或随机性仅在我们需要使模型的确定性组件的计算变得更加经济时引入，例如随机梯度下降或随机奇异值分解，当我们将数据集分成训练、验证和测试子集时，当我们选择我们的小批量时，当我们遍历一些超参数空间时，或者当我们将数据样本的分数传递到 softmax 函数中时，这是一个确定性函数，并将结果值解释为概率。在所有这些设置中，随机性和相关的概率分布仅与模型的特定组件相关，仅作为实现和计算确定性模型的手段：从来没有构成模型的核心组成部分。
 
 生成模型与我们在前几章中看到的模型不同，因为它们在本质上是概率性的。然而，我们仍然有训练、损失和优化结构，只是现在模型学习一个概率分布（显式或隐式），而不是学习一个确定性函数。然后，我们的损失函数衡量真实和预测概率分布之间的误差（至少对于显式密度模型），因此我们必须了解如何定义和计算概率之间的某种误差函数，而不是确定性值。我们还必须学习如何在这种概率设置中进行优化和求导。
 
-在数学中，评估给定函数（正向问题）要比找到其逆函数（逆向问题）容易得多，更不用说当我们只能访问少量函数值观测时，比如我们的数据样本。在我们的概率设置中，正向问题看起来是：给定某种概率分布，抽取一些数据。逆向问题是我们关心的问题：给定这个我们不知道的概率分布的有限数量的实现（数据样本），找到最有可能生成它们的概率分布。我们首先想到的一个困难是唯一性的问题：可能有多个分布适合我们的数据。此外，逆向问题通常更难，因为本质上我们必须向后操作并撤消正向函数遵循的过程，以到达给定的观测值。问题在于大多数过程无法撤消，这在某种程度上超出了我们的能力，嵌入在自然法则中：宇宙倾向于增加熵。除了解决逆问题固有的困难之外，我们通常尝试为AI应用估计的概率分布是高维的，具有许多变量，并且我们甚至不确定我们的概率模型是否已经考虑了所有变量（但这对确定性模型也是有问题的）。这些困难不应该使我们却步：表示和操作高维概率分布对于许多数学、科学、金融、工程和其他应用都很重要。我们必须深入研究生成模型。
+在数学中，评估给定函数（正向问题）要比找到其逆函数（逆向问题）容易得多，更不用说当我们只能访问少量函数值观测时，比如我们的数据样本。在我们的概率设置中，正向问题看起来是：给定某种概率分布，抽取一些数据。逆向问题是我们关心的问题：给定这个我们不知道的概率分布的有限数量的实现（数据样本），找到最有可能生成它们的概率分布。我们首先想到的一个困难是唯一性的问题：可能有多个分布适合我们的数据。此外，逆向问题通常更难，因为本质上我们必须向后操作并撤消正向函数遵循的过程，以到达给定的观测值。问题在于大多数过程无法撤消，这在某种程度上超出了我们的能力，嵌入在自然法则中：宇宙倾向于增加熵。除了解决逆问题固有的困难之外，我们通常尝试为 AI 应用估计的概率分布是高维的，具有许多变量，并且我们甚至不确定我们的概率模型是否已经考虑了所有变量（但这对确定性模型也是有问题的）。这些困难不应该使我们却步：表示和操作高维概率分布对于许多数学、科学、金融、工程和其他应用都很重要。我们必须深入研究生成模型。
 
 在本章的其余部分，我们将区分估计的概率分布是否具有显式公式的情况，以及当我们没有公式而是从隐式分布中数值生成新数据样本时的情况。请注意，在之前的章节中，对于所有我们的确定性模型，我们总是有明确的公式用于我们的训练函数，包括决策树、全连接神经网络和卷积神经网络给出的公式。那时，一旦我们从数据中估计出这些确定性函数，我们就可以回答问题，比如：目标变量的预测值是多少？在概率模型中，我们回答一个不同的问题：目标变量假定某个值的概率是多少，或者落在某个区间内的概率是多少？不同之处在于我们不知道我们的模型是如何组合变量以产生结果的，就像确定性情况下那样。在概率模型中，我们试图估计的是模型变量与目标变量一起发生的概率（它们的联合概率），理想情况下是对所有变量的所有范围。这将为我们提供目标变量的概率分布，而无需明确制定模型变量如何相互作用以产生这个结果。这完全取决于观察数据。
 
@@ -102,7 +102,7 @@
 
 <math alttext="dollar-sign ModifyingAbove theta With right-arrow Subscript o p t i m a l Baseline equals arg min Underscript ModifyingAbove theta With right-arrow Endscripts upper D i v e r g e n c e Subscript upper K upper L Baseline left-parenthesis p Subscript d a t a Baseline left-parenthesis ModifyingAbove x With right-arrow right-parenthesis StartAbsoluteValue EndAbsoluteValue p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis right-parenthesis dollar-sign"><mrow><msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mrow><mi>o</mi><mi>p</mi><mi>t</mi><mi>i</mi><mi>m</mi><mi>a</mi><mi>l</mi></mrow></msub> <mo>=</mo> <mo form="prefix">arg</mo> <msub><mo form="prefix" movablelimits="true">min</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover></msub> <mi>D</mi> <mi>i</mi> <mi>v</mi> <mi>e</mi> <mi>r</mi> <mi>g</mi> <mi>e</mi> <mi>n</mi> <mi>c</mi> <msub><mi>e</mi> <mrow><mi>K</mi><mi>L</mi></mrow></msub> <mrow><mo>(</mo></mrow> <msub><mi>p</mi> <mrow><mi>d</mi><mi>a</mi><mi>t</mi><mi>a</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mrow><mo>|</mo> <mo>|</mo></mrow> <msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mrow><mo>)</mo></mrow></mrow></math>
 
-如果<p_data>恰好是分布家族<p_model Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis>的成员，并且如果我们能够精确执行最小化，那么我们将恢复生成数据的确切分布，即<p_data>。然而，在实践中，我们无法访问生成数据的分布，事实上，这是我们试图逼近的分布。我们只能访问<p_data>中的*m*个样本。这些样本定义了只在这些*m*个样本上放置质量的经验分布<ModifyingAbove p With caret Subscript d a t a>。现在，最大化训练集的对数似然恰好等同于最小化<ModifyingAbove p With caret Subscript d a t a>和<p_model Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis>之间的KL散度：
+如果<p_data>恰好是分布家族<p_model Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis>的成员，并且如果我们能够精确执行最小化，那么我们将恢复生成数据的确切分布，即<p_data>。然而，在实践中，我们无法访问生成数据的分布，事实上，这是我们试图逼近的分布。我们只能访问<p_data>中的*m*个样本。这些样本定义了只在这些*m*个样本上放置质量的经验分布<ModifyingAbove p With caret Subscript d a t a>。现在，最大化训练集的对数似然恰好等同于最小化<ModifyingAbove p With caret Subscript d a t a>和<p_model Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis>之间的 KL 散度：
 
 <math alttext="dollar-sign ModifyingAbove theta With right-arrow Subscript o p t i m a l Baseline equals arg min Underscript ModifyingAbove theta With right-arrow Endscripts upper D i v e r g e n c e Subscript upper K upper L Baseline left-parenthesis ModifyingAbove p With caret Subscript d a t a Baseline left-parenthesis ModifyingAbove x With right-arrow right-parenthesis StartAbsoluteValue EndAbsoluteValue p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis right-parenthesis dollar-sign"><mrow><msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mrow><mi>o</mi><mi>p</mi><mi>t</mi><mi>i</mi><mi>m</mi><mi>a</mi><mi>l</mi></mrow></msub> <mo>=</mo> <mo form="prefix">arg</mo> <msub><mo form="prefix" movablelimits="true">min</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover></msub> <mi>D</mi> <mi>i</mi> <mi>v</mi> <mi>e</mi> <mi>r</mi> <mi>g</mi> <mi>e</mi> <mi>n</mi> <mi>c</mi> <msub><mi>e</mi> <mrow><mi>K</mi><mi>L</mi></mrow></msub> <mrow><mo>(</mo></mrow> <msub><mover accent="true"><mi>p</mi> <mo>^</mo></mover> <mrow><mi>d</mi><mi>a</mi><mi>t</mi><mi>a</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mrow><mo>|</mo> <mo>|</mo></mrow> <msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mrow><mo>)</mo></mrow></mrow></math>
 
@@ -110,15 +110,15 @@
 
 1.  最大化训练数据的对数似然
 
-1.  最小化训练数据的经验分布与模型分布之间的KL散度
+1.  最小化训练数据的经验分布与模型分布之间的 KL 散度
 
-1.  当我们使用softmax函数与多个类别进行组合进行分类时，最小化训练数据标签和模型输出之间的交叉熵损失函数。
+1.  当我们使用 softmax 函数与多个类别进行组合进行分类时，最小化训练数据标签和模型输出之间的交叉熵损失函数。
 
-不要混淆：最小化KL散度的参数与最小化交叉熵和负对数似然的参数相同。
+不要混淆：最小化 KL 散度的参数与最小化交叉熵和负对数似然的参数相同。
 
 # 显式和隐式密度模型
 
-最大对数似然估计（或最小KL散度）的目标是找到一个概率分布<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow></mrow></math>，最好地解释观察到的数据。生成模型使用这个学习的<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow></mrow></math>来生成新数据。这里有两种方法，一种是显式的，另一种是隐式的：
+最大对数似然估计（或最小 KL 散度）的目标是找到一个概率分布<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow></mrow></math>，最好地解释观察到的数据。生成模型使用这个学习的<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow></mrow></math>来生成新数据。这里有两种方法，一种是显式的，另一种是隐式的：
 
 1.  **显式密度模型**：根据<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>和<math alttext="ModifyingAbove theta With right-arrow"><mover accent="true"><mi>θ</mi> <mo>→</mo></mover></math>明确地定义概率分布的公式，然后通过沿着梯度向量（相对于<math alttext="ModifyingAbove theta With right-arrow"><mover accent="true"><mi>θ</mi> <mo>→</mo></mover></math>的分量的偏导数）向上走，找到最大化训练数据样本的对数似然的值。这里一个明显的困难是提出一个能够捕捉数据复杂性的概率密度公式，同时又能友好地计算对数似然及其梯度。
 
@@ -134,11 +134,11 @@
 
 ## 示例：通过 PixelCNN 生成图像和通过 WaveNet 生成机器音频。
 
-[PixelCNN](https://arxiv.org/pdf/1606.05328.pdf) 训练了一个卷积神经网络，模拟了给定先前像素（左侧和目标像素上方）的每个单独像素的条件分布。[图8-1](#Fig_PixelCNN) 说明了这一点。
+[PixelCNN](https://arxiv.org/pdf/1606.05328.pdf) 训练了一个卷积神经网络，模拟了给定先前像素（左侧和目标像素上方）的每个单独像素的条件分布。图 8-1 说明了这一点。
 
-![300](assets/emai_0801.png)
+![300](img/emai_0801.png)
 
-###### 图8-1\. PixelCNN 学习第 n 个像素的条件分布，条件是前 n-1 个像素 [(图像来源)](https://arxiv.org/pdf/1606.05328.pdf)。
+###### 图 8-1\. PixelCNN 学习第 n 个像素的条件分布，条件是前 n-1 个像素 [(图像来源)](https://arxiv.org/pdf/1606.05328.pdf)。
 
 WaveNet 训练了一个卷积神经网络，模拟了音频波形中每个条目的条件分布，给定先前的条目。我们只会详细介绍 WaveNet。它是 PixelCNN 的一维模拟，并捕捉了基本思想。
 
@@ -150,17 +150,17 @@ WaveNet 的目标是生成宽带原始音频波形。因此，我们必须学习
 
 一个困难是音频波形具有非常高的时间分辨率，每秒至少有 16000 个条目（因此，一分钟长的一个数据样本是一个具有 *T*=960000 个条目的向量）。这些条目中的每一个代表离散原始音频的一个时间步，并通常存储为 16 位整数。也就是说，每个条目可以假定为介于零和 65535 之间的任何值。如果我们保持这个范围，网络必须学习每个条目的概率，因此输出级别的 softmax 函数必须为每个单个条目输出 65536 个概率分数。我们必须为这些条目的总数以及网络本身的计算复杂性变得非常昂贵。为了使这更易处理，我们必须量化，这在电子学中意味着通过其幅度受限于一组规定值的信号来近似连续变化的信号。WaveNet 将原始数据转换为将条目值限制为每个 256 个选项的选项，范围从 0 到 255，类似于数字图像的像素范围。现在，在训练期间，网络必须学习每个条目在这 256 个值上的概率分布，给定先前的条目，在音频生成期间，它逐个条目从这些学习的分布中采样。
 
-最后一个复杂性是，如果音频信号代表任何有意义的东西，那么表示它的向量在多个时间尺度上具有长距离依赖性。为了捕捉这些长距离依赖性，WaveNet 使用扩张卷积。这些是跳过一些条目以覆盖更广泛范围而不增加参数数量的一维核或滤波器（请参见 [图8-2](#Fig_dilated_convolution) 进行说明）。
+最后一个复杂性是，如果音频信号代表任何有意义的东西，那么表示它的向量在多个时间尺度上具有长距离依赖性。为了捕捉这些长距离依赖性，WaveNet 使用扩张卷积。这些是跳过一些条目以覆盖更广泛范围而不增加参数数量的一维核或滤波器（请参见 图 8-2 进行说明）。
 
-![300](assets/emai_0802.png)
+![300](img/emai_0802.png)
 
-###### 图8-2\. 具有核大小为两的扩张卷积。在每一层，核只有两个参数，但它会跳过一些条目以获得更广泛的覆盖范围 [(具有漂亮动画的图像来源)](https://www.deepmind.com/blog/wavenet-a-generative-model-for-raw-audio)。
+###### 图 8-2\. 具有核大小为两的扩张卷积。在每一层，核只有两个参数，但它会跳过一些条目以获得更广泛的覆盖范围 [(具有漂亮动画的图像来源)](https://www.deepmind.com/blog/wavenet-a-generative-model-for-raw-audio)。
 
 还要注意，网络无法预知未来，因此每个层的滤波器不能使用训练样本中位于目标条目之前的条目。在一维中，我们只是在每个卷积层中较早地停止滤波，因此这是一个简单的时间偏移。在二维中，我们使用*掩码*滤波器，其右侧和底部的中心条目为零。
 
-WaveNet学习了总共*T*个概率分布，每个概率分布对应音频波形的一个条目，条件是前面的条目：<math alttext="p Subscript m o d e l Baseline left-parenthesis x 1 right-parenthesis comma p Subscript m o d e l Baseline left-parenthesis x 2 vertical-bar x 1 right-parenthesis comma p Subscript m o d e l Baseline left-parenthesis x 3 vertical-bar x 1 comma x 2 right-parenthesis comma d o t s"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mo>,</mo> <msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mo>,</mo> <msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>3</mn></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>)</mo></mrow> <mo>,</mo> <mi>d</mi> <mi>o</mi> <mi>t</mi> <mi>s</mi></mrow></math> 和 <math alttext="p Subscript m o d e l Baseline left-parenthesis x Subscript upper T Baseline vertical-bar x 1 comma x 2 comma ellipsis comma x Subscript upper T minus 1 Baseline right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>T</mi></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mrow><mi>T</mi><mo>-</mo><mn>1</mn></mrow></msub> <mo>)</mo></mrow></mrow></math> 。在训练过程中，这些分布可以并行计算。
+WaveNet 学习了总共*T*个概率分布，每个概率分布对应音频波形的一个条目，条件是前面的条目：<math alttext="p Subscript m o d e l Baseline left-parenthesis x 1 right-parenthesis comma p Subscript m o d e l Baseline left-parenthesis x 2 vertical-bar x 1 right-parenthesis comma p Subscript m o d e l Baseline left-parenthesis x 3 vertical-bar x 1 comma x 2 right-parenthesis comma d o t s"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mo>,</mo> <msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mo>,</mo> <msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>3</mn></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>)</mo></mrow> <mo>,</mo> <mi>d</mi> <mi>o</mi> <mi>t</mi> <mi>s</mi></mrow></math> 和 <math alttext="p Subscript m o d e l Baseline left-parenthesis x Subscript upper T Baseline vertical-bar x 1 comma x 2 comma ellipsis comma x Subscript upper T minus 1 Baseline right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>T</mi></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mrow><mi>T</mi><mo>-</mo><mn>1</mn></mrow></msub> <mo>)</mo></mrow></mrow></math> 。在训练过程中，这些分布可以并行计算。
 
-现在假设我们需要学习第100个条目的概率分布，给定前面的99个条目。我们从训练数据中输入音频样本批次，卷积网络仅使用每个样本的前99个条目，计算线性组合（滤波器进行线性组合），通过非线性激活函数从一层传递到下一层，再到下一层，使用一些跳跃连接和残差层来对抗消失的梯度，最终通过softmax函数传递结果，并输出一个长度为256的向量，包含第100个条目的概率分数。这是模型输出的第100个条目的概率分布。将此输出分布与来自训练批次的第100个条目的经验分布进行比较后，网络的参数将被调整以减少错误（降低交叉熵或增加可能性）。随着更多数据批次和更多时代通过网络，给定前99个条目的第100个条目的概率分布将接近训练数据的经验分布。训练后我们在网络中保存的是参数的值。现在我们可以使用训练好的网络逐个生成机器音频条目：
+现在假设我们需要学习第 100 个条目的概率分布，给定前面的 99 个条目。我们从训练数据中输入音频样本批次，卷积网络仅使用每个样本的前 99 个条目，计算线性组合（滤波器进行线性组合），通过非线性激活函数从一层传递到下一层，再到下一层，使用一些跳跃连接和残差层来对抗消失的梯度，最终通过 softmax 函数传递结果，并输出一个长度为 256 的向量，包含第 100 个条目的概率分数。这是模型输出的第 100 个条目的概率分布。将此输出分布与来自训练批次的第 100 个条目的经验分布进行比较后，网络的参数将被调整以减少错误（降低交叉熵或增加可能性）。随着更多数据批次和更多时代通过网络，给定前 99 个条目的第 100 个条目的概率分布将接近训练数据的经验分布。训练后我们在网络中保存的是参数的值。现在我们可以使用训练好的网络逐个生成机器音频条目：
 
 +   从概率分布中抽取一个值<math alttext="x 1"><msub><mi>x</mi> <mn>1</mn></msub></math> 。
 
@@ -170,15 +170,15 @@ WaveNet学习了总共*T*个概率分布，每个概率分布对应音频波形�
 
 +   继续。
 
-我们可以根据特定的说话者身份来调节WaveNet，因此我们可以使用一个模型生成不同的声音。
+我们可以根据特定的说话者身份来调节 WaveNet，因此我们可以使用一个模型生成不同的声音。
 
-我们可以并行训练WaveNet，但只能顺序生成音频是一个主要缺点。这已经得到了纠正，[Parallel WaveNet](https://arxiv.org/pdf/1711.10433.pdf)已经在线部署在Google Assistant上，包括提供多种英语和日语语音。
+我们可以并行训练 WaveNet，但只能顺序生成音频是一个主要缺点。这已经得到了纠正，[Parallel WaveNet](https://arxiv.org/pdf/1711.10433.pdf)已经在线部署在 Google Assistant 上，包括提供多种英语和日语语音。
 
-总结并将上述讨论放在与本章相同的数学背景下，PixelCNN和WaveNet是旨在学习特定类型图像数据或音频数据的联合概率分布的模型。它们通过将联合分布分解为每个数据条目的一维概率分布的乘积，条件于所有先前的条目来实现这一目标。为了找到这些一维条件分布，它们使用卷积网络来学习观察到的条目如何相互作用以产生下一个条目的分布。这样，网络的输入是确定性的，其输出是一个概率质量函数。网络本身也是一个确定性函数。我们可以将网络及其输出视为具有我们调整参数的概率分布。随着训练的进行，输出会进行调整，直到与训练数据的经验分布达成可接受的一致。因此，我们不是将确定性函数应用于概率分布并调整函数的参数，直到我们同意训练数据的分布。相反，我们从一个具有许多参数（网络参数）的显式概率分布的公式开始，然后调整参数，直到这个显式概率分布与训练数据合理一致。我们对应于每个条目的每个条件概率分布都这样做。
+总结并将上述讨论放在与本章相同的数学背景下，PixelCNN 和 WaveNet 是旨在学习特定类型图像数据或音频数据的联合概率分布的模型。它们通过将联合分布分解为每个数据条目的一维概率分布的乘积，条件于所有先前的条目来实现这一目标。为了找到这些一维条件分布，它们使用卷积网络来学习观察到的条目如何相互作用以产生下一个条目的分布。这样，网络的输入是确定性的，其输出是一个概率质量函数。网络本身也是一个确定性函数。我们可以将网络及其输出视为具有我们调整参数的概率分布。随着训练的进行，输出会进行调整，直到与训练数据的经验分布达成可接受的一致。因此，我们不是将确定性函数应用于概率分布并调整函数的参数，直到我们同意训练数据的分布。相反，我们从一个具有许多参数（网络参数）的显式概率分布的公式开始，然后调整参数，直到这个显式概率分布与训练数据合理一致。我们对应于每个条目的每个条件概率分布都这样做。
 
 # 密度显式-可计算：变量变换非线性独立分量分析
 
-这里的主要思想是我们有代表观察到的训练数据的随机变量x→，我们想要学习生成它的源随机变量s→。我们假设存在一个可逆且可微的确定性转换g（s→）= x→，将未知的s→转换为观察到的x→。然后s→ = g^-1（x→）。现在我们需要找到一个适当的g，并找到s→的概率分布。此外，我们假设s→具有独立的条目或组件，因此其概率分布仅仅是其组件的分布的乘积。
+这里的主要思想是我们有代表观察到的训练数据的随机变量 x→，我们想要学习生成它的源随机变量 s→。我们假设存在一个可逆且可微的确定性转换 g（s→）= x→，将未知的 s→转换为观察到的 x→。然后 s→ = g^-1（x→）。现在我们需要找到一个适当的 g，并找到 s→的概率分布。此外，我们假设 s→具有独立的条目或组件，因此其概率分布仅仅是其组件的分布的乘积。
 
 将随机变量的概率分布与其确定性转换的概率分布相关联的公式是：
 
@@ -186,19 +186,19 @@ WaveNet学习了总共*T*个概率分布，每个概率分布对应音频波形�
 
 乘以转换的雅可比行列式解释了由于转换而导致空间体积的变化。
 
-非线性独立成分估计模型将联合概率分布建模为数据的非线性转换s→ = g^-1（x→）。学习转换g，使得g^-1将数据映射到一个潜在空间，其中符合分解分布，即映射导致独立的潜在变量。转换g^-1的参数化方式允许轻松计算雅可比行列式和逆雅可比。g^-1基于深度神经网络，其参数通过优化对数似然来学习，这是可行的。
+非线性独立成分估计模型将联合概率分布建模为数据的非线性转换 s→ = g^-1（x→）。学习转换 g，使得 g^-1 将数据映射到一个潜在空间，其中符合分解分布，即映射导致独立的潜在变量。转换 g^-1 的参数化方式允许轻松计算雅可比行列式和逆雅可比。g^-1 基于深度神经网络，其参数通过优化对数似然来学习，这是可行的。
 
 请注意，要求变换*g*必须是可逆的意味着潜在变量<math alttext="ModifyingAbove s With right-arrow"><mover accent="true"><mi>s</mi> <mo>→</mo></mover></math>必须具有与数据特征相同的维度（<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>的长度）。这对函数*g*的选择施加了限制，这是非线性独立成分分析模型的一个缺点。
 
-相比之下，生成对抗网络对g的要求很少，特别是允许<math alttext="ModifyingAbove s With right-arrow"><mover accent="true"><mi>s</mi> <mo>→</mo></mover></math>比<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>具有更多维度。
+相比之下，生成对抗网络对 g 的要求很少，特别是允许<math alttext="ModifyingAbove s With right-arrow"><mover accent="true"><mi>s</mi> <mo>→</mo></mover></math>比<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>具有更多维度。
 
 # 显式密度-难以处理：变分自动编码器-通过变分方法进行近似
 
-确定性自动编码器由一个将数据从x空间映射到较低维度的潜在z空间的编码器和一个将数据从z空间映射到<math alttext="ModifyingAbove x With caret"><mover accent="true"><mi>x</mi> <mo>^</mo></mover></math>空间的解码器组成，其目标是不丢失太多信息，或者减少重构误差，这意味着保持x和<math alttext="ModifyingAbove x With caret"><mover accent="true"><mi>x</mi> <mo>^</mo></mover></math>接近，例如在欧几里得距离意义上。在这个意义上，我们可以将基于奇异值分解<math alttext="upper X equals upper U normal upper Sigma upper V Superscript t"><mrow><mi>X</mi> <mo>=</mo> <mi>U</mi> <mi>Σ</mi> <msup><mi>V</mi> <mi>t</mi></msup></mrow></math>的*主成分分析*视为线性编码器，其中解码器简单地是编码矩阵的转置。编码和解码函数可以是非线性和/或神经网络。
+确定性自动编码器由一个将数据从 x 空间映射到较低维度的潜在 z 空间的编码器和一个将数据从 z 空间映射到<math alttext="ModifyingAbove x With caret"><mover accent="true"><mi>x</mi> <mo>^</mo></mover></math>空间的解码器组成，其目标是不丢失太多信息，或者减少重构误差，这意味着保持 x 和<math alttext="ModifyingAbove x With caret"><mover accent="true"><mi>x</mi> <mo>^</mo></mover></math>接近，例如在欧几里得距离意义上。在这个意义上，我们可以将基于奇异值分解<math alttext="upper X equals upper U normal upper Sigma upper V Superscript t"><mrow><mi>X</mi> <mo>=</mo> <mi>U</mi> <mi>Σ</mi> <msup><mi>V</mi> <mi>t</mi></msup></mrow></math>的*主成分分析*视为线性编码器，其中解码器简单地是编码矩阵的转置。编码和解码函数可以是非线性和/或神经网络。
 
-对于确定性自动编码器，我们不能将解码器用作数据生成器。至少，如果我们这样做，那么我们必须从潜在z空间中选择一些z并将解码器函数应用于它。除非我们选择了一个对应于编码x的z，否则我们不太可能得到任何接近所需数据x外观的<math alttext="ModifyingAbove x With caret"><mover accent="true"><mi>x</mi> <mo>^</mo></mover></math>，由于过拟合。我们需要一种正则化方法，使我们能够对z空间进行一定程度的控制，从而避免过拟合并将自动编码器用作数据生成器。我们通过从确定性自动编码转向概率自动编码来实现这一点。
+对于确定性自动编码器，我们不能将解码器用作数据生成器。至少，如果我们这样做，那么我们必须从潜在 z 空间中选择一些 z 并将解码器函数应用于它。除非我们选择了一个对应于编码 x 的 z，否则我们不太可能得到任何接近所需数据 x 外观的<math alttext="ModifyingAbove x With caret"><mover accent="true"><mi>x</mi> <mo>^</mo></mover></math>，由于过拟合。我们需要一种正则化方法，使我们能够对 z 空间进行一定程度的控制，从而避免过拟合并将自动编码器用作数据生成器。我们通过从确定性自动编码转向概率自动编码来实现这一点。
 
-变分自动编码器是概率自动编码器：编码器输出概率分布而不是单个点。此外，在训练过程中，损失函数包括一个额外的正则化项，用于控制潜在空间上的分布。因此，变分自动编码器的损失函数包含一个重构项（如均方距离）和一个正则化项，用于控制编码器输出的概率分布。正则化项可以是与高斯分布的KL散度，因为基本假设是简单的概率模型最好地描述训练数据。换句话说，复杂的关系可以在概率上简单描述。在这里我们必须小心，因为这引入了一种偏见：潜变量中对数据分布的简单假设如果太弱可能会有缺陷。也就是说，如果对先验分布或近似后验分布的假设太弱，即使使用完美的优化算法和无限的训练数据，估计值和真实对数似然之间的差距可能导致<math alttext="p Subscript m o d e l"><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub></math>学习到一个与真实<math alttext="p Subscript d a t a"><msub><mi>p</mi> <mrow><mi>d</mi><mi>a</mi><mi>t</mi><mi>a</mi></mrow></msub></math>完全不同的分布。
+变分自动编码器是概率自动编码器：编码器输出概率分布而不是单个点。此外，在训练过程中，损失函数包括一个额外的正则化项，用于控制潜在空间上的分布。因此，变分自动编码器的损失函数包含一个重构项（如均方距离）和一个正则化项，用于控制编码器输出的概率分布。正则化项可以是与高斯分布的 KL 散度，因为基本假设是简单的概率模型最好地描述训练数据。换句话说，复杂的关系可以在概率上简单描述。在这里我们必须小心，因为这引入了一种偏见：潜变量中对数据分布的简单假设如果太弱可能会有缺陷。也就是说，如果对先验分布或近似后验分布的假设太弱，即使使用完美的优化算法和无限的训练数据，估计值和真实对数似然之间的差距可能导致<math alttext="p Subscript m o d e l"><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub></math>学习到一个与真实<math alttext="p Subscript d a t a"><msub><mi>p</mi> <mrow><mi>d</mi><mi>a</mi><mi>t</mi><mi>a</mi></mrow></msub></math>完全不同的分布。
 
 在数学上，我们最大化数据对数似然的下界<math alttext="script upper L"><mi>ℒ</mi></math>。在科学中，变分方法定义我们要最大化的能量泛函的下界，或者我们要最小化的能量泛函的上界。即使对数似然不容易获得，这些界通常更容易获得，并且具有可处理的优化算法。同时，它们为我们正在寻找的最优值提供了良好的估计。
 
@@ -206,39 +206,39 @@ WaveNet学习了总共*T*个概率分布，每个概率分布对应音频波形�
 
 变分方法通常能够获得非常好的似然度，但对样本的主观评价认为它们生成的样本质量较低。人们认为它们比完全可见的信念网络更难优化。此外，人们发现它们的数学比完全可见的信念网络和生成对抗网络更难理解（即将讨论）。
 
-# 显式密度-难以处理：Boltzman机器-通过马尔可夫链近似
+# 显式密度-难以处理：Boltzman 机器-通过马尔可夫链近似
 
-Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模型的家族。这是一种采样技术，比起从数据集中简单采样一个小批量来估计损失函数更昂贵。我们将在[第14章](ch14.xhtml#ch14)中讨论马尔可夫链在强化学习中的上下文。在数据生成的背景下，它们有许多缺点导致它们不受青睐：计算成本高，难以扩展到更高维度，收敛速度慢，甚至在理论上必须收敛时也没有明确的方法知道模型是否已经收敛。马尔可夫链方法尚未扩展到像ImageNet生成这样的问题规模。
+Boltzmann 机器（1980 年代）是一类依赖于马尔可夫链训练生成模型的家族。这是一种采样技术，比起从数据集中简单采样一个小批量来估计损失函数更昂贵。我们将在第十四章中讨论马尔可夫链在强化学习中的上下文。在数据生成的背景下，它们有许多缺点导致它们不受青睐：计算成本高，难以扩展到更高维度，收敛速度慢，甚至在理论上必须收敛时也没有明确的方法知道模型是否已经收敛。马尔可夫链方法尚未扩展到像 ImageNet 生成这样的问题规模。
 
-马尔可夫链具有一个转移算子*q*，编码系统从一个状态过渡到另一个状态的概率。这个转移算子*q*需要明确定义。我们可以通过重复抽取样本<math alttext="x prime tilde q left-parenthesis x prime vertical-bar x right-parenthesis"><mrow><msup><mi>x</mi> <mo>'</mo></msup> <mo>∼</mo> <mi>q</mi> <mrow><mo>(</mo> <msup><mi>x</mi> <mo>'</mo></msup> <mo>|</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>，根据转移算子*q*依次更新<math alttext="x prime"><msup><mi>x</mi> <mo>'</mo></msup></math>。与单步生成相比，这种顺序生成的性质是另一个缺点。马尔可夫链方法有时可以保证x'最终会收敛到从<math alttext="p Subscript m o d e l Baseline left-parenthesis x right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>中抽取的样本，尽管收敛可能很慢。
+马尔可夫链具有一个转移算子*q*，编码系统从一个状态过渡到另一个状态的概率。这个转移算子*q*需要明确定义。我们可以通过重复抽取样本<math alttext="x prime tilde q left-parenthesis x prime vertical-bar x right-parenthesis"><mrow><msup><mi>x</mi> <mo>'</mo></msup> <mo>∼</mo> <mi>q</mi> <mrow><mo>(</mo> <msup><mi>x</mi> <mo>'</mo></msup> <mo>|</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>，根据转移算子*q*依次更新<math alttext="x prime"><msup><mi>x</mi> <mo>'</mo></msup></math>。与单步生成相比，这种顺序生成的性质是另一个缺点。马尔可夫链方法有时可以保证 x'最终会收敛到从<math alttext="p Subscript m o d e l Baseline left-parenthesis x right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>中抽取的样本，尽管收敛可能很慢。
 
 一些模型，如深度玻尔兹曼机，同时使用马尔可夫链和变分逼近。
 
 # 隐密度-马尔可夫链：生成随机网络
 
-生成随机网络（Bengio等人，2014）不明确定义密度函数，而是使用马尔可夫链转移算子与<math alttext="p Subscript m o d e l Baseline left-parenthesis x right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>间接交互，通过从训练数据中抽样。必须多次运行这个马尔可夫链算子才能获得从<math alttext="p Subscript m o d e l Baseline left-parenthesis x right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>中抽取的样本。这些方法仍然存在前一节提到的马尔可夫链方法的缺点。
+生成随机网络（Bengio 等人，2014）不明确定义密度函数，而是使用马尔可夫链转移算子与<math alttext="p Subscript m o d e l Baseline left-parenthesis x right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>间接交互，通过从训练数据中抽样。必须多次运行这个马尔可夫链算子才能获得从<math alttext="p Subscript m o d e l Baseline left-parenthesis x right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <mi>x</mi> <mo>)</mo></mrow></mrow></math>中抽取的样本。这些方法仍然存在前一节提到的马尔可夫链方法的缺点。
 
 # 隐密度-直接：生成对抗网络
 
 目前最流行的生成模型有：
 
-+   完全可见的深度信念网络，如PixelCNN，WaveNet及其变体。
++   完全可见的深度信念网络，如 PixelCNN，WaveNet 及其变体。
 
 +   变分自动编码器，由概率编码器-解码器架构组成。
 
 +   生成对抗网络，由于其概念简单和生成样本质量好，受到科学界的关注。我们现在讨论它们。
 
-[*生成对抗网络*](https://arxiv.org/pdf/1406.2661.pdf)由Ian Goodfellow等人于2014年提出。涉及的数学是概率和博弈论之间的美妙混合。生成对抗网络避免了与其他生成模型相关的一些缺点：
+[*生成对抗网络*](https://arxiv.org/pdf/1406.2661.pdf)由 Ian Goodfellow 等人于 2014 年提出。涉及的数学是概率和博弈论之间的美妙混合。生成对抗网络避免了与其他生成模型相关的一些缺点：
 
-+   一次性并行生成样本，而不是将新像素馈送回网络以预测像素，如PixelCNN。
++   一次性并行生成样本，而不是将新像素馈送回网络以预测像素，如 PixelCNN。
 
-+   生成函数的限制很少。这是与玻尔兹曼机相比的优势，对于玻尔兹曼机，很少有概率分布适合可计算的马尔可夫链抽样，相对于非线性独立成分分析，生成器必须是可逆的，潜在变量z必须与样本x具有相同的维度。
++   生成函数的限制很少。这是与玻尔兹曼机相比的优势，对于玻尔兹曼机，很少有概率分布适合可计算的马尔可夫链抽样，相对于非线性独立成分分析，生成器必须是可逆的，潜在变量 z 必须与样本 x 具有相同的维度。
 
 +   生成对抗网络不需要马尔可夫链。这是与玻尔兹曼机和生成随机网络相比的优势。
 
 +   虽然变分自动编码器可能永远无法收敛到真实数据生成分布，如果它们假设的先验或后验分布太弱，生成对抗网络会收敛到真实<p data baseline="d">，假设我们有无限的训练数据和足够大的模型。此外，生成对抗网络不需要变分界限，而且在生成对抗网络框架内使用的特定模型族已知是通用逼近器。因此，生成对抗网络已知是渐近一致的。另一方面，一些变分自动编码器被推测为渐近一致，但这仍然需要证明（请检查）。
 
-生成对抗网络的缺点在于训练它们需要找到博弈的纳什均衡，这比仅仅优化一个目标函数更困难。此外，解决方案往往在数值上不稳定。2015年，Alec Radford等人改进了这一点，[深度卷积生成对抗网络](https://arxiv.org/pdf/1511.06434.pdf)。这种方法导致了更稳定的模型。
+生成对抗网络的缺点在于训练它们需要找到博弈的纳什均衡，这比仅仅优化一个目标函数更困难。此外，解决方案往往在数值上不稳定。2015 年，Alec Radford 等人改进了这一点，[深度卷积生成对抗网络](https://arxiv.org/pdf/1511.06434.pdf)。这种方法导致了更稳定的模型。
 
 在训练过程中，生成对抗网络构建了两个独立网络之间的博弈：一个生成器网络和一个鉴别器网络，鉴别器试图将生成器样本分类为来自真实分布<p data baseline="x">或来自模型<p data baseline="x">。这两个网络的损失函数是相关的，因此鉴别器传达了两个分布之间的差异，生成器相应地调整其参数，直到生成器完全复制真实数据分布（理论上），使得鉴别器的分类不比随机猜测更好。
 
@@ -258,33 +258,33 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 +   还将来自训练数据的样本<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>传递给*D*，以便我们评估<math alttext="upper D left-parenthesis ModifyingAbove x With right-arrow comma ModifyingAbove theta With right-arrow Subscript d Baseline right-parenthesis"><mrow><mi>D</mi> <mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>d</mi></msub> <mo>)</mo></mrow></math>。对于这个输入，<math alttext="upper D left-parenthesis ModifyingAbove x With right-arrow comma ModifyingAbove theta With right-arrow Subscript d Baseline right-parenthesis"><mrow><mi>D</mi> <mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>d</mi></msub> <mo>)</mo></mrow></math>必须返回接近零的数字。
 
-+   这两个网络的损失函数是什么，其中的公式中包含两组参数<math alttext="ModifyingAbove theta With right-arrow Subscript g"><msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>g</mi></msub></math>和<math alttext="ModifyingAbove theta With right-arrow Subscript d"><msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>d</mi></msub></math>，以及采样向量<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>和<math alttext="ModifyingAbove z With right-arrow"><mover accent="true"><mi>z</mi> <mo>→</mo></mover></math>？鉴别器函数*D*希望对两种类型的输入<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>和<math alttext="upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta With right-arrow Subscript g Baseline right-parenthesis"><mrow><mi>G</mi> <mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>g</mi></msub> <mo>)</mo></mrow></math>做出正确判断。因此，它的参数<math alttext="ModifyingAbove theta With right-arrow Subscript d"><msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>d</mi></msub></math>必须被选择，以便在输入为<math alttext="upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta With right-arrow Subscript g Baseline right-parenthesis"><mrow><mi>G</mi> <mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>g</mi></msub> <mo>)</mo></mrow></math>时，接近1的数字被赋予较大的分数，而在输入为<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>时，接近0的数字被赋予较大的值。在这两种情况下，我们可以使用*log*函数的负值，因为它在接近零时较大，在接近1时较小。因此，*D*需要最大化的参数<math alttext="ModifyingAbove theta With right-arrow Subscript d"><msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>d</mi></msub></math>是：
++   这两个网络的损失函数是什么，其中的公式中包含两组参数<math alttext="ModifyingAbove theta With right-arrow Subscript g"><msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>g</mi></msub></math>和<math alttext="ModifyingAbove theta With right-arrow Subscript d"><msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>d</mi></msub></math>，以及采样向量<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>和<math alttext="ModifyingAbove z With right-arrow"><mover accent="true"><mi>z</mi> <mo>→</mo></mover></math>？鉴别器函数*D*希望对两种类型的输入<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>和<math alttext="upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta With right-arrow Subscript g Baseline right-parenthesis"><mrow><mi>G</mi> <mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>g</mi></msub> <mo>)</mo></mrow></math>做出正确判断。因此，它的参数<math alttext="ModifyingAbove theta With right-arrow Subscript d"><msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>d</mi></msub></math>必须被选择，以便在输入为<math alttext="upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta With right-arrow Subscript g Baseline right-parenthesis"><mrow><mi>G</mi> <mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>g</mi></msub> <mo>)</mo></mrow></math>时，接近 1 的数字被赋予较大的分数，而在输入为<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>时，接近 0 的数字被赋予较大的值。在这两种情况下，我们可以使用*log*函数的负值，因为它在接近零时较大，在接近 1 时较小。因此，*D*需要最大化的参数<math alttext="ModifyingAbove theta With right-arrow Subscript d"><msub><mover accent="true"><mi>θ</mi> <mo>→</mover> <mi>d</mi></msub></math>是：
 
 <math alttext="dollar-sign double-struck upper E Subscript ModifyingAbove x With right-arrow tilde p Sub Subscript d a t a Subscript left-parenthesis ModifyingAbove x With right-arrow right-parenthesis Baseline left-bracket log upper D left-parenthesis ModifyingAbove x With right-arrow comma ModifyingAbove theta With right-arrow Subscript d Baseline right-parenthesis right-bracket plus double-struck upper E Subscript ModifyingAbove z With right-arrow tilde p Sub Subscript z Subscript left-parenthesis ModifyingAbove z With right-arrow right-parenthesis Baseline left-bracket log left-parenthesis 1 minus upper D left-parenthesis upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta Subscript g Baseline With right-arrow right-parenthesis comma ModifyingAbove theta Subscript d Baseline With right-arrow right-parenthesis right-parenthesis right-bracket dollar-sign"><mrow><msub><mi>𝔼</mi> <mrow><mover accent="true"><mi>x</mi> <mo>→</mo></mover><mo>∼</mo><msub><mi>p</mi> <mrow><mi>d</mi><mi>a</mi><mi>t</mi><mi>a</mi></mrow></msub> <mrow><mo>(</mo><mover accent="true"><mi>x</mi> <mo>→</mo></mover><mo>)</mo></mrow></mrow></msub> <mrow><mo>[</mo> <mo form="prefix">log</mo> <mi>D</mi> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>,</mo> <msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>d</mi></msub> <mo>)</mo></mrow> <mo>]</mo></mrow> <mo>+</mo> <msub><mi>𝔼</mi> <mrow><mover accent="true"><mi>z</mi> <mo>→</mo></mover><mo>∼</mo><msub><mi>p</mi> <mi>z</mi></msub> <mrow><mo>(</mo><mover accent="true"><mi>z</mi> <mo>→</mo></mover><mo>)</mo></mrow></mrow></msub> <mrow><mo>[</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>D</mi> <mrow><mo>(</mo> <mi>G</mi> <mrow><mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <mover accent="true"><msub><mi>θ</mi> <mi>g</mi></msub> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>,</mo> <mover accent="true"><msub><mi>θ</mi> <mi>d</mi></msub> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>]</mo></mrow></mrow></math>
 
-同时，*G*需要最小化的参数<math alttext="ModifyingAbove theta With right-arrow Subscript g"><msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>g</mi></msub></math>，使得<math alttext="log left-parenthesis 1 minus upper D left-parenthesis upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta Subscript g Baseline With right-arrow right-parenthesis comma ModifyingAbove theta Subscript d Baseline With right-arrow right-parenthesis right-parenthesis"><mrow><mo form="prefix">log</mo> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>D</mi> <mrow><mo>(</mo> <mi>G</mi> <mrow><mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <mover accent="true"><msub><mi>θ</mi> <mi>g</mi></msub> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>,</mo> <mover accent="true"><msub><mi>θ</mi> <mi>d</mi></msub> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>)</mo></mrow></math>。*D*和*G*一起参与一个具有值函数V(G, D)的两人零和博弈：
+同时，*G*需要最小化的参数<math alttext="ModifyingAbove theta With right-arrow Subscript g"><msub><mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mi>g</mi></msub></math>，使得<math alttext="log left-parenthesis 1 minus upper D left-parenthesis upper G left-parenthesis ModifyingAbove z With right-arrow comma ModifyingAbove theta Subscript g Baseline With right-arrow right-parenthesis comma ModifyingAbove theta Subscript d Baseline With right-arrow right-parenthesis right-parenthesis"><mrow><mo form="prefix">log</mo> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>D</mi> <mrow><mo>(</mo> <mi>G</mi> <mrow><mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>,</mo> <mover accent="true"><msub><mi>θ</mi> <mi>g</mi></msub> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>,</mo> <mover accent="true"><msub><mi>θ</mi> <mi>d</mi></msub> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>)</mo></mrow></math>。*D*和*G*一起参与一个具有值函数 V(G, D)的两人零和博弈：
 
 <math alttext="dollar-sign min Underscript upper G Endscripts max Underscript upper D Endscripts upper V left-parenthesis upper D comma upper G right-parenthesis equals double-struck upper E Subscript ModifyingAbove x With right-arrow tilde p Sub Subscript d a t a Subscript left-parenthesis ModifyingAbove x With right-arrow right-parenthesis Baseline left-bracket log upper D left-parenthesis ModifyingAbove x With right-arrow right-parenthesis right-bracket plus double-struck upper E Subscript ModifyingAbove z With right-arrow tilde p Sub Subscript z Subscript left-parenthesis ModifyingAbove z With right-arrow right-parenthesis Baseline left-bracket log left-parenthesis 1 minus upper D left-parenthesis upper G left-parenthesis ModifyingAbove z With right-arrow right-parenthesis right-parenthesis right-parenthesis right-bracket dollar-sign"><mrow><msub><mo form="prefix" movablelimits="true">min</mo> <mi>G</mi></msub> <msub><mo form="prefix" movablelimits="true">max</mo> <mi>D</mi></msub> <mi>V</mi> <mrow><mo>(</mo> <mi>D</mi> <mo>,</mo> <mi>G</mi> <mo>)</mo></mrow> <mo>=</mo> <msub><mi>𝔼</mi> <mrow><mover accent="true"><mi>x</mi> <mo>→</mo></mover><mo>∼</mo><msub><mi>p</mi> <mrow><mi>d</mi><mi>a</mi><mi>t</mi><mi>a</mi></mrow></msub> <mrow><mo>(</mo><mover accent="true"><mi>x</mi> <mo>→</mo></mover><mo>)</mo></mrow></mrow></msub> <mrow><mo>[</mo> <mo form="prefix">log</mo> <mi>D</mi> <mrow><mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>]</mo></mrow> <mo>+</mo> <msub><mi>𝔼</mi> <mrow><mover accent="true"><mi>z</mi> <mo>→</mo></mover><mo>∼</mo><msub><mi>p</mi> <mi>z</mi></msub> <mrow><mo>(</mo><mover accent="true"><mi>z</mi> <mo>→</mo></mover><mo>)</mo></mrow></mrow></msub> <mrow><mo>[</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>D</mi> <mrow><mo>(</mo> <mi>G</mi> <mrow><mo>(</mo> <mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>]</mo></mrow></mrow></math>
 
 这是一个非常简单的数学结构，通过设置鉴别器网络，我们可以更接近真实数据分布，而无需明确定义它或假设任何关于它的内容。
 
-最后，我们注意到生成对抗网络在许多应用中具有很高的潜力。一个例子是它们对半监督学习的显著增强，其中[NIPS 2016教程：生成对抗网络](https://arxiv.org/abs/1701.00160)报告：*我们引入了一种半监督学习的方法，使用生成对抗网络，其中鉴别器产生一个额外的输出，指示输入的标签。这种方法使我们能够在MNIST、SVHN和CIFAR-10上获得最先进的结果，即使只有很少的标记示例。例如，在MNIST上，我们只使用每类10个标记示例就实现了99.14%的准确率，使用全连接神经网络——这个结果非常接近使用所有60,000个标记示例的全监督方法的最佳已知结果。这是非常有希望的，因为在实践中获得标记示例可能非常昂贵。*
+最后，我们注意到生成对抗网络在许多应用中具有很高的潜力。一个例子是它们对半监督学习的显著增强，其中[NIPS 2016 教程：生成对抗网络](https://arxiv.org/abs/1701.00160)报告：*我们引入了一种半监督学习的方法，使用生成对抗网络，其中鉴别器产生一个额外的输出，指示输入的标签。这种方法使我们能够在 MNIST、SVHN 和 CIFAR-10 上获得最先进的结果，即使只有很少的标记示例。例如，在 MNIST 上，我们只使用每类 10 个标记示例就实现了 99.14%的准确率，使用全连接神经网络——这个结果非常接近使用所有 60,000 个标记示例的全监督方法的最佳已知结果。这是非常有希望的，因为在实践中获得标记示例可能非常昂贵。*
 
 生成对抗网络（以及机器学习一般）的另一个广泛应用是模拟高能物理数据。我们接下来讨论这个。
 
 # 示例：机器学习和生成网络用于高能物理
 
-以下讨论受到并借鉴了[2020年强子物理机器学习研讨会](https://iris-hep.org/2020/01/17/ml4jets-workshop.xhtml)和两篇文章[深度学习及其在大型强子对撞机物理中的应用](https://arxiv.org/pdf/1806.11484.pdf)和[用于高能物理中稀疏数据生成的图生成对抗网络](https://arxiv.org/pdf/2012.00173.pdf)。
+以下讨论受到并借鉴了[2020 年强子物理机器学习研讨会](https://iris-hep.org/2020/01/17/ml4jets-workshop.xhtml)和两篇文章[深度学习及其在大型强子对撞机物理中的应用](https://arxiv.org/pdf/1806.11484.pdf)和[用于高能物理中稀疏数据生成的图生成对抗网络](https://arxiv.org/pdf/2012.00173.pdf)。
 
-在2012年之前的深度学习革命之前，高能物理领域传统上依赖于物理考虑和人类直觉、增强决策树、手工制作的数据特征工程和降维、传统统计分析进行分析和计算。这些技术虽然具有洞察力，但自然远非最佳，难以自动化或扩展到更高维度。多项研究表明，基于物理启发的工程化*高级*特征的传统浅层网络被基于接受较少预处理的更高维度*低级*特征的深层网络超越。大型强子对撞机数据分析的许多领域长期以来一直受到次优特征工程的困扰，值得重新审视。因此，高能物理领域是机器学习应用的肥沃土壤。在这方面正在取得很多进展。该领域正在应用多种机器学习技术，包括人工神经网络、核密度估计、支持向量机、遗传算法、增强决策树、随机森林和生成网络。
+在 2012 年之前的深度学习革命之前，高能物理领域传统上依赖于物理考虑和人类直觉、增强决策树、手工制作的数据特征工程和降维、传统统计分析进行分析和计算。这些技术虽然具有洞察力，但自然远非最佳，难以自动化或扩展到更高维度。多项研究表明，基于物理启发的工程化*高级*特征的传统浅层网络被基于接受较少预处理的更高维度*低级*特征的深层网络超越。大型强子对撞机数据分析的许多领域长期以来一直受到次优特征工程的困扰，值得重新审视。因此，高能物理领域是机器学习应用的肥沃土壤。在这方面正在取得很多进展。该领域正在应用多种机器学习技术，包括人工神经网络、核密度估计、支持向量机、遗传算法、增强决策树、随机森林和生成网络。
 
 大型强子对撞机的实验计划探索现代物理学中最基本的问题：质量的本质、空间的维度、基本力的统一、暗物质的粒子性质以及[标准模型](https://en.wikipedia.org/wiki/Standard_Model)的微调。一个驱动目标是理解物质的最基本结构。其中一部分包括搜索和研究异域粒子，如在大型强子对撞机等加速器中产生的顶夸克和希格斯玻色子。具体的基准和挑战包括：质量重建、喷注亚结构和喷注味道分类。例如，可以识别来自重*(c、b、t)*或轻*(u、d、s)*夸克、胶子以及*W*、*Z*和*H*玻色子的喷注。
 
-进行高能粒子实验并收集所得数据是非常昂贵的。所收集的数据在碰撞数量和每次碰撞的复杂性方面都是巨大的。此外，大部分加速器事件并不产生有趣的粒子（信号粒子与背景粒子）。信号粒子很少，因此需要高数据速率。例如，大型强子对撞机探测器有O(108)个传感器用于记录每次碰撞后产生的大量粒子。因此，从实验数据中提取最大信息（考虑回归和分类模型），准确选择和识别事件以进行有效测量，并为模拟新数据（考虑生成模型）产生可靠方法至关重要。高能物理数据的特点是其高维度，以及许多信号事件的复杂拓扑结构。
+进行高能粒子实验并收集所得数据是非常昂贵的。所收集的数据在碰撞数量和每次碰撞的复杂性方面都是巨大的。此外，大部分加速器事件并不产生有趣的粒子（信号粒子与背景粒子）。信号粒子很少，因此需要高数据速率。例如，大型强子对撞机探测器有 O(108)个传感器用于记录每次碰撞后产生的大量粒子。因此，从实验数据中提取最大信息（考虑回归和分类模型），准确选择和识别事件以进行有效测量，并为模拟新数据（考虑生成模型）产生可靠方法至关重要。高能物理数据的特点是其高维度，以及许多信号事件的复杂拓扑结构。
 
 这种讨论与我们的章节的联系在于碰撞的性质以及其产物与大型强子对撞机探测器的相互作用：它们是量子力学的，因此，由特定相互作用产生的观察结果基本上是概率性的。因此，随后的数据分析必须以统计和概率术语来构建。
 
-在我们的章节中，我们的目标是学习模型参数的概率分布<p>θ|x)给定观察到的数据。如果数据是相当低维的，例如小于五维，那么从模拟样本中估计未知的统计模型的问题并不困难，可以使用直方图或基于核的密度估计。然而，我们无法轻易将这些简单方法扩展到更高维度，这是由于维度诅咒。在单个维度中，我们需要N个样本来估计源概率密度函数，但在d个维度中，我们需要O(N^d)。其结果是，如果数据的维度大于十左右，使用朴素方法估计概率分布是不切实际甚至不可能的，需要大量的计算资源。
+在我们的章节中，我们的目标是学习模型参数的概率分布<p>θ|x)给定观察到的数据。如果数据是相当低维的，例如小于五维，那么从模拟样本中估计未知的统计模型的问题并不困难，可以使用直方图或基于核的密度估计。然而，我们无法轻易将这些简单方法扩展到更高维度，这是由于维度诅咒。在单个维度中，我们需要 N 个样本来估计源概率密度函数，但在 d 个维度中，我们需要 O(N^d)。其结果是，如果数据的维度大于十左右，使用朴素方法估计概率分布是不切实际甚至不可能的，需要大量的计算资源。
 
 高能物理学家传统上通过一系列步骤来降低数据的维度，既对单个碰撞事件进行操作，也对事件集合进行操作，以应对维度诅咒。这些已建立的方法基于数据中的特定手工设计特征，将数据的维度降低到足够小的数量，以允许使用模拟工具生成的样本来估计未知概率分布<math alttext="p left-parenthesis x vertical-bar theta right-parenthesis"><mrow><mi>p</mi> <mo>(</mo> <mi>x</mi> <mo>|</mo> <mi>θ</mi> <mo>)</mo></mrow></math>。显然，由于数据的复杂性和潜在新物理的罕见性以及其微妙的特征，这种传统方法可能不是最佳选择。机器学习消除了手工设计特征和手动降维的需求，这可能会错过较低级别高维数据中的关键信息。此外，直接从传感器获得的较低级别数据的结构非常适合于已经建立的神经网络模型，例如卷积神经网络和图神经网络：例如，几乎所有现代高能物理探测器中存在的量能器的投影塔结构类似于图像的像素。
 
@@ -292,15 +292,15 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 我们章节的主题是生成模型，或者生成类似给定数据集的数据。在高能物理中生成或模拟与实验数据相符的数据是非常重要的。在[用于高能物理中稀疏数据生成的图生成对抗网络](https://arxiv.org/pdf/2012.00173.pdf)中，作者们开发了基于图的生成模型，使用生成对抗网络框架，用于模拟类似于[CERN](https://home.cern)大型强子对撞机产生的稀疏数据集。
 
-作者们通过对MNIST手写数字图像和质子-质子碰撞中产生的粒子喷流等稀疏表示进行训练和生成来说明他们的方法，这些类似于大型强子对撞机中的情况。该模型成功生成了稀疏的MNIST数字和粒子喷流数据。作者们使用两个指标来量化真实数据和生成数据之间的一致性：基于图的[Fréchet Inception距离](https://en.wikipedia.org/wiki/Fr%C3%A9chet_inception_distance)，以及粒子和喷流特征级别的[1-Wasserstein距离](https://en.wikipedia.org/wiki/Wasserstein_metric)。
+作者们通过对 MNIST 手写数字图像和质子-质子碰撞中产生的粒子喷流等稀疏表示进行训练和生成来说明他们的方法，这些类似于大型强子对撞机中的情况。该模型成功生成了稀疏的 MNIST 数字和粒子喷流数据。作者们使用两个指标来量化真实数据和生成数据之间的一致性：基于图的[Fréchet Inception 距离](https://en.wikipedia.org/wiki/Fr%C3%A9chet_inception_distance)，以及粒子和喷流特征级别的[1-Wasserstein 距离](https://en.wikipedia.org/wiki/Wasserstein_metric)。
 
 # 其他生成模型
 
-我们已经讨论了最先进的生成模型（截至2022年），但如果我们不介绍朴素贝叶斯、高斯混合和玻尔兹曼机模型，这一章节将是不完整的。还有许多其他模型。话虽如此，Meta的副总裁兼首席人工智能科学家Yann LeCun在一些模型上提供了他的观点：
+我们已经讨论了最先进的生成模型（截至 2022 年），但如果我们不介绍朴素贝叶斯、高斯混合和玻尔兹曼机模型，这一章节将是不完整的。还有许多其他模型。话虽如此，Meta 的副总裁兼首席人工智能科学家 Yann LeCun 在一些模型上提供了他的观点：
 
-在2000年代，语音识别、计算机视觉和自然语言处理领域的研究人员着迷于准确表示不确定性。这导致了大量关于概率生成模型的工作，如语音中的隐马尔可夫模型，视觉中的马尔可夫随机场和星座模型，以及自然语言处理中的概率主题模型，例如潜在狄利克雷分析。在计算机视觉研讨会上有关生成模型与判别模型的辩论。曾经有英勇而徒劳的尝试使用非参数贝叶斯方法构建物体识别系统。这在之前的贝叶斯网络、因子图和其他图形模型的基础上进行。这就是人们了解指数族、信念传播、循环信念传播、变分推断等的方式，中国餐馆过程、印度自助餐过程等。但几乎没有这项工作关注学习表示的问题。特征被认为是已知的。图形模型的结构，以及其中的潜在变量，被认为是已知的。人们所要做的就是通过线性组合特征计算某种对数似然，然后使用上述提到的一种复杂推断方法之一来生成未知变量的边际分布，其中之一就是答案，例如一个类别。事实上，指数族几乎意味着浅层：对数似然可以表示为特征（或其简单组合）的线性参数化函数。学习模型的参数被视为另一个变分推断问题。有趣的是，几乎没有这些内容与今天顶尖的语音、视觉和自然语言处理系统相关。事实证明，解决学习分层表示和复杂功能依赖的问题比能够使用浅层模型进行准确的概率推断更为重要。这并不是说准确的概率推断没有用处。
+在 2000 年代，语音识别、计算机视觉和自然语言处理领域的研究人员着迷于准确表示不确定性。这导致了大量关于概率生成模型的工作，如语音中的隐马尔可夫模型，视觉中的马尔可夫随机场和星座模型，以及自然语言处理中的概率主题模型，例如潜在狄利克雷分析。在计算机视觉研讨会上有关生成模型与判别模型的辩论。曾经有英勇而徒劳的尝试使用非参数贝叶斯方法构建物体识别系统。这在之前的贝叶斯网络、因子图和其他图形模型的基础上进行。这就是人们了解指数族、信念传播、循环信念传播、变分推断等的方式，中国餐馆过程、印度自助餐过程等。但几乎没有这项工作关注学习表示的问题。特征被认为是已知的。图形模型的结构，以及其中的潜在变量，被认为是已知的。人们所要做的就是通过线性组合特征计算某种对数似然，然后使用上述提到的一种复杂推断方法之一来生成未知变量的边际分布，其中之一就是答案，例如一个类别。事实上，指数族几乎意味着浅层：对数似然可以表示为特征（或其简单组合）的线性参数化函数。学习模型的参数被视为另一个变分推断问题。有趣的是，几乎没有这些内容与今天顶尖的语音、视觉和自然语言处理系统相关。事实证明，解决学习分层表示和复杂功能依赖的问题比能够使用浅层模型进行准确的概率推断更为重要。这并不是说准确的概率推断没有用处。
 
-在同样的思路下，他继续说：生成对抗网络对于生成漂亮的图片很好（尽管它们正被扩散模型或“多步去噪自动编码器”所取代），但对于识别和表示学习，GANs是一个巨大的失望。
+在同样的思路下，他继续说：生成对抗网络对于生成漂亮的图片很好（尽管它们正被扩散模型或“多步去噪自动编码器”所取代），但对于识别和表示学习，GANs 是一个巨大的失望。
 
 尽管如此，从所有这些模型中可以学到很多数学知识。根据我的经验，当我们看到数学被开发和用于特定目的时，我们对数学的理解和保留会更加深入，而不仅仅是训练大脑的神经元。许多数学家声称在证明尚未找到应用的理论时会感到愉悦。我从来不是其中之一。
 
@@ -326,11 +326,11 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 ## 高斯混合模型
 
-在高斯混合模型中，我们假设所有数据点都是从具有未知参数（均值和协方差矩阵）的有限数量的高斯分布混合中生成的。我们可以将混合模型视为类似于k均值聚类，但在这里我们包括有关聚类中心（高斯的均值）以及每个聚类中数据传播形状（由高斯的协方差确定）的信息。为了确定数据中的聚类数量，高斯混合模型有时会实现[贝叶斯信息准则](https://en.wikipedia.org/wiki/Bayesian_information_criterion)。我们还可以限制我们的模型以控制混合物中不同高斯的协方差：完全、绑定、对角线、绑定对角线和球形（参见[图8-3](#Fig_Gaussian_covariance)以进行说明）。
+在高斯混合模型中，我们假设所有数据点都是从具有未知参数（均值和协方差矩阵）的有限数量的高斯分布混合中生成的。我们可以将混合模型视为类似于 k 均值聚类，但在这里我们包括有关聚类中心（高斯的均值）以及每个聚类中数据传播形状（由高斯的协方差确定）的信息。为了确定数据中的聚类数量，高斯混合模型有时会实现[贝叶斯信息准则](https://en.wikipedia.org/wiki/Bayesian_information_criterion)。我们还可以限制我们的模型以控制混合物中不同高斯的协方差：完全、绑定、对角线、绑定对角线和球形（参见图 8-3 以进行说明）。
 
-![250](assets/emai_0803.png)
+![250](img/emai_0803.png)
 
-###### 图8-3. 高斯混合协方差类型（[图片来源](https://i.stack.imgur.com/0zLpe.png)）。
+###### 图 8-3. 高斯混合协方差类型（[图片来源](https://i.stack.imgur.com/0zLpe.png)）。
 
 最终我们需要最大化数据的似然以估计混合物的未知参数（均值和协方差矩阵的条目）。
 
@@ -346,7 +346,7 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 # 生成模型的演变
 
-在本节中，我们讲述了导致神经网络冬天结束的故事，最终导致了现代概率深度学习模型的出现，如变分自动编码器、完全可见深度信念网络和生成对抗网络。我们经历了从Hopfield网络到Boltzmann机器再到受限Boltzmann机器的发展过程。我对这些模型有特殊的偏爱：除了它们的历史价值外，通过组装基本计算单元网络来学习数据特征的联合概率分布，它们还利用了极其整洁和发展完善的*统计力学*领域的数学机制，这是我最初的研究领域。
+在本节中，我们讲述了导致神经网络冬天结束的故事，最终导致了现代概率深度学习模型的出现，如变分自动编码器、完全可见深度信念网络和生成对抗网络。我们经历了从 Hopfield 网络到 Boltzmann 机器再到受限 Boltzmann 机器的发展过程。我对这些模型有特殊的偏爱：除了它们的历史价值外，通过组装基本计算单元网络来学习数据特征的联合概率分布，它们还利用了极其整洁和发展完善的*统计力学*领域的数学机制，这是我最初的研究领域。
 
 在统计力学中，我们通过能量函数来定义概率分布。我们找到系统处于某种状态<math alttext="ModifyingAbove x With right-arrow"><mover accent="true"><mi>x</mi> <mo>→</mo></mover></math>的概率取决于该状态的能量<math alttext="upper E left-parenthesis ModifyingAbove x With right-arrow right-parenthesis"><mrow><mi>E</mi> <mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>)</mo></mrow></math>。更准确地说，高能态的概率较低，这在以下公式中的指数的负号中体现：
 
@@ -376,7 +376,7 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 ## 玻尔兹曼机
 
-玻尔兹曼机是霍普菲尔德网络，但增加了隐藏单元。我们已经熟悉神经网络中输入单元和隐藏单元的结构，所以不需要解释它们，但这是它们的起点。与霍普菲尔德网络类似，输入和隐藏单元都是二进制的，状态为0或1（现代版本实现了不仅是二进制值而且是实数值的单元）。
+玻尔兹曼机是霍普菲尔德网络，但增加了隐藏单元。我们已经熟悉神经网络中输入单元和隐藏单元的结构，所以不需要解释它们，但这是它们的起点。与霍普菲尔德网络类似，输入和隐藏单元都是二进制的，状态为 0 或 1（现代版本实现了不仅是二进制值而且是实数值的单元）。
 
 所有玻尔兹曼机都有一个难以处理的分区函数，因此我们使用在本节介绍中调查的技术来近似最大似然梯度。
 
@@ -392,35 +392,35 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 ### 通用逼近
 
-受限玻尔兹曼机中的受限连接允许它们堆叠，即具有一系列能够提取更复杂特征的多个隐藏层。我们现在可以看到现代多层人工神经网络的架构是如何逐渐出现的。回想一下，在第四章中，我们讨论了神经网络对各种确定性函数的通用逼近。在本章中，我们希望我们的网络代表（或学习）联合概率分布，而不是确定性函数。2008年，Le Roux和Bengio证明了玻尔兹曼机可以以任意精度逼近任何离散概率分布。这个结果也适用于受限玻尔兹曼机。此外，在某些温和条件下，每个额外的隐藏层都会增加对数似然函数的值，从而使模型分布更接近训练集的真实联合概率分布。
+受限玻尔兹曼机中的受限连接允许它们堆叠，即具有一系列能够提取更复杂特征的多个隐藏层。我们现在可以看到现代多层人工神经网络的架构是如何逐渐出现的。回想一下，在第四章中，我们讨论了神经网络对各种确定性函数的通用逼近。在本章中，我们希望我们的网络代表（或学习）联合概率分布，而不是确定性函数。2008 年，Le Roux 和 Bengio 证明了玻尔兹曼机可以以任意精度逼近任何离散概率分布。这个结果也适用于受限玻尔兹曼机。此外，在某些温和条件下，每个额外的隐藏层都会增加对数似然函数的值，从而使模型分布更接近训练集的真实联合概率分布。
 
-2015年，Eldan和Shamir经验性地验证了增加神经网络层数的价值远远超过增加网络层宽度中每层单元的数量（深度与宽度）。我们也从实践中知道（没有证明），可以训练一个具有数百个隐藏层的网络，其中更深层代表更高阶特征。从历史上看，必须克服梯度消失问题才能训练深度网络。
+2015 年，Eldan 和 Shamir 经验性地验证了增加神经网络层数的价值远远超过增加网络层宽度中每层单元的数量（深度与宽度）。我们也从实践中知道（没有证明），可以训练一个具有数百个隐藏层的网络，其中更深层代表更高阶特征。从历史上看，必须克服梯度消失问题才能训练深度网络。
 
 ## 原始自动编码器
 
 自动编码器架构旨在将输入的信息压缩到其较低维度的隐藏层中。隐藏层应该保留与输入层相同数量的信息，即使它们的单元数少于输入层。我们已经讨论了现代变分自动编码器，为训练自动编码器网络提供了一种高效的方法。在训练过程中，每个向量应该被映射到自身（无监督），网络试图学习最佳的编码。然后输入层和输出层必须具有相同数量的单元。一个玻尔兹曼机设置了一定数量的输入单元，较少数量的隐藏单元，以及一个具有与输入层相同数量的单元的输出层，解释了原始网络自动编码器架构。从历史的角度来看，这是重要的：自动编码器是网络成功学习代码的第一个例子，隐含在隐藏单元的状态中，以表示其输入。这使得网络能够强制将其输入压缩到一个隐藏层中，而最小化信息损失。这现在是神经网络中我们理所当然的一个重要部分。自动编码器架构，无论是否使用玻尔兹曼机（是否使用基于能量的联合概率分布），在深度学习领域仍然具有很大影响力。
 
-在本章的前面，我们讨论了变分自动编码器。从历史的角度来看，这些综合了玻尔兹曼机自动编码器、深度自动编码器网络、去噪自动编码器和信息瓶颈（Tishby等人，2000）的思想，这些思想源于分析合成的概念（Selfridge，1958）。变分自动编码器使用快速变分方法进行学习。在偏差-方差权衡的背景下，变分方法为网络的权重提供了偏差估计，具有较低的方差。
+在本章的前面，我们讨论了变分自动编码器。从历史的角度来看，这些综合了玻尔兹曼机自动编码器、深度自动编码器网络、去噪自动编码器和信息瓶颈（Tishby 等人，2000）的思想，这些思想源于分析合成的概念（Selfridge，1958）。变分自动编码器使用快速变分方法进行学习。在偏差-方差权衡的背景下，变分方法为网络的权重提供了偏差估计，具有较低的方差。
 
 # 概率语言建模
 
-这一章与第6章之间的自然联系，第6章几乎专注于自然语言处理以及从自然语言数据中提取含义的各种方法，这一章是调查概率语言模型背后的基本原理，然后强调前一章中遵循这些基本原理的模型。
+这一章与第六章之间的自然联系，第六章几乎专注于自然语言处理以及从自然语言数据中提取含义的各种方法，这一章是调查概率语言模型背后的基本原理，然后强调前一章中遵循这些基本原理的模型。
 
 本章以最大似然估计开始。当我们需要估计概率分布时，这种方法无处不在的原因之一是，通过最大似然估计获得的概率分布受到数学理论的支持，在一些条件下：最大似然估计会收敛到生成数据的真实分布<math alttext="p Subscript d a t a Baseline left-parenthesis ModifyingAbove x With right-arrow right-parenthesis">，当数据样本数量趋于无穷大时（也就是，假设我们有大量数据），并且假设模型概率分布<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow comma ModifyingAbove theta With right-arrow right-parenthesis">已经包含了真实的概率分布。也就是说，当样本数量趋于无穷大时，最大化数据似然性的模型参数<math alttext="ModifyingAbove theta With right-arrow Superscript asterisk">将满足：<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow comma ModifyingAbove theta With right-arrow Superscript asterisk Baseline right-parenthesis equals p Subscript d a t a Baseline left-parenthesis ModifyingAbove x With right-arrow right-parenthesis">。
 
 在语言模型中，训练数据是来自某个语料库和/或流派的文本样本，我们希望学习其概率分布，以便生成类似的文本。重要的是要记住，真实的数据分布很可能*不*包含在由<math alttext="p Subscript m o d e l Baseline left-parenthesis ModifyingAbove x With right-arrow comma ModifyingAbove theta With right-arrow right-parenthesis">提供的分布族中，因此前一段中的理论结果在实践中可能永远不会成立，然而，这并不会阻止我们，我们通常会满足于对我们的目的足够有用的模型。我们的目标是构建一个能够为语言片段分配概率的模型。如果我们随机组合一些语言片段，我们很可能最终得到一些无意义的话。我们实际上想要找到那些有意义的句子的分布。一个好的语言模型是那种为有意义的句子分配高概率的模型，即使这些句子不在训练数据中。人们通常计算语言模型在训练数据集上的*困惑度*来评估其性能。
 
-语言模型基于这样一个假设，即下一个单词的概率分布取决于前面的*n-1*个单词，对于某个固定的*n*，因此我们关心计算<math alttext="p Subscript m o d e l Baseline left-parenthesis x Subscript n Baseline vertical-bar x 1 comma x 2 comma ellipsis comma x Subscript n minus 1 Baseline right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>n</mi></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mrow><mi>n</mi><mo>-</mo><mn>1</mn></mrow></msub> <mo>)</mo></mrow></mrow></math>。如果我们使用一个word2vec模型，它将每个单词的含义嵌入到向量中，那么这些*x*中的每一个都由一个向量表示。那些有意义或在类似上下文中经常使用的单词往往具有相似的向量值。我们可以使用前一章的transformer模型来基于前面的单词向量预测下一个单词向量。
+语言模型基于这样一个假设，即下一个单词的概率分布取决于前面的*n-1*个单词，对于某个固定的*n*，因此我们关心计算<math alttext="p Subscript m o d e l Baseline left-parenthesis x Subscript n Baseline vertical-bar x 1 comma x 2 comma ellipsis comma x Subscript n minus 1 Baseline right-parenthesis"><mrow><msub><mi>p</mi> <mrow><mi>m</mi><mi>o</mi><mi>d</mi><mi>e</mi><mi>l</mi></mrow></msub> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>n</mi></msub> <mo>|</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mrow><mi>n</mi><mo>-</mo><mn>1</mn></mrow></msub> <mo>)</mo></mrow></mrow></math>。如果我们使用一个 word2vec 模型，它将每个单词的含义嵌入到向量中，那么这些*x*中的每一个都由一个向量表示。那些有意义或在类似上下文中经常使用的单词往往具有相似的向量值。我们可以使用前一章的 transformer 模型来基于前面的单词向量预测下一个单词向量。
 
-基于频率的语言模型通过计算训练语料库中单词一起出现的次数来构建条件概率表。例如，我们可以通过计算语料库中*good morning*出现的次数除以语料库中*good*出现的次数来估计单词*morning*在单词*good*之后出现的条件概率p(morning|good)。即：
+基于频率的语言模型通过计算训练语料库中单词一起出现的次数来构建条件概率表。例如，我们可以通过计算语料库中*good morning*出现的次数除以语料库中*good*出现的次数来估计单词*morning*在单词*good*之后出现的条件概率 p(morning|good)。即：
 
 <math alttext="dollar-sign p left-parenthesis m o r n i n g vertical-bar g o o d right-parenthesis equals StartFraction p left-parenthesis g o o d comma m o r n i n g right-parenthesis Over p left-parenthesis g o o d right-parenthesis EndFraction dollar-sign"><mrow><mi>p</mi> <mrow><mo>(</mo> <mi>m</mi> <mi>o</mi> <mi>r</mi> <mi>n</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mo>|</mo> <mi>g</mi> <mi>o</mi> <mi>o</mi> <mi>d</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mrow><mi>p</mi><mo>(</mo><mi>g</mi><mi>o</mi><mi>o</mi><mi>d</mi><mo>,</mo><mi>m</mi><mi>o</mi><mi>r</mi><mi>n</mi><mi>i</mi><mi>n</mi><mi>g</mi><mo>)</mo></mrow> <mrow><mi>p</mi><mo>(</mo><mi>g</mi><mi>o</mi><mi>o</mi><mi>d</mi><mo>)</mo></mrow></mfrac></mrow></math>
 
-这在非常大的语料库或非结构化文本数据（如推特、Facebook评论或短信消息）中会出现问题，因为这些数据通常不完全遵循语法/拼写等规则。
+这在非常大的语料库或非结构化文本数据（如推特、Facebook 评论或短信消息）中会出现问题，因为这些数据通常不完全遵循语法/拼写等规则。
 
 我们可以这样形式化概率语言模型的概念：
 
-1.  指定您语言的词汇表*V*。这可以是一组字符、空格、标点符号、符号、独特单词和/或n-gram。从数学上讲，它是一个包括一个停止符号的有限离散集合，该符号表示思想或句子的结束，就像英语中的句号（尽管句号并不总是表示句子的结束，比如在缩写中使用时）。
+1.  指定您语言的词汇表*V*。这可以是一组字符、空格、标点符号、符号、独特单词和/或 n-gram。从数学上讲，它是一个包括一个停止符号的有限离散集合，该符号表示思想或句子的结束，就像英语中的句号（尽管句号并不总是表示句子的结束，比如在缩写中使用时）。
 
 1.  将一个句子（可能有意义也可能没有）定义为一个以词汇表*V*结束的符号有限序列<math alttext="ModifyingAbove x With right-arrow equals left-parenthesis x 1 comma x 2 comma ellipsis comma x Subscript m Baseline right-parenthesis"><mrow><mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>=</mo> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mi>m</mi></msub> <mo>)</mo></mrow></mrow></math>。每个<math alttext="x Subscript i"><msub><mi>x</mi> <mi>i</mi></msub></math>可以从词汇表*V*中任意取值。我们可以将*m*指定为我们句子的最大长度。
 
@@ -428,11 +428,11 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 1.  让<math alttext="script upper L"><mi>ℒ</mi></math>表示<math alttext="l Superscript m"><msup><mi>l</mi> <mi>m</mi></msup></math>的所有子集的集合。这涵盖了所有最大长度为*m*的有意义和无意义句子的集合。
 
-1.  在严格的概率理论中，我们通常从概率三元组开始：一个空间，包含该空间一些子集的*sigma代数*，以及分配给所选sigma代数的概率测度（在本章中不必担心这些细节）。在这种情况下，语言模型是概率三元组：语言空间<math alttext="l Superscript m"><msup><mi>l</mi> <mi>m</mi></msup></math>，由语言空间<math alttext="script upper L"><mi>ℒ</mi></math>的所有子集组成的sigma代数，以及我们需要分配给<math alttext="script upper L"><mi>ℒ</mi></math>的每个成员的概率测度*P*。由于我们的语言空间是离散且有限的，更容易为<math alttext="l Superscript m"><msup><mi>l</mi> <mi>m</mi></msup></math>的每个成员分配一个概率*p*，即为每个句子<math alttext="ModifyingAbove x With right-arrow equals left-parenthesis x 1 comma x 2 comma ellipsis comma x Subscript m Baseline right-parenthesis"><mrow><mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>=</mo> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mi>m</mi></msub> <mo>)</mo></mrow></mrow></math>分配一个概率（因为这将进而在所有子集<math alttext="script upper L"><mi>ℒ</mi></math>的集合上引入一个概率测度*P*，所以我们永远不会为语言模型担心这一点）。我们需要从训练数据中学习的就是这个*p*。通常的方法是选择一个由<math alttext="ModifyingAbove theta With right-arrow"><mover accent="true"><mi>θ</mi> <mo>→</mo></mover></math>参数化的概率分布的完整系列<math alttext="p left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis"><mrow><mi>p</mi> <mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow></math>。
+1.  在严格的概率理论中，我们通常从概率三元组开始：一个空间，包含该空间一些子集的*sigma 代数*，以及分配给所选 sigma 代数的概率测度（在本章中不必担心这些细节）。在这种情况下，语言模型是概率三元组：语言空间<math alttext="l Superscript m"><msup><mi>l</mi> <mi>m</mi></msup></math>，由语言空间<math alttext="script upper L"><mi>ℒ</mi></math>的所有子集组成的 sigma 代数，以及我们需要分配给<math alttext="script upper L"><mi>ℒ</mi></math>的每个成员的概率测度*P*。由于我们的语言空间是离散且有限的，更容易为<math alttext="l Superscript m"><msup><mi>l</mi> <mi>m</mi></msup></math>的每个成员分配一个概率*p*，即为每个句子<math alttext="ModifyingAbove x With right-arrow equals left-parenthesis x 1 comma x 2 comma ellipsis comma x Subscript m Baseline right-parenthesis"><mrow><mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>=</mo> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mi>m</mi></msub> <mo>)</mo></mrow></mrow></math>分配一个概率（因为这将进而在所有子集<math alttext="script upper L"><mi>ℒ</mi></math>的集合上引入一个概率测度*P*，所以我们永远不会为语言模型担心这一点）。我们需要从训练数据中学习的就是这个*p*。通常的方法是选择一个由<math alttext="ModifyingAbove theta With right-arrow"><mover accent="true"><mi>θ</mi> <mo>→</mo></mover></math>参数化的概率分布的完整系列<math alttext="p left-parenthesis ModifyingAbove x With right-arrow semicolon ModifyingAbove theta With right-arrow right-parenthesis"><mrow><mi>p</mi> <mo>(</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>θ</mi> <mo>→</mo></mover> <mo>)</mo></mrow></math>。
 
 1.  最后，我们需要通过最大化包含许多来自<math alttext="l Superscript m"><msup><mi>l</mi> <mi>m</mi></msup></math>的句子样本的训练数据集的似然性来估计参数<math alttext="ModifyingAbove theta With right-arrow"><mover accent="true"><mi>θ</mi> <mo>→</mo></mover></math>。由于有意义的句子的概率非常小，我们使用这些概率的对数来避免下溢的风险。
 
-为了保持一致性，在这一部分的背景下，检查对数线性模型和对数双线性模型（GloVe）以及来自[第7章](ch07.xhtml#ch07)的潜在狄利克雷分配是一个不错的练习。
+为了保持一致性，在这一部分的背景下，检查对数线性模型和对数双线性模型（GloVe）以及来自第七章的潜在狄利克雷分配是一个不错的练习。
 
 # 总结和展望
 
@@ -440,7 +440,7 @@ Boltzmann机器（1980年代）是一类依赖于马尔可夫链训练生成模�
 
 如果我们的数据是低维的，只有一个或两个特征，那么这一切都是不必要的。直方图和核密度估计器很好地估计了低维数据的概率分布。机器学习中最重要的成就之一是能够从大量数据中建模高维联合概率分布。
 
-本章中我们介绍的所有方法都有其优缺点。例如，变分自动编码器允许我们在具有隐藏（潜在）变量的概率图模型中执行学习和高效的贝叶斯推断。然而，它们生成的样本质量较低。生成对抗网络生成更好的样本，但由于其不稳定的训练动态，更难优化。它们寻找一个不稳定的鞍点，而不是一个稳定的最大值或最小值。像PixelCNN和WaveNet这样的深度信念网络具有稳定的训练过程，优化softmax损失函数。然而，在采样过程中效率低下，不像自动编码器那样有机地将数据嵌入到较低维度。
+本章中我们介绍的所有方法都有其优缺点。例如，变分自动编码器允许我们在具有隐藏（潜在）变量的概率图模型中执行学习和高效的贝叶斯推断。然而，它们生成的样本质量较低。生成对抗网络生成更好的样本，但由于其不稳定的训练动态，更难优化。它们寻找一个不稳定的鞍点，而不是一个稳定的最大值或最小值。像 PixelCNN 和 WaveNet 这样的深度信念网络具有稳定的训练过程，优化 softmax 损失函数。然而，在采样过程中效率低下，不像自动编码器那样有机地将数据嵌入到较低维度。
 
 本章中出现的博弈论中的两人零和游戏是由生成对抗网络的设置自然产生的。
 

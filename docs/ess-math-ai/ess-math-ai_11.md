@@ -1,4 +1,4 @@
-# 第11章。概率
+# 第十一章。概率
 
 概率论是数学中最美丽的学科之一，它将我们带回到随机和确定性领域之间，这本应该是魔术的事情，但结果却是数学及其奇迹。概率提供了一种系统化的方法来量化随机性，控制不确定性，并将逻辑和推理扩展到在人工智能中至关重要的情况下：当信息和知识包含不确定性时，和/或当代理在不可预测或部分观察的环境中导航时。在这种情况下，代理计算关于某个环境的未观察方面的概率，然后基于这些概率做出决策。
 
@@ -22,15 +22,15 @@
 
 1.  在最小化确定性机器学习模型（如回归、支持向量机、神经网络等）的损失函数时，我们使用随机梯度下降及其变体，在每个梯度下降步骤中随机选择训练数据实例的子集，而不是使用整个训练数据集，以加快计算速度。
 
-1.  在图模型的[第9章](ch09.xhtml#ch09)中，我们多次利用了图上的随机游走，通过图的加权邻接矩阵实现这些游走。
+1.  在图模型的第九章中，我们多次利用了图上的随机游走，通过图的加权邻接矩阵实现这些游走。
 
-1.  在运筹学的[第10章](ch10.xhtml#ch10)中出现了特定的概率分布，比如排队中顾客的到达和服务时间的概率分布。
+1.  在运筹学的第十章中出现了特定的概率分布，比如排队中顾客的到达和服务时间的概率分布。
 
-1.  动态决策和马尔可夫过程也出现在[第10章](ch10.xhtml#ch10)的运筹学中，对于人工智能中的强化学习至关重要。它们将在本章中再次出现，然后在[第13章](ch13.xhtml#ch13)中再次出现，这次是在汉密尔顿雅可比贝尔曼方程的背景下。
+1.  动态决策和马尔可夫过程也出现在第十章的运筹学中，对于人工智能中的强化学习至关重要。它们将在本章中再次出现，然后在第十三章中再次出现，这次是在汉密尔顿雅可比贝尔曼方程的背景下。
 
-1.  在[第10章](ch10.xhtml#ch10)中的两人零和博弈中，每个玩家都有一定概率采取某种动作，我们利用这一点来计算玩家的最优策略和预期收益。
+1.  在第十章中的两人零和博弈中，每个玩家都有一定概率采取某种动作，我们利用这一点来计算玩家的最优策略和预期收益。
 
-1.  蒙特卡洛模拟方法是依赖于重复随机抽样来数值解决确定性问题的计算算法。我们在[第13章](ch13.xhtml#ch13)中以AI和PDEs为例进行了说明。
+1.  蒙特卡洛模拟方法是依赖于重复随机抽样来数值解决确定性问题的计算算法。我们在第十三章中以 AI 和 PDEs 为例进行了说明。
 
 1.  神经网络的普遍定理：我们多次提到这一点，我们将在本章中证明它。这个证明是本书中唯一的理论部分，它将为我们提供测度论和泛函分析的美妙味道。
 
@@ -48,7 +48,7 @@
 
 1.  独立性和条件独立性的概念是基础性的。如果一个事件的发生不影响另一个事件发生的概率，则这两个事件是独立的。所考虑特征的独立性极大地简化了问题。它帮助我们解开许多变量的复杂联合分布，将它们简化为更少变量的简单乘积，并使许多以前难以处理的计算变得可行。这极大地简化了世界的概率解释。注意独立性的区别，即*仅两个事件的独立性*（<math alttext="upper P r o b left-parenthesis x 1 comma x 2 right-parenthesis equals upper P r o b left-parenthesis x 1 right-parenthesis upper P r o b left-parenthesis x 2 right-parenthesis"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>)</mo></mrow> <mo>=</mo> <mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>)</mo></mrow></mrow></math>）和*许多事件的独立性*，这是一个强假设，其中每个事件都独立于其他事件的任何交集。
 
-1.  对于[第8章](ch08.xhtml#ch08)的概率生成模型，我们假设了一个先验概率分布，通过神经网络传递，并调整其参数。
+1.  对于第八章的概率生成模型，我们假设了一个先验概率分布，通过神经网络传递，并调整其参数。
 
 1.  在讨论联合和条件概率时，贝叶斯定理是至关重要的。它帮助我们量化代理的信念相对于证据。我们在许多情境中使用它，立即展示了它的用处，比如：
 
@@ -72,21 +72,21 @@
 
     <math alttext="dollar-sign upper P r o b left-parenthesis x 1 comma x 2 comma ellipsis comma x Subscript n Baseline right-parenthesis equals normal upper Pi Subscript i equals 1 Superscript n Baseline upper P r o b left-parenthesis x Subscript i Baseline vertical-bar p a r e n t s left-parenthesis upper X Subscript i Baseline right-parenthesis right-parenthesis dollar-sign"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mi>n</mi></msub> <mo>)</mo></mrow> <mo>=</mo> <msubsup><mi>Π</mi> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>n</mi></msubsup> <mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>|</mo> <mi>p</mi> <mi>a</mi> <mi>r</mi> <mi>e</mi> <mi>n</mi> <mi>t</mi> <mi>s</mi> <mrow><mo>(</mo> <msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow> <mo>)</mo></mrow></mrow></math>
 
-1.  在机器学习中，我们可以在回归模型和分类模型之间划清界限。在[第8章](ch08.xhtml#ch08)中的概率生成模型中，我们遇到了一个用于分类的流行概率模型：朴素贝叶斯。在因果效应语言中，*朴素*假设是一些观察到的多个效应在给定原因的情况下是独立的，因此我们可以写成：
+1.  在机器学习中，我们可以在回归模型和分类模型之间划清界限。在第八章中的概率生成模型中，我们遇到了一个用于分类的流行概率模型：朴素贝叶斯。在因果效应语言中，*朴素*假设是一些观察到的多个效应在给定原因的情况下是独立的，因此我们可以写成：
 
     <math alttext="dollar-sign upper P r o b left-parenthesis c a u s e vertical-bar e f f e c t 1 comma e f f e c t 2 comma e f f e c t 3 right-parenthesis equals upper P left-parenthesis c a u s e right-parenthesis upper P left-parenthesis e f f e c t 1 vertical-bar c a u s e right-parenthesis upper P left-parenthesis e f f e c t 2 vertical-bar c a u s e right-parenthesis upper P left-parenthesis e f f e c t 3 vertical-bar c a u s e right-parenthesis dollar-sign"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <mi>c</mi> <mi>a</mi> <mi>u</mi> <mi>s</mi> <mi>e</mi> <mo>|</mo> <mi>e</mi> <mi>f</mi> <mi>f</mi> <mi>e</mi> <mi>c</mi> <msub><mi>t</mi> <mn>1</mn></msub> <mo>,</mo> <mi>e</mi> <mi>f</mi> <mi>f</mi> <mi>e</mi> <mi>c</mi> <msub><mi>t</mi> <mn>2</mn></msub> <mo>,</mo> <mi>e</mi> <mi>f</mi> <mi>f</mi> <mi>e</mi> <mi>c</mi> <msub><mi>t</mi> <mn>3</mn></msub> <mo>)</mo></mrow> <mo>=</mo> <mi>P</mi> <mrow><mo>(</mo> <mi>c</mi> <mi>a</mi> <mi>u</mi> <mi>s</mi> <mi>e</mi> <mo>)</mo></mrow> <mi>P</mi> <mrow><mo>(</mo> <mi>e</mi> <mi>f</mi> <mi>f</mi> <mi>e</mi> <mi>c</mi> <msub><mi>t</mi> <mn>1</mn></msub> <mo>|</mo> <mi>c</mi> <mi>a</mi> <mi>u</mi> <mi>s</mi> <mi>e</mi> <mo>)</mo></mrow> <mi>P</mi> <mrow><mo>(</mo> <mi>e</mi> <mi>f</mi> <mi>f</mi> <mi>e</mi> <mi>c</mi> <msub><mi>t</mi> <mn>2</mn></msub> <mo>|</mo> <mi>c</mi> <mi>a</mi> <mi>u</mi> <mi>s</mi> <mi>e</mi> <mo>)</mo></mrow> <mi>P</mi> <mrow><mo>(</mo> <mi>e</mi> <mi>f</mi> <mi>f</mi> <mi>e</mi> <mi>c</mi> <msub><mi>t</mi> <mn>3</mn></msub> <mo>|</mo> <mi>c</mi> <mi>a</mi> <mi>u</mi> <mi>s</mi> <mi>e</mi> <mo>)</mo></mrow></mrow></math>
 
-    当上述公式用于给定数据特征的分类时，*原因*是类别。此外，我们可以绘制代表这种设置的贝叶斯网络。原因变量是父节点，所有效应都是从一个父节点衍生出来的子节点（[图11-1](#Fig_cause_effects)）。
+    当上述公式用于给定数据特征的分类时，*原因*是类别。此外，我们可以绘制代表这种设置的贝叶斯网络。原因变量是父节点，所有效应都是从一个父节点衍生出来的子节点（图 11-1）。
 
-![300](assets/emai_1101.png)
+![300](img/emai_1101.png)
 
-###### 图11-1. 代表有共同原因的三个效应的贝叶斯网络。
+###### 图 11-1. 代表有共同原因的三个效应的贝叶斯网络。
 
-# AI所需的更多基本知识是什么？
+# AI 所需的更多基本知识是什么？
 
 我们需要一些在本书中没有得到关注或仅仅是偶尔提到并被推迟到本章进行更详细讨论的额外主题。这些包括：
 
-+   Judea Pearl的因果建模和do计算
++   Judea Pearl 的因果建模和 do 计算
 
 +   一些悖论
 
@@ -96,19 +96,19 @@
 
 +   马尔可夫决策过程和强化学习
 
-+   概率论及其在AI中的应用
++   概率论及其在 AI 中的应用
 
 本章的其余部分关注上述主题。
 
-# 因果建模和do计算
+# 因果建模和 do 计算
 
 原则上，贝叶斯网络中相关变量之间的箭头可以指向任何方向。它们最终都导致相同的联合概率分布，尽管有些方式比其他方式更复杂。
 
-相比之下，因果网络是那些特殊的贝叶斯网络，其中图的有向边不能指向除了因果方向以外的任何方向。对于这些网络，在构建连接和它们的方向时，我们必须更加留心。[图11-2](#Fig_causal_bayes)展示了一个因果贝叶斯网络的示例。
+相比之下，因果网络是那些特殊的贝叶斯网络，其中图的有向边不能指向除了因果方向以外的任何方向。对于这些网络，在构建连接和它们的方向时，我们必须更加留心。图 11-2 展示了一个因果贝叶斯网络的示例。
 
-![300](assets/emai_1102.png)
+![300](img/emai_1102.png)
 
-###### 图11-2. 因果贝叶斯网络。
+###### 图 11-2. 因果贝叶斯网络。
 
 请注意，贝叶斯网络和因果网络都对哪些变量听从哪些变量做出了强烈的假设。
 
@@ -120,21 +120,21 @@
 
 +   在因果网络中，我们进一步询问*哪个变量对哪个变量做出响应*：烟对火（因此我们在图中从火到烟画一个箭头）；或火对烟（因此我们在图中从烟到火画一个箭头）？
 
-我们需要的是一个数学框架来*干预*，以量化固定一个变量值的效果。这被称为*do计算*（与统计*观察和计数*计算相对）。让我们介绍*do计算*的两个基本公式：
+我们需要的是一个数学框架来*干预*，以量化固定一个变量值的效果。这被称为*do 计算*（与统计*观察和计数*计算相对）。让我们介绍*do 计算*的两个基本公式：
 
 +   调整公式
 
 +   背门准则
 
-根据因果推理的发明者[Judea Pearl](https://en.wikipedia.org/wiki/Judea_Pearl)，他的*为什么之书（2020年）*激发了本节和下一节的讨论，这些*允许研究人员探索和绘制所有可能的干预路径，无论多么曲折*，甚至可以节省我们运行随机对照试验的成本和困难，即使这些试验在物理上是可行的并且在法律上是允许的。
+根据因果推理的发明者[Judea Pearl](https://en.wikipedia.org/wiki/Judea_Pearl)，他的*为什么之书（2020 年）*激发了本节和下一节的讨论，这些*允许研究人员探索和绘制所有可能的干预路径，无论多么曲折*，甚至可以节省我们运行随机对照试验的成本和困难，即使这些试验在物理上是可行的并且在法律上是允许的。
 
-### 另一种选择：do计算
+### 另一种选择：do 计算
 
 给定一个因果网络，我们基于常识和专业知识的组合构建，同时为每个变量添加额外的未知原因，以确保我们考虑了一切，总体公式是联合概率分布的公式：
 
 <math alttext="dollar-sign upper P r o b left-parenthesis x 1 comma x 2 comma ellipsis comma x Subscript n Baseline right-parenthesis equals normal upper Pi Subscript i equals 1 Superscript n Baseline upper P r o b left-parenthesis x Subscript i Baseline vertical-bar p a r e n t s left-parenthesis upper X Subscript i Baseline right-parenthesis right-parenthesis period dollar-sign"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>x</mi> <mi>n</mi></msub> <mo>)</mo></mrow> <mo>=</mo> <msubsup><mi>Π</mi> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>n</mi></msubsup> <mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>x</mi> <mi>i</mi></msub> <mo>|</mo> <mi>p</mi> <mi>a</mi> <mi>r</mi> <mi>e</mi> <mi>n</mi> <mi>t</mi> <mi>s</mi> <mrow><mo>(</mo> <msub><mi>X</mi> <mi>i</mi></msub> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>.</mo></mrow></math>
 
-然后我们*干预*，应用<math alttext="d o left-parenthesis upper X Subscript j Baseline equals x Superscript asterisk Baseline right-parenthesis"><mrow><mi>d</mi> <mi>o</mi> <mo>(</mo> <msub><mi>X</mi> <mi>j</mi></msub> <mo>=</mo> <msup><mi>x</mi> <mo>*</mo></msup> <mo>)</mo></mrow></math>：这会切断指向<math alttext="upper X Subscript j"><msub><mi>X</mi> <mi>j</mi></msub></math>的任何边，并影响<math alttext="upper X Subscript j"><msub><mi>X</mi> <mi>j</mi></msub></math>的后代的所有条件概率，导致新的联合概率分布，其中不再包括干预变量的条件概率：我们已经将其值设置为<math alttext="upper X Subscript j Baseline equals x Superscript asterisk"><mrow><msub><mi>X</mi> <mi>j</mi></msub> <mo>=</mo> <msup><mi>x</mi> <mo>*</mo></msup></mrow></math>的概率为一，任何其他值的概率为零。[图11-2](#Fig_causal_bayes)显示了当我们打开洒水器时，原始网络中指向它的所有箭头都被切断。
+然后我们*干预*，应用<math alttext="d o left-parenthesis upper X Subscript j Baseline equals x Superscript asterisk Baseline right-parenthesis"><mrow><mi>d</mi> <mi>o</mi> <mo>(</mo> <msub><mi>X</mi> <mi>j</mi></msub> <mo>=</mo> <msup><mi>x</mi> <mo>*</mo></msup> <mo>)</mo></mrow></math>：这会切断指向<math alttext="upper X Subscript j"><msub><mi>X</mi> <mi>j</mi></msub></math>的任何边，并影响<math alttext="upper X Subscript j"><msub><mi>X</mi> <mi>j</mi></msub></math>的后代的所有条件概率，导致新的联合概率分布，其中不再包括干预变量的条件概率：我们已经将其值设置为<math alttext="upper X Subscript j Baseline equals x Superscript asterisk"><mrow><msub><mi>X</mi> <mi>j</mi></msub> <mo>=</mo> <msup><mi>x</mi> <mo>*</mo></msup></mrow></math>的概率为一，任何其他值的概率为零。图 11-2 显示了当我们打开洒水器时，原始网络中指向它的所有箭头都被切断。
 
 因此我们有：
 
@@ -142,7 +142,7 @@
 
 ### 调整公式
 
-我们真正关心的是设置<math alttext="upper X Subscript j Baseline equals x Superscript asterisk"><mrow><msub><mi>X</mi> <mi>j</mi></msub> <mo>=</mo> <msup><mi>x</mi> <mo>*</mo></msup></mrow></math>如何影响网络中每个其他变量的概率，并且我们希望从原始未干预的网络中计算这些值：用数学术语来说，没有do运算符，因为我们可以观察数据来获取这些值，而不是进行新实验。
+我们真正关心的是设置<math alttext="upper X Subscript j Baseline equals x Superscript asterisk"><mrow><msub><mi>X</mi> <mi>j</mi></msub> <mo>=</mo> <msup><mi>x</mi> <mo>*</mo></msup></mrow></math>如何影响网络中每个其他变量的概率，并且我们希望从原始未干预的网络中计算这些值：用数学术语来说，没有 do 运算符，因为我们可以观察数据来获取这些值，而不是进行新实验。
 
 为此，我们引入*调整公式*，或者，控制混杂因素（可能的共同原因）：这是<math alttext="upper X Subscript j"><msub><mi>X</mi> <mi>j</mi></msub></math>及其父节点对<math alttext="upper X Subscript i"><msub><mi>X</mi> <mi>i</mi></msub></math>影响的加权平均值。权重是父节点值的先验概率：
 
@@ -158,25 +158,25 @@
 
 ### 控制混杂因素
 
-科学家和统计学家预测干预效果的最常见方法，以便他们可以对因果关系进行陈述，是控制*可能的共同原因*或混杂因素。[图11-3](#Fig_confounder)显示了变量Z作为X和Y之间怀疑的因果关系的混杂因素。
+科学家和统计学家预测干预效果的最常见方法，以便他们可以对因果关系进行陈述，是控制*可能的共同原因*或混杂因素。图 11-3 显示了变量 Z 作为 X 和 Y 之间怀疑的因果关系的混杂因素。
 
-![300](assets/emai_1103.png)
+![300](img/emai_1103.png)
 
-###### 图11-3\. Z是X和Y之间怀疑的因果关系的混杂因素。
+###### 图 11-3\. Z 是 X 和 Y 之间怀疑的因果关系的混杂因素。
 
 这是因为，一般来说，混杂是观察和干预之间的混淆的主要来源。这也是著名的*相关不意味因果*的来源。在这里，我们看到一些奇怪而有趣的例子：高温是冰淇淋销售和鲨鱼袭击的混杂因素（但为什么有人会研究冰淇淋和鲨鱼之间的任何关系呢？）。背门标准和调整公式轻松解决了混杂因素对因果关系的规定的障碍。
 
 如果我们确信已经获得了足够的*deconfounder*变量集合的数据来阻止干预和结果之间的所有背门路径，我们可以使用调整公式来控制混杂因素。为此，我们从数据中逐层估计因果效应，然后计算这些层的加权平均值，其中每个层根据其在人口中的普遍程度进行加权。
 
-现在没有了背门标准，统计学家和科学家就无法保证任何调整是合法的。换句话说，背门标准保证了deconfounder的每个分层中的因果效应实际上是该分层中的观察趋势。
+现在没有了背门标准，统计学家和科学家就无法保证任何调整是合法的。换句话说，背门标准保证了 deconfounder 的每个分层中的因果效应实际上是该分层中的观察趋势。
 
-### 是否有更多的规则可以消除do运算符？
+### 是否有更多的规则可以消除 do 运算符？
 
-能够将我们从具有do运算符（干预）的表达式转换为没有do运算符（观察）的表达式的规则非常可取，因为它们消除了干预的需要：它们使我们能够通过纯粹的数据观察来估计因果效应。调整公式和背门标准确实为我们做到了这一点。
+能够将我们从具有 do 运算符（干预）的表达式转换为没有 do 运算符（观察）的表达式的规则非常可取，因为它们消除了干预的需要：它们使我们能够通过纯粹的数据观察来估计因果效应。调整公式和背门标准确实为我们做到了这一点。
 
-是否有更多的规则？更雄心勃勃的问题是：是否有一种方法可以事先决定某个因果模型是否适合于消除do运算符，以便我们知道模型的假设是否足以从观测数据中揭示因果效应而无需任何干预？了解这一点是巨大的！例如，如果模型的假设不足以消除do运算符，那么无论我们多聪明，都无法避免进行干预实验。另一方面，如果我们不必干预就能估计因果效应，那么节省是惊人的。这些本身就值得更深入地研究概率因果建模和do微积分。
+是否有更多的规则？更雄心勃勃的问题是：是否有一种方法可以事先决定某个因果模型是否适合于消除 do 运算符，以便我们知道模型的假设是否足以从观测数据中揭示因果效应而无需任何干预？了解这一点是巨大的！例如，如果模型的假设不足以消除 do 运算符，那么无论我们多聪明，都无法避免进行干预实验。另一方面，如果我们不必干预就能估计因果效应，那么节省是惊人的。这些本身就值得更深入地研究概率因果建模和 do 微积分。
 
-为了理解朱迪亚·珀尔的do微积分，我们总是从因果图开始，考虑导致删除指向或指出感兴趣变量的边缘的条件。珀尔的三条规则给出了以下条件：
+为了理解朱迪亚·珀尔的 do 微积分，我们总是从因果图开始，考虑导致删除指向或指出感兴趣变量的边缘的条件。珀尔的三条规则给出了以下条件：
 
 1.  我们可以插入或删除观察：
 
@@ -190,7 +190,7 @@
 
     <math alttext="dollar-sign upper P r o b left-parenthesis y vertical-bar d o left-parenthesis x right-parenthesis comma d o left-parenthesis z right-parenthesis comma w right-parenthesis equals upper P r o b left-parenthesis y vertical-bar d o left-parenthesis x right-parenthesis comma z comma w right-parenthesis dollar-sign"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mo>(</mo> <mi>y</mi> <mo>|</mo> <mi>d</mi> <mi>o</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>,</mo> <mi>d</mi> <mi>o</mi> <mo>(</mo> <mi>z</mi> <mo>)</mo> <mo>,</mo> <mi>w</mi> <mo>)</mo> <mo>=</mo> <mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mo>(</mo> <mi>y</mi> <mo>|</mo> <mi>d</mi> <mi>o</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>,</mo> <mi>z</mi> <mo>,</mo> <mi>w</mi> <mo>)</mo></mrow></math>
 
-有关do微积分的更多详细信息，请参见例如[《重新审视do微积分，朱迪亚·珀尔，主题演讲，2012年8月17日》](https://ftp.cs.ucla.edu/pub/stat_ser/r402.pdf)。
+有关 do 微积分的更多详细信息，请参见例如[《重新审视 do 微积分，朱迪亚·珀尔，主题演讲，2012 年 8 月 17 日》](https://ftp.cs.ucla.edu/pub/stat_ser/r402.pdf)。
 
 # 悖论和图表解释
 
@@ -204,41 +204,41 @@
 
 ## 蒙提霍尔问题
 
-*假设你参加一个游戏节目，有三扇门供你选择。其中一扇门后面是一辆汽车，其他的是山羊。你选择了一扇门，比如#1，主持人知道门后面是什么，打开了另一扇门，比如#3，里面有一只山羊。他对你说：“你想换门选#2吗？”你改变选择门有利吗？*
+*假设你参加一个游戏节目，有三扇门供你选择。其中一扇门后面是一辆汽车，其他的是山羊。你选择了一扇门，比如#1，主持人知道门后面是什么，打开了另一扇门，比如#3，里面有一只山羊。他对你说：“你想换门选#2 吗？”你改变选择门有利吗？*
 
-答案是是的，换门，因为如果不换门，你得到汽车的概率是1/3，而换门后，概率就跳到了2/3！这里需要注意的主要事情是主持人*知道*汽车在哪里，并选择打开一个他知道里面没有汽车的门。
+答案是是的，换门，因为如果不换门，你得到汽车的概率是 1/3，而换门后，概率就跳到了 2/3！这里需要注意的主要事情是主持人*知道*汽车在哪里，并选择打开一个他知道里面没有汽车的门。
 
 那么，如果我们从最初的选择中换门，为什么赢得的概率会翻倍呢？因为主持人提供了新信息，只有在我们从最初没有信息的选择中换门时才会利用这些信息：
 
 在不换门策略下
 
-+   如果我们最初选择了赢得的门（概率为1/3），并且不换，那么我们就赢了。
++   如果我们最初选择了赢得的门（概率为 1/3），并且不换，那么我们就赢了。
 
-+   如果我们最初选择了一个失败的门（概率为2/3），并且不换，那么我们就输了。
++   如果我们最初选择了一个失败的门（概率为 2/3），并且不换，那么我们就输了。
 
-这意味着在不换门策略下，我们只会赢得1/3的时间。
+这意味着在不换门策略下，我们只会赢得 1/3 的时间。
 
 在换门策略下
 
-+   如果我们最初选择了赢得的门（概率为1/3），并且从中换门，那么我们就输了。
++   如果我们最初选择了赢得的门（概率为 1/3），并且从中换门，那么我们就输了。
 
-+   如果我们最初选择了一个失败的门（概率为2/3），新信息指向另一扇失败的门，我们换门，那么我们会赢，因为剩下的唯一一扇门就是赢得的门。
++   如果我们最初选择了一个失败的门（概率为 2/3），新信息指向另一扇失败的门，我们换门，那么我们会赢，因为剩下的唯一一扇门就是赢得的门。
 
-这意味着在换门策略下，我们会赢得2/3的时间。
+这意味着在换门策略下，我们会赢得 2/3 的时间。
 
-当我们在[图11-4](#Fig_monty_hall)中绘制这个游戏的图表时，我们意识到主持人选择打开的门有两个指向它的父母：你选择的门和汽车的位置。
+当我们在图 11-4 中绘制这个游戏的图表时，我们意识到主持人选择打开的门有两个指向它的父母：你选择的门和汽车的位置。
 
-![300](assets/emai_1104.png)
+![300](img/emai_1104.png)
 
-###### 图11-4。蒙提霍尔悖论涉及的变量的因果图。
+###### 图 11-4。蒙提霍尔悖论涉及的变量的因果图。
 
 在这个*碰撞器*上进行条件处理会改变父母的概率。它在最初独立的父母之间创建了一种虚假的依赖关系！这类似于我们在遇到他们的孩子后改变对父母遗传特征的信念。这些是无因果关系的相关性，在我们对碰撞器进行条件处理时引起。
 
-现在假设主持人在*不知道*自己选择的门是赢得还是失败的门的情况下选择了门。那么换门或不换门都不会改变赢得汽车的几率，因为在这种情况下，你和主持人都有相等的机会，1/3的时间赢得，2/3的时间输掉。现在当我们为这个完全随机且没有先验知识的游戏绘制图表时，汽车的位置和主持人选择打开的门之间没有箭头，因此在主持人的选择条件下，你选择的门和汽车的位置*仍然是独立的*。
+现在假设主持人在*不知道*自己选择的门是赢得还是失败的门的情况下选择了门。那么换门或不换门都不会改变赢得汽车的几率，因为在这种情况下，你和主持人都有相等的机会，1/3 的时间赢得，2/3 的时间输掉。现在当我们为这个完全随机且没有先验知识的游戏绘制图表时，汽车的位置和主持人选择打开的门之间没有箭头，因此在主持人的选择条件下，你选择的门和汽车的位置*仍然是独立的*。
 
 ## 伯克森悖论
 
-*1946年，梅奥诊所的生物统计学家约瑟夫·伯克森指出了在医院环境中进行的观察性研究的一个特殊之处：即使两种疾病在整体人群中没有关联，它们在医院患者中可能会出现关联。1979年，麦克马斯特大学的大卫·萨克特，一个各种统计偏差的专家，提供了强有力的证据证明伯克森悖论是真实的。在一个例子中，他研究了两组疾病：呼吸系统和骨骼。大约7.5%的人口患有骨骼疾病，这个百分比与他们是否患有呼吸系统疾病无关。但对于住院患有呼吸系统疾病的人来说，骨骼疾病的发生率跃升至25%！萨克特称这种现象为“入院率偏差”或“伯克森偏差”。
+*1946 年，梅奥诊所的生物统计学家约瑟夫·伯克森指出了在医院环境中进行的观察性研究的一个特殊之处：即使两种疾病在整体人群中没有关联，它们在医院患者中可能会出现关联。1979 年，麦克马斯特大学的大卫·萨克特，一个各种统计偏差的专家，提供了强有力的证据证明伯克森悖论是真实的。在一个例子中，他研究了两组疾病：呼吸系统和骨骼。大约 7.5%的人口患有骨骼疾病，这个百分比与他们是否患有呼吸系统疾病无关。但对于住院患有呼吸系统疾病的人来说，骨骼疾病的发生率跃升至 25%！萨克特称这种现象为“入院率偏差”或“伯克森偏差”。
 
 与蒙蒂·霍尔案例类似，导致伯克森悖论出现的罪魁祸首是一个碰撞器图，原本独立的两种疾病都指向了住院：患有这两种疾病的患者比只患有其中一种疾病的患者更有可能住院。当我们以住院为条件，也就是碰撞器时，最初独立变量之间出现了无因果相关的情况。我们现在已经习惯了碰撞器偏差。
 
@@ -254,23 +254,23 @@
 
 例如，假设数据显示：
 
-+   服用药物的女性中有3/40患心脏病，而没有服用药物的女性中只有1/20患心脏病（3/40 > 1/20）；
++   服用药物的女性中有 3/40 患心脏病，而没有服用药物的女性中只有 1/20 患心脏病（3/40 > 1/20）；
 
-+   服用药物的男性中有8/20患心脏病，而没有服用药物的男性中有12/40患心脏病（8/20 > 12/40）。
++   服用药物的男性中有 8/20 患心脏病，而没有服用药物的男性中有 12/40 患心脏病（8/20 > 12/40）。
 
-现在当我们合并女性和男性的数据时，不平等的方向发生了逆转：3/40 > 1/20 和 8/20 > 12/40 但是合理地 (3 + 8)/(40 + 20) < (1 + 12)/(20 + 40)。换句话说：在服用药物的60名男性和女性中，有11人患心脏病，而在没有服用药物的60名男性和女性中，有13人患心脏病。
+现在当我们合并女性和男性的数据时，不平等的方向发生了逆转：3/40 > 1/20 和 8/20 > 12/40 但是合理地 (3 + 8)/(40 + 20) < (1 + 12)/(20 + 40)。换句话说：在服用药物的 60 名男性和女性中，有 11 人患心脏病，而在没有服用药物的 60 名男性和女性中，有 13 人患心脏病。
 
-然而，当我们以这种方式合并数据时，我们犯了一个简单的分数错误。换句话说，为了解决辛普森悖论，我们不应该简单地将分子和分母相加，然后期望不等式成立。请注意，服用药物的60人中，有40名女性和20名男性；而没有服用药物的60人中，有20名女性和40名男性。我们正在比较苹果和橙子，并且与性别混淆：性别影响*是否*给药和是否发生心脏病。[图11-5](#Fig_simpson_paradox)中的图表说明了这种混淆关系。
+然而，当我们以这种方式合并数据时，我们犯了一个简单的分数错误。换句话说，为了解决辛普森悖论，我们不应该简单地将分子和分母相加，然后期望不等式成立。请注意，服用药物的 60 人中，有 40 名女性和 20 名男性；而没有服用药物的 60 人中，有 20 名女性和 40 名男性。我们正在比较苹果和橙子，并且与性别混淆：性别影响*是否*给药和是否发生心脏病。图 11-5 中的图表说明了这种混淆关系。
 
-![250](assets/emai_1105.png)
+![250](img/emai_1105.png)
 
-###### 图11-5. 性别是服用药物和心脏病的混杂因素。
+###### 图 11-5. 性别是服用药物和心脏病的混杂因素。
 
 如果我们天真地合并比例时感觉有些不对劲，那是正确的：如果在每个地方都是公平的，那么全局也是公平的，或者如果在每个地方都是某种方式，那么我们应该期望全局也是这样。
 
 这种错误经常发生并不奇怪，因为人类直到相对较近的时候才能正确理解分数。在领域如继承和贸易中，有古代文本中处理分数的错误。我们的大脑对分数的抵抗似乎仍然存在：我们在七年级学习分数，这也是许多人传说中对数学的憎恶的起源。
 
-那么正确的数据合并方式是什么呢？我们七年级的智慧告诉我们使用公共分母40，并根据性别进行条件判断：对于女性，3/40>2/40，对于男性，16/40>12/40。现在由于在一般人口中男性和女性的分布是相等的，我们应该取平均值，并得出结论（3/40+16/40）/2>(2/40+12/40）/2，也就是说，在一般人口中服用药物的心脏病发作率为23.75%，不服用药物的为17.5%。这里没有发生任何神奇和不合逻辑的逆转。此外，这种药物相当糟糕！
+那么正确的数据合并方式是什么呢？我们七年级的智慧告诉我们使用公共分母 40，并根据性别进行条件判断：对于女性，3/40>2/40，对于男性，16/40>12/40。现在由于在一般人口中男性和女性的分布是相等的，我们应该取平均值，并得出结论（3/40+16/40）/2>(2/40+12/40）/2，也就是说，在一般人口中服用药物的心脏病发作率为 23.75%，不服用药物的为 17.5%。这里没有发生任何神奇和不合逻辑的逆转。此外，这种药物相当糟糕！
 
 # 大型随机矩阵
 
@@ -286,7 +286,7 @@
 
 ### 量化金融
 
-一个随机向量的例子是量化金融中的投资组合。我们经常需要决定如何在大量股票中进行投资，这些股票的价格波动是随机的，以实现最佳表现。投资组合本身是一个随时间演变的大型随机向量。同样，纳斯达克股票的每日回报率（纳斯达克包含2500多只股票）是一个随时间演变的大型随机向量。
+一个随机向量的例子是量化金融中的投资组合。我们经常需要决定如何在大量股票中进行投资，这些股票的价格波动是随机的，以实现最佳表现。投资组合本身是一个随时间演变的大型随机向量。同样，纳斯达克股票的每日回报率（纳斯达克包含 2500 多只股票）是一个随时间演变的大型随机向量。
 
 ### 神经科学
 
@@ -296,7 +296,7 @@
 
 在数学物理学中，特别是在核物理学中，物理学家尤金·维格纳引入了随机矩阵来模拟重原子核和它们的谱。简而言之，他将重原子核谱线之间的间距与随机矩阵的特征值之间的间距联系起来。
 
-Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核子中中子和质子之间所有相互作用的矩阵。对哈密顿量进行对角化以找到核的能级是不可能的，因此Wigner寻找了一种替代方法。他完全放弃了精确性和确定性，从概率的角度来看待问题：不是问*能级究竟是什么*，而是问类似的问题：
+Wigner 最初使用的确定性矩阵是系统的哈密顿量，它是描述核子中中子和质子之间所有相互作用的矩阵。对哈密顿量进行对角化以找到核的能级是不可能的，因此 Wigner 寻找了一种替代方法。他完全放弃了精确性和确定性，从概率的角度来看待问题：不是问*能级究竟是什么*，而是问类似的问题：
 
 +   在某个区间内找到一个能级的概率是多少？
 
@@ -304,13 +304,13 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 +   我们能否用具有正确对称性质的纯随机矩阵替换系统的哈密顿量？例如，在时间反演不变的量子系统中，哈密顿量是一个实对称矩阵（无限大）。在存在磁场的情况下，哈密顿量是一个复的厄米矩阵（实对称矩阵的复数对应）。在存在*自旋轨道耦合*（量子物理术语）的情况下，哈密顿量是辛（另一种特殊类型的对称矩阵）的。
 
-类似地，Wigner类型的随机矩阵出现在凝聚态物理中，我们在这里使用实对称Wigner矩阵模拟原子对或自旋对之间的相互作用。总的来说，Wigner矩阵在随机矩阵理论中被认为是*经典的*。
+类似地，Wigner 类型的随机矩阵出现在凝聚态物理中，我们在这里使用实对称 Wigner 矩阵模拟原子对或自旋对之间的相互作用。总的来说，Wigner 矩阵在随机矩阵理论中被认为是*经典的*。
 
-### 多元统计学：Wishart矩阵和协方差
+### 多元统计学：Wishart 矩阵和协方差
 
-在多元统计学中，John Wishart在想要估计大型随机向量的样本协方差矩阵时引入了随机矩阵。Wishart随机矩阵在随机矩阵理论中也被认为是经典的。请注意，样本协方差矩阵是对总体协方差矩阵的估计。
+在多元统计学中，John Wishart 在想要估计大型随机向量的样本协方差矩阵时引入了随机矩阵。Wishart 随机矩阵在随机矩阵理论中也被认为是经典的。请注意，样本协方差矩阵是对总体协方差矩阵的估计。
 
-在处理样本协方差矩阵时，一个常见的情况是观察到*n*维变量*t*次，也就是说，原始数据集是一个大小为<math alttext="n times t"><mrow><mi>n</mi> <mo>×</mo> <mi>t</mi></mrow></math>的矩阵。例如，我们可能需要估计大量资产的回报的协方差矩阵（使用较小的样本），比如：*纳斯达克*的2500只股票的日回报。如果我们使用5年的每日数据，考虑到一年有252个交易日，那么对于2500只股票，我们每只股票有5×252=1260个数据点。原始数据集将是一个大小为<math alttext="2500 times 1260"><mrow><mn>2500</mn> <mo>×</mo> <mn>1260</mn></mrow></math>的矩阵。这是一个观测次数小于变量数量的情况。我们还有其他情况，观测次数和变量数量相反，以及观测次数和变量数量相差很大的极端情况。在所有情况下，我们对样本协方差矩阵的特征值的概率分布感兴趣。
+在处理样本协方差矩阵时，一个常见的情况是观察到*n*维变量*t*次，也就是说，原始数据集是一个大小为<math alttext="n times t"><mrow><mi>n</mi> <mo>×</mo> <mi>t</mi></mrow></math>的矩阵。例如，我们可能需要估计大量资产的回报的协方差矩阵（使用较小的样本），比如：*纳斯达克*的 2500 只股票的日回报。如果我们使用 5 年的每日数据，考虑到一年有 252 个交易日，那么对于 2500 只股票，我们每只股票有 5×252=1260 个数据点。原始数据集将是一个大小为<math alttext="2500 times 1260"><mrow><mn>2500</mn> <mo>×</mo> <mn>1260</mn></mrow></math>的矩阵。这是一个观测次数小于变量数量的情况。我们还有其他情况，观测次数和变量数量相反，以及观测次数和变量数量相差很大的极端情况。在所有情况下，我们对样本协方差矩阵的特征值的概率分布感兴趣。
 
 让我们写出协方差矩阵的条目公式。对于一个变量<math alttext="ModifyingAbove z With right-arrow Subscript 1"><msub><mover accent="true"><mi>z</mi> <mo>→</mo></mover> <mn>1</mn></msub></math>（比如一只股票）有*t*次观察，其均值为<math alttext="z overbar Subscript 1"><msub><mover accent="true"><mi>z</mi> <mo>¯</mo></mover> <mn>1</mn></msub></math>，我们有方差
 
@@ -328,7 +328,7 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 ### 其他同样重要的例子
 
-还有其他例子。在数论中，我们可以使用某些随机矩阵的特征值分布来建模黎曼 zeta 函数的零点分布。对于关注量子计算的人，这里有一个历史注记：在薛定谔方程之前，海森堡用他所称之为“矩阵力学”的术语制定了量子力学。最后，在[第13章](ch13.xhtml#ch13)中，我们将遇到“概率演化的主方程”。这涉及从系统的一个状态到另一个状态的转移概率的大矩阵。
+还有其他例子。在数论中，我们可以使用某些随机矩阵的特征值分布来建模黎曼 zeta 函数的零点分布。对于关注量子计算的人，这里有一个历史注记：在薛定谔方程之前，海森堡用他所称之为“矩阵力学”的术语制定了量子力学。最后，在第十三章中，我们将遇到“概率演化的主方程”。这涉及从系统的一个状态到另一个状态的转移概率的大矩阵。
 
 ## 随机矩阵理论中的主要考虑因素
 
@@ -352,21 +352,21 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 在大多数应用中，我们会遇到（随机或确定性的）没有特定结构的大矩阵。随机矩阵理论的主要前提是，我们可以用某个随机矩阵集合的典型元素（期望元素）替换这样一个大复杂矩阵。大部分时间我们将注意力限制在具有实数元素的对称矩阵上，因为这些是数据分析和统计物理中最常见的矩阵。幸运的是，这些矩阵在数学上更容易分析。
 
-谈到数学，我们喜欢多项式函数。它们是非线性的，足够复杂，可以捕捉周围世界中的复杂性，并且易于评估和进行计算。当我们研究大型随机矩阵时，会出现一种特殊类型的经过深入研究的多项式：正交多项式。正交多项式序列是一组多项式，使得序列中的任意两个不同多项式在某种内积下是正交的（它们的内积为零）。最广泛使用的正交多项式序列是：Hermite多项式，Laguerre多项式和Jacobi多项式（其中包括重要的Chebyshev多项式和Legendre多项式类）。在正交多项式领域中著名的人物，主要是在19世纪末期发展起来的，有Chebyshev、Markov和Stieltjes。难怪这些名字在概率论中随处可见，从Chebyshev不等式到Markov链和过程再到Stieltjes变换。
+谈到数学，我们喜欢多项式函数。它们是非线性的，足够复杂，可以捕捉周围世界中的复杂性，并且易于评估和进行计算。当我们研究大型随机矩阵时，会出现一种特殊类型的经过深入研究的多项式：正交多项式。正交多项式序列是一组多项式，使得序列中的任意两个不同多项式在某种内积下是正交的（它们的内积为零）。最广泛使用的正交多项式序列是：Hermite 多项式，Laguerre 多项式和 Jacobi 多项式（其中包括重要的 Chebyshev 多项式和 Legendre 多项式类）。在正交多项式领域中著名的人物，主要是在 19 世纪末期发展起来的，有 Chebyshev、Markov 和 Stieltjes。难怪这些名字在概率论中随处可见，从 Chebyshev 不等式到 Markov 链和过程再到 Stieltjes 变换。
 
 以下三种基本的随机矩阵集合与正交多项式密切相关：
 
-1.  *Wigner*: 这是高斯分布的矩阵等价物。一个1×1的Wigner矩阵是一个单个的高斯随机数。这与厄米特正交多项式密切相关。高斯分布及其相关的厄米特多项式在基础变量无上限和下限的情况下非常自然地出现。Wigner随机矩阵的特征多项式的平均遵循简单的递归关系，使我们能够将它们表示为厄米特多项式。Wigner集合是所有随机矩阵集合中最简单的。这些矩阵的所有元素都是高斯随机变量，唯一的约束是矩阵是实对称的（高斯正交集合），复共轭（高斯酉集合）或辛（高斯辛集合）。
+1.  *Wigner*: 这是高斯分布的矩阵等价物。一个 1×1 的 Wigner 矩阵是一个单个的高斯随机数。这与厄米特正交多项式密切相关。高斯分布及其相关的厄米特多项式在基础变量无上限和下限的情况下非常自然地出现。Wigner 随机矩阵的特征多项式的平均遵循简单的递归关系，使我们能够将它们表示为厄米特多项式。Wigner 集合是所有随机矩阵集合中最简单的。这些矩阵的所有元素都是高斯随机变量，唯一的约束是矩阵是实对称的（高斯正交集合），复共轭（高斯酉集合）或辛（高斯辛集合）。
 
-1.  *Wishart*: 这是gamma分布的矩阵等价物。一个1×1的Wishart是一个gamma分布的数字。这与拉盖尔正交多项式密切相关。Gamma分布和拉盖尔多项式出现在变量从下限（例如正变量）受限的问题中。Wishart随机矩阵的特征多项式的平均遵循简单的递归关系，使我们能够将它们表示为拉盖尔多项式。
+1.  *Wishart*: 这是 gamma 分布的矩阵等价物。一个 1×1 的 Wishart 是一个 gamma 分布的数字。这与拉盖尔正交多项式密切相关。Gamma 分布和拉盖尔多项式出现在变量从下限（例如正变量）受限的问题中。Wishart 随机矩阵的特征多项式的平均遵循简单的递归关系，使我们能够将它们表示为拉盖尔多项式。
 
-1.  *Jacobi*: 这是beta分布的矩阵等价物。一个1×1的Wishart是一个beta分布的数字。这与雅可比正交多项式密切相关。Beta分布和雅可比多项式出现在变量从上限和下限受限的问题中。雅可比矩阵出现的一个自然情境是样本协方差矩阵。它们还出现在仅具有两个特征值的矩阵的加法或乘法的简单问题中。
+1.  *Jacobi*: 这是 beta 分布的矩阵等价物。一个 1×1 的 Wishart 是一个 beta 分布的数字。这与雅可比正交多项式密切相关。Beta 分布和雅可比多项式出现在变量从上限和下限受限的问题中。雅可比矩阵出现的一个自然情境是样本协方差矩阵。它们还出现在仅具有两个特征值的矩阵的加法或乘法的简单问题中。
 
-与标量随机变量一样，我们研究随机矩阵集合的矩和Stieltjes变换。此外，由于我们处于矩阵领域，我们研究这些随机矩阵的特征值的联合概率分布。对于上述提到的集合，特征值之间存在强相关性，我们可以将它们视为通过成对排斥相互作用的粒子。这些被称为库仑排斥特征值，这个想法是从统计物理学中借鉴的（例如，有关矩阵特殊结构的特征值行为的更深入探讨，请参阅[特征值模式（2003）](https://www.ams.org/journals/bull/2003-40-02/S0273-0979-03-00975-3/S0273-0979-03-00975-3.pdf)）。事实证明，在Wigner情况下，库仑气体问题的最可能位置与厄米特多项式的零点重合，在Wishart情况下与拉盖尔多项式的零点重合。此外，这些集合的特征值在其最可能位置周围波动非常小。
+与标量随机变量一样，我们研究随机矩阵集合的矩和 Stieltjes 变换。此外，由于我们处于矩阵领域，我们研究这些随机矩阵的特征值的联合概率分布。对于上述提到的集合，特征值之间存在强相关性，我们可以将它们视为通过成对排斥相互作用的粒子。这些被称为库仑排斥特征值，这个想法是从统计物理学中借鉴的（例如，有关矩阵特殊结构的特征值行为的更深入探讨，请参阅[特征值模式（2003）](https://www.ams.org/journals/bull/2003-40-02/S0273-0979-03-00975-3/S0273-0979-03-00975-3.pdf)）。事实证明，在 Wigner 情况下，库仑气体问题的最可能位置与厄米特多项式的零点重合，在 Wishart 情况下与拉盖尔多项式的零点重合。此外，这些集合的特征值在其最可能位置周围波动非常小。
 
 ## 两个大型随机矩阵之和的特征值密度
 
-除了找到随机矩阵集合的特征值的联合概率分布外，我们还关心大型随机矩阵之和的特征值密度（概率分布），以每个矩阵在总和中的情况为基础。*戴森布朗运动*出现在这个背景下。它是从标量随机变量到随机矩阵的布朗运动的扩展。此外，矩阵的傅立叶变换使我们能够定义标量独立同分布随机变量的生成函数的类比，并使用其对数来找到精心构造的随机矩阵之和的特征值密度。最后，我们可以将Chernoff、Bernstein和Hoeffding类型的不等式应用于有限个随机厄米矩阵的最大特征值。
+除了找到随机矩阵集合的特征值的联合概率分布外，我们还关心大型随机矩阵之和的特征值密度（概率分布），以每个矩阵在总和中的情况为基础。*戴森布朗运动*出现在这个背景下。它是从标量随机变量到随机矩阵的布朗运动的扩展。此外，矩阵的傅立叶变换使我们能够定义标量独立同分布随机变量的生成函数的类比，并使用其对数来找到精心构造的随机矩阵之和的特征值密度。最后，我们可以将 Chernoff、Bernstein 和 Hoeffding 类型的不等式应用于有限个随机厄米矩阵的最大特征值。
 
 ## 大型随机矩阵的基本数学
 
@@ -392,13 +392,13 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 +   布朗运动和戴森布朗运动
 
-截至2022年，最快的超级计算机是*Frontier*，世界上第一台艾克萨计算机（1.102艾克萨FLOPS），位于能源部奥克岭国家实验室。即使在这样一台超级计算机上，当矩阵非常大时，我们也无法应用数值线性代数（例如解涉及矩阵的方程组、找到其谱或找到其奇异值分解）。我们必须做的是*对矩阵的列进行随机抽样*。最好以导致最忠实逼近的概率抽样列，即方差最小的那个。例如，如果问题是将两个大矩阵*A*和*B*相乘，我们不是均匀地从*A*中抽取一列和从*B*中对应的一行，而是选择*A*中的列和*B*中对应的行，概率为<math alttext="p Subscript j"><msub><mi>p</mi> <mi>j</mi></msub></math>与*norm(column j of A)norm(row j of B)*成比例。这意味着我们更经常选择具有较大范数的列和行，从而更有可能捕捉乘积的*重要部分*。
+截至 2022 年，最快的超级计算机是*Frontier*，世界上第一台艾克萨计算机（1.102 艾克萨 FLOPS），位于能源部奥克岭国家实验室。即使在这样一台超级计算机上，当矩阵非常大时，我们也无法应用数值线性代数（例如解涉及矩阵的方程组、找到其谱或找到其奇异值分解）。我们必须做的是*对矩阵的列进行随机抽样*。最好以导致最忠实逼近的概率抽样列，即方差最小的那个。例如，如果问题是将两个大矩阵*A*和*B*相乘，我们不是均匀地从*A*中抽取一列和从*B*中对应的一行，而是选择*A*中的列和*B*中对应的行，概率为<math alttext="p Subscript j"><msub><mi>p</mi> <mi>j</mi></msub></math>与*norm(column j of A)norm(row j of B)*成比例。这意味着我们更经常选择具有较大范数的列和行，从而更有可能捕捉乘积的*重要部分*。
 
 大型和非大型矩阵的列空间非常重要。记住给定矩阵*A*的列空间的三个最佳基础：
 
 1.  奇异值分解中的奇异向量，
 
-1.  来自Gram Schmidt过程的正交向量（矩阵的著名*QR*分解），
+1.  来自 Gram Schmidt 过程的正交向量（矩阵的著名*QR*分解），
 
 1.  或者直接从*A*的列中选择线性独立的列。
 
@@ -418,13 +418,13 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 这两个过程，布朗运动和泊松过程，在许多与上述例子无关的情境中出现。也许这告诉我们一些关于自然及其基础过程统一性的更深层次的东西，但让我们不要陷入哲学，而是留在数学领域。一般来说，我们可以根据它们的数学特性将随机过程分为几类。其中一些是离散时间过程，另一些是连续时间过程。区分哪个是哪个是相当直观的。
 
-为了得出关于布朗运动和泊松过程以及我们即将概述的其他随机过程的结论，我们需要对它们进行数学分析。在概率论中，我们首先要建立随机过程的*存在性*：也就是说，我们需要明确定义离散时间的*无限*随机变量序列 <math alttext="上标X 0，上标X 1，上标X 2，点点点"><mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math> 或连续时间 <math alttext="上标X 下标t"><msub><mi>X</mi> <mi>t</mi></msub></math> 过程存在的概率三元组（样本空间，sigma代数，概率测度），并证明我们可以找到一组满足其特征性质的随机变量。我们将在本章后面重新讨论这一点，但在证明随机过程的存在性时，我们要搜索的一个重要名字是A.科尔莫戈洛夫（1903-1987），即*科尔莫戈洛夫存在定理*。这确保了存在一个随机过程，其具有与我们期望的过程相同的*有限维*分布。也就是说，我们可以通过以某种*一致*的方式指定所有有限维分布来获得我们期望的随机过程（无限过程，以离散或连续时间为索引）。
+为了得出关于布朗运动和泊松过程以及我们即将概述的其他随机过程的结论，我们需要对它们进行数学分析。在概率论中，我们首先要建立随机过程的*存在性*：也就是说，我们需要明确定义离散时间的*无限*随机变量序列 <math alttext="上标 X 0，上标 X 1，上标 X 2，点点点"><mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math> 或连续时间 <math alttext="上标 X 下标 t"><msub><mi>X</mi> <mi>t</mi></msub></math> 过程存在的概率三元组（样本空间，sigma 代数，概率测度），并证明我们可以找到一组满足其特征性质的随机变量。我们将在本章后面重新讨论这一点，但在证明随机过程的存在性时，我们要搜索的一个重要名字是 A.科尔莫戈洛夫（1903-1987），即*科尔莫戈洛夫存在定理*。这确保了存在一个随机过程，其具有与我们期望的过程相同的*有限维*分布。也就是说，我们可以通过以某种*一致*的方式指定所有有限维分布来获得我们期望的随机过程（无限过程，以离散或连续时间为索引）。
 
 让我们来看一下最突出的随机过程：
 
 ## 伯努利过程
 
-这是与反复抛硬币以及生活中模仿这种过程的任何过程大多相关的随机过程（在一些机场，海关官员让我们按下一个按钮，如果灯变绿，我们通过，如果变红，我们就被搜查）。在数学上，它是一个独立同分布的无限序列的随机变量 <math alttext="上标X 0，上标X 1，上标X 2，点点点"><mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math> ，其中每个随机变量以概率*p*取零值或以概率*1-p*取一值。这个过程的一个样本实现看起来像 <math alttext="0，1，1，0，点点点"><mrow><mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>,</mo> <mn>1</mn> <mo>,</mo> <mn>0</mn> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math> 。
+这是与反复抛硬币以及生活中模仿这种过程的任何过程大多相关的随机过程（在一些机场，海关官员让我们按下一个按钮，如果灯变绿，我们通过，如果变红，我们就被搜查）。在数学上，它是一个独立同分布的无限序列的随机变量 <math alttext="上标 X 0，上标 X 1，上标 X 2，点点点"><mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math> ，其中每个随机变量以概率*p*取零值或以概率*1-p*取一值。这个过程的一个样本实现看起来像 <math alttext="0，1，1，0，点点点"><mrow><mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>,</mo> <mn>1</mn> <mo>,</mo> <mn>0</mn> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math> 。
 
 ## 泊松过程
 
@@ -434,7 +434,7 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 上面的公式给出了在一个单位时间段内发生*n*个有趣事件的概率。显然，在固定的时间间隔内，不太可能发生许多罕见事件，这解释了大*n*时公式中的快速衰减。泊松随机变量的期望和方差是<math alttext="λ"><mi>λ</mi></math>。
 
-泊松*过程* <math alttext="上标X 下标t 分号 t 大于或等于 0"><mrow><msub><mi>X</mi> <mi>t</mi></msub> <mo>;</mo> <mi>t</mi> <mo>≥</mo> <mn>0</mn></mrow></math> ，以连续时间为索引，具有以下特性：
+泊松*过程* <math alttext="上标 X 下标 t 分号 t 大于或等于 0"><mrow><msub><mi>X</mi> <mi>t</mi></msub> <mo>;</mo> <mi>t</mi> <mo>≥</mo> <mn>0</mn></mrow></math> ，以连续时间为索引，具有以下特性：
 
 +   X_0=0
 
@@ -446,13 +446,13 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 1.  不相交时间间隔内的事件数量是独立的随机变量。
 
-泊松过程是一个Levy随机过程的例子，这是一个具有平稳独立增量的过程。
+泊松过程是一个 Levy 随机过程的例子，这是一个具有平稳独立增量的过程。
 
 ## 随机漫步
 
 很容易将最简单的随机漫步想象为某人在道路上行走，他从某处开始，然后以概率*p*向前移动（在他的位置上加一），以概率*1-p*向后移动（从他的位置上减一）。我们可以定义结果离散时间随机过程<mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <mo>⋯</mo></mrow>，使得<mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>=</mo> <msub><mi>x</mi> <mn>0</mn></msub></mrow>，<mrow><msub><mi>X</mi> <mn>1</mn></msub> <mo>=</mo> <msub><mi>X</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>Z</mi> <mn>1</mn></msub></mrow>，<mrow><msub><mi>X</mi> <mn>2</mn></msub> <mo>=</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>Z</mi> <mn>2</mn></msub> <mo>=</mo> <msub><mi>X</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>Z</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>Z</mi> <mn>2</mn></msub></mrow>，*等等*，其中<mrow><msub><mi>Z</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>Z</mi> <mn>2</mn></msub> <mo>,</mo> <mi>d</mi> <mi>o</mi> <mi>t</mi> <mi>s</mi></mrow>是一个伯努利过程。如果*p=0.5*，这是一个对称随机漫步。
 
-在[第9章](ch09.xhtml#ch09)中，我们多次使用图上的随机漫步，我们从某个图节点开始，然后以给定概率转移到其中一个相邻节点。图的归一化邻接矩阵将定义所有节点的转移概率。这是一个很好的例子，说明了图上的随机漫步与马尔可夫链的联系，即将很快出现。有关更多信息，请查看这篇关于[图上的随机漫步](https://www.bowaggoner.com/courses/2019/csci5454/docs/spectral.pdf)的笔记。
+在第九章中，我们多次使用图上的随机漫步，我们从某个图节点开始，然后以给定概率转移到其中一个相邻节点。图的归一化邻接矩阵将定义所有节点的转移概率。这是一个很好的例子，说明了图上的随机漫步与马尔可夫链的联系，即将很快出现。有关更多信息，请查看这篇关于[图上的随机漫步](https://www.bowaggoner.com/courses/2019/csci5454/docs/spectral.pdf)的笔记。
 
 ## 维纳过程或布朗运动
 
@@ -464,7 +464,7 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 ## 马丁格尔
 
-离散时间马丁格尔是一个随机过程<math alttext="upper X 0 comma upper X 1 comma upper X 2 comma period period"><mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo></mrow></math>，对于任何离散时间t，
+离散时间马丁格尔是一个随机过程<math alttext="upper X 0 comma upper X 1 comma upper X 2 comma period period"><mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo></mrow></math>，对于任何离散时间 t，
 
 <math alttext="dollar-sign double-struck upper E left-parenthesis upper X Subscript t plus 1 Baseline vertical-bar upper X 1 comma upper X 2 comma ellipsis comma upper X Subscript t Baseline right-parenthesis equals upper X Subscript t dollar-sign"><mrow><mi>𝔼</mi> <mrow><mo>(</mo> <msub><mi>X</mi> <mrow><mi>t</mi><mo>+</mo><mn>1</mn></mrow></msub> <mo>|</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>X</mi> <mi>t</mi></msub> <mo>)</mo></mrow> <mo>=</mo> <msub><mi>X</mi> <mi>t</mi></msub></mrow></math>
 
@@ -472,11 +472,11 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 +   一个无偏随机游走是马丁格尔的一个例子。
 
-+   一个赌徒的财富是一个马丁格尔，如果赌徒玩的所有赌博游戏都是公平的：假设一个赌徒赢得1美元，如果硬币正面朝上，输掉1美元，如果硬币反面朝上。如果<math alttext="upper X Subscript n"><msub><mi>X</mi> <mi>n</mi></msub></math>是赌徒在*n*次抛硬币后的财富，那么赌徒在下一次抛硬币后的条件期望财富，鉴于历史，等于他们目前的财富。
++   一个赌徒的财富是一个马丁格尔，如果赌徒玩的所有赌博游戏都是公平的：假设一个赌徒赢得 1 美元，如果硬币正面朝上，输掉 1 美元，如果硬币反面朝上。如果<math alttext="upper X Subscript n"><msub><mi>X</mi> <mi>n</mi></msub></math>是赌徒在*n*次抛硬币后的财富，那么赌徒在下一次抛硬币后的条件期望财富，鉴于历史，等于他们目前的财富。
 
 +   在一个生态群落中，一群物种竞争有限资源，我们可以将任何特定物种的个体数量建模为随机过程。根据[生物多样性和生物地理学统一中性理论](https://en.wikipedia.org/wiki/Unified_neutral_theory_of_biodiversity)，这个序列是一个马丁格尔。
 
-当讨论马丁格尔时，停时出现。这是一个有趣的概念，捕捉到这样的想法：*在任何特定时间t，你可以查看到目前的序列，并判断是否是停止的时候*。关于随机过程<math alttext="upper X 1 comma upper X 2 comma upper X 3 comma period period period"><mrow><msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>3</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math>的停时是一个随机变量*S*（代表*停止*），具有这样的性质，即对于每个t，事件*S=t*的发生或非发生仅取决于<math alttext="upper X 1 comma upper X 2 comma upper X 3 comma period period period comma upper X Subscript t Baseline"><mrow><msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>3</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo> <mo>,</mo> <msub><mi>X</mi> <mi>t</mi></msub></mrow></math>的值。例如，停时随机变量模拟赌徒选择何时停止并离开赌桌的时间：这将取决于他之前的赢利和损失，但不取决于他尚未玩过的游戏的结果。
+当讨论马丁格尔时，停时出现。这是一个有趣的概念，捕捉到这样的想法：*在任何特定时间 t，你可以查看到目前的序列，并判断是否是停止的时候*。关于随机过程<math alttext="upper X 1 comma upper X 2 comma upper X 3 comma period period period"><mrow><msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>3</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo></mrow></math>的停时是一个随机变量*S*（代表*停止*），具有这样的性质，即对于每个 t，事件*S=t*的发生或非发生仅取决于<math alttext="upper X 1 comma upper X 2 comma upper X 3 comma period period period comma upper X Subscript t Baseline"><mrow><msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>2</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>3</mn></msub> <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo> <mo>,</mo> <msub><mi>X</mi> <mi>t</mi></msub></mrow></math>的值。例如，停时随机变量模拟赌徒选择何时停止并离开赌桌的时间：这将取决于他之前的赢利和损失，但不取决于他尚未玩过的游戏的结果。
 
 ## 莱维过程
 
@@ -488,19 +488,19 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 ## 马尔可夫链
 
-现在让我们正式定义一个离散时间马尔可夫链，因为它是最重要的随机过程之一，并且在AI强化学习的背景下经常出现。为了定义一个马尔可夫链，我们需要：
+现在让我们正式定义一个离散时间马尔可夫链，因为它是最重要的随机过程之一，并且在 AI 强化学习的背景下经常出现。为了定义一个马尔可夫链，我们需要：
 
 +   一个离散的可能状态集合*S*（有限或无限）。将其视为粒子或代理可以占据的状态集合。在每一步中，马尔可夫过程随机地从一个状态演变到另一个状态。
 
 +   一个初始分布规定了每个可能状态<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>的概率<math alttext="nu Subscript i"><msub><mi>ν</mi> <mi>i</mi></msub></math>：最初，粒子在某个位置或代理处于某个状态的可能性有多大？
 
-+   转移概率<math alttext="p Subscript i j"><msub><mi>p</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></math>指定了粒子或代理从<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>转移到<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>的概率。注意对于每个状态*i*，和为1的总和<math alttext="p Subscript i Baseline 1 Baseline plus p Subscript i Baseline 2 Baseline plus ellipsis plus p Subscript i n Baseline equals 1"><mrow><msub><mi>p</mi> <mrow><mi>i</mi><mn>1</mn></mrow></msub> <mo>+</mo> <msub><mi>p</mi> <mrow><mi>i</mi><mn>2</mn></mrow></msub> <mo>+</mo> <mo>⋯</mo> <mo>+</mo> <msub><mi>p</mi> <mrow><mi>i</mi><mi>n</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>。此外，这个过程没有记忆，因为这个转移概率仅取决于<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>和<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>，而不是先前访问的状态。
++   转移概率<math alttext="p Subscript i j"><msub><mi>p</mi> <mrow><mi>i</mi><mi>j</mi></mrow></msub></math>指定了粒子或代理从<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>转移到<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>的概率。注意对于每个状态*i*，和为 1 的总和<math alttext="p Subscript i Baseline 1 Baseline plus p Subscript i Baseline 2 Baseline plus ellipsis plus p Subscript i n Baseline equals 1"><mrow><msub><mi>p</mi> <mrow><mi>i</mi><mn>1</mn></mrow></msub> <mo>+</mo> <msub><mi>p</mi> <mrow><mi>i</mi><mn>2</mn></mrow></msub> <mo>+</mo> <mo>⋯</mo> <mo>+</mo> <msub><mi>p</mi> <mrow><mi>i</mi><mi>n</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>。此外，这个过程没有记忆，因为这个转移概率仅取决于<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>和<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>，而不是先前访问的状态。
 
 现在，马尔可夫链是一个取值于*S*的随机过程<mrow><msub><mi>X</mi> <mn>0</mn></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>,</mo> <mo>⋯</mo></mrow>，使得
 
 <math alttext="dollar-sign upper P r o b left-parenthesis upper X 0 equals s t a t e Subscript i 0 Baseline comma upper X 1 equals s t a t e Subscript i 1 Baseline comma ellipsis comma upper X Subscript n Baseline equals s t a t e Subscript i Sub Subscript n Subscript Baseline right-parenthesis equals nu Subscript i 0 Baseline p Subscript i 0 i 1 Baseline p Subscript i 1 i 2 Baseline ellipsis p Subscript i Sub Subscript n minus 1 Subscript i Sub Subscript n dollar-sign"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <msub><mi>X</mi> <mn>0</mn></msub> <mo>=</mo> <mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <msub><mi>i</mi> <mn>0</mn></msub></msub> <mo>,</mo> <msub><mi>X</mi> <mn>1</mn></msub> <mo>=</mo> <mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <msub><mi>i</mi> <mn>1</mn></msub></msub> <mo>,</mo> <mo>⋯</mo> <mo>,</mo> <msub><mi>X</mi> <mi>n</mi></msub> <mo>=</mo> <mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <msub><mi>i</mi> <mi>n</mi></msub></msub> <mo>)</mo></mrow> <mo>=</mo> <msub><mi>ν</mi> <msub><mi>i</mi> <mn>0</mn></msub></msub> <msub><mi>p</mi> <mrow><msub><mi>i</mi> <mn>0</mn></msub> <msub><mi>i</mi> <mn>1</mn></msub></mrow></msub> <msub><mi>p</mi> <mrow><msub><mi>i</mi> <mn>1</mn></msub> <msub><mi>i</mi> <mn>2</mn></msub></mrow></msub> <mo>⋯</mo> <msub><mi>p</mi> <mrow><msub><mi>i</mi> <mrow><mi>n</mi><mo>-</mo><mn>1</mn></mrow></msub> <msub><mi>i</mi> <mi>n</mi></msub></mrow></msub></mrow></math>
 
-我们可以将所有的转移概率捆绑在一个方阵中（一个马尔可夫矩阵，每行都有非负数相加为1），并乘以该矩阵。这个矩阵总结了从任何<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>到<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>的过渡概率在一步中。有趣的是，马尔可夫矩阵的幂也是马尔可夫的，例如这个矩阵的平方总结了从任何<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>到<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>的过渡概率在两步中，依此类推。
+我们可以将所有的转移概率捆绑在一个方阵中（一个马尔可夫矩阵，每行都有非负数相加为 1），并乘以该矩阵。这个矩阵总结了从任何<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>到<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>的过渡概率在一步中。有趣的是，马尔可夫矩阵的幂也是马尔可夫的，例如这个矩阵的平方总结了从任何<math alttext="s t a t e Subscript i"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>i</mi></msub></mrow></math>到<math alttext="s t a t e Subscript j"><mrow><mi>s</mi> <mi>t</mi> <mi>a</mi> <mi>t</mi> <msub><mi>e</mi> <mi>j</mi></msub></mrow></math>的过渡概率在两步中，依此类推。
 
 与马尔可夫链相关的一些基本概念是瞬态、再现性和不可约性。如果从一个状态开始，我们肯定最终会返回到它，则状态是再现的。如果状态不再现，则称为瞬态。如果马尔可夫链可以从任何状态移动到任何其他状态，则称为不可约。
 
@@ -514,13 +514,13 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 # 马尔可夫决策过程和强化学习
 
-在AI社区中，马尔可夫决策过程与以下内容相关：
+在 AI 社区中，马尔可夫决策过程与以下内容相关：
 
-+   动态规划和Richard Bellman：Bellman在该领域发挥了重要作用，他的最优性条件被许多算法实现。
++   动态规划和 Richard Bellman：Bellman 在该领域发挥了重要作用，他的最优性条件被许多算法实现。
 
 +   强化学习：通过一系列与正面或负面奖励相关的行动（试错）找到最佳策略。代理在几种行动和转移状态之间有选择，其中转移概率取决于所选择的行动。
 
-+   深度强化学习：将强化学习与神经网络结合起来。在这里，神经网络将观察结果作为输入，并为代理可以采取的每个可能行动输出一个概率（概率分布）。然后代理根据估计的概率随机决定下一步行动。例如，如果代理有两个选择，向左转或向右转，神经网络为向左转输出0.7，则代理将以70%的概率向左转，以30%的概率向右转。
++   深度强化学习：将强化学习与神经网络结合起来。在这里，神经网络将观察结果作为输入，并为代理可以采取的每个可能行动输出一个概率（概率分布）。然后代理根据估计的概率随机决定下一步行动。例如，如果代理有两个选择，向左转或向右转，神经网络为向左转输出 0.7，则代理将以 70%的概率向左转，以 30%的概率向右转。
 
 强化学习有很大的潜力将我们推向智能的方向。智能代理需要在行动的回报不是立即产生而是由一系列连续采取的行动产生时做出理性决策。这是在不确定性下推理的典范。
 
@@ -528,15 +528,15 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 强化学习的例子很多：自动驾驶汽车、推荐系统、家中的恒温器（每当接近目标温度并节省能源时获得正面奖励，当人们需要调整温度时获得负面奖励）、股票市场的自动投资（输入是股价，输出是买入或卖出每支股票的数量，奖励是货币收益或损失）。
 
-也许最著名的深度强化学习成功例子是[DeepMind的AlphaGo](https://en.wikipedia.org/wiki/AlphaGo)，这个AI代理在2016年击败了世界上最好的人类玩家在古老的中国围棋游戏中。以棋盘游戏的形式思考强化学习，比如国际象棋或围棋，是直观的，因为在每一步我们决定我们必须采取的行动序列，深知我们当前的决定会影响整个游戏的结果。我们最好在每一步都表现最佳。此外，在每一步，我们的最佳策略*会演变*，因为它还取决于我们对手的行动（他正在从他的角度解决完全相同的问题）。
+也许最著名的深度强化学习成功例子是[DeepMind 的 AlphaGo](https://en.wikipedia.org/wiki/AlphaGo)，这个 AI 代理在 2016 年击败了世界上最好的人类玩家在古老的中国围棋游戏中。以棋盘游戏的形式思考强化学习，比如国际象棋或围棋，是直观的，因为在每一步我们决定我们必须采取的行动序列，深知我们当前的决定会影响整个游戏的结果。我们最好在每一步都表现最佳。此外，在每一步，我们的最佳策略*会演变*，因为它还取决于我们对手的行动（他正在从他的角度解决完全相同的问题）。
 
-我有点偏向于不包含游戏的例子，因为现在我的女儿沉迷于PlayStation5。我更喜欢投资市场的例子：我们的理财顾问在每天都在变化的市场中操作，并且需要在每个时间步骤上做出买卖某些股票的决定，长期目标是最大化利润和最小化损失。市场环境是随机的，我们不知道其规则，但我们假设我们知道为了建模目的。现在让我们将我们的人类理财顾问换成一个AI代理，看看这个代理在不断变化的市场环境中每个时间步需要解决什么样的优化问题。
+我有点偏向于不包含游戏的例子，因为现在我的女儿沉迷于 PlayStation5。我更喜欢投资市场的例子：我们的理财顾问在每天都在变化的市场中操作，并且需要在每个时间步骤上做出买卖某些股票的决定，长期目标是最大化利润和最小化损失。市场环境是随机的，我们不知道其规则，但我们假设我们知道为了建模目的。现在让我们将我们的人类理财顾问换成一个 AI 代理，看看这个代理在不断变化的市场环境中每个时间步需要解决什么样的优化问题。
 
 ### 强化学习作为马尔可夫决策过程
 
-让我们将强化学习在数学上表述为马尔可夫决策过程：我们的代理存在的环境是概率性的，由状态和这些状态之间的转移概率组成。这些转移概率*取决于选择的动作*。因此，从任何状态<math alttext="用右箭头修改上面的状态"><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover></math>到另一个状态<math alttext="用右箭头撇号修改上面的状态"><msup><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>'</mo></msup></math>的马尔可夫过程具有对在状态<math alttext="用右箭头修改上面的状态"><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover></math>时采取的动作<math alttext="用右箭头修改上面的a"><mover accent="true"><mi>a</mi> <mo>→</mo></mover></math>的显式依赖。
+让我们将强化学习在数学上表述为马尔可夫决策过程：我们的代理存在的环境是概率性的，由状态和这些状态之间的转移概率组成。这些转移概率*取决于选择的动作*。因此，从任何状态<math alttext="用右箭头修改上面的状态"><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover></math>到另一个状态<math alttext="用右箭头撇号修改上面的状态"><msup><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>'</mo></msup></math>的马尔可夫过程具有对在状态<math alttext="用右箭头修改上面的状态"><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover></math>时采取的动作<math alttext="用右箭头修改上面的 a"><mover accent="true"><mi>a</mi> <mo>→</mo></mover></math>的显式依赖。
 
-这里的主要假设是我们*知道*这个过程，这意味着我们知道环境的规则。换句话说，我们知道每个<math alttext="用右箭头修改上面的状态"><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover></math>，<math alttext="用右箭头撇号修改上面的状态"><msup><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>'</mo></msup></math>和动作<math alttext="用右箭头修改上面的a"><mover accent="true"><mi>a</mi> <mo>→</mo></mover></math>的以下概率：
+这里的主要假设是我们*知道*这个过程，这意味着我们知道环境的规则。换句话说，我们知道每个<math alttext="用右箭头修改上面的状态"><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover></math>，<math alttext="用右箭头撇号修改上面的状态"><msup><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>'</mo></msup></math>和动作<math alttext="用右箭头修改上面的 a"><mover accent="true"><mi>a</mi> <mo>→</mo></mover></math>的以下概率：
 
 <math alttext="dollar-sign upper P r o b left-parenthesis next state equals ModifyingAbove s t a t e With right-arrow Superscript prime Baseline vertical-bar current state equals ModifyingAbove s t a t e With right-arrow comma action taken equals ModifyingAbove a With right-arrow right-parenthesis dollar-sign"><mrow><mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mo>(</mo> <mtext>next</mtext> <mtext>state</mtext> <mo>=</mo> <msup><mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>'</mo></msup> <mo>|</mo> <mtext>current</mtext> <mtext>state</mtext> <mo>=</mo> <mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>,</mo> <mtext>action</mtext> <mtext>taken</mtext> <mo>=</mo> <mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mo>)</mo></mrow></math>
 
@@ -556,7 +556,7 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 <math alttext="dollar-sign upper V a l u e left-parenthesis ModifyingAbove s t a t e With right-arrow comma optimal sequence of actions right-parenthesis equals double-struck upper E left-parenthesis sigma-summation Underscript k Endscripts gamma Superscript k Baseline r e w a r d Subscript k Baseline right-parenthesis period dollar-sign"><mrow><mi>V</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <mi>e</mi> <mrow><mo>(</mo> <mover accent="true"><mrow><mi>s</mi><mi>t</mi><mi>a</mi><mi>t</mi><mi>e</mi></mrow> <mo>→</mo></mover> <mo>,</mo> <mtext>optimal</mtext> <mtext>sequence</mtext> <mtext>of</mtext> <mtext>actions</mtext> <mo>)</mo></mrow> <mo>=</mo> <mi>𝔼</mi> <mrow><mo>(</mo> <msub><mo>∑</mo> <mi>k</mi></msub> <msup><mi>γ</mi> <mi>k</mi></msup> <mi>r</mi> <mi>e</mi> <mi>w</mi> <mi>a</mi> <mi>r</mi> <msub><mi>d</mi> <mi>k</mi></msub> <mo>)</mo></mrow> <mo>.</mo></mrow></math>
 
-*折现因子* <math alttext="g a m m a"><mrow><mi>g</mi> <mi>a</mi> <mi>m</mi> <mi>m</mi> <mi>a</mi></mrow></math> 是介于0和1之间的数字。它有助于鼓励采取导致*尽早而不是晚*获得正奖励的行动。将这个因子放入优化问题中会调整随时间变化的奖励的重要性，对未来奖励给予较少的权重（如果<math alttext="g a m m a"><mrow><mi>g</mi> <mi>a</mi> <mi>m</mi> <mi>m</mi> <mi>a</mi></mrow></math>在0和1之间，则<math alttext="g a m m a Superscript k"><mrow><mi>g</mi> <mi>a</mi> <mi>m</mi> <mi>m</mi> <msup><mi>a</mi> <mi>k</mi></msup></mrow></math>对于较大的*k*很小）。
+*折现因子* <math alttext="g a m m a"><mrow><mi>g</mi> <mi>a</mi> <mi>m</mi> <mi>m</mi> <mi>a</mi></mrow></math> 是介于 0 和 1 之间的数字。它有助于鼓励采取导致*尽早而不是晚*获得正奖励的行动。将这个因子放入优化问题中会调整随时间变化的奖励的重要性，对未来奖励给予较少的权重（如果<math alttext="g a m m a"><mrow><mi>g</mi> <mi>a</mi> <mi>m</mi> <mi>m</mi> <mi>a</mi></mrow></math>在 0 和 1 之间，则<math alttext="g a m m a Superscript k"><mrow><mi>g</mi> <mi>a</mi> <mi>m</mi> <mi>m</mi> <msup><mi>a</mi> <mi>k</mi></msup></mrow></math>对于较大的*k*很小）。
 
 让我们明确地在值函数中进行优化（我们正在选择在当前状态下最大化奖励的行动序列）：
 
@@ -574,11 +574,11 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 ### 在最优控制和非线性动力学的背景下的强化学习
 
-在[第13章](ch13.xhtml#ch13)中关于偏微分方程，我们重新审视了在非线性动力学、最优控制和哈密顿雅可比贝尔曼偏微分方程的背景下的强化学习。与我们的代理在上面的讨论中与概率马尔可夫环境互动不同，强化学习的动态规划方法（导致哈密顿雅可比贝尔曼偏微分方程）是确定性的。
+在第十三章中关于偏微分方程，我们重新审视了在非线性动力学、最优控制和哈密顿雅可比贝尔曼偏微分方程的背景下的强化学习。与我们的代理在上面的讨论中与概率马尔可夫环境互动不同，强化学习的动态规划方法（导致哈密顿雅可比贝尔曼偏微分方程）是确定性的。
 
-### 强化学习的Python库
+### 强化学习的 Python 库
 
-最后，一个有用的库用于实现强化学习算法是TF-Agents库（由谷歌开源于2018年），这是一个基于TensorFlow（Python）的强化学习库。
+最后，一个有用的库用于实现强化学习算法是 TF-Agents 库（由谷歌开源于 2018 年），这是一个基于 TensorFlow（Python）的强化学习库。
 
 # 理论和严格的基础
 
@@ -610,7 +610,7 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 看看这些问题是如何慢慢将我们引入实数线上集合论的细节中，而这又直接将我们引入*测度论*：这个理论涉及*我们可以测量实数线上哪些子集，以及哪些子集我们无法测量*。
 
-为样本空间的子集定义概率开始听起来很像为那个集合定义一个测度，似乎只有*可测*的子集才能为它们定义概率。那么样本空间的其他*不可测*子集呢？对它们来说太糟糕了，我们无法为它们定义概率。再次强调，*Prob(A)*并不适用于样本空间的每个子集A，而只适用于该空间的可测子集。因此，我们必须将所有可测子集聚集在一起，放弃其余部分，永远不要考虑它们或它们的数学，然后放松，因为这样我们就可以在一个所有我们聚集的事件（子集）都有概率（测度）定义的领域中行动。我们所使用的概率测度满足合理的性质，即它是[0,1]范围内的非负数，并且互补事件（子集）的概率之和为一。这整个过程揭示了实数及其子集的复杂性，更一般地，揭示了连续体和无限的奥秘。
+为样本空间的子集定义概率开始听起来很像为那个集合定义一个测度，似乎只有*可测*的子集才能为它们定义概率。那么样本空间的其他*不可测*子集呢？对它们来说太糟糕了，我们无法为它们定义概率。再次强调，*Prob(A)*并不适用于样本空间的每个子集 A，而只适用于该空间的可测子集。因此，我们必须将所有可测子集聚集在一起，放弃其余部分，永远不要考虑它们或它们的数学，然后放松，因为这样我们就可以在一个所有我们聚集的事件（子集）都有概率（测度）定义的领域中行动。我们所使用的概率测度满足合理的性质，即它是[0,1]范围内的非负数，并且互补事件（子集）的概率之和为一。这整个过程揭示了实数及其子集的复杂性，更一般地，揭示了连续体和无限的奥秘。
 
 严格的概率论帮助我们理解离散和连续空间的特性，这在简单的例子中得以体现，比如在离散集合上构建离散均匀分布与在给定区间上构建连续均匀分布。
 
@@ -646,11 +646,11 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 ## 随机变量、期望和积分
 
-现在我们可以将概率三元组与样本空间关联起来，为样本空间的大量子集（所有相关sigma代数的成员）定义概率，我们可以严格地定义随机变量。正如我们从非严格概率中非常清楚的知道：随机变量为样本空间的每个元素分配一个数值。因此，如果我们将样本空间看作某个实验的所有可能随机结果（抛硬币得到正面和反面），那么随机变量为这些结果中的每一个分配一个数值。
+现在我们可以将概率三元组与样本空间关联起来，为样本空间的大量子集（所有相关 sigma 代数的成员）定义概率，我们可以严格地定义随机变量。正如我们从非严格概率中非常清楚的知道：随机变量为样本空间的每个元素分配一个数值。因此，如果我们将样本空间看作某个实验的所有可能随机结果（抛硬币得到正面和反面），那么随机变量为这些结果中的每一个分配一个数值。
 
-为了建立在严格的基础上，我们必须定义随机变量*Y*如何与与样本空间相关的整个概率三元组交互。简短的答案是，它必须是一个从样本空间到实数线的*可测*函数，意味着集合<math alttext="上Y上标负1基线左括号负无穷逗号y右括号"><mrow><msup><mi>Y</mi> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <mrow><mo>(</mo> <mo>-</mo> <mi>∞</mi> <mo>,</mo> <mi>y</mi> <mo>)</mo></mrow></mrow></math>（<math alttext="上Y上标负1"><msup><mi>Y</mi> <mrow><mo>-</mo><mn>1</mn></mrow></msup></math>从实数线映射回样本空间的子集），是sigma代数的成员，这意味着它有一个概率测度。
+为了建立在严格的基础上，我们必须定义随机变量*Y*如何与与样本空间相关的整个概率三元组交互。简短的答案是，它必须是一个从样本空间到实数线的*可测*函数，意味着集合<math alttext="上 Y 上标负 1 基线左括号负无穷逗号 y 右括号"><mrow><msup><mi>Y</mi> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <mrow><mo>(</mo> <mo>-</mo> <mi>∞</mi> <mo>,</mo> <mi>y</mi> <mo>)</mo></mrow></mrow></math>（<math alttext="上 Y 上标负 1"><msup><mi>Y</mi> <mrow><mo>-</mo><mn>1</mn></mrow></msup></math>从实数线映射回样本空间的子集），是 sigma 代数的成员，这意味着它有一个概率测度。
 
-就像非严格概率中的随机变量在严格概率理论中实际上是一个可测函数（关于三元组），随机变量的期望<math alttext="双击上E左括号上Y右括号"><mrow><mi>𝔼</mi> <mo>(</mo> <mi>Y</mi> <mo>)</mo></mrow></math>实际上等同于随机变量（可测函数）关于概率测度的积分。我们写成：
+就像非严格概率中的随机变量在严格概率理论中实际上是一个可测函数（关于三元组），随机变量的期望<math alttext="双击上 E 左括号上 Y 右括号"><mrow><mi>𝔼</mi> <mo>(</mo> <mi>Y</mi> <mo>)</mo></mrow></math>实际上等同于随机变量（可测函数）关于概率测度的积分。我们写成：
 
 <math alttext="dollar-sign double-struck upper E left-parenthesis upper Y right-parenthesis equals integral Underscript normal upper Omega Endscripts upper Y d upper P equals integral Underscript normal upper Omega Endscripts upper Y left-parenthesis omega right-parenthesis upper P r o b left-parenthesis d omega right-parenthesis dollar-sign"><mrow><mi>𝔼</mi> <mrow><mo>(</mo> <mi>Y</mi> <mo>)</mo></mrow> <mo>=</mo> <msub><mo>∫</mo> <mi>Ω</mi></msub> <mi>Y</mi> <mi>d</mi> <mi>P</mi> <mo>=</mo> <msub><mo>∫</mo> <mi>Ω</mi></msub> <mi>Y</mi> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mi>P</mi> <mi>r</mi> <mi>o</mi> <mi>b</mi> <mrow><mo>(</mo> <mi>d</mi> <mi>ω</mi> <mo>)</mo></mrow></mrow></math>
 
@@ -666,11 +666,11 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 现在我们有了期望，我们可以像非严格概率理论一样精确地定义方差和协方差。
 
-然后我们可以谈论独立性，以及重要性质，如如果X和Y是独立的，则E(XY) = E(X)E(Y)和Var(X + Y) = Var(X) + Var(Y)。
+然后我们可以谈论独立性，以及重要性质，如如果 X 和 Y 是独立的，则 E(XY) = E(X)E(Y)和 Var(X + Y) = Var(X) + Var(Y)。
 
 ## 随机变量的分布和变量变换定理
 
-随机变量*X*的分布是在实数线上定义的*相应概率三元组*<math alttext="左括号双击上R逗号上B逗号μ右括号"><mrow><mo>(</mo> <mi>ℝ</mi> <mo>,</mo> <mi>ℬ</mi> <mo>,</mo> <mi>μ</mi> <mo>)</mo></mrow></math>，对于实数线上定义的*波雷尔*sigma代数的每个子集*B*，我们有：
+随机变量*X*的分布是在实数线上定义的*相应概率三元组*<math alttext="左括号双击上 R 逗号上 B 逗号μ右括号"><mrow><mo>(</mo> <mi>ℝ</mi> <mo>,</mo> <mi>ℬ</mi> <mo>,</mo> <mi>μ</mi> <mo>)</mo></mrow></math>，对于实数线上定义的*波雷尔*sigma 代数的每个子集*B*，我们有：
 
 <math alttext="dollar-sign mu left-parenthesis upper B right-parenthesis equals upper P left-parenthesis upper X element-of upper B right-parenthesis equals upper P left-parenthesis upper X Superscript negative 1 Baseline left-parenthesis upper B right-parenthesis right-parenthesis dollar-sign"><mrow><mi>μ</mi> <mrow><mo>(</mo> <mi>B</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>P</mi> <mrow><mo>(</mo> <mi>X</mi> <mo>∈</mo> <mi>B</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>P</mi> <mo>(</mo> <msup><mi>X</mi> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <mrow><mo>(</mo> <mi>B</mi> <mo>)</mo></mrow> <mo>)</mo></mrow></math>
 
@@ -694,9 +694,9 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 如果我们有一个收敛到某个极限随机变量的随机变量序列，那么序列的期望是否会收敛到极限的期望？用积分语言来说，我们什么时候可以交换极限和积分？
 
-这是我们证明单调收敛、有界收敛、Fatou引理、支配收敛和一致可积收敛定理时使用的。
+这是我们证明单调收敛、有界收敛、Fatou 引理、支配收敛和一致可积收敛定理时使用的。
 
-最后我们考虑双重或更高的积分，以及何时可以翻转积分的条件。 Fubini定理回答了这个问题，我们可以应用它来给出独立随机变量之和的分布的卷积公式。
+最后我们考虑双重或更高的积分，以及何时可以翻转积分的条件。 Fubini 定理回答了这个问题，我们可以应用它来给出独立随机变量之和的分布的卷积公式。
 
 ## 神经网络的普适性定理。
 
@@ -704,7 +704,7 @@ Wigner最初使用的确定性矩阵是系统的哈密顿量，它是描述核�
 
 神经网络的普适性定理是一个起点。我们在本书中多次提到它。以下是陈述：
 
-*对于紧凑集K上的任何连续函数f，存在一个只有一个隐藏层的前馈神经网络，可以在K上均匀逼近f，误差小于K上的任意<math alttext="epsilon greater-than 0"><mrow><mi>ϵ</mi> <mo>></mo> <mn>0</mn></mrow></math>。*
+*对于紧凑集 K 上的任何连续函数 f，存在一个只有一个隐藏层的前馈神经网络，可以在 K 上均匀逼近 f，误差小于 K 上的任意<math alttext="epsilon greater-than 0"><mrow><mi>ϵ</mi> <mo>></mo> <mn>0</mn></mrow></math>。*
 
 这个[网页](https://mcneela.github.io/machine_learning/2017/03/21/Universal-Approximation-Theorem.xhtml)有一个简单易懂的证明。
 

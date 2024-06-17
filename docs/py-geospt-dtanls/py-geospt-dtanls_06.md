@@ -174,7 +174,7 @@ gis = arcgis.gis.GIS("https://datalchemy.maps.arcgis.com", username, password)
 
 # 探索图像层：城市热岛地图
 
-在我们开始之前，先说一下命名约定。[图 6-1](#map_of_chicago) 是一幅芝加哥地图，我称之为*map1*。
+在我们开始之前，先说一下命名约定。图 6-1 是一幅芝加哥地图，我称之为*map1*。
 
 这个指定是任意的：您可以根据自己的喜好为地图命名，但重要的是在涉及多个地图的代码编写时避免混淆。通常会指定一个带有整数后缀的地图变量，或者简单地使用`m`。选择一种方法并保持一致。它应与`map()`函数有所区别。您可以通过在 Jupyter Notebook 中运行以下代码生成*map1*：
 
@@ -185,7 +185,7 @@ map1
 
 这将使您的地图居中显示在伊利诺伊州的芝加哥。您可以通过缩放到特定位置或绘制多边形来设置地图覆盖的区域，称为其*范围*。
 
-![芝加哥地图](assets/pgda_0601.png)
+![芝加哥地图](img/pgda_0601.png)
 
 ###### 图 6-1\. 芝加哥地图
 
@@ -205,7 +205,7 @@ gis = GIS.
 
 现在您可以尝试将一些属性层叠到您的地图上。*图像层*显示来自图像服务的数据。这些资源允许您应用规则来显示图像。您可以通过将项目类型标识为`Imagery Layer`来搜索它们。
 
-您可以使用`gis.content.search()`中的搜索词来描述您想在地图中包含的要素。创建一个分配给`gis.content.search()`的变量可以帮助您查找可用的要素图层或其他`item_type`数据。使用以下代码片段，您可以探索可用的Landsat 9卫星视图，以用作影像层。不同的影像层具有不同的属性。在这里，我已将搜索限制为[图6-2](#searching_with_gisdotcontentdotsearchle)中显示的两个选项，这些选项是带有指定术语的公开可用要素图层：
+您可以使用`gis.content.search()`中的搜索词来描述您想在地图中包含的要素。创建一个分配给`gis.content.search()`的变量可以帮助您查找可用的要素图层或其他`item_type`数据。使用以下代码片段，您可以探索可用的 Landsat 9 卫星视图，以用作影像层。不同的影像层具有不同的属性。在这里，我已将搜索限制为图 6-2 中显示的两个选项，这些选项是带有指定术语的公开可用要素图层：
 
 ```py
 from IPython.display import display
@@ -216,21 +216,21 @@ for item in items:
     display(item)
 ```
 
-![使用gis.content.search()搜索Landsat 9视图](assets/pgda_0602.png)
+![使用 gis.content.search()搜索 Landsat 9 视图](img/pgda_0602.png)
 
-###### 图6-2\. 使用`gis.content.search()`搜索Landsat 9视图
+###### 图 6-2\. 使用`gis.content.search()`搜索 Landsat 9 视图
 
-代码块中的`item_type`包括Web场景、要素图层、地理空间数据、底图和具有地形的交互式3D环境。您可以在[文档](https://oreil.ly/MRi96)中了解更多关于项目和项目类型的信息。
+代码块中的`item_type`包括 Web 场景、要素图层、地理空间数据、底图和具有地形的交互式 3D 环境。您可以在[文档](https://oreil.ly/MRi96)中了解更多关于项目和项目类型的信息。
 
-*Web场景*允许您可视化和分析包含所有配置设置的地理空间内容，例如底图、样式和范围。要探索这些内容，您可以用`web scene`替换`item_type`。
+*Web 场景*允许您可视化和分析包含所有配置设置的地理空间内容，例如底图、样式和范围。要探索这些内容，您可以用`web scene`替换`item_type`。
 
-我们将使用Web场景来探索芝加哥的热岛。根据[美国环保局](https://oreil.ly/3RWFQ)（EPA），*热岛*是：
+我们将使用 Web 场景来探索芝加哥的热岛。根据[美国环保局](https://oreil.ly/3RWFQ)（EPA），*热岛*是：
 
 > 城市化区域的温度比外围区域高。建筑物、道路和其他基础设施等结构比森林和水体等自然景观更多地吸收并重新发射太阳的热量。在这些结构高度集中且绿化有限的城市区域中，相对于外围区域，成为更高温度的“岛屿”。
 
 城市热岛严重性测量城市基础设施如何吸收并重新发射这些热量。
 
-要定位图像服务器的URL并开始在地图上探索热岛，请单击搜索结果中的标题（“城市热岛”），或通过在下一个单元格中调用`img_svc_url`来列出：
+要定位图像服务器的 URL 并开始在地图上探索热岛，请单击搜索结果中的标题（“城市热岛”），或通过在下一个单元格中调用`img_svc_url`来列出：
 
 ```py
 img_svc_url = 'https://server6.tplgis.org/arcgis6/rest/services/
@@ -268,13 +268,13 @@ map
 map.add_layer(landsat_urbanheat)
 ```
 
-`landsat_urbanheat`图层现在已添加到您的地图中，这应与[图6-3](#the_map_layer_added_to_the_map_extent)类似。
+`landsat_urbanheat`图层现在已添加到您的地图中，这应与图 6-3 类似。
 
-![添加到地图范围的地图图层](assets/pgda_0603.png)
+![添加到地图范围的地图图层](img/pgda_0603.png)
 
-###### 图6-3\. 添加到地图范围的地图图层
+###### 图 6-3\. 添加到地图范围的地图图层
 
-现在，您将从多光谱Landsat图层的URL中添加影像层，并将其分配给变量`landsat_ms`：
+现在，您将从多光谱 Landsat 图层的 URL 中添加影像层，并将其分配给变量`landsat_ms`：
 
 ```py
 img_svc_url ='*https://landsat2.arcgis.com/arcgis/rest/services/Landsat/MS/
@@ -343,13 +343,13 @@ landsat = landsat_item.layers[0]
 df = **None**
 ```
 
-您的搜索结果应包括多光谱 Landsat，如[图 6-4](#search_results_showing_a_multispectral) 所示。要查看 `landsat_item`，请在单元格中调用它：
+您的搜索结果应包括多光谱 Landsat，如图 6-4 所示。要查看 `landsat_item`，请在单元格中调用它：
 
 ```py
 landsat_item
 ```
 
-![显示 Esri 的多光谱 Landsat 成像图层的搜索结果](assets/pgda_0604.png)
+![显示 Esri 的多光谱 Landsat 成像图层的搜索结果](img/pgda_0604.png)
 
 ###### 图 6-4\. 显示 Esri 的多光谱 Landsat 成像图层的搜索结果
 
@@ -360,13 +360,13 @@ from IPython.display import HTML
 HTML(landsat_item.description)
 ```
 
-本图展示了*多光谱光带*，这些光带由比人眼更敏感的仪器检测到。正如您在[第一章](ch01.xhtml#introduction_to_geospatial_analytics) 中学到的，多光谱光带通过电磁波谱中特定波长范围内的图像数据来突出显示不同的地表覆盖特征。您可以检查每个波段的名称、最小和最大波长以及其他属性：
+本图展示了*多光谱光带*，这些光带由比人眼更敏感的仪器检测到。正如您在第一章 中学到的，多光谱光带通过电磁波谱中特定波长范围内的图像数据来突出显示不同的地表覆盖特征。您可以检查每个波段的名称、最小和最大波长以及其他属性：
 
 ```py
 pd.DataFrame(landsat.key_properties()['BandProperties'])
 ```
 
-这些波段指示了与陆地覆盖、植被及其他类型地表有关的详细信息。[表 6-1](#multispectral_and_thermal_infrared_sens) 是输出的摘录，以表格形式呈现以便阅读。
+这些波段指示了与陆地覆盖、植被及其他类型地表有关的详细信息。表 6-1 是输出的摘录，以表格形式呈现以便阅读。
 
 表 6-1\. 多光谱和热红外传感器波段
 
@@ -400,9 +400,9 @@ m
 m.add_layer(landsat)
 ```
 
-您现在可以查看您的地图（[图 6-5](#a_los_angeles_map_created_using_multisp)）。您还可以开始使用栅格函数。
+您现在可以查看您的地图（图 6-5）。您还可以开始使用栅格函数。
 
-![使用多光谱 Landsat 数据创建的洛杉矶地图](assets/pgda_0605.png)
+![使用多光谱 Landsat 数据创建的洛杉矶地图](img/pgda_0605.png)
 
 ###### 图 6-5\. 使用多光谱 Landsat 数据创建的洛杉矶地图
 
@@ -454,28 +454,28 @@ m.add_layer(color_infrared)
 m
 ```
 
-健康的植被现在以鲜艳的红色显示（[图6-6](#los_angeles_viewed_with_color_infrared)）。
+健康的植被现在以鲜艳的红色显示（图 6-6）。
 
-![用彩色红外线查看的洛杉矶](assets/pgda_0606.png)
+![用彩色红外线查看的洛杉矶](img/pgda_0606.png)
 
-###### 图6-6\. 用`color_infrared`查看的洛杉矶
+###### 图 6-6\. 用`color_infrared`查看的洛杉矶
 
-用于查看植被的最佳栅格函数通常是归一化差异植被指数（NDVI）。[图6-7](#los_angeles_ndvi)展示了`NDVI_colorized`函数，显示绿色的植被：
+用于查看植被的最佳栅格函数通常是归一化差异植被指数（NDVI）。图 6-7 展示了`NDVI_colorized`函数，显示绿色的植被：
 
 ```py
 ndvi_colorized = apply(landsat, 'NDVI Colorized')
 ndvi_colorized
 ```
 
-![Los Angeles NDVI](assets/pgda_0607.png)
+![Los Angeles NDVI](img/pgda_0607.png)
 
-###### 图6-7\. 用于NDVI的洛杉矶
+###### 图 6-7\. 用于 NDVI 的洛杉矶
 
 您已经学会了如何搜索图像和要素图层，以及如何对特定位置应用栅格函数来突出显示特定功能。接下来，我们将探讨属性，并查看`arcgis.geometry`模块。
 
 # 探索图像属性
 
-在这一部分中，您将使用ArcGIS栅格模块[`get_samples`](https://oreil.ly/ffCTy)来探索您的洛杉矶地图的几何形状。该模块允许您查看所选几何形状的样本点位置、空间分辨率和像素值。它是[ArcGIS REST API](https://oreil.ly/SWZTB)的一个示例，该API提供有关Web应用程序架构的信息。与主要关注访问点的一般ArcGIS API文档不同，[ArcGIS REST API文档](https://oreil.ly/QdcRC)提供了地理空间功能的全部范围。它还描述了`get_samples`操作可以调用的参数：
+在这一部分中，您将使用 ArcGIS 栅格模块[`get_samples`](https://oreil.ly/ffCTy)来探索您的洛杉矶地图的几何形状。该模块允许您查看所选几何形状的样本点位置、空间分辨率和像素值。它是[ArcGIS REST API](https://oreil.ly/SWZTB)的一个示例，该 API 提供有关 Web 应用程序架构的信息。与主要关注访问点的一般 ArcGIS API 文档不同，[ArcGIS REST API 文档](https://oreil.ly/QdcRC)提供了地理空间功能的全部范围。它还描述了`get_samples`操作可以调用的参数：
 
 ```py
 get_samples(geometry, geometry_type=None, sample_distance=None, sample_count=None, 
@@ -490,7 +490,7 @@ import arcgis
 g = arcgis.geometry.Geometry(area['extent'])
 ```
 
-为什么要使用几何形状？当您创建3D模型时，像高度和太阳方位角这样的数据点对于计算阴影坡度非常有用。在使用`hillshade`函数时，基本上是将2D表面渲染为逼真的3D地形。
+为什么要使用几何形状？当您创建 3D 模型时，像高度和太阳方位角这样的数据点对于计算阴影坡度非常有用。在使用`hillshade`函数时，基本上是将 2D 表面渲染为逼真的 3D 地形。
 
 接下来，指定几何形状和样本计数：
 
@@ -506,7 +506,7 @@ samples = landsat.get_samples(g, sample_count=50,
 samples[10]
 ```
 
-输出包括位置、对象ID、云层覆盖计算和像素值等信息：
+输出包括位置、对象 ID、云层覆盖计算和像素值等信息：
 
 ```py
 {'location': {'x': -13150297.20625444,
@@ -562,13 +562,13 @@ m
 m.add_layer(landsat)
 ```
 
-如果选择特定像素，光谱配置将绘制在该位置反射的所有波段，如[图 6-8](#map_to_click_to_generate_the_spectral_p)所示。
+如果选择特定像素，光谱配置将绘制在该位置反射的所有波段，如图 6-8 所示。
 
 下一个代码允许您在 Jupyter Notebook 中的画布上选择一个点以识别光谱配置。请注意，如果您从 ArcGIS Python API 指南运行此示例并请求 Landsat 9，则会生成错误，因为添加了额外的波段。
 
-![点击生成光谱配置在#a_spectral_profile_visualized_with_boke](assets/pgda_0608.png)
+![点击生成光谱配置在#a_spectral_profile_visualized_with_boke](img/pgda_0608.png)
 
-###### 图 6-8\. 点击生成光谱配置在[图 6-9](#a_spectral_profile_visualized_with_boke)
+###### 图 6-8\. 点击生成光谱配置在图 6-9
 
 `get_samples()`方法将收集样本数据中包含的像素值。像素值是*数字。*为了正确计算它们，您需要先将其转换为浮点数，然后转换为整数。数字记录像素的电磁强度。
 
@@ -601,19 +601,19 @@ print('Click anywhere on the map to plot the spectral profile for that location.
 m.on_click(get_samples)
 ```
 
-您应该收到 Bokeh 2.4.2（或您的版本号）已成功加载的消息。现在返回地图并选择您的点。点击生成[图 6-8](#map_to_click_to_generate_the_spectral_p)中显示的地图（您的地图将根据您选择的点有不同的值）。
+您应该收到 Bokeh 2.4.2（或您的版本号）已成功加载的消息。现在返回地图并选择您的点。点击生成图 6-8 中显示的地图（您的地图将根据您选择的点有不同的值）。
 
-您生成的地图（[图 6-8](#map_to_click_to_generate_the_spectral_p)）现在是交互式的。在新地图上任意点击以绘制该位置的光谱配置。现在您可以选择不同的点并查看生成的值。[图 6-9](#a_spectral_profile_visualized_with_boke)展示了在我选择的位置上用于探测卷云的第 9 波段的光谱配置。
+您生成的地图（图 6-8）现在是交互式的。在新地图上任意点击以绘制该位置的光谱配置。现在您可以选择不同的点并查看生成的值。图 6-9 展示了在我选择的位置上用于探测卷云的第 9 波段的光谱配置。
 
-![使用 Bokeh 可视化的光谱配置](assets/pgda_0609.png)
+![使用 Bokeh 可视化的光谱配置](img/pgda_0609.png)
 
 ###### 图 6-9\. 使用 Bokeh 可视化的光谱配置
 
-根据点击Landsat 9图像图层时选择的独特位置，您的光谱配置文件将不同。请参阅[表 6-1](#multispectral_and_thermal_infrared_sens)以识别包含的波段。这些代表了ArcGIS Python API中`get_samples`方法的几个应用。
+根据点击 Landsat 9 图像图层时选择的独特位置，您的光谱配置文件将不同。请参阅表 6-1 以识别包含的波段。这些代表了 ArcGIS Python API 中`get_samples`方法的几个应用。
 
 ## 改进图像
 
-光栅函数允许您执行诸如提取特定波段以检查土地利用、植被或火灾；连续数据（如温度）；扫描图像；以及卫星图像等操作。*拉伸函数*允许您调整地图上的亮度和对比度。以下代码从可见光谱中选择3、2和1波段（红、绿和蓝），并导入`stretch` `raster.function`：
+光栅函数允许您执行诸如提取特定波段以检查土地利用、植被或火灾；连续数据（如温度）；扫描图像；以及卫星图像等操作。*拉伸函数*允许您调整地图上的亮度和对比度。以下代码从可见光谱中选择 3、2 和 1 波段（红、绿和蓝），并导入`stretch` `raster.function`：
 
 ```py
 from arcgis.raster.functions import stretch, extract_band
@@ -624,21 +624,21 @@ naturalcolor = stretch(extract_band(landsat, [3,2,1]),
 naturalcolor
 ```
 
-此代码设置的百分比剪切最小值(`percentclip`)将排除拉伸应用于栅格的最低10%值。如果大多数像素在特定范围内，这是非常有用的。设置`stretch_type`会修剪掉异常值，重新分布值的直方图，从而生成[图 6-10](#natural_color_bands_depicting_what_the)中的图像。 
+此代码设置的百分比剪切最小值(`percentclip`)将排除拉伸应用于栅格的最低 10%值。如果大多数像素在特定范围内，这是非常有用的。设置`stretch_type`会修剪掉异常值，重新分布值的直方图，从而生成图 6-10 中的图像。 
 
-![自然色波段展示了肉眼在没有增强的情况下所看到的图像](assets/pgda_0610.png)
+![自然色波段展示了肉眼在没有增强的情况下所看到的图像](img/pgda_0610.png)
 
 ###### 图 6-10\. 自然色波段展示了肉眼在没有增强的情况下所看到的图像
 
-[图 6-10](#natural_color_bands_depicting_what_the)中的图像是肉眼在没有任何增强的情况下所看到的。根据您要查找的特征，可能有其他波段可以探索。我们将在接下来的部分查看其他波段。
+图 6-10 中的图像是肉眼在没有任何增强的情况下所看到的。根据您要查找的特征，可能有其他波段可以探索。我们将在接下来的部分查看其他波段。
 
 ## 比较同一位置的多个时间点
 
-ArcGIS API允许您使用称为*时间滑块*的地图小部件比较同一位置在不同时间点的图像，该小部件使您可以使用可配置的属性（如开始和结束时间及其间隔）对地图进行动画化。对于此示例，我选择了一个城市和一个卫星底图。
+ArcGIS API 允许您使用称为*时间滑块*的地图小部件比较同一位置在不同时间点的图像，该小部件使您可以使用可配置的属性（如开始和结束时间及其间隔）对地图进行动画化。对于此示例，我选择了一个城市和一个卫星底图。
 
-地图缩放小部件接受0到23之间的值。级别9提供了全球概览；级别10介于大型都市区域和城市之间；级别20是个体建筑物的级别。我从未缩放到23，但这样做会呈现出最详细的视图。然而，根据可视化参数的规模，缩放的限制程度有所不同（转换率可在[文档](https://oreil.ly/mbtnA)中查看）。您可以更改缩放级别并处理数据，但分辨率将保持不变。例如，所有Landsat图像的分辨率为15米。这意味着卫星图像捕捉到的地面细节为15米或更大。（作为比较，洛杉矶的好莱坞标志和标准半挂拖车均长约15米。）
+地图缩放小部件接受 0 到 23 之间的值。级别 9 提供了全球概览；级别 10 介于大型都市区域和城市之间；级别 20 是个体建筑物的级别。我从未缩放到 23，但这样做会呈现出最详细的视图。然而，根据可视化参数的规模，缩放的限制程度有所不同（转换率可在[文档](https://oreil.ly/mbtnA)中查看）。您可以更改缩放级别并处理数据，但分辨率将保持不变。例如，所有 Landsat 图像的分辨率为 15 米。这意味着卫星图像捕捉到的地面细节为 15 米或更大。（作为比较，洛杉矶的好莱坞标志和标准半挂拖车均长约 15 米。）
 
-尝试将缩放级别调整到10：
+尝试将缩放级别调整到 10：
 
 ```py
 map = gis.map("los angeles")
@@ -657,7 +657,7 @@ print(landsat_item)
 <Item title:"Multispectral Landsat" type:Imagery Layer owner:esri>
 ```
 
-您已搜索到一个Landsat项，并且通过其标题在输出中确认了该项。不同的子层将提供不同的详细信息。
+您已搜索到一个 Landsat 项，并且通过其标题在输出中确认了该项。不同的子层将提供不同的详细信息。
 
 将图层添加到地图中：
 
@@ -673,7 +673,7 @@ map.time_slider
 
 它应该返回输出`True`。
 
-您可以将日期调整为特定间隔。以下代码测量所选开始和结束时间之间的10天间隔：
+您可以将日期调整为特定间隔。以下代码测量所选开始和结束时间之间的 10 天间隔：
 
 ```py
 from datetime import datetime
@@ -682,11 +682,11 @@ map.set_time_extent(start_time=datetime(2021, 12, 12), end_time=datetime(2022, 4
 12), interval=10, unit='days')
 ```
 
-此代码将在[Figure 6-11](#time_slider_widget)中输出地图，其中包括时间滑块小部件。
+此代码将在 Figure 6-11 中输出地图，其中包括时间滑块小部件。
 
-![时间滑块小部件](assets/pgda_0611.png)
+![时间滑块小部件](img/pgda_0611.png)
 
-###### 图6-11\. 时间滑块小部件
+###### 图 6-11\. 时间滑块小部件
 
 在代码单元中选择`map.draw(polygon)`选项，然后使用鼠标绘制一个多边形。如果您有感兴趣的特定位置，请输入其坐标：
 
@@ -711,7 +711,7 @@ map.draw('polygon')
 
 ## 过滤图层
 
-您可能希望过滤您的图层：例如，也许您只想看到具有少于10%云覆盖率的[特定集合](https://oreil.ly/iMcfn)中的Landsat图层。为此，熟悉Landsat的[数据字典](https://oreil.ly/9fR5U)有助于获取关于数据库或系统中数据元素、属性和名称的完整信息。
+您可能希望过滤您的图层：例如，也许您只想看到具有少于 10%云覆盖率的[特定集合](https://oreil.ly/iMcfn)中的 Landsat 图层。为此，熟悉 Landsat 的[数据字典](https://oreil.ly/9fR5U)有助于获取关于数据库或系统中数据元素、属性和名称的完整信息。
 
 在以下代码片段中，`WRS_Row`提供了有关拍摄图像的卫星轨道路径的信息：
 
@@ -721,9 +721,9 @@ selected = landsat.filter_by(where="(Category = 1) AND (CloudCover <=0.10) AND
                    geometry=arcgis.geometry.filters.intersects(area['extent']))
 ```
 
-值`36`表示北半球。（您可以在Landsat数据字典、集合背景或其他Landsat信息中找到这些详细信息。）
+值`36`表示北半球。（您可以在 Landsat 数据字典、集合背景或其他 Landsat 信息中找到这些详细信息。）
 
-您可以访问的信息显示在您之前生成的HTML项目描述中。现在您可以在数据帧（`df`）中查看刚刚创建的表格：
+您可以访问的信息显示在您之前生成的 HTML 项目描述中。现在您可以在数据帧（`df`）中查看刚刚创建的表格：
 
 ```py
 fs = selected.query(out_fields="AcquisitionDate, GroupName, Best, CloudCover, 
@@ -733,18 +733,18 @@ fs = selected.query(out_fields="AcquisitionDate, GroupName, Best, CloudCover,
               order_by_fields="AcquisitionDate")
 ```
 
-因为您正在比较日期，您将希望看到最旧的获取日期以及最近的获取日期。要清楚地查看输出，请在代码单元中运行它。重要的是看列标题以及在哪里找到标识信息（见[Figure 6-12](#acquisition_date_output)）。您可以通过调用`df.head()`来查看前五行：
+因为您正在比较日期，您将希望看到最旧的获取日期以及最近的获取日期。要清楚地查看输出，请在代码单元中运行它。重要的是看列标题以及在哪里找到标识信息（见 Figure 6-12）。您可以通过调用`df.head()`来查看前五行：
 
 ```py
 df = fs.sdf
 df.head()
 ```
 
-![采集日期输出](assets/pgda_0612.png)
+![采集日期输出](img/pgda_0612.png)
 
-###### 图6-12\. 采集日期输出
+###### 图 6-12\. 采集日期输出
 
-现在运行`df.tail()`并选择最近的获取日期。您可以在Jupyter Notebook中运行代码：
+现在运行`df.tail()`并选择最近的获取日期。您可以在 Jupyter Notebook 中运行代码：
 
 ```py
 df = fs.sdf
@@ -757,7 +757,7 @@ df.tail()
 df.shape
 ```
 
-输出告诉我们，数据有9列和193行：`(193,9)`。
+输出告诉我们，数据有 9 列和 193 行：`(193,9)`。
 
 如果您只想要获取日期，可以运行此数据，或从数据帧中的任何其他列中获取：
 
@@ -782,7 +782,7 @@ df['Time'].head(10)
 Name: Time, dtype: datetime64[ns]
 ```
 
-波段具有特定波长，用于统计计算。在图像图层中要避免像素重叠，因为这可能会扭曲计算结果。您可以使用默认方法，其中像素值是从最后一个数据集计算的（见 [图 6-13](#overlapping_pixels_using_the_lastleft_p)）：
+波段具有特定波长，用于统计计算。在图像图层中要避免像素重叠，因为这可能会扭曲计算结果。您可以使用默认方法，其中像素值是从最后一个数据集计算的（见 图 6-13）：
 
 ```py
 m3 = gis.map('los angeles', 7)
@@ -790,11 +790,11 @@ display(m3)
 m3.add_layer(selected.last())
 ```
 
-![使用 `last()` 方法重叠像素](assets/pgda_0613.png)
+![使用 `last()` 方法重叠像素](img/pgda_0613.png)
 
 ###### 图 6-13\. 使用 `last()` 方法重叠像素
 
-或者，您可以请求 `first()` 方法，并从第一个光栅数据集计算像素值（输出显示在 [图 6-14](#overlapping_pixels_using_the_firstleft) 中）：
+或者，您可以请求 `first()` 方法，并从第一个光栅数据集计算像素值（输出显示在 图 6-14 中）：
 
 ```py
 m3 = gis.map('los angeles', 7)
@@ -802,7 +802,7 @@ display(m3)
 m3.add_layer(selected.first())
 ```
 
-![使用 `first()` 方法重叠像素](assets/pgda_0614.png)
+![使用 `first()` 方法重叠像素](img/pgda_0614.png)
 
 ###### 图 6-14\. 使用 `first()` 方法重叠像素
 
@@ -827,13 +827,13 @@ diff = stretch(composite_band([ndvi(old, '5 4'),
 diff
 ```
 
-这将输出 [图 6-15](#arcgis_functions_showing_difference_in)。绿色条带表示植被密度增加，洋红色显示所选 `OBJECTID` 时间范围内的减少。
+这将输出 图 6-15。绿色条带表示植被密度增加，洋红色显示所选 `OBJECTID` 时间范围内的减少。
 
-![ArcGIS 函数显示随时间图像差异](assets/pgda_0615.png)
+![ArcGIS 函数显示随时间图像差异](img/pgda_0615.png)
 
 ###### 图 6-15\. ArcGIS 函数显示随时间图像差异
 
-或许有您想要捕获的特定阈值。尝试仅测量阈值变化高于10%的区域。使用以下代码：
+或许有您想要捕获的特定阈值。尝试仅测量阈值变化高于 10%的区域。使用以下代码：
 
 ```py
 threshold_val = 0.1
@@ -846,9 +846,9 @@ masked = colormap(remap(ndvi_diff,
 Image(masked.export_image(bbox=area['extent'], size=[1200,450], f='image'))
 ```
 
-输出（[图 6-16](#masked_threshold_value_for_changes_in_v)）将这些区域呈现为绿色。
+输出（图 6-16）将这些区域呈现为绿色。
 
-![植被指数（NDVI）变化的掩码阈值](assets/pgda_0616.png)
+![植被指数（NDVI）变化的掩码阈值](img/pgda_0616.png)
 
 ###### 图 6-16\. 植被指数（NDVI）变化的掩码阈值
 
@@ -859,14 +859,14 @@ m = gis.map('los angeles')
 m
 ```
 
-最终图像显示在 [图 6-17](#the_combined_image_at_the_requested_thr) 中。您现在可以通过向地图添加图层来查看掩码阈值：
+最终图像显示在 图 6-17 中。您现在可以通过向地图添加图层来查看掩码阈值：
 
 ```py
 m.add_layer(diff)
 m.add_layer(masked)
 ```
 
-![在请求的阈值处显示的组合图像，展示了掩码阈值](assets/pgda_0617.png)
+![在请求的阈值处显示的组合图像，展示了掩码阈值](img/pgda_0617.png)
 
 ###### 图 6-17\. 在请求的阈值处显示的组合图像，展示了掩码阈值
 

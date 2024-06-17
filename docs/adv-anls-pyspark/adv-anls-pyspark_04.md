@@ -14,11 +14,11 @@ PySpark MLlib 提供了多种分类和回归算法的实现。这些包括决策
 
 基于决策树的算法具有相对直观和理解的优势。实际上，我们在日常生活中可能都在隐式地使用决策树体现的相同推理方式。例如，我坐下来喝带有牛奶的早晨咖啡。在我决定使用这份牛奶之前，我想要预测：这牛奶是否变质了？我不能确定。我可能会检查是否过期日期已过。如果没有，我预测不会变质。如果日期过了，但是在三天内，我会冒险预测不会变质。否则，我会闻一闻这牛奶。如果闻起来有点怪，我预测会变质，否则预测不会。
 
-这一系列的是/否决策导致了一个预测，这正是决策树体现的内容。每个决策导致两种结果之一，即预测或另一个决策，如[图 4-1](#MilkDecisionTree)所示。从这个意义上说，将这个过程视为决策树是很自然的，其中树的每个内部节点都是一个决策，每个叶节点都是一个最终答案。
+这一系列的是/否决策导致了一个预测，这正是决策树体现的内容。每个决策导致两种结果之一，即预测或另一个决策，如图 4-1 所示。从这个意义上说，将这个过程视为决策树是很自然的，其中树的每个内部节点都是一个决策，每个叶节点都是一个最终答案。
 
-这是一个简单的决策树，没有经过严格构建。为了详细说明，考虑另一个例子。一个机器人在一家异国情调的宠物店找了份工作。它希望在店铺开门前了解哪些动物适合孩子作为宠物。店主匆匆列出了九只适合和不适合的宠物，然后匆忙离去。机器人根据观察到的信息从[表 4-1](#Pet_Stats)中整理了这些动物的特征向量。
+这是一个简单的决策树，没有经过严格构建。为了详细说明，考虑另一个例子。一个机器人在一家异国情调的宠物店找了份工作。它希望在店铺开门前了解哪些动物适合孩子作为宠物。店主匆匆列出了九只适合和不适合的宠物，然后匆忙离去。机器人根据观察到的信息从表 4-1 中整理了这些动物的特征向量。
 
-![aaps 0401](assets/aaps_0401.png)
+![aaps 0401](img/aaps_0401.png)
 
 ###### 图 4-1\. 决策树：牛奶是否变质？
 
@@ -40,41 +40,41 @@ PySpark MLlib 提供了多种分类和回归算法的实现。这些包括决策
 
 虽然给出了一个名字，但不会将其作为我们决策树模型的特征包括进去。凭名字预测的依据有限；“菲利克斯”可能是一只猫，也可能是一只有毒的塔兰图拉蜘蛛。因此，有两个数值特征（重量、腿的数量）和一个分类特征（颜色）预测一个分类目标（适合/不适合孩子作宠物）。
 
-决策树的工作方式是基于提供的特征进行一个或多个顺序决策。首先，机器人可能会尝试将一个简单的决策树拟合到这些训练数据中，这棵树只有一个基于重量的决策，如在[图4-2](#PetStoreDecisionTree1)中所示。
+决策树的工作方式是基于提供的特征进行一个或多个顺序决策。首先，机器人可能会尝试将一个简单的决策树拟合到这些训练数据中，这棵树只有一个基于重量的决策，如在图 4-2 中所示。
 
-![aaps 0402](assets/aaps_0402.png)
+![aaps 0402](img/aaps_0402.png)
 
-###### 图4-2\. 机器人的第一个决策树
+###### 图 4-2\. 机器人的第一个决策树
 
-决策树的逻辑易于理解和理解：500kg的动物听起来确实不适合作为宠物。这个规则在九个案例中预测了五次正确的值。快速浏览表明，我们可以通过将重量阈值降低到100kg来改进规则。这样可以在九个示例中正确预测六次。现在重的动物被正确预测了；轻的动物只部分正确。
+决策树的逻辑易于理解和理解：500kg 的动物听起来确实不适合作为宠物。这个规则在九个案例中预测了五次正确的值。快速浏览表明，我们可以通过将重量阈值降低到 100kg 来改进规则。这样可以在九个示例中正确预测六次。现在重的动物被正确预测了；轻的动物只部分正确。
 
-因此，可以构建第二个决策来进一步细化对重量小于100kg的示例的预测。选择一个可以将一些不正确的是预测改为不的特征是一个好主意。例如，有一种小的绿色动物，听起来可疑地像蛇，将被我们当前的模型分类为适合的宠物候选者。通过添加基于颜色的决策，机器人可以正确预测，如在[图4-3](#PetStoreDecisionTree2)中所示。
+因此，可以构建第二个决策来进一步细化对重量小于 100kg 的示例的预测。选择一个可以将一些不正确的是预测改为不的特征是一个好主意。例如，有一种小的绿色动物，听起来可疑地像蛇，将被我们当前的模型分类为适合的宠物候选者。通过添加基于颜色的决策，机器人可以正确预测，如在图 4-3 中所示。
 
-![aaps 0403](assets/aaps_0403.png)
+![aaps 0403](img/aaps_0403.png)
 
-###### 图4-3\. 机器人的下一个决策树
+###### 图 4-3\. 机器人的下一个决策树
 
-现在，九个例子中有七个是正确的。当然，可以添加决策规则，直到所有九个都被正确预测。生成的决策树所体现的逻辑在转化为通俗的语言时可能听起来不太可信：“如果动物的重量小于100kg，它的颜色是棕色而不是绿色，并且它的腿少于10条，那么是，它是一个适合的宠物。”虽然完全符合给定的例子，但这样的决策树在预测小型、棕色、四条腿的狼獾不适合作为宠物时会失败。需要一些平衡来避免这种现象，称为*过拟合*。
+现在，九个例子中有七个是正确的。当然，可以添加决策规则，直到所有九个都被正确预测。生成的决策树所体现的逻辑在转化为通俗的语言时可能听起来不太可信：“如果动物的重量小于 100kg，它的颜色是棕色而不是绿色，并且它的腿少于 10 条，那么是，它是一个适合的宠物。”虽然完全符合给定的例子，但这样的决策树在预测小型、棕色、四条腿的狼獾不适合作为宠物时会失败。需要一些平衡来避免这种现象，称为*过拟合*。
 
 决策树推广为更强大的算法，称为*随机森林*。随机森林结合了许多决策树，以减少过拟合的风险，并单独训练决策树。该算法通过在训练过程中引入随机性，使每棵决策树略有不同。结合预测结果降低了预测的方差，使得生成的模型更具泛化能力，并提高了在测试数据上的表现。
 
-这已经足够介绍决策树和随机森林，我们将在PySpark中开始使用它们。在下一节中，我们将介绍我们将在PySpark中使用的数据集，并为其准备数据。
+这已经足够介绍决策树和随机森林，我们将在 PySpark 中开始使用它们。在下一节中，我们将介绍我们将在 PySpark 中使用的数据集，并为其准备数据。
 
 # 准备数据
 
-本章使用的数据集是著名的Covtype数据集，可在[网上](https://oreil.ly/spUWl)获取，以压缩的CSV格式数据文件*covtype.data.gz*和配套的信息文件*covtype.info*。
+本章使用的数据集是著名的 Covtype 数据集，可在[网上](https://oreil.ly/spUWl)获取，以压缩的 CSV 格式数据文件*covtype.data.gz*和配套的信息文件*covtype.info*。
 
-数据集记录了美国科罗拉多州森林覆盖地块的类型。这个数据集关注现实世界的森林只是巧合！每个数据记录包含描述每块土地的几个特征，比如海拔、坡度、到水源的距离、阴影和土壤类型，以及覆盖该土地的已知森林类型。需要从其余的特征中预测森林覆盖类型，总共有54个特征。
+数据集记录了美国科罗拉多州森林覆盖地块的类型。这个数据集关注现实世界的森林只是巧合！每个数据记录包含描述每块土地的几个特征，比如海拔、坡度、到水源的距离、阴影和土壤类型，以及覆盖该土地的已知森林类型。需要从其余的特征中预测森林覆盖类型，总共有 54 个特征。
 
-这个数据集已经被用于研究，甚至是一个 [Kaggle 竞赛](https://oreil.ly/LpjgW)。这是一个有趣的数据集，在这一章中探索它是因为它包含分类和数值特征。数据集中有581,012个例子，虽然不完全符合大数据的定义，但足够作为一个例子管理，并且仍然突出了一些规模问题。
+这个数据集已经被用于研究，甚至是一个 [Kaggle 竞赛](https://oreil.ly/LpjgW)。这是一个有趣的数据集，在这一章中探索它是因为它包含分类和数值特征。数据集中有 581,012 个例子，虽然不完全符合大数据的定义，但足够作为一个例子管理，并且仍然突出了一些规模问题。
 
-幸运的是，数据已经以简单的CSV格式存在，并且不需要太多的清洗或其他准备工作即可与PySpark MLlib一起使用。 *covtype.data* 文件应该被提取并复制到您的本地或云存储（如AWS S3）中。
+幸运的是，数据已经以简单的 CSV 格式存在，并且不需要太多的清洗或其他准备工作即可与 PySpark MLlib 一起使用。 *covtype.data* 文件应该被提取并复制到您的本地或云存储（如 AWS S3）中。
 
 启动 `pyspark-shell`。如果你有足够的内存，指定`--driver-memory 8g`或类似的参数可能会有所帮助，因为构建决策森林可能会消耗大量资源。
 
-CSV文件包含基本的表格数据，组织成行和列。有时这些列在标题行中有名称，尽管这在这里不是这样。列名在配套文件 *covtype.info* 中给出。在概念上，CSV文件的每一列也有一个类型——数字、字符串——但CSV文件并未指定这一点。
+CSV 文件包含基本的表格数据，组织成行和列。有时这些列在标题行中有名称，尽管这在这里不是这样。列名在配套文件 *covtype.info* 中给出。在概念上，CSV 文件的每一列也有一个类型——数字、字符串——但 CSV 文件并未指定这一点。
 
-将这些数据解析为数据框是很自然的，因为这是PySpark对表格数据的抽象，具有定义的列模式，包括列名和类型。 PySpark内置支持读取CSV数据。让我们使用内置的CSV读取器将我们的数据集读取为DataFrame：
+将这些数据解析为数据框是很自然的，因为这是 PySpark 对表格数据的抽象，具有定义的列模式，包括列名和类型。 PySpark 内置支持读取 CSV 数据。让我们使用内置的 CSV 读取器将我们的数据集读取为 DataFrame：
 
 ```py
 data_without_header = spark.read.option("inferSchema", True)\
@@ -91,7 +91,7 @@ root
  ...
 ```
 
-这段代码将输入作为CSV读取，并且不试图解析第一行作为列名的标题。它还请求通过检查数据来推断每列的类型。它正确地推断出所有列都是数字，更具体地说是整数。不幸的是，它只能将列命名为 `_c0` 等。
+这段代码将输入作为 CSV 读取，并且不试图解析第一行作为列名的标题。它还请求通过检查数据来推断每列的类型。它正确地推断出所有列都是数字，更具体地说是整数。不幸的是，它只能将列命名为 `_c0` 等。
 
 我们可以查看 *covtype.info* 文件获取列名。
 
@@ -140,7 +140,7 @@ meters                       Horz Dist to nearest wildfire ignition point
 ...
 ```
 
-查看列信息时，显然有些特征确实是数值型的。 `Elevation` 是以米为单位的海拔；`Slope` 是以度为单位的。然而，`Wilderness_Area` 是另一回事，因为它据说跨越四列，每列是0或1。实际上，`Wilderness_Area` 是一个分类值，而不是数值。
+查看列信息时，显然有些特征确实是数值型的。 `Elevation` 是以米为单位的海拔；`Slope` 是以度为单位的。然而，`Wilderness_Area` 是另一回事，因为它据说跨越四列，每列是 0 或 1。实际上，`Wilderness_Area` 是一个分类值，而不是数值。
 
 这四列实际上是一种独热或 1-of-N 编码。当对分类特征执行这种编码时，一个分类特征，它有 *N* 个不同的值，就变成了 *N* 个数值特征，每个特征的值为 0 或 1。这 *N* 个值中恰好有一个值为 1，其余为 0。例如，一个可以是 `cloudy`、`rainy` 或 `clear` 的天气分类特征会变成三个数值特征，其中 `cloudy` 由 `1,0,0` 表示，`rainy` 由 `0,1,0` 表示，依此类推。这三个数值特征可以被视为 `is_cloudy`、`is_rainy` 和 `is_clear` 特征。同样，其他 40 列实际上是一个 `Soil_Type` 分类特征。
 
@@ -160,7 +160,7 @@ colnames = ["Elevation", "Aspect", "Slope", \
             "Horizontal_Distance_To_Hydrology", \
             "Vertical_Distance_To_Hydrology", "Horizontal_Distance_To_Roadways", \
             "Hillshade_9am", "Hillshade_Noon", "Hillshade_3pm", \
-            "Horizontal_Distance_To_Fire_Points"] + \ ![1](assets/1.png)
+            "Horizontal_Distance_To_Fire_Points"] + \ ![1](img/1.png)
 [f"Wilderness_Area_{i}" for i in range(4)] + \ [f"Soil_Type_{i}" for i in range(40)] + \ ["Cover_Type"]
 
 data = data_without_header.toDF(*colnames).\
@@ -172,7 +172,7 @@ data.head()
 Row(Elevation=2596,Aspect=51,Slope=3,Horizontal_Distance_To_Hydrology=258,...)
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO1-1)
+![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO1-1)
 
 + 连接集合。
 
@@ -184,9 +184,9 @@ Row(Elevation=2596,Aspect=51,Slope=3,Horizontal_Distance_To_Hydrology=258,...)
 
 # 我们的第一个决策树
 
-在[第三章](ch03.xhtml#recommending_music_and_the_audioscrobbler_data_set)，我们立即在所有可用数据上构建了一个推荐模型。这创建了一个可以由任何对音乐有一定了解的人进行审查的推荐器：通过查看用户的听歌习惯和推荐，我们感觉到它产生了良好的结果。在这里，这是不可能的。我们无法想象如何为科罗拉多州的一块新地块编写一个包含54个特征的描述，或者期望从这样一个地块获得什么样的森林覆盖。
+在第三章，我们立即在所有可用数据上构建了一个推荐模型。这创建了一个可以由任何对音乐有一定了解的人进行审查的推荐器：通过查看用户的听歌习惯和推荐，我们感觉到它产生了良好的结果。在这里，这是不可能的。我们无法想象如何为科罗拉多州的一块新地块编写一个包含 54 个特征的描述，或者期望从这样一个地块获得什么样的森林覆盖。
 
-相反，我们必须直接跳到保留一些数据来评估生成的模型。之前，使用AUC指标来评估保留的听觉数据与推荐预测之间的一致性。AUC可以视为随机选择的好推荐优于随机选择的坏推荐的概率。这里的原则是相同的，尽管评估指标将会不同：*准确度*。大部分——90%——的数据将再次用于训练，稍后，我们将看到这个训练集的一个子集将被保留用于交叉验证（CV集）。这里保留的另外10%实际上是第三个子集，一个适当的测试集。
+相反，我们必须直接跳到保留一些数据来评估生成的模型。之前，使用 AUC 指标来评估保留的听觉数据与推荐预测之间的一致性。AUC 可以视为随机选择的好推荐优于随机选择的坏推荐的概率。这里的原则是相同的，尽管评估指标将会不同：*准确度*。大部分——90%——的数据将再次用于训练，稍后，我们将看到这个训练集的一个子集将被保留用于交叉验证（CV 集）。这里保留的另外 10%实际上是第三个子集，一个适当的测试集。
 
 ```py
 (train_data, test_data) = data.randomSplit([0.9, 0.1])
@@ -194,14 +194,14 @@ train_data.cache()
 test_data.cache()
 ```
 
-数据需要更多的准备工作才能与MLlib中的分类器一起使用。输入DataFrame包含许多列，每一列都包含一个特征，可以用来预测目标列。MLlib要求所有输入都收集到*一个*列中，其值是一个向量。PySpark的`VectorAssembler`类是在线性代数意义上向量的抽象，只包含数字。对于大多数意图和目的来说，它们工作起来就像一个简单的`double`值数组（浮点数）。当然，输入特征中有一些在概念上是分类的，即使它们在输入中都用数字表示。
+数据需要更多的准备工作才能与 MLlib 中的分类器一起使用。输入 DataFrame 包含许多列，每一列都包含一个特征，可以用来预测目标列。MLlib 要求所有输入都收集到*一个*列中，其值是一个向量。PySpark 的`VectorAssembler`类是在线性代数意义上向量的抽象，只包含数字。对于大多数意图和目的来说，它们工作起来就像一个简单的`double`值数组（浮点数）。当然，输入特征中有一些在概念上是分类的，即使它们在输入中都用数字表示。
 
 幸运的是，`VectorAssembler`类可以完成这项工作：
 
 ```py
 from pyspark.ml.feature import VectorAssembler
 
-input_cols = colnames[:-1] ![1](assets/1.png)
+input_cols = colnames[:-1] ![1](img/1.png)
 vector_assembler = VectorAssembler(inputCols=input_cols,
                                     outputCol="featureVector")
 
@@ -213,17 +213,17 @@ assembled_train_data.select("featureVector").show(truncate = False)
 |featureVector                                                       ...
 +------------------------------------------------------------------- ...
 |(54,[0,1,2,5,6,7,8,9,13,18],[1874.0,18.0,14.0,90.0,208.0,209.0, ...
-|(54,[0,1,2,3,4,5,6,7,8,9,13,18],[1879.0,28.0,19.0,30.0,12.0,95.0, ...
+|(54,[0,1,2,3,4,5,6,7,8,9,13,18],1879.0,28.0,19.0,30.0,12.0,95.0, ...
 ...
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO2-1)
+[![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO2-1)
 
 排除标签，Cover_Type
 
-`VectorAssembler`的关键参数是要合并成特征向量的列以及包含特征向量的新列的名称。在这里，所有列——当然除了目标列——都包含为输入特征。结果DataFrame有一个新的`featureVector`列，如所示。
+`VectorAssembler`的关键参数是要合并成特征向量的列以及包含特征向量的新列的名称。在这里，所有列——当然除了目标列——都包含为输入特征。结果 DataFrame 有一个新的`featureVector`列，如所示。
 
-输出看起来不完全像一系列数字，但这是因为它显示了一个原始的向量表示，表示为一个`sparseVector`实例以节省存储空间。因为大多数的54个值都是0，它只存储非零值及其索引。在分类中，这些细节并不重要。
+输出看起来不完全像一系列数字，但这是因为它显示了一个原始的向量表示，表示为一个`sparseVector`实例以节省存储空间。因为大多数的 54 个值都是 0，它只存储非零值及其索引。在分类中，这些细节并不重要。
 
 `VectorAssembler` 是当前 MLlib Pipelines API 中 `Transformer` 的一个示例。它根据某些逻辑将输入的 DataFrame 转换为另一个 DataFrame，并且可以与其他转换组合成管道。在本章后面，这些转换将被连接成一个实际的 `Pipeline`。在这里，转换只是直接调用，这已足以构建第一个决策树分类器模型：
 
@@ -292,7 +292,7 @@ predictions.select("Cover_Type", "prediction", "probability").\
 +----------+----------+------------------------------------------------ ...
 |Cover_Type|prediction|probability                                      ...
 +----------+----------+------------------------------------------------ ...
-|6.0       |4.0       |[0.0,0.0,0.028372324539571926,0.2936784469885515, ...
+|6.0       |4.0       |0.0,0.0,0.028372324539571926,0.2936784469885515, ...
 |6.0       |3.0       |[0.0,0.0,0.024558587479935796,0.6454654895666132, ...
 |6.0       |3.0       |[0.0,0.0,0.024558587479935796,0.6454654895666132, ...
 |6.0       |3.0       |[0.0,0.0,0.024558587479935796,0.6454654895666132, ...
@@ -303,7 +303,7 @@ predictions.select("Cover_Type", "prediction", "probability").\
 
 细心的读者可能会注意到，概率向量实际上有八个值，尽管只有七种可能的结果。索引为 1 到 7 的向量值包含了对应结果 1 到 7 的概率。然而，索引为 0 的值始终显示为概率 0.0。这可以忽略，因为 0 不是一个有效的结果，正如这里所说的。这是表示这些信息为向量的一种特殊方式，值得注意。
 
-根据上述片段，模型似乎需要改进。其预测结果经常是错误的。与[第三章](ch03.xhtml#recommending_music_and_the_audioscrobbler_data_set)中的ALS实现一样，`DecisionTreeClassifier`的实现有几个超参数需要选择数值，并且这些都被默认留在这里。在这里，测试集可用于对使用这些默认超参数构建的模型的预期准确性进行无偏评估。
+根据上述片段，模型似乎需要改进。其预测结果经常是错误的。与[第三章中的 ALS 实现一样，`DecisionTreeClassifier`的实现有几个超参数需要选择数值，并且这些都被默认留在这里。在这里，测试集可用于对使用这些默认超参数构建的模型的预期准确性进行无偏评估。
 
 现在我们将使用 `MulticlassClassificationEvaluator` 来计算准确性和其他评估模型预测质量的指标。这是 MLlib 中评估器的一个示例，负责以某种方式评估输出 DataFrame 的质量：
 
@@ -330,7 +330,7 @@ evaluator.setMetricName("f1").evaluate(predictions)
 ```py
 confusion_matrix = predictions.groupBy("Cover_Type").\
   pivot("prediction", range(1,8)).count().\
-  na.fill(0.0).\ ![1](assets/1.png)
+  na.fill(0.0).\ ![1](img/1.png)
   orderBy("Cover_Type")
 
 confusion_matrix.show()
@@ -350,7 +350,7 @@ confusion_matrix.show()
 +----------+------+------+-----+---+---+---+-----+
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO3-1)
+![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO3-1)
 
 将 null 替换为 0。
 
@@ -358,15 +358,15 @@ confusion_matrix.show()
 
 尽管 70% 的准确率听起来还不错，但并不清楚它是优秀还是较差。使用简单方法建立一个基准，能有多好呢？就像一块坏了的时钟每天正确两次一样，对每个示例随机猜测一个分类也偶尔会得到正确答案。
 
-我们可以通过在训练集中按照其在训练集中的比例随机选择一个类来构建这样一个随机的“分类器”。例如，如果训练集的30%是cover type 1，则随机分类器将30%的时间猜测“1”。每个分类将按照其在测试集中的比例正确，如果测试集的40%是cover type 1，则猜测“1”将在40%的时间内正确。因此，cover type 1将在30% x 40% = 12%的时间内被正确猜测，并对总体准确度贡献12%。因此，我们可以通过总结这些概率的乘积来评估准确性：
+我们可以通过在训练集中按照其在训练集中的比例随机选择一个类来构建这样一个随机的“分类器”。例如，如果训练集的 30%是 cover type 1，则随机分类器将 30%的时间猜测“1”。每个分类将按照其在测试集中的比例正确，如果测试集的 40%是 cover type 1，则猜测“1”将在 40%的时间内正确。因此，cover type 1 将在 30% x 40% = 12%的时间内被正确猜测，并对总体准确度贡献 12%。因此，我们可以通过总结这些概率的乘积来评估准确性：
 
 ```py
 from pyspark.sql import DataFrame
 
 def class_probabilities(data):
     total = data.count()
-    return data.groupBy("Cover_Type").count().\ ![1](assets/1.png)
-    orderBy("Cover_Type").\ ![2](assets/2.png)
+    return data.groupBy("Cover_Type").count().\ ![1](img/1.png)
+    orderBy("Cover_Type").\ ![2](img/2.png)
     select(col("count").cast(DoubleType())).\
     withColumn("count_proportion", col("count")/total).\
     select("count_proportion").collect()
@@ -391,49 +391,49 @@ train_prior_probabilities = [p[0] for p in train_prior_probabilities]
 test_prior_probabilities = [p[0] for p in test_prior_probabilities]
 
 sum([train_p * cv_p for train_p, cv_p in zip(train_prior_probabilities,
-                                              test_prior_probabilities)]) ![3](assets/3.png)
+                                              test_prior_probabilities)]) ![3](img/3.png)
 ...
 
 0.37735294664034547
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO4-1)
+![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO4-1)
 
 按类别计数
 
-[![2](assets/2.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO4-2)
+![2](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO4-2)
 
 按类别顺序计数
 
-[![3](assets/3.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO4-3)
+![3](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO4-3)
 
 在训练集和测试集中求和产品对
 
-随机猜测达到37%的准确率，这使得70%的结果看起来像是一个很好的结果。但后一个结果是通过默认超参数实现的。通过探索超参数对于树构建过程实际意味着什么，我们甚至可以做得更好。这就是我们将在下一节中做的事情。
+随机猜测达到 37%的准确率，这使得 70%的结果看起来像是一个很好的结果。但后一个结果是通过默认超参数实现的。通过探索超参数对于树构建过程实际意味着什么，我们甚至可以做得更好。这就是我们将在下一节中做的事情。
 
 # 决策树超参数
 
-在[第三章](ch03.xhtml#recommending_music_and_the_audioscrobbler_data_set)中，ALS算法公开了几个超参数，我们必须通过使用各种值的模型构建，并使用某些指标评估每个结果的质量来选择它们的值。这里的过程是相同的，尽管度量现在是多类准确度，而不是AUC。控制树决策选择的超参数也将大不相同：最大深度、最大bins、不纯度度量和最小信息增益。
+在第三章中，ALS 算法公开了几个超参数，我们必须通过使用各种值的模型构建，并使用某些指标评估每个结果的质量来选择它们的值。这里的过程是相同的，尽管度量现在是多类准确度，而不是 AUC。控制树决策选择的超参数也将大不相同：最大深度、最大 bins、不纯度度量和最小信息增益。
 
 *最大深度*简单地限制了决策树中的层级数。它是分类器将做出的用于分类示例的一系列链式决策的最大数量。限制这一点对于避免过度拟合训练数据是有用的，正如在宠物店示例中所示。
 
-决策树算法负责在每个级别提出潜在的决策规则，例如在宠物店示例中的`weight >= 100`或`weight >= 500`决策。决策始终具有相同的形式：对于数值特征，决策的形式为`feature >= value`；对于分类特征，形式为`feature in (value1, value2, …)`。因此，要尝试的决策规则集实际上是要插入决策规则的一组值。在PySpark MLlib实现中，这些被称为*bins*。更多的bin需要更多的处理时间，但可能会导致找到更优的决策规则。
+决策树算法负责在每个级别提出潜在的决策规则，例如在宠物店示例中的`weight >= 100`或`weight >= 500`决策。决策始终具有相同的形式：对于数值特征，决策的形式为`feature >= value`；对于分类特征，形式为`feature in (value1, value2, …)`。因此，要尝试的决策规则集实际上是要插入决策规则的一组值。在 PySpark MLlib 实现中，这些被称为*bins*。更多的 bin 需要更多的处理时间，但可能会导致找到更优的决策规则。
 
-什么使得一个决策规则好？直觉上，一个好的规则会通过目标类别值有意义地区分示例。例如，一个将Covtype数据集划分为一方面仅包含类别1–3，另一方面包含类别4–7的规则将是优秀的，因为它清楚地将一些类别与其他类别分开。而导致与整个数据集中相同混合的规则似乎并不有用。遵循这种决策的任一分支导致可能目标值分布大致相同，因此并没有真正向自信的分类取得进展。
+什么使得一个决策规则好？直觉上，一个好的规则会通过目标类别值有意义地区分示例。例如，一个将 Covtype 数据集划分为一方面仅包含类别 1–3，另一方面包含类别 4–7 的规则将是优秀的，因为它清楚地将一些类别与其他类别分开。而导致与整个数据集中相同混合的规则似乎并不有用。遵循这种决策的任一分支导致可能目标值分布大致相同，因此并没有真正向自信的分类取得进展。
 
 换句话说，好的规则将训练数据的目标值分成相对均匀或“纯净”的子集。选择最佳规则意味着最小化其引起的两个子集的不纯度。常用的不纯度度量有两种：基尼不纯度和熵。
 
-*基尼不纯度*与随机猜测分类器的准确性直接相关。在子集内，它是随机选择的分类在随机选择的示例上（根据子集中类的分布）是*错误*的概率。要计算此值，首先将每个类乘以其在所有类中的比例。然后从1中减去所有值的总和。如果一个子集有*N*个类，*p*[*i*]是类*i*示例的比例，则其基尼不纯度由基尼不纯度方程给出：
+*基尼不纯度*与随机猜测分类器的准确性直接相关。在子集内，它是随机选择的分类在随机选择的示例上（根据子集中类的分布）是*错误*的概率。要计算此值，首先将每个类乘以其在所有类中的比例。然后从 1 中减去所有值的总和。如果一个子集有*N*个类，*p*[*i*]是类*i*示例的比例，则其基尼不纯度由基尼不纯度方程给出：
 
 <math alttext="upper I Subscript upper G Baseline left-parenthesis p right-parenthesis equals 1 minus sigma-summation Underscript i equals 1 Overscript upper N Endscripts p Subscript i Superscript 2" display="block"><mrow><msub><mi>I</mi> <mi>G</mi></msub> <mrow><mo>(</mo> <mi>p</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>1</mn> <mo>-</mo> <munderover><mo>∑</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></munderover> <msubsup><mi>p</mi> <mi>i</mi> <mn>2</mn></msubsup></mrow></math>
 
-如果子集仅包含一个类，则该值为0，因为它是完全“纯净”的。当子集中有*N*个类时，此值大于0，并且当类出现相同次数时最大——最大不纯度。
+如果子集仅包含一个类，则该值为 0，因为它是完全“纯净”的。当子集中有*N*个类时，此值大于 0，并且当类出现相同次数时最大——最大不纯度。
 
-*熵*是来自信息论的另一种不纯度度量。其性质更难以解释，但它捕捉了在子集中目标值的集合对于落入该子集的数据预测意味着多少不确定性。包含一个类的子集表明子集的结果是完全确定的，熵为0——没有不确定性。另一方面，包含每种可能类的子集表明对于该子集的预测有很多不确定性，因为观察到了各种目标值的数据。这具有高熵。因此，低熵和低基尼不纯度一样，是一件好事。熵由熵方程定义：
+*熵*是来自信息论的另一种不纯度度量。其性质更难以解释，但它捕捉了在子集中目标值的集合对于落入该子集的数据预测意味着多少不确定性。包含一个类的子集表明子集的结果是完全确定的，熵为 0——没有不确定性。另一方面，包含每种可能类的子集表明对于该子集的预测有很多不确定性，因为观察到了各种目标值的数据。这具有高熵。因此，低熵和低基尼不纯度一样，是一件好事。熵由熵方程定义：
 
 <math alttext="upper I Subscript upper E Baseline left-parenthesis p right-parenthesis equals sigma-summation Underscript i equals 1 Overscript upper N Endscripts p Subscript i Baseline log left-parenthesis StartFraction 1 Over p Subscript i Baseline EndFraction right-parenthesis equals minus sigma-summation Underscript i equals 1 Overscript upper N Endscripts p Subscript i Baseline log left-parenthesis p Subscript i Baseline right-parenthesis" display="block"><mrow><msub><mi>I</mi> <mi>E</mi></msub> <mrow><mo>(</mo> <mi>p</mi> <mo>)</mo></mrow> <mo>=</mo> <munderover><mo>∑</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></munderover> <msub><mi>p</mi> <mi>i</mi></msub> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mfrac><mn>1</mn> <msub><mi>p</mi> <mi>i</mi></msub></mfrac> <mo>)</mo></mrow> <mo>=</mo> <mo>-</mo> <munderover><mo>∑</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>N</mi></munderover> <msub><mi>p</mi> <mi>i</mi></msub> <mo form="prefix">log</mo> <mrow><mo>(</mo> <msub><mi>p</mi> <mi>i</mi></msub> <mo>)</mo></mrow></mrow></math>
 
-有趣的是，不确定性有单位。因为对数是自然对数（以*e*为底），单位是*nats*，是更熟悉的*bits*（我们可以用对数2为底来获得）的*e*对应物。它确实在测量信息，因此在使用熵与决策树时，也常常讨论决策规则的*信息增益*。
+有趣的是，不确定性有单位。因为对数是自然对数（以*e*为底），单位是*nats*，是更熟悉的*bits*（我们可以用对数 2 为底来获得）的*e*对应物。它确实在测量信息，因此在使用熵与决策树时，也常常讨论决策规则的*信息增益*。
 
 在给定数据集中，一个度量值可能是选择决策规则的更好指标。它们在某种程度上是相似的。两者都涉及加权平均：通过 *p*[*i*] 加权值的总和。在 PySpark 的实现中，默认是基尼不纯度。
 
@@ -443,7 +443,7 @@ sum([train_p * cv_p for train_p, cv_p in zip(train_prior_probabilities,
 
 # 调整决策树
 
-从数据看，不明显哪种不纯度度量可以提高准确性，或者最大深度或箱数是足够的而不是过多。幸运的是，就像在[第 3 章](ch03.xhtml#recommending_music_and_the_audioscrobbler_data_set)中一样，让 PySpark 尝试这些值的多种组合并报告结果是很简单的。
+从数据看，不明显哪种不纯度度量可以提高准确性，或者最大深度或箱数是足够的而不是过多。幸运的是，就像在第三章中一样，让 PySpark 尝试这些值的多种组合并报告结果是很简单的。
 
 首先，需要设置一个管道，将我们在前几节中执行的两个步骤封装起来——创建特征向量和使用它创建决策树模型。创建 `VectorAssembler` 和 `DecisionTreeClassifier` 并将这两个 `Transformer` 链接在一起，生成一个单一的 `Pipeline` 对象，将这两个操作一起表示为一个操作：
 
@@ -560,33 +560,33 @@ print(metrics[0])
 0.9130409881445563
 ...
 
-multiclassEval.evaluate(best_model.transform(test_data)) ![1](assets/1.png)
+multiclassEval.evaluate(best_model.transform(test_data)) ![1](img/1.png)
 
 ...
 0.9138921373048084
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO5-1)
+![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO5-1)
 
 `best_Model`是一个完整的管道。
 
-结果都是约为91%。情况是估计从CV集中开始就很好。事实上，测试集显示非常不同的结果并不常见。
+结果都是约为 91%。情况是估计从 CV 集中开始就很好。事实上，测试集显示非常不同的结果并不常见。
 
 现在是重新讨论过拟合问题的有趣时刻。正如之前讨论的那样，可能会构建一个深度和复杂度非常高的决策树，它非常好地或完全地拟合给定的训练示例，但由于过于密切地适应了训练数据的特殊性和噪声，因此不能泛化到其他示例。这是大多数机器学习算法常见的问题，不仅仅是决策树。
 
-当决策树过度拟合时，在用于训练模型的相同训练数据上表现出高准确率，但在其他示例上准确率较低。在这里，最终模型在其他新示例上的准确率约为91%。准确率也可以轻松地在模型训练的相同数据`trainData`上评估。这给出了约95%的准确率。差异不大，但表明决策树在某种程度上过度拟合了训练数据。较低的最大深度可能是一个更好的选择。
+当决策树过度拟合时，在用于训练模型的相同训练数据上表现出高准确率，但在其他示例上准确率较低。在这里，最终模型在其他新示例上的准确率约为 91%。准确率也可以轻松地在模型训练的相同数据`trainData`上评估。这给出了约 95%的准确率。差异不大，但表明决策树在某种程度上过度拟合了训练数据。较低的最大深度可能是一个更好的选择。
 
 到目前为止，我们隐式地将所有输入特征，包括分类特征，视为数值特征。我们可以通过将分类特征视为精确的分类特征来进一步改善模型的性能吗？我们将在下一步中探讨这个问题。
 
 # 重新审视分类特征
 
-我们数据集中的分类特征被独热编码为几个二进制0/1值。将这些单独特征视为数值特征其实效果不错，因为任何对“数值”特征的决策规则都将选择0到1之间的阈值，而所有值都是等效的，因为所有值都是0或1。
+我们数据集中的分类特征被独热编码为几个二进制 0/1 值。将这些单独特征视为数值特征其实效果不错，因为任何对“数值”特征的决策规则都将选择 0 到 1 之间的阈值，而所有值都是等效的，因为所有值都是 0 或 1。
 
 当然，这种编码方式迫使决策树算法单独考虑底层分类特征的值。因为像土壤类型这样的特征被分解成许多特征，并且决策树将特征视为独立的，所以更难以关联相关土壤类型的信息。
 
-例如，九种不同的土壤类型实际上属于莱顿家族的一部分，它们可能以决策树可以利用的方式相关联。如果将土壤类型编码为单一的分类特征，并且有40种土壤值，那么树可以直接表达规则，比如“如果土壤类型是九种莱顿家族类型之一”。然而，如果将其编码为40个特征，则树必须学习一系列关于土壤类型的九个决策才能达到相同效果，这种表达能力可能导致更好的决策和更高效的树。
+例如，九种不同的土壤类型实际上属于莱顿家族的一部分，它们可能以决策树可以利用的方式相关联。如果将土壤类型编码为单一的分类特征，并且有 40 种土壤值，那么树可以直接表达规则，比如“如果土壤类型是九种莱顿家族类型之一”。然而，如果将其编码为 40 个特征，则树必须学习一系列关于土壤类型的九个决策才能达到相同效果，这种表达能力可能导致更好的决策和更高效的树。
 
-然而，40个数值特征代表一个40值分类特征会增加内存使用并减慢速度。
+然而，40 个数值特征代表一个 40 值分类特征会增加内存使用并减慢速度。
 
 如何撤销 one-hot 编码呢？例如，用一个将荒野类型编码为 0 到 3 的数字的列来替换原来的四列，比如 `Cover_Type`：
 
@@ -597,10 +597,10 @@ def unencode_one_hot(data):
                             setInputCols(wilderness_cols).\
                             setOutputCol("wilderness")
 
-    unhot_udf = udf(lambda v: v.toArray().tolist().index(1)) ![1](assets/1.png)
+    unhot_udf = udf(lambda v: v.toArray().tolist().index(1)) ![1](img/1.png)
 
     with_wilderness = wilderness_assembler.transform(data).\
-      drop(*wilderness_cols).\ ![2](assets/2.png)
+      drop(*wilderness_cols).\ ![2](img/2.png)
       withColumn("wilderness", unhot_udf(col("wilderness")))
 
     soil_cols = ['Soil_Type_' + str(i) for i in range(40)]
@@ -615,11 +615,11 @@ def unencode_one_hot(data):
     return with_soil
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO6-1)
+![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO6-1)
 
 注意 UDF 定义
 
-[![2](assets/2.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO6-2)
+![2](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO6-2)
 
 删除 one-hot 列；不再需要
 
@@ -675,7 +675,7 @@ inputCols = [c for c in cols if c!='Cover_Type']
 assembler = VectorAssembler().setInputCols(inputCols).setOutputCol("featureVector")
 
 indexer = VectorIndexer().\
-  setMaxCategories(40).\ ![1](assets/1.png)
+  setMaxCategories(40).\ ![1](img/1.png)
   setInputCol("featureVector").setOutputCol("indexedVector")
 
 classifier = DecisionTreeClassifier().setLabelCol("Cover_Type").\
@@ -685,21 +685,21 @@ classifier = DecisionTreeClassifier().setLabelCol("Cover_Type").\
 pipeline = Pipeline().setStages([assembler, indexer, classifier])
 ```
 
-[![1](assets/1.png)](#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO7-1)
+![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO7-1)
 
 >= 40 是因为土壤有 40 个值
 
 这种方法假设训练集至少包含每个分类特征的所有可能值。也就是说，它仅在所有 4 个土壤值和所有 40 个荒野值至少出现一次的训练集中才能正常工作，以便所有可能的值都有映射。在这里，情况确实如此，但是对于一些标签非常少见的小训练数据集，可能需要手动创建并添加一个包含完整值映射的 `VectorIndexerModel`。
 
-除此之外，流程与之前的相同。你应该会发现，它选择了一个类似的最佳模型，但测试集的准确率约为93%。通过在前几节中将分类特征视为实际的分类特征，分类器的准确率提高了近2%。
+除此之外，流程与之前的相同。你应该会发现，它选择了一个类似的最佳模型，但测试集的准确率约为 93%。通过在前几节中将分类特征视为实际的分类特征，分类器的准确率提高了近 2%。
 
-我们已经训练并调整了一棵决策树。现在，我们将转向随机森林，这是一种更强大的算法。正如我们将在下一节看到的那样，使用PySpark实现它们此时将会非常简单。
+我们已经训练并调整了一棵决策树。现在，我们将转向随机森林，这是一种更强大的算法。正如我们将在下一节看到的那样，使用 PySpark 实现它们此时将会非常简单。
 
 # 随机森林
 
 如果你一直在跟着代码示例，你可能已经注意到，你的结果与书中的代码清单中的结果略有不同。这是因为在构建决策树时存在一定的随机性，当你决定使用哪些数据和探索哪些决策规则时，这种随机性就会起作用。
 
-算法并不考虑每个级别的所有可能决策规则。这样做将需要大量时间。对于一个包含*N*个值的分类特征，存在2^(*N*)–2个可能的决策规则（除了空集和整个集合的每个子集）。对于一个甚至是中等大小的*N*，这将产生数十亿个候选决策规则。
+算法并不考虑每个级别的所有可能决策规则。这样做将需要大量时间。对于一个包含*N*个值的分类特征，存在 2^(*N*)–2 个可能的决策规则（除了空集和整个集合的每个子集）。对于一个甚至是中等大小的*N*，这将产生数十亿个候选决策规则。
 
 相反，决策树使用几个启发式方法来确定实际考虑的少数规则。选择规则的过程还涉及一些随机性；每次只查看随机挑选的少数特征，并且只使用随机子集的训练数据。这种做法在很大程度上换取了一点准确性以换取更快的速度，但也意味着决策树算法不会每次都构建相同的树。这是一件好事。
 
@@ -707,7 +707,7 @@ pipeline = Pipeline().setStages([assembler, indexer, classifier])
 
 不要提前看答案；先猜测。
 
-我猜测是10,000辆，这比正确答案大约19,000辆要少很多。因为我猜低了，你更有可能猜得比我高，所以我们的平均答案将更接近实际。再次回归到平均数。办公室里进行的一次非正式调查中的平均猜测确实更接近：11,170辆。
+我猜测是 10,000 辆，这比正确答案大约 19,000 辆要少很多。因为我猜低了，你更有可能猜得比我高，所以我们的平均答案将更接近实际。再次回归到平均数。办公室里进行的一次非正式调查中的平均猜测确实更接近：11,170 辆。
 
 该效果的关键在于这些猜测是独立的，彼此不会互相影响。（你没有偷看，对吧？）如果我们都同意并使用相同的方法来猜测，那么这个练习就没有意义了，因为猜测的答案会是一样的——也就是说，可能是完全错误的答案。如果我仅仅通过提前陈述我的猜测来影响你，情况甚至会变得更糟。
 
@@ -717,7 +717,7 @@ pipeline = Pipeline().setStages([assembler, indexer, classifier])
 
 随机森林的预测只是树预测的加权平均。对于分类目标，这可以是多数投票或基于树所产生的概率平均值的最可能值。随机森林与决策树一样支持回归，此时森林的预测是每棵树预测的平均数。
 
-尽管随机森林是一种更强大且复杂的分类技术，好消息是，在本章开发的流水线中使用它实际上几乎没有任何不同。只需在 `DecisionTreeClassifier` 的位置放置一个 `RandomForestClassifier`，然后像以前一样继续即可。实际上，没有更多的代码或API需要理解来使用它：
+尽管随机森林是一种更强大且复杂的分类技术，好消息是，在本章开发的流水线中使用它实际上几乎没有任何不同。只需在 `DecisionTreeClassifier` 的位置放置一个 `RandomForestClassifier`，然后像以前一样继续即可。实际上，没有更多的代码或 API 需要理解来使用它：
 
 ```py
 from pyspark.ml.classification import RandomForestClassifier
@@ -729,7 +729,7 @@ classifier = RandomForestClassifier(seed=1234, labelCol="Cover_Type",
 
 请注意，此分类器还有另一个超参数：要构建的树的数量。与最大箱数超参数一样，较高的值应该在一定程度上产生更好的结果。然而，代价是构建许多树当然比构建一棵树花费的时间要长得多。
 
-从类似调整过程产生的最佳随机森林模型的准确率一开始就达到了95% —— 已经比最佳决策树的错误率低了大约2%，尽管从另一个角度看，这是错误率从之前的7%下降到5%的28%。您可能通过进一步调整获得更好的效果。
+从类似调整过程产生的最佳随机森林模型的准确率一开始就达到了 95% —— 已经比最佳决策树的错误率低了大约 2%，尽管从另一个角度看，这是错误率从之前的 7%下降到 5%的 28%。您可能通过进一步调整获得更好的效果。
 
 顺便说一句，在这一点上，我们对特征重要性有了更可靠的图像：
 
@@ -756,13 +756,13 @@ pprint(feature_importance_list)
 (0.015317564027809389,Slope)
 ```
 
-随机森林在大数据背景下很有吸引力，因为树应该独立构建，大数据技术如Spark和MapReduce天生需要*数据并行*问题，在数据的各个部分上可以独立计算整体解决方案的部分。树可以且应该仅在特征或输入数据的子集上进行训练，使得并行构建树变得微不足道。
+随机森林在大数据背景下很有吸引力，因为树应该独立构建，大数据技术如 Spark 和 MapReduce 天生需要*数据并行*问题，在数据的各个部分上可以独立计算整体解决方案的部分。树可以且应该仅在特征或输入数据的子集上进行训练，使得并行构建树变得微不足道。
 
 # 进行预测
 
 构建分类器虽然是一个有趣且微妙的过程，但不是最终目标。目标是进行预测。这是回报，相比较而言，它相对容易得多。
 
-“最佳模型”实际上是一个完整的操作流程。它封装了输入如何被转换以供模型使用，并包括模型本身，该模型可以进行预测。它可以在新输入的数据帧上操作。我们开始的`data` DataFrame唯一的不同之处在于它缺少`Cover_Type`列。当我们进行预测时——尤其是关于未来的预测，波尔先生说——输出当然是未知的。
+“最佳模型”实际上是一个完整的操作流程。它封装了输入如何被转换以供模型使用，并包括模型本身，该模型可以进行预测。它可以在新输入的数据帧上操作。我们开始的`data` DataFrame 唯一的不同之处在于它缺少`Cover_Type`列。当我们进行预测时——尤其是关于未来的预测，波尔先生说——输出当然是未知的。
 
 为了证明它，请尝试从测试数据输入中删除`Cover_Type`并获取一个预测。
 
@@ -779,17 +779,17 @@ bestModel.transform(unenc_test_data.drop("Cover_Type")).\
 +----------+
 ```
 
-结果应该是6.0，对应于原始Covtype数据集中的第7类（原始特征是从1开始编号的）。此示例中描述的土地的预测覆盖类型是Krummholz。
+结果应该是 6.0，对应于原始 Covtype 数据集中的第 7 类（原始特征是从 1 开始编号的）。此示例中描述的土地的预测覆盖类型是 Krummholz。
 
 # 何去何从
 
-本章介绍了两种相关且重要的机器学习类型，分类和回归，以及构建和调整模型的一些基本概念：特征、向量、训练和交叉验证。它演示了如何使用Covtype数据集，使用PySpark中实现的决策树和随机森林来预测森林覆盖类型，例如位置和土壤类型等。
+本章介绍了两种相关且重要的机器学习类型，分类和回归，以及构建和调整模型的一些基本概念：特征、向量、训练和交叉验证。它演示了如何使用 Covtype 数据集，使用 PySpark 中实现的决策树和随机森林来预测森林覆盖类型，例如位置和土壤类型等。
 
-与[第三章](ch03.xhtml#recommending_music_and_the_audioscrobbler_data_set)中的推荐系统一样，继续探索超参数对准确性的影响可能很有用。大多数决策树超参数都在时间和准确性之间进行权衡：更多的箱子和树通常会产生更高的准确性，但会达到收益递减的点。
+与第三章中的推荐系统一样，继续探索超参数对准确性的影响可能很有用。大多数决策树超参数都在时间和准确性之间进行权衡：更多的箱子和树通常会产生更高的准确性，但会达到收益递减的点。
 
-这里的分类器结果非常准确。超过95%的准确性是不寻常的。一般来说，通过包含更多特征或将现有特征转换为更具预测性的形式，你可以进一步提高准确性。这是在迭代改进分类器模型中的常见重复步骤。例如，对于这个数据集，编码水平和垂直距离到水表的两个特征可以产生第三个特征：直线距离到水表的特征。这可能比任何一个原始特征都更有用。或者，如果有可能收集更多数据，我们可以尝试添加新的信息，比如土壤湿度来改进分类。
+这里的分类器结果非常准确。超过 95%的准确性是不寻常的。一般来说，通过包含更多特征或将现有特征转换为更具预测性的形式，你可以进一步提高准确性。这是在迭代改进分类器模型中的常见重复步骤。例如，对于这个数据集，编码水平和垂直距离到水表的两个特征可以产生第三个特征：直线距离到水表的特征。这可能比任何一个原始特征都更有用。或者，如果有可能收集更多数据，我们可以尝试添加新的信息，比如土壤湿度来改进分类。
 
-当然，并非所有现实世界中的预测问题都与Covtype数据集完全相同。例如，有些问题需要预测连续的数值，而不是分类值。对于这种*回归*问题，大部分相同的分析和代码都适用；在这种情况下，`RandomForestRegressor`类将会很有用。
+当然，并非所有现实世界中的预测问题都与 Covtype 数据集完全相同。例如，有些问题需要预测连续的数值，而不是分类值。对于这种*回归*问题，大部分相同的分析和代码都适用；在这种情况下，`RandomForestRegressor`类将会很有用。
 
 此外，决策树和随机森林不是唯一的分类或回归算法，也不是仅在 PySpark 中实现的算法。每个算法的运作方式都与决策树和随机森林大不相同。然而，许多元素是相同的：它们都可以插入到一个`Pipeline`中，并在数据框架的列上操作，并且具有您必须使用输入数据的训练、交叉验证和测试子集来选择的超参数。对于这些其他算法，相同的一般原则也可以用来建模分类和回归问题。
 

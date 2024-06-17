@@ -1,6 +1,6 @@
-# 第19章. 合并数据集：merge和join
+# 第十九章. 合并数据集：merge 和 join
 
-Pandas提供的一个重要功能是其高性能、内存中的连接和合并操作，如果你曾经使用过数据库，可能对此有所了解。主要接口是`pd.merge`函数，我们将看到几个示例，说明其实际操作方式。
+Pandas 提供的一个重要功能是其高性能、内存中的连接和合并操作，如果你曾经使用过数据库，可能对此有所了解。主要接口是`pd.merge`函数，我们将看到几个示例，说明其实际操作方式。
 
 为方便起见，在通常的导入之后，我们再次定义从上一章中定义的`display`函数：
 
@@ -29,7 +29,7 @@ In [1]: import pandas as pd
 
 `pd.merge`中实现的行为是所谓的*关系代数*的一个子集，这是一组操作关系数据的正式规则，形成了大多数数据库中可用操作的概念基础。关系代数方法的优势在于它提出了几个基本操作，这些操作成为任何数据集上更复杂操作的基础。通过在数据库或其他程序中高效实现这些基本操作的词汇，可以执行广泛范围的相当复杂的组合操作。
 
-Pandas在`pd.merge`函数和`Series`和`DataFrame`对象的相关`join`方法中实现了几个这些基本构建块。正如你将看到的，这些功能让你能够有效地链接来自不同来源的数据。
+Pandas 在`pd.merge`函数和`Series`和`DataFrame`对象的相关`join`方法中实现了几个这些基本构建块。正如你将看到的，这些功能让你能够有效地链接来自不同来源的数据。
 
 # 合并的类别
 
@@ -37,7 +37,7 @@ Pandas在`pd.merge`函数和`Series`和`DataFrame`对象的相关`join`方法中
 
 ## 一对一连接
 
-或许最简单的合并类型是一对一连接，这在许多方面类似于你在[第18章](ch18.xhtml#section-0306-concat-and-append)中看到的逐列串联。作为具体示例，请考虑以下两个包含公司几名员工信息的`DataFrame`对象：
+或许最简单的合并类型是一对一连接，这在许多方面类似于你在第十八章中看到的逐列串联。作为具体示例，请考虑以下两个包含公司几名员工信息的`DataFrame`对象：
 
 ```py
 In [2]: df1 = pd.DataFrame({'employee': ['Bob', 'Jake', 'Lisa', 'Sue'],
@@ -126,7 +126,7 @@ Out[5]: df1                       df5
       7      Sue           HR  organization
 ```
 
-这三种类型的连接可以与其他Pandas工具一起使用，实现广泛的功能。但实际上，数据集很少像我们这里使用的那样干净。在下一节中，我们将考虑由`pd.merge`提供的一些选项，这些选项使您能够调整连接操作的工作方式。
+这三种类型的连接可以与其他 Pandas 工具一起使用，实现广泛的功能。但实际上，数据集很少像我们这里使用的那样干净。在下一节中，我们将考虑由`pd.merge`提供的一些选项，这些选项使您能够调整连接操作的工作方式。
 
 # 指定合并键
 
@@ -229,7 +229,7 @@ Out[10]: df1a                       df2a
          Sue                HR       2014
 ```
 
-为方便起见，Pandas包括`DataFrame.join()`方法，它执行基于索引的合并而无需额外的关键字：
+为方便起见，Pandas 包括`DataFrame.join()`方法，它执行基于索引的合并而无需额外的关键字：
 
 ```py
 In [11]: df1a.join(df2a)
@@ -262,7 +262,7 @@ Out[12]: df1a                       df3
          3           HR   Sue   90000
 ```
 
-所有这些选项也适用于多个索引和/或多个列；这种行为的界面非常直观。有关更多信息，请参阅[Pandas文档中的“Merge, Join, and Concatenate”部分](https://oreil.ly/ffyAp)。
+所有这些选项也适用于多个索引和/或多个列；这种行为的界面非常直观。有关更多信息，请参阅[Pandas 文档中的“Merge, Join, and Concatenate”部分](https://oreil.ly/ffyAp)。
 
 # 指定连接的集合算术
 
@@ -295,7 +295,7 @@ Out[14]:    name   food drink
          0  Mary  bread  wine
 ```
 
-`how`关键字的其他选项包括`'outer'`、`'left'`和`'right'`。*外连接*返回输入列的并集并用NA填充缺失值：
+`how`关键字的其他选项包括`'outer'`、`'left'`和`'right'`。*外连接*返回输入列的并集并用 NA 填充缺失值：
 
 ```py
 In [15]: display('df6', 'df7', "pd.merge(df6, df7, how='outer')")
@@ -372,7 +372,7 @@ Out[18]:    name  rank_L  rank_R
 
 这些后缀适用于可能的任何连接模式，并且在多个重叠列的情况下也适用。
 
-在[第20章](ch20.xhtml#section-0308-aggregation-and-grouping)中，我们将深入探讨关系代数。有关更多讨论，请参阅Pandas文档中的[“Merge, Join, Concatenate and Compare”](https://oreil.ly/l8zZ1)部分。
+在第二十章中，我们将深入探讨关系代数。有关更多讨论，请参阅 Pandas 文档中的[“Merge, Join, Concatenate and Compare”](https://oreil.ly/l8zZ1)部分。
 
 # 示例：美国各州数据
 
@@ -386,7 +386,7 @@ In [19]: # Following are commands to download the data
          # !cd data && curl -O {repo}/state-abbrevs.csv
 ```
 
-让我们使用Pandas的`read_csv`函数查看这三个数据集：
+让我们使用 Pandas 的`read_csv`函数查看这三个数据集：
 
 ```py
 In [20]: pop = pd.read_csv('data/state-population.csv')
@@ -419,7 +419,7 @@ Out[20]: pop.head()
          4  California           CA
 ```
 
-根据这些信息，假设我们想要计算一个相对简单的结果：按照2010年人口密度对美国各州和领地进行排名。显然，我们在这里有数据来找到这个结果，但我们需要合并数据集来实现这一点。
+根据这些信息，假设我们想要计算一个相对简单的结果：按照 2010 年人口密度对美国各州和领地进行排名。显然，我们在这里有数据来找到这个结果，但我们需要合并数据集来实现这一点。
 
 我们将从一个多对一的合并开始，这将使我们在人口`DataFrame`中得到完整的州名。我们要基于`pop`的`state/region`列和`abbrevs`的`abbreviation`列进行合并。我们将使用`how='outer'`以确保由于标签不匹配而丢失数据：
 
@@ -448,7 +448,7 @@ Out[22]: state/region    False
          dtype: bool
 ```
 
-一些`population`值为null；让我们找出它们是哪些！
+一些`population`值为 null；让我们找出它们是哪些！
 
 ```py
 In [23]: merged[merged['population'].isnull()].head()
@@ -460,7 +460,7 @@ Out[23]:      state/region     ages  year  population state
          2452           PR    total  1993         NaN   NaN
 ```
 
-所有空值人口数据似乎来自于2000年之前的波多黎各；这很可能是因为原始来源中没有这些数据。
+所有空值人口数据似乎来自于 2000 年之前的波多黎各；这很可能是因为原始来源中没有这些数据。
 
 更重要的是，我们看到一些新的`state`条目也为空，这意味着在`abbrevs`键中没有相应的条目！让我们找出哪些地区缺少这种匹配：
 
@@ -531,7 +531,7 @@ Out[29]:   state/region     ages  year  population    state  area (sq. mi)
          4           AL  under18  2011   1125763.0  Alabama        52423.0
 ```
 
-现在我们已经拥有了所有需要的数据。为了回答我们感兴趣的问题，让我们首先选择与2010年对应的数据部分和总人口。我们将使用`query`函数来快速完成这一点（这需要安装NumExpr包，请参阅[第24章](ch24.xhtml#section-0312-performance-eval-and-query)）：
+现在我们已经拥有了所有需要的数据。为了回答我们感兴趣的问题，让我们首先选择与 2010 年对应的数据部分和总人口。我们将使用`query`函数来快速完成这一点（这需要安装 NumExpr 包，请参阅第二十四章）：
 
 ```py
 In [30]: data2010 = final.query("year == 2010 & ages == 'total'")
@@ -563,7 +563,7 @@ Out[32]: state
          dtype: float64
 ```
 
-结果是美国各州，以及华盛顿特区和波多黎各，按照其2010年人口密度（每平方英里居民数）的排名。我们可以看到，数据集中迄今为止最密集的地区是华盛顿特区（即哥伦比亚特区）；在各州中，密度最大的是新泽西州。
+结果是美国各州，以及华盛顿特区和波多黎各，按照其 2010 年人口密度（每平方英里居民数）的排名。我们可以看到，数据集中迄今为止最密集的地区是华盛顿特区（即哥伦比亚特区）；在各州中，密度最大的是新泽西州。
 
 我们还可以检查列表的末尾：
 

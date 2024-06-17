@@ -1,10 +1,10 @@
-# 第 34 章\. 自定义 Matplotlib：配置和样式表
+# 第三十四章\. 自定义 Matplotlib：配置和样式表
 
 虽然前面章节涵盖的许多主题都涉及逐个调整绘图元素的样式，但 Matplotlib 也提供了机制来一次性调整图表的整体样式。在本章中，我们将介绍一些 Matplotlib 的运行时配置（*rc*）选项，并查看包含一些漂亮的默认配置集的 *stylesheets* 功能。
 
 # 手动绘图定制
 
-在本书的这一部分中，你已经看到如何调整单个绘图设置，使其看起来比默认设置更好看一些。也可以为每个单独的图进行这些自定义。例如，这里是一个相当沉闷的默认直方图，如图 [34-1](#fig_0411-settings-and-stylesheets_files_in_output_4_0) 所示。
+在本书的这一部分中，你已经看到如何调整单个绘图设置，使其看起来比默认设置更好看一些。也可以为每个单独的图进行这些自定义。例如，这里是一个相当沉闷的默认直方图，如图 34-1 所示。
 
 ```py
 In [1]: import matplotlib.pyplot as plt
@@ -19,11 +19,11 @@ In [2]: x = np.random.randn(1000)
         plt.hist(x);
 ```
 
-![output 4 0](assets/output_4_0.png)
+![output 4 0](img/output_4_0.png)
 
 ###### 图 34-1\. Matplotlib 默认样式下的直方图
 
-我们可以手动调整它，使其成为一个视觉上更加愉悦的图，如你可以在图 [34-2](#fig_0411-settings-and-stylesheets_files_in_output_6_0) 中看到的那样。
+我们可以手动调整它，使其成为一个视觉上更加愉悦的图，如你可以在图 34-2 中看到的那样。
 
 ```py
 In [3]: # use a gray background
@@ -53,7 +53,7 @@ In [3]: # use a gray background
         ax.hist(x, edgecolor='#E6E6E6', color='#EE6666');
 ```
 
-![output 6 0](assets/output_6_0.png)
+![output 6 0](img/output_6_0.png)
 
 ###### 图 34-2\. 带有手动自定义的直方图
 
@@ -80,24 +80,24 @@ In [4]: from matplotlib import cycler
         plt.rc('lines', linewidth=2)
 ```
 
-有了这些设置定义，现在我们可以创建一个图表，并看到我们的设置如何生效（参见图 [34-3](#fig_0411-settings-and-stylesheets_files_in_output_11_0)）。
+有了这些设置定义，现在我们可以创建一个图表，并看到我们的设置如何生效（参见图 34-3）。
 
 ```py
 In [5]: plt.hist(x);
 ```
 
-![output 11 0](assets/output_11_0.png)
+![output 11 0](img/output_11_0.png)
 
 ###### 图 34-3\. 使用 rc 设置的自定义直方图
 
-让我们看看使用这些 rc 参数的简单线图的外观（参见图 [34-4](#fig_0411-settings-and-stylesheets_files_in_output_13_0)）。
+让我们看看使用这些 rc 参数的简单线图的外观（参见图 34-4）。
 
 ```py
 In [6]: for i in range(4):
             plt.plot(np.random.rand(10))
 ```
 
-![output 13 0](assets/output_13_0.png)
+![output 13 0](img/output_13_0.png)
 
 ###### 图 34-4\. 具有自定义样式的线图
 
@@ -150,92 +150,92 @@ In [8]: def hist_and_lines():
 
 ## 默认风格
 
-Matplotlib 的 `default` 风格在 2.0 版本中有更新；我们先来看看这个（见 [Figure 34-5](#fig_0411-settings-and-stylesheets_files_in_output_22_0)）。
+Matplotlib 的 `default` 风格在 2.0 版本中有更新；我们先来看看这个（见 Figure 34-5）。
 
 ```py
 In [9]: with plt.style.context('default'):
             hist_and_lines()
 ```
 
-![output 22 0](assets/output_22_0.png)
+![output 22 0](img/output_22_0.png)
 
 ###### Figure 34-5\. Matplotlib 的 `default` 风格
 
 ## **FiveThiryEight 风格**
 
-`fivethirtyeight` 风格模仿了流行的 [FiveThirtyEight 网站](https://fivethirtyeight.com) 上的图形。正如您在 [Figure 34-6](#fig_0411-settings-and-stylesheets_files_in_output_24_0) 中看到的那样，它以鲜明的颜色、粗线条和透明的坐标轴为特征：
+`fivethirtyeight` 风格模仿了流行的 [FiveThirtyEight 网站](https://fivethirtyeight.com) 上的图形。正如您在 Figure 34-6 中看到的那样，它以鲜明的颜色、粗线条和透明的坐标轴为特征：
 
 ```py
 In [10]: with plt.style.context('fivethirtyeight'):
              hist_and_lines()
 ```
 
-![output 24 0](assets/output_24_0.png)
+![output 24 0](img/output_24_0.png)
 
 ###### Figure 34-6\. `fivethirtyeight` 风格
 
 ## ggplot 风格
 
-R 语言中的 `ggplot` 包是数据科学家中流行的可视化工具。Matplotlib 的 `ggplot` 风格模仿了该包的默认样式（见 [Figure 34-7](#fig_0411-settings-and-stylesheets_files_in_output_26_0)）。
+R 语言中的 `ggplot` 包是数据科学家中流行的可视化工具。Matplotlib 的 `ggplot` 风格模仿了该包的默认样式（见 Figure 34-7）。
 
 ```py
 In [11]: with plt.style.context('ggplot'):
              hist_and_lines()
 ```
 
-![output 26 0](assets/output_26_0.png)
+![output 26 0](img/output_26_0.png)
 
 ###### Figure 34-7\. `ggplot` 风格
 
 ## 贝叶斯方法为黑客风格
 
-有一本名为 [*Probabilistic Programming and Bayesian Methods for Hackers*](https://oreil.ly/9JIb7) 的简短在线书籍，由 Cameron Davidson-Pilon 撰写，其中使用 Matplotlib 创建的图表，并使用一组漂亮的 rc 参数创建了一致且视觉上吸引人的风格。这种风格在 `bmh` 样式表中得以再现（见 [Figure 34-8](#fig_0411-settings-and-stylesheets_files_in_output_28_0)）。
+有一本名为 [*Probabilistic Programming and Bayesian Methods for Hackers*](https://oreil.ly/9JIb7) 的简短在线书籍，由 Cameron Davidson-Pilon 撰写，其中使用 Matplotlib 创建的图表，并使用一组漂亮的 rc 参数创建了一致且视觉上吸引人的风格。这种风格在 `bmh` 样式表中得以再现（见 Figure 34-8）。
 
 ```py
 In [12]: with plt.style.context('bmh'):
              hist_and_lines()
 ```
 
-![output 28 0](assets/output_28_0.png)
+![output 28 0](img/output_28_0.png)
 
 ###### Figure 34-8\. `bmh` 风格
 
 ## **Dark Background 风格**
 
-对于在演示中使用的图像，与其使用浅色背景，不如使用深色背景更为有用。`dark_background` 风格提供了这种选择（见 [Figure 34-9](#fig_0411-settings-and-stylesheets_files_in_output_30_0)）。
+对于在演示中使用的图像，与其使用浅色背景，不如使用深色背景更为有用。`dark_background` 风格提供了这种选择（见 Figure 34-9）。
 
 ```py
 In [13]: with plt.style.context('dark_background'):
              hist_and_lines()
 ```
 
-![output 30 0](assets/output_30_0.png)
+![output 30 0](img/output_30_0.png)
 
 ###### Figure 34-9\. `dark_background` 风格
 
 ## 灰度风格
 
-你可能会发现自己正在为不接受彩色图的印刷出版物准备图表。对此，`grayscale` 风格（见[图 34-10](#fig_0411-settings-and-stylesheets_files_in_output_32_0)）可能会很有用。
+你可能会发现自己正在为不接受彩色图的印刷出版物准备图表。对此，`grayscale` 风格（见图 34-10）可能会很有用。
 
 ```py
 In [14]: with plt.style.context('grayscale'):
              hist_and_lines()
 ```
 
-![output 32 0](assets/output_32_0.png)
+![output 32 0](img/output_32_0.png)
 
 ###### 图 34-10\. `grayscale` 风格
 
 ## Seaborn 风格
 
-Matplotlib 也有几种受 Seaborn 库启发的样式表（详见[第36章](ch36.xhtml#section-0414-visualization-with-seaborn)）。我发现这些设置非常不错，通常将它们作为自己数据探索的默认设置（见[图 34-11](#fig_0411-settings-and-stylesheets_files_in_output_34_0)）。
+Matplotlib 也有几种受 Seaborn 库启发的样式表（详见第三十六章）。我发现这些设置非常不错，通常将它们作为自己数据探索的默认设置（见图 34-11）。
 
 ```py
 In [15]: with plt.style.context('seaborn-whitegrid'):
              hist_and_lines()
 ```
 
-![output 34 0](assets/output_34_0.png)
+![output 34 0](img/output_34_0.png)
 
 ###### 图 34-11\. `seaborn` 绘图风格
 

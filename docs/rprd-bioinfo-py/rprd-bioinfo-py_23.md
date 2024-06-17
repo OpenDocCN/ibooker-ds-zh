@@ -12,33 +12,33 @@ $ foo
 接下来是我在我的 Macintosh 上的路径。注意，我必须在名称前面加上一个美元符号 (`$`)，告诉我的 shell (`bash`) 这是一个变量，而不是字面字符串 `PATH`。为了使这更易读，我将使用 Perl 将冒号替换为换行符。请注意，此命令仅在安装了 Perl 的 Unix 命令行上才能正常工作：
 
 ```py
-$ echo $PATH | perl -pe 's/:/\n/g' ![1](assets/1.png)
-/Users/kyclark/.local/bin ![2](assets/2.png)
-/Library/Frameworks/Python.framework/Versions/3.9/bin ![3](assets/3.png)
-/usr/local/bin ![4](assets/4.png)
-/usr/bin ![5](assets/5.png)
+$ echo $PATH | perl -pe 's/:/\n/g' ![1](img/1.png)
+/Users/kyclark/.local/bin ![2](img/2.png)
+/Library/Frameworks/Python.framework/Versions/3.9/bin ![3](img/3.png)
+/usr/local/bin ![4](img/4.png)
+/usr/bin ![5](img/5.png)
 /bin
 /usr/sbin
 /sbin
 ```
 
-[![1](assets/1.png)](#co_understanding__path_and_installing_command_line_programs_CO1-1)
+![1](img/#co_understanding__path_and_installing_command_line_programs_CO1-1)
 
 Perl 替换 (`s//`) 命令将第一个模式 (`:`) 全局替换为第二个 (`\n`)。
 
-[![2](assets/2.png)](#co_understanding__path_and_installing_command_line_programs_CO1-2)
+![2](img/#co_understanding__path_and_installing_command_line_programs_CO1-2)
 
 这是我通常为安装自己的程序创建的自定义目录。
 
-[![3](assets/3.png)](#co_understanding__path_and_installing_command_line_programs_CO1-3)
+![3](img/#co_understanding__path_and_installing_command_line_programs_CO1-3)
 
 这是 Python 安装自身的位置。
 
-[![4](assets/4.png)](#co_understanding__path_and_installing_command_line_programs_CO1-4)
+![4](img/#co_understanding__path_and_installing_command_line_programs_CO1-4)
 
 这是一个标准的用户安装软件目录。
 
-[![5](assets/5.png)](#co_understanding__path_and_installing_command_line_programs_CO1-5)
+![5](img/#co_understanding__path_and_installing_command_line_programs_CO1-5)
 
 其余的目录都是用来查找程序的更标准的目录。
 
@@ -46,15 +46,15 @@ Perl 替换 (`s//`) 命令将第一个模式 (`:`) 全局替换为第二个 (`\n
 
 注意，我 `PATH` 中的所有目录名称都以 *bin* 结尾。这是 *二进制* 的缩写，来自于许多程序以二进制形式存在的事实。例如，C 程序的源代码以一种伪英语语言编写，编译成机器可读的可执行文件。该文件的内容是二进制编码的指令，操作系统可以执行。
 
-相比之下，Python程序通常安装为其源代码文件，在运行时由Python执行。如果你想全局安装你的Python程序之一，我建议你将其复制到已列出在你的`PATH`中的目录之一。例如，*/usr/local/bin*是用户通过*本地*安装软件的典型目录。这是一个如此常见的目录，以至于通常出现在`PATH`中。如果你在个人设备上工作，比如笔记本电脑，在这里你拥有管理员权限，你应该能够将新文件写入此位置。
+相比之下，Python 程序通常安装为其源代码文件，在运行时由 Python 执行。如果你想全局安装你的 Python 程序之一，我建议你将其复制到已列出在你的`PATH`中的目录之一。例如，*/usr/local/bin*是用户通过*本地*安装软件的典型目录。这是一个如此常见的目录，以至于通常出现在`PATH`中。如果你在个人设备上工作，比如笔记本电脑，在这里你拥有管理员权限，你应该能够将新文件写入此位置。
 
-例如，如果我想要能够在[第一章](ch01.html#ch01)中运行`dna.py`程序而不提供源代码的完整路径，我可以将其复制到我的`PATH`中的某个位置：
+例如，如果我想要能够在第一章中运行`dna.py`程序而不提供源代码的完整路径，我可以将其复制到我的`PATH`中的某个位置：
 
 ```py
 $ cp 01_dna/dna.py /usr/local/bin
 ```
 
-然而，你可能没有足够的权限来执行此操作。Unix系统从一开始就设计成*多租户*操作系统，这意味着它们支持许多不同的人同时使用系统。重要的是防止用户写入和删除他们不应该的文件，因此操作系统可能会阻止你将`dna.py`写入你不拥有的目录。例如，如果你在大学的共享高性能计算（HPC）系统上工作，你肯定没有这样的特权。
+然而，你可能没有足够的权限来执行此操作。Unix 系统从一开始就设计成*多租户*操作系统，这意味着它们支持许多不同的人同时使用系统。重要的是防止用户写入和删除他们不应该的文件，因此操作系统可能会阻止你将`dna.py`写入你不拥有的目录。例如，如果你在大学的共享高性能计算（HPC）系统上工作，你肯定没有这样的特权。
 
 当无法安装到系统目录时，最简单的方法是在你的`HOME`目录中创建一个位置用于这些文件。在我的笔记本电脑上，这就是我的`HOME`目录：
 
@@ -63,7 +63,7 @@ $ echo $HOME
 /Users/kyclark
 ```
 
-在我的几乎所有系统上，我创建了一个`$HOME/.local`目录用于安装程序。大多数shell将波浪号（`~`）解释为`HOME`：
+在我的几乎所有系统上，我创建了一个`$HOME/.local`目录用于安装程序。大多数 shell 将波浪号（`~`）解释为`HOME`：
 
 ```py
 $ mkdir ~/.local
@@ -71,7 +71,7 @@ $ mkdir ~/.local
 
 按照惯例，以点开头的文件和目录通常被`ls`命令隐藏。你可以使用**`ls -a`**列出目录的*所有*内容。你可能会注意到许多其他*点文件*，它们被各种程序用来持久化选项和程序状态。我喜欢称其为`.local`，这样在我的目录列表中通常看不到它。
 
-为软件安装在`HOME`中创建一个目录在生物信息学中编译程序从源代码是特别有用的。这种安装大多数情况下开始使用`configure`程序收集关于你的系统的信息，比如你的C编译器的位置等等。这个程序几乎总是有一个`--prefix`选项，我将设置为这个目录：
+为软件安装在`HOME`中创建一个目录在生物信息学中编译程序从源代码是特别有用的。这种安装大多数情况下开始使用`configure`程序收集关于你的系统的信息，比如你的 C 编译器的位置等等。这个程序几乎总是有一个`--prefix`选项，我将设置为这个目录：
 
 ```py
 $ ./configure --prefix=$HOME/.local
@@ -85,7 +85,7 @@ $ ./configure --prefix=$HOME/.local
 export PATH=$HOME/.local/bin:$PATH
 ```
 
-如果你使用不同的shell，可能需要稍作调整。最近，macOS开始使用`zsh`（Z shell）作为默认shell，或者你的HPC系统可能使用另一种shell。它们都有`PATH`的概念，并且都允许你以某种方式进行自定义。在Windows上，你可以使用以下命令将目录追加到你的路径中：
+如果你使用不同的 shell，可能需要稍作调整。最近，macOS 开始使用`zsh`（Z shell）作为默认 shell，或者你的 HPC 系统可能使用另一种 shell。它们都有`PATH`的概念，并且都允许你以某种方式进行自定义。在 Windows 上，你可以使用以下命令将目录追加到你的路径中：
 
 ```py
 > $env:Path += ";~/.local/bin"
@@ -98,7 +98,7 @@ $ mkdir -p ~/.local/bin
 $ cp 01_dna/dna.py ~/.local/bin
 ```
 
-现在我应该能够在Unix机器的任何位置执行**`dna.py`**：
+现在我应该能够在 Unix 机器的任何位置执行**`dna.py`**：
 
 ```py
 $ dna.py
@@ -106,7 +106,7 @@ usage: dna.py [-h] DNA
 dna.py: error: the following arguments are required: DNA
 ```
 
-Windows的shell如`cmd.exe`和PowerShell不会像Unix shell那样读取和执行shebang，因此在程序名之前，你需要包括命令**`python.exe`**或**`python3.exe`**：
+Windows 的 shell 如`cmd.exe`和 PowerShell 不会像 Unix shell 那样读取和执行 shebang，因此在程序名之前，你需要包括命令**`python.exe`**或**`python3.exe`**：
 
 ```py
 > python.exe C:\Users\kyclark\.local\bin\dna.py
@@ -114,4 +114,4 @@ usage: dna.py [-h] DNA
 dna.py: error: the following arguments are required: DNA
 ```
 
-确保`python.exe --version`显示你正在使用的是版本3而不是版本2。你可能需要安装最新版本的Python。我仅展示了使用`python.exe`的Windows命令，假设这意味着Python 3，但根据你的系统，你可能需要使用`python3.exe`。
+确保`python.exe --version`显示你正在使用的是版本 3 而不是版本 2。你可能需要安装最新版本的 Python。我仅展示了使用`python.exe`的 Windows 命令，假设这意味着 Python 3，但根据你的系统，你可能需要使用`python3.exe`。

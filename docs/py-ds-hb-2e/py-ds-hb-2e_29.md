@@ -1,10 +1,10 @@
-# 第25章。Matplotlib一般提示
+# 第二十五章。Matplotlib 一般提示
 
-在我们深入研究使用Matplotlib创建可视化的详细信息之前，有几个有用的事情您应该了解如何使用这个包。
+在我们深入研究使用 Matplotlib 创建可视化的详细信息之前，有几个有用的事情您应该了解如何使用这个包。
 
-# 导入Matplotlib
+# 导入 Matplotlib
 
-正如我们使用`np`简写代表NumPy和`pd`简写代表Pandas一样，我们将使用一些标准缩写来导入Matplotlib：
+正如我们使用`np`简写代表 NumPy 和`pd`简写代表 Pandas 一样，我们将使用一些标准缩写来导入 Matplotlib：
 
 ```py
 In [1]: import matplotlib as mpl
@@ -15,21 +15,21 @@ In [1]: import matplotlib as mpl
 
 # 设置样式
 
-我们将使用`plt.style`指令为我们的图形选择合适的美学样式。在这里，我们将设置`classic`样式，确保我们创建的图使用经典的Matplotlib样式：
+我们将使用`plt.style`指令为我们的图形选择合适的美学样式。在这里，我们将设置`classic`样式，确保我们创建的图使用经典的 Matplotlib 样式：
 
 ```py
 In [2]: plt.style.use('classic')
 ```
 
-在本章中，我们将根据需要调整这种样式。有关样式表的更多信息，请参阅[第34章](ch34.xhtml#section-0411-settings-and-stylesheets)。
+在本章中，我们将根据需要调整这种样式。有关样式表的更多信息，请参阅第三十四章。
 
 # 显示还是不显示？如何显示您的图形
 
-您看不到的可视化对您没有多大用处，但是您查看Matplotlib图形的方式取决于上下文。Matplotlib的最佳用法因您如何使用它而异；大致上，适用的三种上下文是在脚本中使用Matplotlib，在IPython终端中使用Matplotlib或在Jupyter笔记本中使用Matplotlib。
+您看不到的可视化对您没有多大用处，但是您查看 Matplotlib 图形的方式取决于上下文。Matplotlib 的最佳用法因您如何使用它而异；大致上，适用的三种上下文是在脚本中使用 Matplotlib，在 IPython 终端中使用 Matplotlib 或在 Jupyter 笔记本中使用 Matplotlib。
 
 ## 从脚本绘图
 
-如果您正在脚本中使用Matplotlib，则函数`plt.show`是您的好帮手。`plt.show`启动一个事件循环，查找所有当前活动的`Figure`对象，并打开一个或多个交互窗口来显示您的图形或图形。
+如果您正在脚本中使用 Matplotlib，则函数`plt.show`是您的好帮手。`plt.show`启动一个事件循环，查找所有当前活动的`Figure`对象，并打开一个或多个交互窗口来显示您的图形或图形。
 
 因此，例如，您可能有一个名为*myplot.py*的文件，其中包含以下内容：
 
@@ -53,13 +53,13 @@ $ python myplot.py
 
 ```
 
-`plt.show`命令在幕后做了很多工作，因为它必须与系统的交互式图形后端进行交互。此操作的详细信息在不同的系统甚至不同的安装中可能会有很大的差异，但是Matplotlib会尽力隐藏所有这些细节。
+`plt.show`命令在幕后做了很多工作，因为它必须与系统的交互式图形后端进行交互。此操作的详细信息在不同的系统甚至不同的安装中可能会有很大的差异，但是 Matplotlib 会尽力隐藏所有这些细节。
 
-有一件事需要注意：`plt.show`命令应该在每个Python会话中*仅使用一次*，并且最常见的情况是在脚本的最后。多个`show`命令可能会导致不可预测的基于后端的行为，并且应该尽量避免。
+有一件事需要注意：`plt.show`命令应该在每个 Python 会话中*仅使用一次*，并且最常见的情况是在脚本的最后。多个`show`命令可能会导致不可预测的基于后端的行为，并且应该尽量避免。
 
-## 从IPython Shell绘图
+## 从 IPython Shell 绘图
 
-Matplotlib在IPython shell中也可以无缝运行（请参阅[第I部分](part01.xhtml#section-0100-ipython-beyond-normal-python)）。IPython是构建用于与Matplotlib很好配合的，如果您指定Matplotlib模式。要启用此模式，可以在启动`ipython`后使用`%matplotlib`魔术命令：
+Matplotlib 在 IPython shell 中也可以无缝运行（请参阅第 I 部分）。IPython 是构建用于与 Matplotlib 很好配合的，如果您指定 Matplotlib 模式。要启用此模式，可以在启动`ipython`后使用`%matplotlib`魔术命令：
 
 ```py
 In [1]: %matplotlib
@@ -68,11 +68,11 @@ Using matplotlib backend: TkAgg
 In [2]: import matplotlib.pyplot as plt
 ```
 
-此时，任何`plt`绘图命令都将导致一个图形窗口打开，并且可以运行进一步的命令来更新绘图。某些更改（例如修改已经绘制的线的属性）不会自动绘制：要强制更新，请使用`plt.draw`。在IPython的Matplotlib模式中不需要使用`plt.show`。
+此时，任何`plt`绘图命令都将导致一个图形窗口打开，并且可以运行进一步的命令来更新绘图。某些更改（例如修改已经绘制的线的属性）不会自动绘制：要强制更新，请使用`plt.draw`。在 IPython 的 Matplotlib 模式中不需要使用`plt.show`。
 
-## 从Jupyter笔记本绘图
+## 从 Jupyter 笔记本绘图
 
-Jupyter Notebook 是一个基于浏览器的交互式数据分析工具，可以将叙述、代码、图形、HTML 元素等多种内容组合到一个可执行文档中（参见[第 I 部分](part01.xhtml#section-0100-ipython-beyond-normal-python)）。
+Jupyter Notebook 是一个基于浏览器的交互式数据分析工具，可以将叙述、代码、图形、HTML 元素等多种内容组合到一个可执行文档中（参见第 I 部分）。
 
 在 Jupyter Notebook 中进行交互式绘图可以通过 `%matplotlib` 命令完成，其工作方式类似于 IPython Shell。您还可以选择直接在笔记本中嵌入图形，有两种可能的选项：
 
@@ -80,7 +80,7 @@ Jupyter Notebook 是一个基于浏览器的交互式数据分析工具，可以
 
 +   `%matplotlib notebook` 将导致交互式图形嵌入到笔记本中。
 
-对于本书，通常会使用默认设置，图形渲染为静态图像（见[图 25-1](#fig_0400-introduction-to-matplotlib_files_in_output_15_0) 以查看此基本绘图示例的结果）：
+对于本书，通常会使用默认设置，图形渲染为静态图像（见图 25-1 以查看此基本绘图示例的结果）：
 
 ```py
 In [3]: %matplotlib inline
@@ -95,7 +95,7 @@ In [4]: import numpy as np
         plt.plot(x, np.cos(x), '--');
 ```
 
-![output 15 0](assets/output_15_0.png)
+![output 15 0](img/output_15_0.png)
 
 ###### 图 25-1\. 基本绘图示例
 
@@ -114,14 +114,14 @@ In [6]: !ls -lh my_figure.png
 Out[6]: -rw-r--r--  1 jakevdp  staff    26K Feb  1 06:15 my_figure.png
 ```
 
-为了确认它包含我们认为包含的内容，让我们使用 IPython 的 `Image` 对象来显示此文件的内容（见[图 25-2](#fig_0400-introduction-to-matplotlib_files_in_output_21_0)）。
+为了确认它包含我们认为包含的内容，让我们使用 IPython 的 `Image` 对象来显示此文件的内容（见图 25-2）。
 
 ```py
 In [7]: from IPython.display import Image
         Image('my_figure.png')
 ```
 
-![output 21 0](assets/output_21_0.png)
+![output 21 0](img/output_21_0.png)
 
 ###### 图 25-2\. 基本绘图的 PNG 渲染
 
@@ -152,7 +152,7 @@ Matplotlib 的一个可能令人困惑的特性是其双界面：一个方便的
 
 ### MATLAB 风格界面
 
-Matplotlib 最初被构想为 MATLAB 用户的 Python 替代方案，其语法大部分反映了这一事实。MATLAB 风格的工具包含在 `pyplot` (`plt`) 接口中。例如，以下代码对 MATLAB 用户可能看起来非常熟悉（见[图 25-3](#fig_0400-introduction-to-matplotlib_files_in_output_27_0) 显示的结果）。
+Matplotlib 最初被构想为 MATLAB 用户的 Python 替代方案，其语法大部分反映了这一事实。MATLAB 风格的工具包含在 `pyplot` (`plt`) 接口中。例如，以下代码对 MATLAB 用户可能看起来非常熟悉（见图 25-3 显示的结果）。
 
 ```py
 In [9]: plt.figure()  # create a plot figure
@@ -166,17 +166,17 @@ In [9]: plt.figure()  # create a plot figure
         plt.plot(x, np.cos(x));
 ```
 
-![output 27 0](assets/output_27_0.png)
+![output 27 0](img/output_27_0.png)
 
 ###### 图 25-3\. 使用 MATLAB 风格界面的子图
 
 重要的是要认识到这种接口是*有状态的*：它跟踪“当前”图形和坐标轴，所有`plt`命令都应用于这些对象。您可以使用`plt.gcf`（获取当前图形）和`plt.gca`（获取当前坐标轴）来获取对这些对象的引用。
 
-虽然这种状态接口在简单绘图时快捷方便，但也容易遇到问题。例如，一旦创建了第二个面板，如何返回并向第一个面板添加内容？这在MATLAB风格接口中是可能的，但有点笨拙。幸运的是，有更好的方法。
+虽然这种状态接口在简单绘图时快捷方便，但也容易遇到问题。例如，一旦创建了第二个面板，如何返回并向第一个面板添加内容？这在 MATLAB 风格接口中是可能的，但有点笨拙。幸运的是，有更好的方法。
 
 ### 面向对象接口
 
-对于这些更复杂的情况以及当您希望对图形有更多控制时，可以使用面向对象的接口。与依赖“活跃”图形或坐标轴的概念不同，在面向对象的接口中，绘图函数是显式`Figure`和`Axes`对象的*方法*。要使用这种绘图风格重新创建之前的图形，如在[图 25-4](#fig_0400-introduction-to-matplotlib_files_in_output_30_0)中所示，可以执行以下操作：
+对于这些更复杂的情况以及当您希望对图形有更多控制时，可以使用面向对象的接口。与依赖“活跃”图形或坐标轴的概念不同，在面向对象的接口中，绘图函数是显式`Figure`和`Axes`对象的*方法*。要使用这种绘图风格重新创建之前的图形，如在图 25-4 中所示，可以执行以下操作：
 
 ```py
 In [10]: # First create a grid of plots
@@ -188,8 +188,8 @@ In [10]: # First create a grid of plots
          ax[1].plot(x, np.cos(x));
 ```
 
-![output 30 0](assets/output_30_0.png)
+![output 30 0](img/output_30_0.png)
 
 ###### 图 25-4\. 使用面向对象接口的子图
 
-对于更简单的绘图，使用哪种风格主要是偏好问题，但随着绘图变得更加复杂，面向对象的方法可能变得必不可少。在接下来的章节中，我们将根据方便性在MATLAB风格和面向对象接口之间切换。在大多数情况下，区别仅在于将`plt.plot`切换为`ax.plot`，但在接下来的章节中遇到的一些陷阱我将会特别提出。
+对于更简单的绘图，使用哪种风格主要是偏好问题，但随着绘图变得更加复杂，面向对象的方法可能变得必不可少。在接下来的章节中，我们将根据方便性在 MATLAB 风格和面向对象接口之间切换。在大多数情况下，区别仅在于将`plt.plot`切换为`ax.plot`，但在接下来的章节中遇到的一些陷阱我将会特别提出。

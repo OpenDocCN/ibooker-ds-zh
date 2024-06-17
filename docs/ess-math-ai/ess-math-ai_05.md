@@ -14,11 +14,11 @@
 
 接着我们讨论*池化*，这是卷积神经网络架构中常见的另一层。与上一章类似，多层结构和每一层的非线性使我们能够从图像中提取越来越复杂的特征，显著增强计算机视觉任务。
 
-一旦我们理解了卷积神经网络的基本解剖结构，就可以直接将相同的数学应用于涉及自然语言处理的任务，比如情感分析、语音识别、音频生成等。相同的数学在计算机视觉和自然语言处理中起作用的事实类似于我们大脑对环境、经历和思维的物理变化能力（大脑的虚拟模拟版本）。即使大脑的某些部分受损，其他部分也可以接管并执行新的功能。例如，致力于视觉的大脑部分在视力受损时可以开始执行听觉或记忆任务。在神经科学中，这被称为神经可塑性。我们离完全理解大脑及其工作原理还有很长的路要走，但对这种现象的最简单解释是大脑中的每个神经元执行相同的基本功能，类似于神经网络中的神经元执行一种基本数学计算（实际上是两种，线性组合然后激活），而是多层次的各种神经连接产生了感知和行为中观察到的复杂性。卷积神经网络实际上受到了大脑视觉新皮层的启发。正是它们在2012年在图像分类方面的成功（[AlexNet2012](https://en.wikipedia.org/wiki/AlexNet)）将人工智能重新推回主流，激励了许多人并带领我们走到了这里。如果你有额外的时间，这一章节的一个很好的睡前阅读是关于大脑视觉新皮层功能及其与为计算机视觉设计的卷积神经网络的类比。
+一旦我们理解了卷积神经网络的基本解剖结构，就可以直接将相同的数学应用于涉及自然语言处理的任务，比如情感分析、语音识别、音频生成等。相同的数学在计算机视觉和自然语言处理中起作用的事实类似于我们大脑对环境、经历和思维的物理变化能力（大脑的虚拟模拟版本）。即使大脑的某些部分受损，其他部分也可以接管并执行新的功能。例如，致力于视觉的大脑部分在视力受损时可以开始执行听觉或记忆任务。在神经科学中，这被称为神经可塑性。我们离完全理解大脑及其工作原理还有很长的路要走，但对这种现象的最简单解释是大脑中的每个神经元执行相同的基本功能，类似于神经网络中的神经元执行一种基本数学计算（实际上是两种，线性组合然后激活），而是多层次的各种神经连接产生了感知和行为中观察到的复杂性。卷积神经网络实际上受到了大脑视觉新皮层的启发。正是它们在 2012 年在图像分类方面的成功（[AlexNet2012](https://en.wikipedia.org/wiki/AlexNet)）将人工智能重新推回主流，激励了许多人并带领我们走到了这里。如果你有额外的时间，这一章节的一个很好的睡前阅读是关于大脑视觉新皮层功能及其与为计算机视觉设计的卷积神经网络的类比。
 
 # 卷积和互相关
 
-卷积和互相关是稍有不同的操作，测量信号中的不同内容，可以是数字图像、数字音频信号或其他内容。如果我们使用对称函数k，称为*滤波器*或*核*，它们就完全相同。简而言之，卷积*翻转*滤波器然后沿函数滑动，而互相关在*不翻转*的情况下沿函数滑动滤波器。自然地，如果滤波器恰好是对称的，那么卷积和互相关就完全相同。翻转核的优势在于使卷积操作可交换，这反过来有利于编写理论证明。也就是说，从神经网络的角度来看，可交换性并不重要，有三个原因：
+卷积和互相关是稍有不同的操作，测量信号中的不同内容，可以是数字图像、数字音频信号或其他内容。如果我们使用对称函数 k，称为*滤波器*或*核*，它们就完全相同。简而言之，卷积*翻转*滤波器然后沿函数滑动，而互相关在*不翻转*的情况下沿函数滑动滤波器。自然地，如果滤波器恰好是对称的，那么卷积和互相关就完全相同。翻转核的优势在于使卷积操作可交换，这反过来有利于编写理论证明。也就是说，从神经网络的角度来看，可交换性并不重要，有三个原因：
 
 1.  首先，卷积操作通常不会单独出现在神经网络中，而是与其他非线性函数组合在一起，因此无论我们是否翻转内核，我们都会失去交换律。
 
@@ -44,7 +44,7 @@
 
 <math alttext="dollar-sign StartLayout 1st Row 1st Column left-parenthesis k asterisk f right-parenthesis left-parenthesis n right-parenthesis 2nd Column equals sigma-summation Underscript s equals negative normal infinity Overscript normal infinity Endscripts f left-parenthesis s right-parenthesis k left-parenthesis s plus n right-parenthesis 2nd Row 1st Column Blank 2nd Column equals sigma-summation Underscript s equals negative normal infinity Overscript normal infinity Endscripts f left-parenthesis s minus n right-parenthesis k left-parenthesis s right-parenthesis period EndLayout dollar-sign"><mtable displaystyle="true"><mtr><mtd columnalign="right"><mrow><mo>(</mo> <mi>k</mi> <mo>*</mo> <mi>f</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo></mrow></mtd> <mtd columnalign="left"><mrow><mo>=</mo> <munderover><mo>∑</mo> <mrow><mi>s</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></munderover> <mi>f</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mi>k</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>+</mo> <mi>n</mi> <mo>)</mo></mrow></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <munderover><mo>∑</mo> <mrow><mi>s</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></munderover> <mi>f</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>-</mo> <mi>n</mi> <mo>)</mo></mrow> <mi>k</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>.</mo></mrow></mtd></mtr></mtable></math>
 
-请注意，定义卷积和互相关的公式看起来完全相同，只是对于卷积，我们使用-*s*而不是*s*。这对应于翻转所涉及的函数（在移位之前）。还要注意，卷积积分和求和中涉及的索引相加得到t或n，而对于互相关则不是这样。这使得卷积是可交换的，即<math alttext="left-parenthesis f star k right-parenthesis left-parenthesis n right-parenthesis equals left-parenthesis k star f right-parenthesis left-parenthesis n right-parenthesis"><mrow><mo>(</mo> <mi>f</mi> <mo>☆</mo> <mi>k</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo> <mo>=</mo> <mo>(</mo> <mi>k</mi> <mo>☆</mo> <mi>f</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo></mrow></math>，而互相关不一定是可交换的。我们稍后会进一步讨论可交换性。
+请注意，定义卷积和互相关的公式看起来完全相同，只是对于卷积，我们使用-*s*而不是*s*。这对应于翻转所涉及的函数（在移位之前）。还要注意，卷积积分和求和中涉及的索引相加得到 t 或 n，而对于互相关则不是这样。这使得卷积是可交换的，即<math alttext="left-parenthesis f star k right-parenthesis left-parenthesis n right-parenthesis equals left-parenthesis k star f right-parenthesis left-parenthesis n right-parenthesis"><mrow><mo>(</mo> <mi>f</mi> <mo>☆</mo> <mi>k</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo> <mo>=</mo> <mo>(</mo> <mi>k</mi> <mo>☆</mo> <mi>f</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo></mrow></math>，而互相关不一定是可交换的。我们稍后会进一步讨论可交换性。
 
 每当我们遇到一个新的数学对象时，最好停下来问自己几个问题，然后再深入研究。这样，我们可以建立坚实的数学基础，同时避免深不见底的技术和复杂数学的海洋。
 
@@ -64,7 +64,7 @@
 
 为了我们的人工智能目的，我们将使用卷积操作来构建一维文本和音频数据以及二维图像数据的卷积神经网络。相同的思想可以推广到大多数信息局部化的高维数据类型。我们在两个情境中使用卷积神经网络：*理解*图像、文本和音频数据，以及*生成*图像、文本和音频数据。
 
-此外，在数据和数据分布的背景下，我们使用以下与两个独立随机变量的概率分布有关的结果：如果μ和ν是拓扑群上的概率测度，并且X和Y是两个独立随机变量，它们各自的分布是μ和ν，则卷积μ☆ν是随机变量X + Y的概率分布。我们在概率和测度章节中详细阐述这一点。
+此外，在数据和数据分布的背景下，我们使用以下与两个独立随机变量的概率分布有关的结果：如果μ和ν是拓扑群上的概率测度，并且 X 和 Y 是两个独立随机变量，它们各自的分布是μ和ν，则卷积μ☆ν是随机变量 X + Y 的概率分布。我们在概率和测度章节中详细阐述这一点。
 
 这个数学对象是如何产生的？
 
@@ -72,7 +72,7 @@
 
 对许多人来说，尤其是那些感到被数学吓到或感到害怕的人，令人惊讶的是，在追求理解的过程中，一些数学界最重要的人物，包括某些领域的奠基人，都曾在路上犯过多次错误，并在以后的时间里加以纠正，或者被他人纠正，直到理论最终成形。
 
-卷积积分的最早应用之一出现在1754年，是在达朗贝尔推导泰勒定理中。后来在1797年至1800年间，西尔维斯特·弗朗索瓦·拉克罗瓦在他的著作《差分与级数论》中使用了这个概念，这是他百科全书系列《微积分和积分微积分论》的一部分。此后不久，卷积运算出现在数学界非常著名的人物的作品中，如拉普拉斯、傅立叶、泊松和沃尔特拉。这里的共同点是所有这些研究都与函数的积分、导数和级数有关。换句话说，微积分，再次将函数分解为其组成频率（傅立叶级数和变换）。
+卷积积分的最早应用之一出现在 1754 年，是在达朗贝尔推导泰勒定理中。后来在 1797 年至 1800 年间，西尔维斯特·弗朗索瓦·拉克罗瓦在他的著作《差分与级数论》中使用了这个概念，这是他百科全书系列《微积分和积分微积分论》的一部分。此后不久，卷积运算出现在数学界非常著名的人物的作品中，如拉普拉斯、傅立叶、泊松和沃尔特拉。这里的共同点是所有这些研究都与函数的积分、导数和级数有关。换句话说，微积分，再次将函数分解为其组成频率（傅立叶级数和变换）。
 
 在深入研究之前，我们必须了解与这个数学对象相关的最重要的操作、操纵和/或定理是什么？
 
@@ -82,11 +82,11 @@
 
 <math alttext="dollar-sign t r a n s Subscript a Baseline left-parenthesis k right-parenthesis star f equals k star t r a n s Subscript a Baseline left-parenthesis f right-parenthesis equals t r a n s Subscript a Baseline left-parenthesis k star f right-parenthesis left-parenthesis t right-parenthesis dollar-sign"><mrow><mi>t</mi> <mi>r</mi> <mi>a</mi> <mi>n</mi> <msub><mi>s</mi> <mi>a</mi></msub> <mrow><mo>(</mo> <mi>k</mi> <mo>)</mo></mrow> <mo>☆</mo> <mi>f</mi> <mo>=</mo> <mi>k</mi> <mo>☆</mo> <mi>t</mi> <mi>r</mi> <mi>a</mi> <mi>n</mi> <msub><mi>s</mi> <mi>a</mi></msub> <mrow><mo>(</mo> <mi>f</mi> <mo>)</mo></mrow> <mo>=</mo> <mi>t</mi> <mi>r</mi> <mi>a</mi> <mi>n</mi> <msub><mi>s</mi> <mi>a</mi></msub> <mrow><mo>(</mo> <mi>k</mi> <mo>☆</mo> <mi>f</mi> <mo>)</mo></mrow> <mrow><mo>(</mo> <mi>t</mi> <mo>)</mo></mrow></mrow></math>
 
-其中<math alttext="t r a n s Subscript a"><mrow><mi>t</mi> <mi>r</mi> <mi>a</mi> <mi>n</mi> <msub><mi>s</mi> <mi>a</mi></msub></mrow></math>是通过*a*函数进行的翻译。对于我们的AI目的，这意味着给定一个设计用于在图像中捕捉某些特征的滤波器，将其与平移图像（在水平或垂直方向）卷积等同于过滤图像*然后*翻译它。这种性质有时被称为平移*等变性*，而平移不变性则归因于经常内置在卷积神经网络架构中的池化层。我们将在本章后面讨论这一点。无论如何，在每一层我们在整个图像上使用一个滤波器（一组权重）的事实意味着当存在时我们在图像的各个位置检测到一个模式。相同的原理适用于音频数据或任何其他类型的类似网格的数据。
+其中<math alttext="t r a n s Subscript a"><mrow><mi>t</mi> <mi>r</mi> <mi>a</mi> <mi>n</mi> <msub><mi>s</mi> <mi>a</mi></msub></mrow></math>是通过*a*函数进行的翻译。对于我们的 AI 目的，这意味着给定一个设计用于在图像中捕捉某些特征的滤波器，将其与平移图像（在水平或垂直方向）卷积等同于过滤图像*然后*翻译它。这种性质有时被称为平移*等变性*，而平移不变性则归因于经常内置在卷积神经网络架构中的池化层。我们将在本章后面讨论这一点。无论如何，在每一层我们在整个图像上使用一个滤波器（一组权重）的事实意味着当存在时我们在图像的各个位置检测到一个模式。相同的原理适用于音频数据或任何其他类型的类似网格的数据。
 
 +   在常规空间中的卷积是频率空间中的乘积：两个函数的卷积的傅里叶变换是每个函数的傅里叶变换的乘积，只是有一个缩放因子。换句话说，卷积操作不会产生新的频率，卷积函数中存在的频率只是组成函数的频率的乘积。
 
-在数学中，我们不断更新我们用来解决不同问题的有用工具，因此，根据我们的专业领域，我们在这一点上会拓展研究相关但更复杂的结果，比如*周期函数的循环卷积*，计算卷积的首选算法等。对于我们以一种对AI目的有用的方式深入研究卷积的最佳途径是通过信号和系统设计，这是下一节的主题。
+在数学中，我们不断更新我们用来解决不同问题的有用工具，因此，根据我们的专业领域，我们在这一点上会拓展研究相关但更复杂的结果，比如*周期函数的循环卷积*，计算卷积的首选算法等。对于我们以一种对 AI 目的有用的方式深入研究卷积的最佳途径是通过信号和系统设计，这是下一节的主题。
 
 # 从系统设计的角度看卷积
 
@@ -100,27 +100,27 @@
 
 让我们形式化线性系统和时/平移不变系统的概念，然后理解当试图量化具有这些特性的系统对*任何*信号的响应时，卷积运算是如何自然产生的。从数学角度来看，一个系统是一个函数<math alttext="upper H"><mi>H</mi></math>，它接受一个输入信号<math alttext="x"><mi>x</mi></math>并产生一个输出信号<math alttext="y"><mi>y</mi></math>。信号<math alttext="x"><mi>x</mi></math>和<math alttext="y"><mi>y</mi></math>可以依赖于时间、空间（单个或多个维度）或两者都可以。如果我们在这样的函数上强制线性性，那么我们在声称两件事情：
 
-1.  一个经过缩放的输入信号的输出仅仅是原始输出的缩放：<math alttext="上H左括号a x右括号等于a上H左括号x右括号等于a y"><mrow><mi>H</mi> <mo>(</mo> <mi>a</mi> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>a</mi> <mi>H</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>a</mi> <mi>y</mi></mrow></math>
+1.  一个经过缩放的输入信号的输出仅仅是原始输出的缩放：<math alttext="上 H 左括号 a x 右括号等于 a 上 H 左括号 x 右括号等于 a y"><mrow><mi>H</mi> <mo>(</mo> <mi>a</mi> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>a</mi> <mi>H</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>a</mi> <mi>y</mi></mrow></math>
 
-1.  两个叠加信号的输出只是两个原始输出的叠加：上H（x1 + x2）= 上H（x1）+ 上H（x2）= y1 + y2.
+1.  两个叠加信号的输出只是两个原始输出的叠加：上 H（x1 + x2）= 上 H（x1）+ 上 H（x2）= y1 + y2.
 
 如果我们强制时间/平移不变性，那么我们声称延迟/平移/移位信号的输出只是延迟/平移/移位的原始输出：<math alttext="upper H left-parenthesis x left-parenthesis t minus t 0 right-parenthesis right-parenthesis equals y left-parenthesis t minus t 0 right-parenthesis"><mrow><mi>H</mi> <mrow><mo>(</mo> <mi>x</mi> <mrow><mo>(</mo> <mi>t</mi> <mo>-</mo> <msub><mi>t</mi> <mn>0</mn></msub> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>=</mo> <mi>y</mi> <mrow><mo>(</mo> <mi>t</mi> <mo>-</mo> <msub><mi>t</mi> <mn>0</mn></msub> <mo>)</mo></mrow></mrow></math> .
 
 当我们考虑任意信号时，无论是离散的还是连续的，我们可以利用上述条件，将其看作是各种幅度的*冲激信号*的叠加。这样，如果我们能够测量系统对单个冲激信号的输出，称为系统的*冲激响应*，那么这就足以测量系统对任何其他信号的响应。这成为一个非常丰富的理论基础。在本章中，我们只讨论离散情况，因为在人工智能中我们关心的信号（例如自然语言处理、人机交互和计算机视觉）是离散的，无论是一维音频信号还是二维或三维图像。连续情况是类似的，只是我们考虑无穷小步长而不是离散步长，我们使用积分而不是求和，并且我们强制执行连续性条件（或者我们需要的任何其他条件，以便使所涉及的积分定义良好）。实际上，连续情况带来了一点额外的复杂性：必须以数学上合理的方式正确定义*冲激*，因为它不是以通常意义上的函数。幸运的是，有多种数学方法可以使其定义良好，例如分布理论，或将其定义为作用于通常函数的算子，或作为测度并利用勒贝格积分的帮助。然而，我一直在避免测度、勒贝格积分和任何深入的数学理论，直到我们真正需要它们的额外功能，因此目前，离散情况是非常充分的。
 
-我们定义一个单位冲激<math alttext="delta left-parenthesis k right-parenthesis"><mrow><mi>δ</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo></mrow></math>，对于每个非零的k都为零，当k=0时为1，并定义其响应为<math alttext="upper H left-parenthesis delta left-parenthesis k right-parenthesis right-parenthesis equals h left-parenthesis k right-parenthesis"><mrow><mi>H</mi> <mo>(</mo> <mi>δ</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo> <mo>)</mo> <mo>=</mo> <mi>h</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo></mrow></math>。然后<math alttext="delta left-parenthesis n minus k right-parenthesis"><mrow><mi>δ</mi> <mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow></math>对于每个k都为零，当k=n时为1。这代表了一个位于k=n处的单位冲激。因此，<math alttext="x left-parenthesis k right-parenthesis delta left-parenthesis n minus k right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo> <mi>δ</mi> <mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow></math>是一个幅度为x(k)的冲激，位于k=n处。现在我们可以将输入信号x(n)写成：
+我们定义一个单位冲激<math alttext="delta left-parenthesis k right-parenthesis"><mrow><mi>δ</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo></mrow></math>，对于每个非零的 k 都为零，当 k=0 时为 1，并定义其响应为<math alttext="upper H left-parenthesis delta left-parenthesis k right-parenthesis right-parenthesis equals h left-parenthesis k right-parenthesis"><mrow><mi>H</mi> <mo>(</mo> <mi>δ</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo> <mo>)</mo> <mo>=</mo> <mi>h</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo></mrow></math>。然后<math alttext="delta left-parenthesis n minus k right-parenthesis"><mrow><mi>δ</mi> <mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow></math>对于每个 k 都为零，当 k=n 时为 1。这代表了一个位于 k=n 处的单位冲激。因此，<math alttext="x left-parenthesis k right-parenthesis delta left-parenthesis n minus k right-parenthesis"><mrow><mi>x</mi> <mo>(</mo> <mi>k</mi> <mo>)</mo> <mi>δ</mi> <mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow></math>是一个幅度为 x(k)的冲激，位于 k=n 处。现在我们可以将输入信号 x(n)写成：
 
 <math alttext="dollar-sign x left-parenthesis n right-parenthesis equals sigma-summation Underscript k equals negative normal infinity Overscript normal infinity Endscripts x left-parenthesis k right-parenthesis delta left-parenthesis n minus k right-parenthesis dollar-sign"><mrow><mi>x</mi> <mrow><mo>(</mo> <mi>n</mi> <mo>)</mo></mrow> <mo>=</mo> <msubsup><mo>∑</mo> <mrow><mi>k</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></msubsup> <mi>x</mi> <mrow><mo>(</mo> <mi>k</mi> <mo>)</mo></mrow> <mi>δ</mi> <mrow><mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow></mrow></math>
 
-上面的总和可能看起来像是一种复杂的信号写法，但实际上它非常有用，因为它表明任何离散信号都可以被表达为在正确位置按比例缩放的无限脉冲的总和。现在，利用H的线性和平移不变性假设，很容易看出系统对信号x(n)的响应是：
+上面的总和可能看起来像是一种复杂的信号写法，但实际上它非常有用，因为它表明任何离散信号都可以被表达为在正确位置按比例缩放的无限脉冲的总和。现在，利用 H 的线性和平移不变性假设，很容易看出系统对信号 x(n)的响应是：
 
 <math alttext="dollar-sign StartLayout 1st Row 1st Column upper H left-parenthesis x left-parenthesis n right-parenthesis right-parenthesis 2nd Column equals upper H left-parenthesis sigma-summation Underscript k equals negative normal infinity Overscript normal infinity Endscripts x left-parenthesis k right-parenthesis delta left-parenthesis n minus k right-parenthesis right-parenthesis 2nd Row 1st Column Blank 2nd Column equals sigma-summation Underscript k equals negative normal infinity Overscript normal infinity Endscripts x left-parenthesis k right-parenthesis upper H left-parenthesis delta left-parenthesis n minus k right-parenthesis right-parenthesis 3rd Row 1st Column Blank 2nd Column equals sigma-summation Underscript k equals negative normal infinity Overscript normal infinity Endscripts x left-parenthesis k right-parenthesis h left-parenthesis n minus k right-parenthesis 4th Row 1st Column Blank 2nd Column equals left-parenthesis x star h right-parenthesis left-parenthesis n right-parenthesis 5th Row 1st Column Blank 2nd Column equals y left-parenthesis n right-parenthesis EndLayout dollar-sign"><mtable displaystyle="true"><mtr><mtd columnalign="right"><mrow><mi>H</mi> <mo>(</mo> <mi>x</mi> <mo>(</mo> <mi>n</mi> <mo>)</mo> <mo>)</mo></mrow></mtd> <mtd columnalign="left"><mrow><mo>=</mo> <mi>H</mi> <mo>(</mo> <munderover><mo>∑</mo> <mrow><mi>k</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></munderover> <mi>x</mi> <mrow><mo>(</mo> <mi>k</mi> <mo>)</mo></mrow> <mi>δ</mi> <mrow><mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow> <mo>)</mo></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <munderover><mo>∑</mo> <mrow><mi>k</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></munderover> <mi>x</mi> <mrow><mo>(</mo> <mi>k</mi> <mo>)</mo></mrow> <mi>H</mi> <mrow><mo>(</mo> <mi>δ</mi> <mrow><mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow> <mo>)</mo></mrow></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <munderover><mo>∑</mo> <mrow><mi>k</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></munderover> <mi>x</mi> <mrow><mo>(</mo> <mi>k</mi> <mo>)</mo></mrow> <mi>h</mi> <mrow><mo>(</mo> <mi>n</mi> <mo>-</mo> <mi>k</mi> <mo>)</mo></mrow></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <mo>(</mo> <mi>x</mi> <mo>☆</mo> <mi>h</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <mi>y</mi> <mo>(</mo> <mi>n</mi> <mo>)</mo></mrow></mtd></mtr></mtable></math>
 
-因此，一个线性和平移不变系统完全由其冲激响应h(n)描述。但还有另一种看待这个问题的方式，这种方式与线性和平移不变系统无关，对我们接下来几节的目的非常有用。这种说法
+因此，一个线性和平移不变系统完全由其冲激响应 h(n)描述。但还有另一种看待这个问题的方式，这种方式与线性和平移不变系统无关，对我们接下来几节的目的非常有用。这种说法
 
 <math alttext="dollar-sign y left-parenthesis n right-parenthesis equals left-parenthesis x star h right-parenthesis left-parenthesis n right-parenthesis dollar-sign"><mrow><mi>y</mi> <mo>(</mo> <mi>n</mi> <mo>)</mo> <mo>=</mo> <mo>(</mo> <mi>x</mi> <mo>☆</mo> <mi>h</mi> <mo>)</mo> <mo>(</mo> <mi>n</mi> <mo>)</mo></mrow></math>
 
-信号x(n)经过与*滤波器*h(n)卷积后可以转换为信号y(n)。因此，精心设计滤波器h(n)可以产生具有一些期望特性的y(n)，或者可以从信号x(n)中*提取特定特征*，例如所有的边缘。此外，使用不同的滤波器h(n)可以从相同的信号x(n)中提取不同的特征。我们将在接下来的几节中详细阐述这些概念，同时请记住以下内容：当信息，如信号或图像，通过卷积神经网络流动时，不同的特征会在每个卷积层中被提取（映射）。
+信号 x(n)经过与*滤波器*h(n)卷积后可以转换为信号 y(n)。因此，精心设计滤波器 h(n)可以产生具有一些期望特性的 y(n)，或者可以从信号 x(n)中*提取特定特征*，例如所有的边缘。此外，使用不同的滤波器 h(n)可以从相同的信号 x(n)中提取不同的特征。我们将在接下来的几节中详细阐述这些概念，同时请记住以下内容：当信息，如信号或图像，通过卷积神经网络流动时，不同的特征会在每个卷积层中被提取（映射）。
 
 在离开线性和时不变系统之前，我们必须提到这样的系统对正弦输入有非常简单的响应：如果系统的输入是具有特定频率的正弦波，那么输出也是具有相同频率的正弦波，但可能具有不同的幅度和相位。此外，了解系统的冲激响应使我们能够计算其*频率响应*，即系统对所有频率的正弦波的响应，反之亦然。也就是说，确定系统的冲激响应使我们能够计算其频率响应，确定频率响应使我们能够计算其冲激响应，从而完全确定系统对任意信号的响应。这种联系在理论和应用角度都非常有用，并与傅立叶变换和信号的频域表示密切相关。简而言之，线性和时不变系统的频率响应简单地是其冲激响应的傅立叶变换。我们在这里不详细介绍计算细节，因为这些概念对本书的其余部分并不重要，然而，了解这些联系并理解看似不同领域的事物如何联系并相互关联是很重要的。
 
@@ -146,15 +146,15 @@
 
 <math alttext="dollar-sign left-parenthesis k asterisk x right-parenthesis left-parenthesis m comma n right-parenthesis equals sigma-summation Underscript q equals negative normal infinity Overscript normal infinity Endscripts sigma-summation Underscript s equals negative normal infinity Overscript normal infinity Endscripts x left-parenthesis m plus q comma n plus s right-parenthesis k left-parenthesis q comma s right-parenthesis dollar-sign"><mrow><mrow><mo>(</mo> <mi>k</mi> <mo>*</mo> <mi>x</mi> <mo>)</mo></mrow> <mrow><mo>(</mo> <mi>m</mi> <mo>,</mo> <mi>n</mi> <mo>)</mo></mrow> <mo>=</mo> <msubsup><mo>∑</mo> <mrow><mi>q</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></msubsup> <msubsup><mo>∑</mo> <mrow><mi>s</mi><mo>=</mo><mo>-</mo><mi>∞</mi></mrow> <mi>∞</mi></msubsup> <mi>x</mi> <mrow><mo>(</mo> <mi>m</mi> <mo>+</mo> <mi>q</mi> <mo>,</mo> <mi>n</mi> <mo>+</mo> <mi>s</mi> <mo>)</mo></mrow> <mi>k</mi> <mrow><mo>(</mo> <mi>q</mi> <mo>,</mo> <mi>s</mi> <mo>)</mo></mrow></mrow></math>
 
-例如，矩阵A和卷积核K之间的（2,1）项的卷积（未翻转）如下：<math alttext="4 times 4"><mrow><mn>4</mn> <mo>×</mo> <mn>4</mn></mrow></math>矩阵和<math alttext="3 times 3"><mrow><mn>3</mn> <mo>×</mo> <mn>3</mn></mrow></math>卷积核。
+例如，矩阵 A 和卷积核 K 之间的（2,1）项的卷积（未翻转）如下：<math alttext="4 times 4"><mrow><mn>4</mn> <mo>×</mo> <mn>4</mn></mrow></math>矩阵和<math alttext="3 times 3"><mrow><mn>3</mn> <mo>×</mo> <mn>3</mn></mrow></math>卷积核。
 
 <math alttext="dollar-sign upper A asterisk upper K equals Start 4 By 4 Matrix 1st Row 1st Column a 00 2nd Column a 01 3rd Column a 02 4th Column a 03 2nd Row 1st Column a 10 2nd Column a 11 3rd Column a 12 4th Column a 13 3rd Row 1st Column a 20 2nd Column StartEnclose box a 21 EndEnclose 3rd Column a 22 4th Column a 23 4th Row 1st Column a 30 2nd Column a 31 3rd Column a 32 4th Column a 33 EndMatrix asterisk Start 3 By 3 Matrix 1st Row 1st Column k 00 2nd Column k 01 3rd Column k 02 2nd Row 1st Column k 10 2nd Column StartEnclose box k 11 EndEnclose 3rd Column k 12 3rd Row 1st Column k 20 2nd Column k 21 3rd Column k 22 EndMatrix dollar-sign"><mrow><mi>A</mi> <mo>*</mo> <mi>K</mi> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><msub><mi>a</mi> <mn>00</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>01</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>02</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>03</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>a</mi> <mn>10</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>11</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>12</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>13</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>a</mi> <mn>20</mn></msub></mtd> <mtd><mtable frame="solid"><mtr><mtd><msub><mi>a</mi> <mn>21</mn></msub></mtd></mtr></mtable></mtd> <mtd><msub><mi>a</mi> <mn>22</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>23</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>a</mi> <mn>30</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>31</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>32</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>33</mn></msub></mtd></mtr></mtable></mfenced> <mo>*</mo> <mfenced close=")" open="("><mtable><mtr><mtd><msub><mi>k</mi> <mn>00</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>01</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>02</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>k</mi> <mn>10</mn></msub></mtd> <mtd><mtable frame="solid"><mtr><mtd><msub><mi>k</mi> <mn>11</mn></msub></mtd></mtr></mtable></mtd> <mtd><msub><mi>k</mi> <mn>12</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>k</mi> <mn>20</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>21</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>22</mn></msub></mtd></mtr></mtable></mfenced></mrow></math>
 
-这是一个数学公式，描述了如何计算卷积操作。要理解这一点，想象将卷积核K准确放置在矩阵A的中心位置，然后将重叠的部分相乘并将所有结果相加。请注意，这里我们只计算了输出信号的一个条目，这意味着如果我们处理图像，它将是滤波后图像的一个像素值。我们需要所有其他像素的值！为此，我们需要知道哪些索引是有效的卷积。有效的意思是*完整*，即在计算过程中考虑所有卷积核条目。找到考虑完整卷积核的索引，回想一下我们将K准确放置在A上的心理图像，K的中心位于我们要计算的索引位置。根据这种放置方式，K的其余部分不应超出A的边界，因此对于我们的示例，好的索引将是(1,1)，(1,2)，(2,1)和(2,2)，产生输出：
+这是一个数学公式，描述了如何计算卷积操作。要理解这一点，想象将卷积核 K 准确放置在矩阵 A 的中心位置，然后将重叠的部分相乘并将所有结果相加。请注意，这里我们只计算了输出信号的一个条目，这意味着如果我们处理图像，它将是滤波后图像的一个像素值。我们需要所有其他像素的值！为此，我们需要知道哪些索引是有效的卷积。有效的意思是*完整*，即在计算过程中考虑所有卷积核条目。找到考虑完整卷积核的索引，回想一下我们将 K 准确放置在 A 上的心理图像，K 的中心位于我们要计算的索引位置。根据这种放置方式，K 的其余部分不应超出 A 的边界，因此对于我们的示例，好的索引将是(1,1)，(1,2)，(2,1)和(2,2)，产生输出：
 
 <math alttext="dollar-sign upper Z equals Start 2 By 2 Matrix 1st Row 1st Column z 11 2nd Column z 12 2nd Row 1st Column z 21 2nd Column z 22 EndMatrix period dollar-sign"><mrow><mi>Z</mi> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><msub><mi>z</mi> <mn>11</mn></msub></mtd> <mtd><msub><mi>z</mi> <mn>12</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>z</mi> <mn>21</mn></msub></mtd> <mtd><msub><mi>z</mi> <mn>22</mn></msub></mtd></mtr></mtable></mfenced> <mo>.</mo></mrow></math>
 
-这意味着如果我们在处理图像，经过滤的图像Z的尺寸会比原始图像A小。如果我们想要生成与原始图像相同尺寸的图像，那么在应用滤波器之前，我们必须用零填充原始图像。对于我们的示例，我们需要在A的完整边界周围填充一层零，但如果K更大，那么我们需要更多层的零。以下是用一层零填充的A：
+这意味着如果我们在处理图像，经过滤的图像 Z 的尺寸会比原始图像 A 小。如果我们想要生成与原始图像相同尺寸的图像，那么在应用滤波器之前，我们必须用零填充原始图像。对于我们的示例，我们需要在 A 的完整边界周围填充一层零，但如果 K 更大，那么我们需要更多层的零。以下是用一层零填充的 A：
 
 <math alttext="dollar-sign upper A Subscript p a d d e d Baseline equals Start 6 By 6 Matrix 1st Row 1st Column 0 2nd Column 0 3rd Column 0 4th Column 0 5th Column 0 6th Column 0 2nd Row 1st Column 0 2nd Column a 00 3rd Column a 01 4th Column a 02 5th Column a 03 6th Column 0 3rd Row 1st Column 0 2nd Column a 10 3rd Column a 11 4th Column a 12 5th Column a 13 6th Column 0 4th Row 1st Column 0 2nd Column a 20 3rd Column a 21 4th Column a 22 5th Column a 23 6th Column 0 5th Row 1st Column 0 2nd Column a 30 3rd Column a 31 4th Column a 32 5th Column a 33 6th Column 0 6th Row 1st Column 0 2nd Column 0 3rd Column 0 4th Column 0 5th Column 0 6th Column 0 EndMatrix period dollar-sign"><mrow><msub><mi>A</mi> <mrow><mi>p</mi><mi>a</mi><mi>d</mi><mi>d</mi><mi>e</mi><mi>d</mi></mrow></msub> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><msub><mi>a</mi> <mn>00</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>01</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>02</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>03</mn></msub></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><msub><mi>a</mi> <mn>10</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>11</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>12</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>13</mn></msub></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><msub><mi>a</mi> <mn>20</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>21</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>22</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>23</mn></msub></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><msub><mi>a</mi> <mn>30</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>31</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>32</mn></msub></mtd> <mtd><msub><mi>a</mi> <mn>33</mn></msub></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd></mtr></mtable></mfenced> <mo>.</mo></mrow></math>
 
@@ -168,19 +168,19 @@
 
 ## 图像滤波
 
-[图5-1](#Fig_image_filters)展示了使用不同卷积核对同一图像进行卷积，提取图像不同特征的示例。
+图 5-1 展示了使用不同卷积核对同一图像进行卷积，提取图像不同特征的示例。
 
-![300](assets/emai_0501.png)
+![300](img/emai_0501.png)
 
-###### 图5-1。将各种滤镜应用于图像（图片来源）。
+###### 图 5-1。将各种滤镜应用于图像（图片来源）。
 
-例如，表中的第三个核心在其中心有8，其余的条目都是-1。这意味着这个核心使当前像素的强度增加了8倍，然后减去周围所有像素的值。如果我们在图像的一个均匀区域，意味着所有像素的值相等或非常接近，那么这个过程将得到零，返回一个黑色或关闭的像素。另一方面，如果这个像素位于边界上，例如眼睛的边界，或者鹿的脸部边界，那么卷积的输出将具有非零值，因此它将是一个明亮的像素。当我们将这个过程应用于整个图像时，结果是一个新图像，其中许多边缘都用明亮的像素描绘，而图像的其余部分则是黑暗的。正如我们在表中看到的，能够检测边缘、模糊等的核心的选择并不是唯一的。同一表格包括用于模糊的二维离散高斯滤波器。当我们离散化一维高斯函数时，我们不会失去其对称性，但是当我们离散化二维高斯函数时，我们会失去其径向对称性，因为我们必须用一个方形矩阵来近似其自然的圆形或椭圆形状。请注意，高斯在中心处达到峰值，随着远离中心的扩散而衰减。此外，其曲线下的面积（在二维中是曲面）为1。这具有平均和平滑（去除噪音）的整体效果，当我们将其与另一个信号卷积时。我们付出的代价是去除尖锐的边缘，这正是模糊的作用（想象一下，尖锐的边缘被自身和中心几个标准偏差距离内所有周围像素的平滑衰减平均值所取代）。标准偏差（或方差的平方）越小，我们就能从图像中保留更多的细节。
+例如，表中的第三个核心在其中心有 8，其余的条目都是-1。这意味着这个核心使当前像素的强度增加了 8 倍，然后减去周围所有像素的值。如果我们在图像的一个均匀区域，意味着所有像素的值相等或非常接近，那么这个过程将得到零，返回一个黑色或关闭的像素。另一方面，如果这个像素位于边界上，例如眼睛的边界，或者鹿的脸部边界，那么卷积的输出将具有非零值，因此它将是一个明亮的像素。当我们将这个过程应用于整个图像时，结果是一个新图像，其中许多边缘都用明亮的像素描绘，而图像的其余部分则是黑暗的。正如我们在表中看到的，能够检测边缘、模糊等的核心的选择并不是唯一的。同一表格包括用于模糊的二维离散高斯滤波器。当我们离散化一维高斯函数时，我们不会失去其对称性，但是当我们离散化二维高斯函数时，我们会失去其径向对称性，因为我们必须用一个方形矩阵来近似其自然的圆形或椭圆形状。请注意，高斯在中心处达到峰值，随着远离中心的扩散而衰减。此外，其曲线下的面积（在二维中是曲面）为 1。这具有平均和平滑（去除噪音）的整体效果，当我们将其与另一个信号卷积时。我们付出的代价是去除尖锐的边缘，这正是模糊的作用（想象一下，尖锐的边缘被自身和中心几个标准偏差距离内所有周围像素的平滑衰减平均值所取代）。标准偏差（或方差的平方）越小，我们就能从图像中保留更多的细节。
 
-另一个很好的例子显示在[图5-2](#Fig_filters_gabor)中。在这里，每个图像是顶部图像与每个子图的左下角所示的滤波器（核）之间的卷积结果。这些滤波器被称为[Gabor滤波器](https://en.wikipedia.org/wiki/Gabor_filter)。它们被设计用来捕捉图像中的某些模式/纹理/特征，并且它们的工作方式类似于人类视觉系统中发现的滤波器。
+另一个很好的例子显示在图 5-2 中。在这里，每个图像是顶部图像与每个子图的左下角所示的滤波器（核）之间的卷积结果。这些滤波器被称为[Gabor 滤波器](https://en.wikipedia.org/wiki/Gabor_filter)。它们被设计用来捕捉图像中的某些模式/纹理/特征，并且它们的工作方式类似于人类视觉系统中发现的滤波器。
 
-![emai 0502](assets/emai_0502.png)
+![emai 0502](img/emai_0502.png)
 
-###### 图5-2. Gabor滤波器
+###### 图 5-2. Gabor 滤波器
 
 我们的眼睛检测图像中事物变化的部分，即对比度。它们捕捉到边缘（水平、垂直、对角线）和梯度（测量变化的陡峭程度）。我们设计数学上执行相同操作的滤波器，通过卷积将它们滑过信号。当信号中没有变化时，这些产生平滑和无事件的结果（零或接近的数字），当检测到与核对齐的边缘或梯度时，会产生尖峰。
 
@@ -190,11 +190,11 @@
 
 我们如何绘制特征图？
 
-特征图帮助我们打开黑匣子，直接观察训练网络在每个卷积层上检测到的内容。如果网络仍在训练过程中，特征图可以帮助我们找出错误的来源，然后相应地调整模型。假设我们将一幅图像输入到一个经过训练的卷积神经网络中。在第一层，通过卷积操作，一个核在整个图像上滑动并产生一个新的滤波图像。然后，这个滤波图像通过一个非线性激活函数，产生另一个图像。最后，这个图像通过一个池化层，很快会解释，产生卷积层的最终输出。这个输出是一个不同于我们开始的图像的图像，可能具有不同的尺寸，但如果网络训练得好，输出图像将突出显示原始图像的一些重要特征，如边缘、纹理等。这个输出图像通常是一个数字矩阵或数字张量（对于彩色图像是三维的，或者如果我们在批量图像或视频数据中工作，则是四维的，其中有一个额外的维度用于时间序列）。可以使用Python中的matplotlib库将这些可视化为特征图，其中矩阵或张量中的每个条目都映射到与矩阵条目相同位置的像素的强度。[图5-3](#Fig_feature_maps)显示了卷积神经网络的各个卷积层中的各种特征图。
+特征图帮助我们打开黑匣子，直接观察训练网络在每个卷积层上检测到的内容。如果网络仍在训练过程中，特征图可以帮助我们找出错误的来源，然后相应地调整模型。假设我们将一幅图像输入到一个经过训练的卷积神经网络中。在第一层，通过卷积操作，一个核在整个图像上滑动并产生一个新的滤波图像。然后，这个滤波图像通过一个非线性激活函数，产生另一个图像。最后，这个图像通过一个池化层，很快会解释，产生卷积层的最终输出。这个输出是一个不同于我们开始的图像的图像，可能具有不同的尺寸，但如果网络训练得好，输出图像将突出显示原始图像的一些重要特征，如边缘、纹理等。这个输出图像通常是一个数字矩阵或数字张量（对于彩色图像是三维的，或者如果我们在批量图像或视频数据中工作，则是四维的，其中有一个额外的维度用于时间序列）。可以使用 Python 中的 matplotlib 库将这些可视化为特征图，其中矩阵或张量中的每个条目都映射到与矩阵条目相同位置的像素的强度。图 5-3 显示了卷积神经网络的各个卷积层中的各种特征图。
 
-![emai 0503](assets/emai_0503.png)
+![emai 0503](img/emai_0503.png)
 
-###### 图5-3. 卷积神经网络中的特征图
+###### 图 5-3. 卷积神经网络中的特征图
 
 # 线性代数符号
 
@@ -210,17 +210,17 @@
 
 在一维中，卷积操作可以用一种特殊类型的矩阵来表示，称为*Toeplitz*矩阵，在二维中，可以用另一种特殊类型的矩阵来表示，称为*双重块循环*矩阵。让我们只关注这两种，但带着这个教训：矩阵表示法，总的来说，是最好的方法，我们愚蠢地不去发现和充分利用矩阵内在的结构。换句话说，首先攻击最一般的情况可能只是一种悲哀的时间浪费，而时间在这个生活中是一种稀缺资源。在使用最一般的矩阵和最具体的矩阵之间找到一个很好的折衷方案是伴随结果进行复杂性分析：这种方法的顺序是<math alttext="n cubed comma n log n"><mrow><msup><mi>n</mi> <mn>3</mn></msup> <mo>,</mo> <mi>n</mi> <mo form="prefix">log</mo> <mi>n</mi></mrow></math>，*等等*，这样利益相关者就能意识到在实施某些方法与其他方法之间的权衡。
 
-我们从在线免费书籍《深度学习书籍2016（第9章第334页）》中借用一个简单的例子，以展示在检测图像中的垂直边缘时，使用卷积或利用矩阵中的许多零与使用常规矩阵乘法的效率。*卷积是一种非常高效的描述变换的方式，它在整个输入中应用相同的线性变换于一个小的局部区域。*
+我们从在线免费书籍《深度学习书籍 2016（第九章第 334 页）》中借用一个简单的例子，以展示在检测图像中的垂直边缘时，使用卷积或利用矩阵中的许多零与使用常规矩阵乘法的效率。*卷积是一种非常高效的描述变换的方式，它在整个输入中应用相同的线性变换于一个小的局部区域。*
 
 右侧的图像是通过将原始图像中的每个像素减去其左侧相邻像素的值而形成的。这显示了输入图像中所有垂直边缘的强度，这对于目标检测可能是一个有用的操作。
 
-![300](assets/emai_0504.png)
+![300](img/emai_0504.png)
 
-###### 图5-4。检测图像中的垂直边缘（图像来源）。
+###### 图 5-4。检测图像中的垂直边缘（图像来源）。
 
-两幅图像都是280像素高。输入图像宽度为320像素，而输出图像宽度为319像素。这种转换可以用包含两个元素的卷积核来描述，并且需要进行267,960次浮点运算（每个输出像素两次乘法和一次加法）才能使用卷积计算。
+两幅图像都是 280 像素高。输入图像宽度为 320 像素，而输出图像宽度为 319 像素。这种转换可以用包含两个元素的卷积核来描述，并且需要进行 267,960 次浮点运算（每个输出像素两次乘法和一次加法）才能使用卷积计算。
 
-用矩阵乘法描述相同的转换需要在矩阵中有320×280×319×280，或者超过80亿个条目，使得卷积在表示这种转换时效率提高了四十亿倍。直接的矩阵乘法算法执行了超过160亿次浮点运算，使得卷积在计算上大约高效了6万倍。当然，矩阵的大部分条目将是零。如果我们只存储矩阵的非零条目，那么矩阵乘法和卷积都需要相同数量的浮点运算来计算。矩阵仍然需要包含2×319×280 = 178,640个条目。
+用矩阵乘法描述相同的转换需要在矩阵中有 320×280×319×280，或者超过 80 亿个条目，使得卷积在表示这种转换时效率提高了四十亿倍。直接的矩阵乘法算法执行了超过 160 亿次浮点运算，使得卷积在计算上大约高效了 6 万倍。当然，矩阵的大部分条目将是零。如果我们只存储矩阵的非零条目，那么矩阵乘法和卷积都需要相同数量的浮点运算来计算。矩阵仍然需要包含 2×319×280 = 178,640 个条目。
 
 ## 一维情况：乘以一个特普利茨矩阵
 
@@ -228,7 +228,7 @@
 
 <math alttext="dollar-sign upper T e o p l i t z equals Start 5 By 7 Matrix 1st Row 1st Column k 0 2nd Column k 1 3rd Column k 2 4th Column 0 5th Column 0 6th Column 0 7th Column 0 2nd Row 1st Column 0 2nd Column k 0 3rd Column k 1 4th Column k 2 5th Column 0 6th Column 0 7th Column 0 3rd Row 1st Column 0 2nd Column 0 3rd Column k 0 4th Column k 1 5th Column k 2 6th Column 0 7th Column 0 4th Row 1st Column 0 2nd Column 0 3rd Column 0 4th Column k 0 5th Column k 1 6th Column k 2 7th Column 0 5th Row 1st Column 0 2nd Column 0 3rd Column 0 4th Column 0 5th Column k 0 6th Column k 1 7th Column k 2 EndMatrix dollar-sign"><mrow><mi>T</mi> <mi>e</mi> <mi>o</mi> <mi>p</mi> <mi>l</mi> <mi>i</mi> <mi>t</mi> <mi>z</mi> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><msub><mi>k</mi> <mn>0</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>1</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>2</mn></msub></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><msub><mi>k</mi> <mn>0</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>1</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>2</mn></msub></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><msub><mi>k</mi> <mn>0</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>1</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>2</mn></msub></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><msub><mi>k</mi> <mn>0</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>1</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>2</mn></msub></mtd> <mtd><mn>0</mn></mtd></mtr> <mtr><mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><mn>0</mn></mtd> <mtd><msub><mi>k</mi> <mn>0</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>1</mn></msub></mtd> <mtd><msub><mi>k</mi> <mn>2</mn></msub></mtd></mtr></mtable></mfenced></mrow></math>
 
-将这个Toeplitz矩阵乘以一个一维信号<x>，得到一个一维滤波器<k>与信号*x*的卷积的确切结果，即，<math alttext="left-parenthesis upper T e o p l i t z right-parenthesis x Superscript t Baseline equals k asterisk x"><mrow><mrow><mo>(</mo> <mi>T</mi> <mi>e</mi> <mi>o</mi> <mi>p</mi> <mi>l</mi> <mi>i</mi> <mi>t</mi> <mi>z</mi> <mo>)</mo></mrow> <msup><mi>x</mi> <mi>t</mi></msup> <mo>=</mo> <mi>k</mi> <mo>*</mo> <mi>x</mi></mrow></math>。进行乘法运算，我们可以看到滤波器在信号上的*滑动效果*。
+将这个 Toeplitz 矩阵乘以一个一维信号<x>，得到一个一维滤波器<k>与信号*x*的卷积的确切结果，即，<math alttext="left-parenthesis upper T e o p l i t z right-parenthesis x Superscript t Baseline equals k asterisk x"><mrow><mrow><mo>(</mo> <mi>T</mi> <mi>e</mi> <mi>o</mi> <mi>p</mi> <mi>l</mi> <mi>i</mi> <mi>t</mi> <mi>z</mi> <mo>)</mo></mrow> <msup><mi>x</mi> <mi>t</mi></msup> <mo>=</mo> <mi>k</mi> <mo>*</mo> <mi>x</mi></mrow></math>。进行乘法运算，我们可以看到滤波器在信号上的*滑动效果*。
 
 ## 二维情况：由双重块循环矩阵进行乘法
 
@@ -238,11 +238,11 @@
 
 几乎所有卷积神经网络都会经历一个步骤，即*池化*。通常在输入经过卷积滤波后，通过非线性激活函数后实现。池化有多种类型，但其思想是相同的：用周围输出的汇总统计数据替换特定位置的当前输出。例如，对于图像，可以用包含原始四个像素最大值的一个像素替换四个像素（*最大池化*），或者用它们的平均值，加权平均值，或者它们平方和的平方根，*等等*。
 
-图5-5显示了最大池化的工作原理。
+图 5-5 显示了最大池化的工作原理。
 
-![300](assets/emai_0505.png)
+![300](img/emai_0505.png)
 
-###### 图5-5. 最大池化。
+###### 图 5-5. 最大池化。
 
 实际上，这减少了维度并总结了整个输出的邻域，但以牺牲细节为代价。因此，池化不适用于细节对于进行预测至关重要的用例。尽管如此，池化有许多优点：
 
@@ -270,25 +270,25 @@
 
 1.  重复直到达到一定数量的迭代次数，或者直到收敛。
 
-值得庆幸的是，我们不必独自完成这些工作。Python的库Keras有许多预训练模型，这意味着它们的权重已经固定，我们只需要在我们特定的数据集上评估训练好的模型。
+值得庆幸的是，我们不必独自完成这些工作。Python 的库 Keras 有许多预训练模型，这意味着它们的权重已经固定，我们只需要在我们特定的数据集上评估训练好的模型。
 
-我们可以做的，也应该做的，是观察和学习成功和获胜网络的架构。[图5-6](#Fig_LeNet_1)展示了Le Cun等人（1989年）提出的LeNet1的简单架构，[图5-7](#Fig_AlexNet)展示了AlexNet（2012年）的架构。
+我们可以做的，也应该做的，是观察和学习成功和获胜网络的架构。图 5-6 展示了 Le Cun 等人（1989 年）提出的 LeNet1 的简单架构，图 5-7 展示了 AlexNet（2012 年）的架构。
 
-![300](assets/emai_0506.png)
+![300](img/emai_0506.png)
 
-###### 图5-6. LeNet1的架构（1989年）。
+###### 图 5-6. LeNet1 的架构（1989 年）。
 
-![300](assets/emai_0507.png)
+![300](img/emai_0507.png)
 
-###### 图5-7. AlexNet的架构，拥有惊人的6230万个权重（2012年）。
+###### 图 5-7. AlexNet 的架构，拥有惊人的 6230 万个权重（2012 年）。
 
-一个很好的练习是计算LeNet1和AlexNet训练函数中的权重数量。请注意，每一层（特征图）中的单元越多，权重就越多。当我尝试根据图[图5-6](#Fig_LeNet_1)中的架构计算LeNet1中涉及的权重时，我得到了9484个权重，但原始论文提到了9760个权重，所以我不知道其余的权重在哪里。如果您找到了它们，请告诉我。无论如何，重点是我们需要在<math alttext="双击上标9760"><msup><mi>ℝ</mi> <mn>9760</mn></msup></math>中解决一个优化问题。现在对AlexNet在[图5-7](#Fig_AlexNet)中进行相同的计算：我们大约有6230万个权重，因此优化问题最终在<math alttext="双击上标6230万"><msup><mi>ℝ</mi> <mrow><mn>62</mn><mo>.</mo><mn>3</mn><mi>m</mi><mi>i</mi><mi>l</mi><mi>l</mi><mi>i</mi><mi>o</mi><mi>n</mi></mrow></msup></math>中。另一个惊人的数字：我们需要11亿个计算单元进行一次前向传递。
+一个很好的练习是计算 LeNet1 和 AlexNet 训练函数中的权重数量。请注意，每一层（特征图）中的单元越多，权重就越多。当我尝试根据图图 5-6 中的架构计算 LeNet1 中涉及的权重时，我得到了 9484 个权重，但原始论文提到了 9760 个权重，所以我不知道其余的权重在哪里。如果您找到了它们，请告诉我。无论如何，重点是我们需要在<math alttext="双击上标 9760"><msup><mi>ℝ</mi> <mn>9760</mn></msup></math>中解决一个优化问题。现在对 AlexNet 在图 5-7 中进行相同的计算：我们大约有 6230 万个权重，因此优化问题最终在<math alttext="双击上标 6230 万"><msup><mi>ℝ</mi> <mrow><mn>62</mn><mo>.</mo><mn>3</mn><mi>m</mi><mi>i</mi><mi>l</mi><mi>l</mi><mi>i</mi><mi>o</mi><mi>n</mi></mrow></msup></math>中。另一个惊人的数字：我们需要 11 亿个计算单元进行一次前向传递。
 
-[图5-8](#Fig_eight_pass)展示了一个精彩的插图，展示了手写数字8经过预训练的LeNet1并最终被正确分类为8。
+图 5-8 展示了一个精彩的插图，展示了手写数字 8 经过预训练的 LeNet1 并最终被正确分类为 8。
 
-![300](assets/emai_0508.png)
+![300](img/emai_0508.png)
 
-###### 图5-8。通过预训练的LeNet1传递手写数字8的图像（图像来源）。
+###### 图 5-8。通过预训练的 LeNet1 传递手写数字 8 的图像（图像来源）。
 
 最后，如果你觉得架构的选择对你来说似乎是随意的，也就是说，如果你在想：我们能否用更简单的架构实现类似的性能？那么欢迎加入这个俱乐部。整个社区都在思考同样的问题。
 

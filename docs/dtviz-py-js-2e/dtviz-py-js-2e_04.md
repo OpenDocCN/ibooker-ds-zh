@@ -1,4 +1,4 @@
-# 第 2 章. Python 和 JavaScript 之间的语言学习桥梁
+# 第二章. Python 和 JavaScript 之间的语言学习桥梁
 
 这本书最雄心勃勃的方面可能是它涉及两种编程语言。此外，它只需要你精通其中一种语言。这仅仅是因为 Python 和 JavaScript（JS）是相当简单的语言，并且有很多共同之处。本章的目的是挖掘这些共同之处，并利用它们来构建两种语言之间的学习桥梁，以便在一种语言中获得的核心技能可以轻松地应用到另一种语言中。
 
@@ -64,7 +64,7 @@ directory:
 
 如果您想尝试代码一行或者查看活动代码的状态，基于浏览器的控制台是最佳选择。在 Chrome 中，您可以使用 Ctrl-Shift-J（Mac 上为 Command + Option + J）访问控制台。除了尝试一些小的 JavaScript 片段外，控制台还允许您深入到任何范围内的对象，显示它们的方法和属性。这是查看活动对象状态和搜索错误的好方法。
 
-使用在线 JavaScript 编辑器的一个缺点是失去了您喜欢的编辑环境的优势，如 linting、熟悉的键盘快捷键等（参见 [第四章](ch04.xhtml#chapter_webdev101)）。在线编辑器往往基本功能简陋。如果您预计会进行广泛的 JavaScript 会话并想使用您喜欢的编辑器，最好的选择是运行本地服务器。
+使用在线 JavaScript 编辑器的一个缺点是失去了您喜欢的编辑环境的优势，如 linting、熟悉的键盘快捷键等（参见 第四章）。在线编辑器往往基本功能简陋。如果您预计会进行广泛的 JavaScript 会话并想使用您喜欢的编辑器，最好的选择是运行本地服务器。
 
 首先，创建一个项目目录——例如称为 *sandpit*——并添加一个包含 JS 脚本的最小 HTML 文件：
 
@@ -107,9 +107,9 @@ $ python -m http.server 8000
 Serving HTTP on 0.0.0.0 port 8000 ...
 ```
 
-然后在浏览器中打开 *http://localhost:8000*，按 Ctrl-Shift-J（OS X 上的 Cmd-Opt-J）访问控制台，你应该可以看到 [图 2-1](#langbridge_sum33)，显示脚本的日志输出（详见 [第 4 章](ch04.xhtml#chapter_webdev101)）。
+然后在浏览器中打开 *http://localhost:8000*，按 Ctrl-Shift-J（OS X 上的 Cmd-Opt-J）访问控制台，你应该可以看到 图 2-1，显示脚本的日志输出（详见 第 4 章）。
 
-![dpj2 0201](assets/dpj2_0201.png)
+![dpj2 0201](img/dpj2_0201.png)
 
 ###### 图 2-1\. 输出到 Chrome 控制台
 
@@ -136,7 +136,7 @@ JavaScript 的最新增强（ECMAScript 5）之一是 `'use strict'` 指令，�
 
 ## 骆驼命名法对比下划线
 
-JavaScript 通常使用骆驼命名法（例如 `processStudentData`）来命名变量，而 Python 根据 PEP-8 使用下划线（例如 `process_student_data`）来命名变量（参见示例 [2-3](#ex1_py) 和 [2-4](#ex1_js)）。按照惯例（Python 生态系统中的惯例比 JavaScript 更重要），Python 使用大写的骆驼命名法来声明类（见下面的示例），使用大写字母来定义常量，使用下划线来区分其他内容：
+JavaScript 通常使用骆驼命名法（例如 `processStudentData`）来命名变量，而 Python 根据 PEP-8 使用下划线（例如 `process_student_data`）来命名变量（参见示例 2-3 和 2-4）。按照惯例（Python 生态系统中的惯例比 JavaScript 更重要），Python 使用大写的骆驼命名法来声明类（见下面的示例），使用大写字母来定义常量，使用下划线来区分其他内容：
 
 ```py
 FOO_CONST = 10
@@ -147,11 +147,11 @@ def foo_bar():
 
 ## 导入模块，包括脚本
 
-在你的代码中使用其他库，无论是你自己的还是第三方的，对现代编程至关重要，这使得直到相对较近的时间内JavaScript没有专门的方法来做这件事显得更加令人惊讶。Python有一个简单的导入系统，总体上运行得相当好。
+在你的代码中使用其他库，无论是你自己的还是第三方的，对现代编程至关重要，这使得直到相对较近的时间内 JavaScript 没有专门的方法来做这件事显得更加令人惊讶。Python 有一个简单的导入系统，总体上运行得相当好。
 
-JavaScript前端的好消息是，自ECMAScript 6以来，JavaScript已经解决了这个问题，通过增加了`import`和`export`语句来封装模块。我们现在有JavaScript模块（通常使用`.mjs`后缀），可以导入和导出封装的函数和对象，这是一个巨大的进步。在[第 V 部分](part05.xhtml#part_viz)，我们将看到这些如何易于使用。
+JavaScript 前端的好消息是，自 ECMAScript 6 以来，JavaScript 已经解决了这个问题，通过增加了`import`和`export`语句来封装模块。我们现在有 JavaScript 模块（通常使用`.mjs`后缀），可以导入和导出封装的函数和对象，这是一个巨大的进步。在第 V 部分，我们将看到这些如何易于使用。
 
-当你熟悉JS时，你可能想使用`script`标签导入第三方库，这通常会将它们作为对象添加到全局命名空间中。例如，为了使用D3，你可以在你的HTML入口文件（通常是*index.xhtml*）中添加以下`script`标签：
+当你熟悉 JS 时，你可能想使用`script`标签导入第三方库，这通常会将它们作为对象添加到全局命名空间中。例如，为了使用 D3，你可以在你的 HTML 入口文件（通常是*index.xhtml*）中添加以下`script`标签：
 
 ```py
 <!DOCTYPE html>
@@ -159,7 +159,7 @@ JavaScript前端的好消息是，自ECMAScript 6以来，JavaScript已经解决
   <script src="http://d3js.org/d3.v7.min.js"></script>
 ```
 
-现在你可以像这样使用D3库：
+现在你可以像这样使用 D3 库：
 
 ```py
 let r = d3.range(0, 10, 2)
@@ -167,7 +167,7 @@ console.log(r)
 // out: [0, 2, 4, 6, 8]
 ```
 
-Python自带“电池”，一个涵盖从扩展数据容器（collections）到处理CSV文件家族的全面库集合。如果你想使用其中之一，只需使用`import`关键字导入它：
+Python 自带“电池”，一个涵盖从扩展数据容器（collections）到处理 CSV 文件家族的全面库集合。如果你想使用其中之一，只需使用`import`关键字导入它：
 
 ```py
 In [1]: import sys
@@ -181,18 +181,18 @@ Out[2]: 'linux'
 ```py
 import pandas as pd
 from csv import DictWriter, DictReader
-from numpy import * ![1](assets/1.png)
+from numpy import * ![1](img/1.png)
 
 df = pd.read_json('data.json')
 reader = DictReader('data.csv')
 md = median([12, 56, 44, 33])
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO1-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO1-1)
 
-这会将模块中的所有变量导入到当前命名空间，几乎总是一个坏主意。其中一个变量可能掩盖一个现有的变量，并且违反了Python显示优于隐式的最佳实践。唯一的例外是，如果你在交互式Python解释器中使用。在这种有限的情况下，从库中导入所有函数可能有意义，以减少按键次数；例如，如果进行一些Python数学操作，导入所有数学函数(`from math import *`)。
+这会将模块中的所有变量导入到当前命名空间，几乎总是一个坏主意。其中一个变量可能掩盖一个现有的变量，并且违反了 Python 显示优于隐式的最佳实践。唯一的例外是，如果你在交互式 Python 解释器中使用。在这种有限的情况下，从库中导入所有函数可能有意义，以减少按键次数；例如，如果进行一些 Python 数学操作，导入所有数学函数(`from math import *`)。
 
-如果导入非标准库，Python会使用`sys.path`来尝试找到它。`sys.path`包括：
+如果导入非标准库，Python 会使用`sys.path`来尝试找到它。`sys.path`包括：
 
 +   导入模块的目录（当前目录）
 
@@ -206,9 +206,9 @@ md = median([12, 56, 44, 33])
 import matplotlib.pyplot as plt
 ```
 
-通过文件系统构建包，通常是空的`__init__.py`文件，如[示例 2-1](#pyjs_import)所示。有init文件使得目录对Python的导入系统可见。
+通过文件系统构建包，通常是空的`__init__.py`文件，如示例 2-1 所示。有 init 文件使得目录对 Python 的导入系统可见。
 
-##### 示例 2-1\. 构建一个Python包
+##### 示例 2-1\. 构建一个 Python 包
 
 ```py
 mypackage
@@ -225,41 +225,41 @@ mypackage
     └── tests
         └── __init__.py
         └── test_data.py
-        └── test_excel.py ![1](assets/1.png)
+        └── test_excel.py ![1](img/1.png)
         ...
 ...
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO2-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO2-1)
 
 你可以使用`from mypackage.io.tests import test_excel`来导入这个模块。
 
-您可以使用点符号从根目录（即 [示例 2-1](#pyjs_import) 中的 `mypackage`）访问 `sys.path` 上的包。 `import` 的一个特例是包内引用。`test_excel.py` 子模块在 [示例 2-1](#pyjs_import) 中可以绝对和相对地从 `mypackage` 包导入子模块：
+您可以使用点符号从根目录（即 示例 2-1 中的 `mypackage`）访问 `sys.path` 上的包。 `import` 的一个特例是包内引用。`test_excel.py` 子模块在 示例 2-1 中可以绝对和相对地从 `mypackage` 包导入子模块：
 
 ```py
-from mypackage.io.tests import test_data ![1](assets/1.png)
-from . import test_data ![2](assets/2.png)
-import test_data ![2](assets/2.png)
-from ..io import api ![3](assets/3.png)
+from mypackage.io.tests import test_data ![1](img/1.png)
+from . import test_data ![2](img/2.png)
+import test_data ![2](img/2.png)
+from ..io import api ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO3-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO3-1)
 
 绝对导入 `test_data.py` 模块，从包的主目录。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO3-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO3-2)
 
 显式（`. import`）和隐式相对导入。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO3-4)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO3-4)
 
 来自 `tests` 兄弟包的相对导入。
 
-## JavaScript模块
+## JavaScript 模块
 
-JavaScript 现在具有模块，可以导入和导出封装的变量。JS挑选了它的导入语法，使用了许多对Python开发者来说很熟悉但在我看来改进了的东西。以下是简要介绍：
+JavaScript 现在具有模块，可以导入和导出封装的变量。JS 挑选了它的导入语法，使用了许多对 Python 开发者来说很熟悉但在我看来改进了的东西。以下是简要介绍：
 
-假设我们有一个JS入口模块 `index.js`，它想要使用位于 `lib` 目录中的库模块 `libFoo.js` 中的一些函数或对象。文件结构如下所示：
+假设我们有一个 JS 入口模块 `index.js`，它想要使用位于 `lib` 目录中的库模块 `libFoo.js` 中的一些函数或对象。文件结构如下所示：
 
 ```py
 .
@@ -268,23 +268,23 @@ JavaScript 现在具有模块，可以导入和导出封装的变量。JS挑选�
     └── libFoo.mjs
 ```
 
-在 `libFoo.mjs` 中，我们导出一个虚拟函数，并可以使用 `export default` 导出模块的单个对象，通常是一个带有实用方法的API：
+在 `libFoo.mjs` 中，我们导出一个虚拟函数，并可以使用 `export default` 导出模块的单个对象，通常是一个带有实用方法的 API：
 
 ```py
 // lib/libFoo.mjs export let findOdds = (a) => {
   return a.filter(x => x%2)
 }
 
-let api = {findOdds} ![1](assets/1.png)
+let api = {findOdds} ![1](img/1.png)
 
 export default api
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO4-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO4-1)
 
 使用简写属性名创建对象的示例，相当于 `{findOdds: findOdds}`
 
-要从我们的索引模块导入导出的函数和对象，我们使用 `import` 语句，它允许我们导入默认的API或通过花括号选择按名称导出的变量：
+要从我们的索引模块导入导出的函数和对象，我们使用 `import` 语句，它允许我们导入默认的 API 或通过花括号选择按名称导出的变量：
 
 ```py
 // index.mjs
@@ -298,7 +298,7 @@ odds = api.findOdds([12, 43, 22, 39, 52, 21])
 console.log('Odd numbers: ', odds)
 ```
 
-JS导入还支持别名，这可以成为优秀的代码消毒器：
+JS 导入还支持别名，这可以成为优秀的代码消毒器：
 
 ```py
 // index.mjs
@@ -307,51 +307,51 @@ import { findOdds as odds } from './lib/libFoo.mjs'
 // ...
 ```
 
-正如你所见，JavaScript的导入和导出与Python非常相似，尽管在我的经验中稍微更加用户友好。你可以在Mozilla的 [exports](https://oreil.ly/J0aDV) 和 [imports](https://oreil.ly/slsT5) 文档中查看更多细节。
+正如你所见，JavaScript 的导入和导出与 Python 非常相似，尽管在我的经验中稍微更加用户友好。你可以在 Mozilla 的 [exports](https://oreil.ly/J0aDV) 和 [imports](https://oreil.ly/slsT5) 文档中查看更多细节。
 
 ## 保持您的命名空间干净
 
-Python模块中定义的变量是封装的，这意味着除非你显式地导入它们（例如，`from foo import baa`），否则你将使用点符号从导入的模块命名空间访问它们（例如，`foo.baa`）。全局命名空间的模块化被视为非常好的事情，符合Python的关键原则之一：显式声明的重要性胜过隐式声明。分析某人的Python代码时，你应该能够准确地看到类、函数或变量来自哪里。同样重要的是，保留命名空间限制了变量冲突或遮蔽的可能性——这在代码库变大时是一个很大的潜在问题。
+Python 模块中定义的变量是封装的，这意味着除非你显式地导入它们（例如，`from foo import baa`），否则你将使用点符号从导入的模块命名空间访问它们（例如，`foo.baa`）。全局命名空间的模块化被视为非常好的事情，符合 Python 的关键原则之一：显式声明的重要性胜过隐式声明。分析某人的 Python 代码时，你应该能够准确地看到类、函数或变量来自哪里。同样重要的是，保留命名空间限制了变量冲突或遮蔽的可能性——这在代码库变大时是一个很大的潜在问题。
 
-过去JavaScript的主要批评之一（也是公正的），是其对命名空间约定的快速且不拘一格。其中最突出的例子是，在函数外声明的变量或者缺少`var`关键字^([6](ch02.xhtml#idm45607819371024))，是全局的，而不是限定在其声明所在的脚本内。使用现代化、模块化的JavaScript，你可以像Python一样进行封装，通过导入和导出变量来实现。
+过去 JavaScript 的主要批评之一（也是公正的），是其对命名空间约定的快速且不拘一格。其中最突出的例子是，在函数外声明的变量或者缺少`var`关键字^(6)，是全局的，而不是限定在其声明所在的脚本内。使用现代化、模块化的 JavaScript，你可以像 Python 一样进行封装，通过导入和导出变量来实现。
 
-JS模块是一个相对较新的游戏变革者——过去常用的一种模式是创建自调用函数，以便将局部变量与全局命名空间隔离开来。这样一来，通过`var`声明的所有变量都将局部化到脚本/函数中，防止它们污染全局命名空间。JavaScript中的[`let`](https://oreil.ly/cTxOy)关键字具有块级作用域，几乎总是优于`var`。你希望在其他脚本中使用的任何对象、函数和变量，都可以附加到全局命名空间的一个对象上。
+JS 模块是一个相对较新的游戏变革者——过去常用的一种模式是创建自调用函数，以便将局部变量与全局命名空间隔离开来。这样一来，通过`var`声明的所有变量都将局部化到脚本/函数中，防止它们污染全局命名空间。JavaScript 中的[`let`](https://oreil.ly/cTxOy)关键字具有块级作用域，几乎总是优于`var`。你希望在其他脚本中使用的任何对象、函数和变量，都可以附加到全局命名空间的一个对象上。
 
-[示例 2-2](#pyjs_module)展示了一个模块模式。模板的头部和尾部（标记为 ![1](assets/1.png) 和 ![3](assets/3.png)）有效地创建了一个封装模块。这种模式远非是JavaScript模块化的完美解决方案，但在ECMAScript 6采用了主流浏览器的专用导入系统之前，它是我所知道的最佳折中方案。
+示例 2-2 展示了一个模块模式。模板的头部和尾部（标记为 ![1](img/1.png) 和 ![3](img/3.png)）有效地创建了一个封装模块。这种模式远非是 JavaScript 模块化的完美解决方案，但在 ECMAScript 6 采用了主流浏览器的专用导入系统之前，它是我所知道的最佳折中方案。
 
-##### 示例 2-2\. JavaScript的模块模式
+##### 示例 2-2\. JavaScript 的模块模式
 
 ```py
-(function(nbviz) { ![1](assets/1.png)
+(function(nbviz) { ![1](img/1.png)
     'use strict';
     // ...
-    nbviz.updateTimeChart = function(data) {..} ![2](assets/2.png)
-    // ... }(window.nbviz = window.nbviz || {})); ![3](assets/3.png)
+    nbviz.updateTimeChart = function(data) {..} ![2](img/2.png)
+    // ... }(window.nbviz = window.nbviz || {})); ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO5-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO5-1)
 
 接收全局的`nbviz`对象。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO5-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO5-2)
 
 将`updateTimeChart`方法附加到全局的`nbviz`对象上，有效地*导出*它。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO5-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO5-3)
 
 如果全局（窗口）命名空间中存在`nbviz`对象，则将其传递给模块函数；否则，将其添加到全局命名空间中。
 
 ## 输出“Hello World!”
 
-到目前为止，任何编程语言最受欢迎的初始演示，是在某种形式上打印或传递“Hello World!”，因此让我们从Python和JavaScript的输出开始。
+到目前为止，任何编程语言最受欢迎的初始演示，是在某种形式上打印或传递“Hello World!”，因此让我们从 Python 和 JavaScript 的输出开始。
 
-Python的输出简直不能再简单：
+Python 的输出简直不能再简单：
 
 ```py
 print('Hello World!')
 ```
 
-JavaScript没有打印函数，但你可以将输出记录到浏览器控制台：
+JavaScript 没有打印函数，但你可以将输出记录到浏览器控制台：
 
 ```py
 console.log('Hello World!')
@@ -359,9 +359,9 @@ console.log('Hello World!')
 
 ## 简单的数据处理
 
-要了解语言差异的一个好方法是查看两种语言中相同功能的编写方式。示例[2-3](#ex1_py)和[2-4](#ex1_js)展示了Python和JavaScript中数据处理的小型构造示例，我们将使用它们来比较Python和JS的语法，并标记为大写字母（A、B...），以便进行代码块比较。
+要了解语言差异的一个好方法是查看两种语言中相同功能的编写方式。示例 2-3 和 2-4 展示了 Python 和 JavaScript 中数据处理的小型构造示例，我们将使用它们来比较 Python 和 JS 的语法，并标记为大写字母（A、B...），以便进行代码块比较。
 
-##### 示例 2-3\. Python的简单数据转换
+##### 示例 2-3\. Python 的简单数据转换
 
 ```py
 # A
@@ -404,10 +404,10 @@ if __name__ == '__main__':
     process_student_data(student_data)
 ```
 
-##### 示例 2-4\. JavaScript的简单数据处理
+##### 示例 2-4\. JavaScript 的简单数据处理
 
 ```py
-let studentData = [ ![1](assets/1.png)
+let studentData =  ![1
     {name: 'Bob', id:0, 'scores':[68, 75, 76, 81]},
     {name: 'Alice', id:1, 'scores':[75, 90, 64, 88]},
     {'name': 'Carol', id:2, 'scores':[59, 74, 71, 68]},
@@ -447,13 +447,13 @@ let studentData = [ ![1](assets/1.png)
 // E processStudentData(studentData);
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO6-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO6-1)
 
 请注意对象键中有些带引号有些不带引号的故意和有效的不一致性。
 
 ## 字符串构造
 
-示例 [2-3](#ex1_py) 和 [2-4](#ex1_js) 中的 D 部分显示了将输出打印到控制台或终端的标准方法。JavaScript 没有 `print` 语句，但可以通过 `console` 对象记录到浏览器的控制台：
+示例 2-3 和 2-4 中的 D 部分显示了将输出打印到控制台或终端的标准方法。JavaScript 没有 `print` 语句，但可以通过 `console` 对象记录到浏览器的控制台：
 
 ```py
 console.log(sdata.name + "'s (id: " + sdata.id +
@@ -462,7 +462,7 @@ console.log(sdata.name + "'s (id: " + sdata.id +
 
 请注意，整数变量 `id` 被强制转换为字符串，允许串联。Python 不执行这种隐式强制转换，因此尝试以这种方式将字符串添加到整数会导致错误。而是通过 `str` 或 `repr` 函数显式转换为字符串形式。
 
-在 [示例 2-3](#ex1_py) 的 A 部分中，输出字符串是用 C 类型格式化构造的。通过最终的元组 (`%(…​)`) 提供字符串 (`%s`) 和整数 (`%d`) 占位符：
+在 示例 2-3 的 A 部分中，输出字符串是用 C 类型格式化构造的。通过最终的元组 (`%(…​)`) 提供字符串 (`%s`) 和整数 (`%d`) 占位符：
 
 ```py
 print("%s's (id: %d) final assessment is: %s"
@@ -473,28 +473,28 @@ print("%s's (id: %d) final assessment is: %s"
 
 ```py
 import logging
-logger = logging.getLogger(__name__) ![1](assets/1.png)
+logger = logging.getLogger(__name__) ![1](img/1.png)
 //...
 logger.debug('Some useful debugging output')
 logger.info('Some general information')
 
 // IN INITIAL MODULE
-logging.basicConfig(level=logging.DEBUG) ![2](assets/2.png)
+logging.basicConfig(level=logging.DEBUG) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO7-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO7-1)
 
 创建一个以该模块名称命名的记录器。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO7-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO7-2)
 
 将日志级别设置为“debug”提供了可用的最详细信息（参见 [Python 文档](https://oreil.ly/xAiP1) 了解更多详情）。
 
 ## 显著的空白与大括号
 
-Python 最显著的语法特点是显著的空白。与像 C 和 JavaScript 这样的语言使用空白来增强可读性并可以轻易地压缩成一行不同，^([7](ch02.xhtml#idm45607813738384)) 在 Python 中，前导空格用于指示代码块，移除它们会改变代码的含义。维护正确的代码对齐所需的额外工作远远超过了增加的可读性 —— 你阅读代码的时间远远超过写代码的时间，而 Python 的易读性可能是 Python 库生态系统如此健康的主要原因。四个空格几乎是强制性的（参见 PEP-8），而我个人偏好所谓的*软制表符*，即你的编辑器插入（和删除）多个空格而不是制表符字符。^([8](ch02.xhtml#idm45607813736320))
+Python 最显著的语法特点是显著的空白。与像 C 和 JavaScript 这样的语言使用空白来增强可读性并可以轻易地压缩成一行不同，^(7) 在 Python 中，前导空格用于指示代码块，移除它们会改变代码的含义。维护正确的代码对齐所需的额外工作远远超过了增加的可读性 —— 你阅读代码的时间远远超过写代码的时间，而 Python 的易读性可能是 Python 库生态系统如此健康的主要原因。四个空格几乎是强制性的（参见 PEP-8），而我个人偏好所谓的*软制表符*，即你的编辑器插入（和删除）多个空格而不是制表符字符。^(8)
 
-在以下代码中，`return` 语句的缩进按照惯例必须是四个空格：^([9](ch02.xhtml#idm45607813735088))
+在以下代码中，`return` 语句的缩进按照惯例必须是四个空格：^(9)
 
 ```py
 def doubler(x):
@@ -534,7 +534,7 @@ headers, and the like */
 let data = {}; // Our main data-ball
 ```
 
-除了注释外，Python 还有文档字符串（doc-strings）的约定，符合其可读性和透明性的哲学。在 [示例 2-3](#ex1_py) 中的 `process_student_data` 函数顶部有一行三引号的文本，将自动分配给函数的 `__doc__` 属性。你也可以使用多行文档字符串：
+除了注释外，Python 还有文档字符串（doc-strings）的约定，符合其可读性和透明性的哲学。在 示例 2-3 中的 `process_student_data` 函数顶部有一行三引号的文本，将自动分配给函数的 `__doc__` 属性。你也可以使用多行文档字符串：
 
 ```py
 def doubler(x):
@@ -562,7 +562,7 @@ JavaScript 具有变量提升机制，这意味着使用 `var` 声明的变量�
 
 ## 字符串和数字
 
-在 JavaScript 中，学生数据中使用的 *name* 字符串（参见示例 [2-3](#ex1_py) 和 [2-4](#ex1_js) 的第 A 部分）将被解释为 UCS-2（unicode UTF-16 的父类）^([10](ch02.xhtml#idm45607813787904))，而在 Python 3 中将被解释为 Unicode（默认为 UTF-8）^([11](ch02.xhtml#idm45607813786288))。
+在 JavaScript 中，学生数据中使用的 *name* 字符串（参见示例 2-3 和 2-4 的第 A 部分）将被解释为 UCS-2（unicode UTF-16 的父类）^(10)，而在 Python 3 中将被解释为 Unicode（默认为 UTF-8）^(11)。
 
 两种语言都允许在字符串中使用单引号和双引号。如果要在字符串中包含单引号或双引号，可以使用另一种引号进行封闭，如下所示：
 
@@ -570,41 +570,41 @@ JavaScript 具有变量提升机制，这意味着使用 `var` 声明的变量�
 pub_name = "The Brewer's Tap"
 ```
 
-[示例 2-4](#ex1_js) 中A节中的`scores`以JavaScript的一种数值类型，双精度64位（IEEE 754）浮点数存储。尽管JavaScript有一个`parseInt`转换函数，当与浮点数一起使用时，^([12](ch02.xhtml#idm45607813779728)) 它实际上只是一个舍入操作符，类似于`floor`。解析的`number`的类型仍然是`number`：
+示例 2-4 中 A 节中的`scores`以 JavaScript 的一种数值类型，双精度 64 位（IEEE 754）浮点数存储。尽管 JavaScript 有一个`parseInt`转换函数，当与浮点数一起使用时，^(12) 它实际上只是一个舍入操作符，类似于`floor`。解析的`number`的类型仍然是`number`：
 
 ```py
 let x = parseInt(3.45); // 'cast' x to 3
 typeof(x); // "number"
 ```
 
-Python有两种数值类型：32位的`int`，学生分数将被转换为这种类型，以及与JS的`number`相当的`float`（IEE 754）。这意味着Python可以表示任何整数，而JavaScript更为有限。^([13](ch02.xhtml#idm45607815619968)) Python的强制类型转换会改变类型：
+Python 有两种数值类型：32 位的`int`，学生分数将被转换为这种类型，以及与 JS 的`number`相当的`float`（IEE 754）。这意味着 Python 可以表示任何整数，而 JavaScript 更为有限。^(13) Python 的强制类型转换会改变类型：
 
 ```py
 foo = 3.4 # type(foo) -> float
 bar = int(3.4) # type(bar) -> int
 ```
 
-Python和JavaScript的数字的好处在于它们易于使用并且通常能够做到你想要的。如果需要更高效的东西，Python有NumPy库，允许精细控制你的数值类型（你将在[第7章](ch07.xhtml#chapter_numpy)学到更多关于NumPy的知识）。在JavaScript中，除了一些前沿项目，你基本上只能使用64位浮点数。
+Python 和 JavaScript 的数字的好处在于它们易于使用并且通常能够做到你想要的。如果需要更高效的东西，Python 有 NumPy 库，允许精细控制你的数值类型（你将在第七章学到更多关于 NumPy 的知识）。在 JavaScript 中，除了一些前沿项目，你基本上只能使用 64 位浮点数。
 
 ## 布尔值
 
-Python在使用命名布尔运算符上与JavaScript和C类语言不同。除此之外，它们的工作方式几乎符合预期。这张表格给出了一个比较：
+Python 在使用命名布尔运算符上与 JavaScript 和 C 类语言不同。除此之外，它们的工作方式几乎符合预期。这张表格给出了一个比较：
 
 | **Python** | `bool` | `True` | `False` | `not` | `and` | `or` |
 | --- | --- | --- | --- | --- | --- | --- |
 | **JavaScript** | `boolean` | `true` | `false` | `!` | `&&` | &#124;&#124; |
 
-Python的大写`True`和`False`对任何JavaScript开发者来说都是一个明显的障碍，反之亦然，但是任何良好的语法高亮工具和你的代码检查工具都应该能够捕捉到这一点。
+Python 的大写`True`和`False`对任何 JavaScript 开发者来说都是一个明显的障碍，反之亦然，但是任何良好的语法高亮工具和你的代码检查工具都应该能够捕捉到这一点。
 
-与总是返回布尔值true或false不同，Python和JavaScript的`and`/`or`表达式返回其中一个参数的结果，当然，这个参数可以是布尔值。[表 2-1](#table0201) 展示了这是如何工作的，使用Python来演示。
+与总是返回布尔值 true 或 false 不同，Python 和 JavaScript 的`and`/`or`表达式返回其中一个参数的结果，当然，这个参数可以是布尔值。表 2-1 展示了这是如何工作的，使用 Python 来演示。
 
-表 2-1\. Python的布尔运算符
+表 2-1\. Python 的布尔运算符
 
 | 操作 | 结果 |
 | --- | --- |
-| x or y | 如果x为假，则为y，否则为x |
-| x and y | 如果x为假，则为x，否则为y |
-| not x | 如果x为假，则为`True`，否则为`False` |
+| x or y | 如果 x 为假，则为 y，否则为 x |
+| x and y | 如果 x 为假，则为 x，否则为 y |
+| not x | 如果 x 为假，则为`True`，否则为`False` |
 
 这个事实允许偶尔有用的变量赋值：
 
@@ -622,7 +622,7 @@ Out:
 
 ## 数据容器：dicts, objects, lists, Arrays
 
-粗略地说，JavaScript中的`objects`可以像Python中的`dict`s一样使用，而Python中的`list`s则像JavaScript中的数组。Python还有一个元组容器，类似于不可变的列表。以下是一些例子：
+粗略地说，JavaScript 中的`objects`可以像 Python 中的`dict`s 一样使用，而 Python 中的`list`s 则像 JavaScript 中的数组。Python 还有一个元组容器，类似于不可变的列表。以下是一些例子：
 
 ```py
 # Python
@@ -637,7 +637,7 @@ d = {'name': 'Groucho', 'occupation': 'Ruler of Freedonia'}
 l = ['Harpo', 'Groucho', 99]
 ```
 
-如示例 [2-3](#ex1_py) 和 [2-4](#ex1_js) 中A节所示，Python的`dict`键必须是用引号括起来的字符串（或可散列类型），而JavaScript允许你在属性是有效标识符（即不包含特殊字符如空格和破折号）时省略引号。所以在我们的`studentData`对象中，JS隐式地将属性`'name'`转换为字符串形式。
+如示例 2-3 和 2-4 中 A 节所示，Python 的`dict`键必须是用引号括起来的字符串（或可散列类型），而 JavaScript 允许你在属性是有效标识符（即不包含特殊字符如空格和破折号）时省略引号。所以在我们的`studentData`对象中，JS 隐式地将属性`'name'`转换为字符串形式。
 
 学生数据声明看起来非常相似，实际上也基本相同。需要注意的主要区别是，虽然 JS 中 `studentData` 中用花括号括起来的容器看起来像 Python 的 `dict`，但它们实际上是 JS 对象的一种简写声明，这是一种略有不同的数据容器。
 
@@ -649,9 +649,9 @@ foo.bar; // 3
 foo['baz']; // 5, same as Python
 ```
 
-值得注意的是，虽然 JavaScript 的对象可以像 Python 字典那样使用，但它们实际上远不止于简单的容器（除了像字符串和数字这样的基本类型外，JavaScript 的几乎所有东西都是对象）。^([14](ch02.xhtml#idm45607815328112)) 但在大多数数据可视化示例中，它们与 Python 的 `dict` 非常类似。
+值得注意的是，虽然 JavaScript 的对象可以像 Python 字典那样使用，但它们实际上远不止于简单的容器（除了像字符串和数字这样的基本类型外，JavaScript 的几乎所有东西都是对象）。^(14) 但在大多数数据可视化示例中，它们与 Python 的 `dict` 非常类似。
 
-[表 2-2](#table0202) 转换基本列表操作。
+表 2-2 转换基本列表操作。
 
 表 2-2\. 列表和数组
 
@@ -667,7 +667,7 @@ foo['baz']; // 5, same as Python
 
 ## 函数
 
-例子 [2-3](#ex1_py) 和 [2-4](#ex1_js) 的 B 部分展示了函数声明。Python 使用 `def` 表示函数：
+例子 2-3 和 2-4 的 B 部分展示了函数声明。Python 使用 `def` 表示函数：
 
 ```py
 def process_student_data(data, pass_threshold=60,
@@ -704,7 +704,7 @@ let processStudentData = ( ...) => {...}
 
 ## 遍历：for 循环和函数式替代方法
 
-例子 [2-3](#ex1_py) 和 [2-4](#ex1_js) 的 C 部分展示了 Python 和 JavaScript 之间第一个关键差异 —— 它们对 `for` 循环的处理方式。
+例子 2-3 和 2-4 的 C 部分展示了 Python 和 JavaScript 之间第一个关键差异 —— 它们对 `for` 循环的处理方式。
 
 Python 的 `for` 循环对任何迭代器（如数组和 `dict`）都是简单直观且高效的。`dict` 的一个需要注意的地方是，标准迭代是按键而非项进行的。例如：
 
@@ -729,14 +729,14 @@ for x in foo.items():
 for key, value in foo.items():
 ```
 
-因为Python的`for`循环适用于具有正确迭代器管道的任何内容，所以您可以做一些很酷的事情，比如循环遍历文件行：
+因为 Python 的`for`循环适用于具有正确迭代器管道的任何内容，所以您可以做一些很酷的事情，比如循环遍历文件行：
 
 ```py
 for line in open('data.txt'):
     print(line)
 ```
 
-对于从Python过来的人来说，JS的`for`循环是一件相当可怕和不直观的事情。以下是一个例子：
+对于从 Python 过来的人来说，JS 的`for`循环是一件相当可怕和不直观的事情。以下是一个例子：
 
 ```py
 for(let i in ['a', 'b', 'c']){
@@ -745,11 +745,11 @@ for(let i in ['a', 'b', 'c']){
 // outputs 1, 2, 3
 ```
 
-JS的`for .. in`返回数组项的索引，而不是数组项本身。更糟糕的是，对于Pythonista来说，迭代的顺序不能保证，因此索引可能以非连续的顺序返回。
+JS 的`for .. in`返回数组项的索引，而不是数组项本身。更糟糕的是，对于 Pythonista 来说，迭代的顺序不能保证，因此索引可能以非连续的顺序返回。
 
-在Python和JS的`for`循环之间进行切换几乎没有无缝衔接，要求您保持警觉。好消息是，这些日子几乎不需要使用JS的`for`循环。事实上，我几乎从不需要。这是因为JS最近获得了一些非常强大的一流函数能力，这些能力具有更高的表达能力，且与Python的混淆机会更少，一旦您习惯了它们，很快就变得不可或缺。^([16](ch02.xhtml#idm45607802789056))
+在 Python 和 JS 的`for`循环之间进行切换几乎没有无缝衔接，要求您保持警觉。好消息是，这些日子几乎不需要使用 JS 的`for`循环。事实上，我几乎从不需要。这是因为 JS 最近获得了一些非常强大的一流函数能力，这些能力具有更高的表达能力，且与 Python 的混淆机会更少，一旦您习惯了它们，很快就变得不可或缺。^(16)
 
-[示例 2-4](#ex1_js)中的第C部分展示了现代JavaScript数组可用的*功能*方法之一，即`forEach()`。`forEach()`迭代数组项，依次将它们发送到第一个参数中定义的匿名回调函数中，其中可以处理它们。这些功能方法的真正表现力来自它们的链式调用（映射、过滤等），但是现在我们已经有了更清洁、更优雅的迭代，没有旧方法的笨重记录。
+示例 2-4 中的第 C 部分展示了现代 JavaScript 数组可用的*功能*方法之一，即`forEach()`。`forEach()`迭代数组项，依次将它们发送到第一个参数中定义的匿名回调函数中，其中可以处理它们。这些功能方法的真正表现力来自它们的链式调用（映射、过滤等），但是现在我们已经有了更清洁、更优雅的迭代，没有旧方法的笨重记录。
 
 回调函数可以选择性地接收索引和原始数组作为第二个参数：
 
@@ -757,7 +757,7 @@ JS的`for .. in`返回数组项的索引，而不是数组项本身。更糟糕�
 data.forEach(function(currentValue, index){...})
 ```
 
-直到最近，即使是迭代`object`的键值对也是相当棘手的。不像Python的`dict`，`object`可能会从原型链继承属性，所以您必须使用`hasOwnProperty`保护来过滤这些属性。您可能会遇到这样的代码：
+直到最近，即使是迭代`object`的键值对也是相当棘手的。不像 Python 的`dict`，`object`可能会从原型链继承属性，所以您必须使用`hasOwnProperty`保护来过滤这些属性。您可能会遇到这样的代码：
 
 ```py
 let obj = {a:3, b:2, c:4};
@@ -769,25 +769,25 @@ for (let prop in obj) {
 // out: o.a = 3, o.b = 2, o.c = 4
 ```
 
-虽然JS数组有一组本地功能迭代器方法（`map`、`reduce`、`filter`、`every`、`sum`、`reduceRight`），`object`作为伪字典的外观则没有。好消息是，`object`类最近新增了一些有用的附加方法来填补这一空白。因此，您可以使用`entries`方法迭代键值对：
+虽然 JS 数组有一组本地功能迭代器方法（`map`、`reduce`、`filter`、`every`、`sum`、`reduceRight`），`object`作为伪字典的外观则没有。好消息是，`object`类最近新增了一些有用的附加方法来填补这一空白。因此，您可以使用`entries`方法迭代键值对：
 
 ```py
 let obj = {a:3, b:2, c:4};
 for (const [key, value] of Object.entries(object1)) {
-  console.log(`${key}: ${value}`); ![1](assets/1.png)
+  console.log(`${key}: ${value}`); ![1](img/1.png)
 }
 // out: a: 3 //      b: 2 ...
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO8-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO8-1)
 
 请注意`${foo}`这种形式的字符串模板，用于打印变量。
 
 ## 条件语句：if, else, elif, switch
 
-示例中的第C部分展示了Python和JavaScript条件语句的应用，分别为[2-3](#ex1_py)和[2-4](#ex1_js)。除了JavaScript使用括号外，语句非常相似；唯一的真正区别是Python额外的`elif`关键字，一个方便的`else if`联合体。
+示例中的第 C 部分展示了 Python 和 JavaScript 条件语句的应用，分别为 2-3 和 2-4。除了 JavaScript 使用括号外，语句非常相似；唯一的真正区别是 Python 额外的`elif`关键字，一个方便的`else if`联合体。
 
-尽管有很多请求，Python没有像大多数高级语言中那样的`switch`语句。JS有，允许您做到这一点：
+尽管有很多请求，Python 没有像大多数高级语言中那样的`switch`语句。JS 有，允许您做到这一点：
 
 ```py
 switch(expression){
@@ -862,48 +862,48 @@ Out:
 
 我记得，当我第一次开始涉足像 C++ 这样更高级的语言时，迷上了面向对象编程的承诺，特别是基于类的继承。多态性当时非常流行，形状类被子类化为矩形和椭圆，这些又进一步被特化为更专门的正方形和圆形。
 
-很快就意识到，在教科书中清晰的类划分在实际编程中很少能找到，并且尝试平衡通用和特定的 API 很快变得复杂。从这个意义上说，我发现组合和混合比尝试扩展子类化更有用作为编程概念，通常通过使用 JavaScript 中的函数式编程技术来避免所有这些问题。尽管如此，类/原型区别是两种语言之间明显的差异，你理解其细微差别的越多，编码能力就会越好。^([18](ch02.xhtml#idm45607802261472))
+很快就意识到，在教科书中清晰的类划分在实际编程中很少能找到，并且尝试平衡通用和特定的 API 很快变得复杂。从这个意义上说，我发现组合和混合比尝试扩展子类化更有用作为编程概念，通常通过使用 JavaScript 中的函数式编程技术来避免所有这些问题。尽管如此，类/原型区别是两种语言之间明显的差异，你理解其细微差别的越多，编码能力就会越好。^(18)
 
 Python 的类非常简单，并且和大多数语言一样容易使用。我现在倾向于将它们视为一种方便的方式来封装数据并提供方便的 API，很少扩展子类化超过一代。这里有一个简单的示例：
 
 ```py
 class Citizen(object):
 
-    def __init__(self, name, country): ![1](assets/1.png)
+    def __init__(self, name, country): ![1](img/1.png)
         self.name = name
         self.country = country
 
-     def __str__(self): ![2](assets/2.png)
+     def __str__(self): ![2](img/2.png)
         return f'Citizen {self.name} from {self.country}'
 
      def print_details(self):
          print(f'Citizen {self.name} from {self.country}')
 
-groucho = Citizen('Groucho M.', 'Freedonia') ![3](assets/3.png)
+groucho = Citizen('Groucho M.', 'Freedonia') ![3](img/3.png)
 print(groucho) # or groucho.print_details()
 # Out:
 # Citizen Groucho M. from Freedonia
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO9-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO9-1)
 
-Python类有许多双下划线的特殊方法，`__init__`是最常见的，当创建类实例时调用。所有实例方法都有一个显式的第一个`self`参数（你可以给它取其他名字，但这是一个非常糟糕的主意），它指的是实例本身。在这种情况下，我们用它来设置名称和国家属性。
+Python 类有许多双下划线的特殊方法，`__init__`是最常见的，当创建类实例时调用。所有实例方法都有一个显式的第一个`self`参数（你可以给它取其他名字，但这是一个非常糟糕的主意），它指的是实例本身。在这种情况下，我们用它来设置名称和国家属性。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO9-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO9-2)
 
 你可以覆盖类的字符串方法，在调用实例的`print`函数时使用。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO9-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO9-3)
 
 创建一个带有名称和国家的新`Citizen`实例。
 
-Python遵循了一种相当经典的类继承模式。这很容易做到，这可能是Python程序员大量使用它的原因。让我们自定义`Citizen`类来创建一个（诺贝尔奖）`Winner`类，并添加几个额外的属性：
+Python 遵循了一种相当经典的类继承模式。这很容易做到，这可能是 Python 程序员大量使用它的原因。让我们自定义`Citizen`类来创建一个（诺贝尔奖）`Winner`类，并添加几个额外的属性：
 
 ```py
 class Winner(Citizen):
 
     def __init__(self, name, country, category, year):
-        super().__init__(name, country) ![1](assets/1.png)
+        super().__init__(name, country) ![1](img/1.png)
         self.category = category
         self.year = year
 
@@ -919,35 +919,35 @@ w.print_details()
 # year 1921
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO10-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO10-1)
 
 我们想要重用超类`Citizen`的`__init__`方法，使用这个`Winner`实例作为`self`。`super`方法将继承树从其第一个参数扩展一个分支，并将第二个参数作为类实例方法的实例。
 
-我认为我读过的关于JavaScript原型和经典类之间主要区别的最佳文章是Reginald Braithwaite的[“OOP, JavaScript, and so-called Classes”](https://oreil.ly/92Kxk)。这段引文很好地总结了类和原型之间的区别：
+我认为我读过的关于 JavaScript 原型和经典类之间主要区别的最佳文章是 Reginald Braithwaite 的[“OOP, JavaScript, and so-called Classes”](https://oreil.ly/92Kxk)。这段引文很好地总结了类和原型之间的区别：
 
 > 原型（prototype）和类之间的区别类似于模型房屋和家庭蓝图之间的区别。
 
-当你实例化一个C++或Python类时，会遵循一个蓝图，创建一个对象并调用其继承树中的各种构造函数。换句话说，你是从头开始构建一个漂亮、崭新的类实例。
+当你实例化一个 C++或 Python 类时，会遵循一个蓝图，创建一个对象并调用其继承树中的各种构造函数。换句话说，你是从头开始构建一个漂亮、崭新的类实例。
 
-使用JavaScript原型，你从一个有房间（方法）的模型房屋（对象）开始。如果你想要一个新的客厅，你可以用更好颜色的东西替换旧的。如果你想要一个新的温室，那么只需做一个扩展。但与蓝图从头开始构建不同，你是在适应和扩展现有对象。
+使用 JavaScript 原型，你从一个有房间（方法）的模型房屋（对象）开始。如果你想要一个新的客厅，你可以用更好颜色的东西替换旧的。如果你想要一个新的温室，那么只需做一个扩展。但与蓝图从头开始构建不同，你是在适应和扩展现有对象。
 
-在搞定了必要的理论并提醒对象继承虽然有用但在数据可视化中并不普遍的情况下，让我们来看一个简单的JavaScript原型对象示例[Example 2-5](#bridge_citizen_js)。
+在搞定了必要的理论并提醒对象继承虽然有用但在数据可视化中并不普遍的情况下，让我们来看一个简单的 JavaScript 原型对象示例 Example 2-5。
 
-##### 示例2-5. 一个简单的JavaScript对象
+##### 示例 2-5. 一个简单的 JavaScript 对象
 
 ```py
-let Citizen = function(name, country){ ![1](assets/1.png)
-  this.name = name; ![2](assets/2.png)
+let Citizen = function(name, country){ ![1](img/1.png)
+  this.name = name; ![2](img/2.png)
   this.country = country;
 };
 
-Citizen.prototype = { ![3](assets/3.png)
+Citizen.prototype = { ![3](img/3.png)
   logDetails: function(){
     console.log(`Citizen ${this.name} from ${this.country}`);
   }
 };
 
-let c = new Citizen('Groucho M.', 'Freedonia'); ![4](assets/4.png)
+let c = new Citizen('Groucho M.', 'Freedonia'); ![4](img/4.png)
 
 c.logDetails();
 Out:
@@ -956,23 +956,23 @@ Citizen Groucho M. from Freedonia
 typeof(c) # object
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO11-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO11-1)
 
 这个函数本质上是一个初始化器，由`new`运算符调用。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO11-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO11-2)
 
 `this` 是函数调用上下文的隐式引用。就目前而言，它的行为与预期相符，尽管它看起来有点像 Python 的 `self`，但它们是完全不同的，我们稍后会看到。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO11-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO11-3)
 
 此处指定的方法将覆盖继承链上所有原型方法，并被从 `Citizen` 派生的任何对象继承。
 
-[![4](assets/4.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO11-4)
+![4](img/#co_a_language_learning_bridge_between_python_and_javascript_CO11-4)
 
 `new` 用于创建一个新对象，将其原型设置为 `Citizen` 构造函数的原型，然后在新对象上调用 `Citizen` 构造函数。
 
-JavaScript 最近获得了一些[语法糖](https://oreil.ly/43NXG)，允许声明类。这本质上包装了面向对象形式（参见 [示例 2-5](#bridge_citizen_js)）以更加熟悉的形式呈现，如来自类似 Java 和 C# 的编程语言的程序员。我认为可以说，在前端、基于浏览器的 JavaScript 中，类并没有真正流行起来，有点被强调可重用组件的新框架（如 React、Vue、Svelte）所取代。这是我们如何实现 [示例 2-5](#bridge_citizen_js) 中展示的 `Citizen` 对象的方式：
+JavaScript 最近获得了一些[语法糖](https://oreil.ly/43NXG)，允许声明类。这本质上包装了面向对象形式（参见 示例 2-5）以更加熟悉的形式呈现，如来自类似 Java 和 C# 的编程语言的程序员。我认为可以说，在前端、基于浏览器的 JavaScript 中，类并没有真正流行起来，有点被强调可重用组件的新框架（如 React、Vue、Svelte）所取代。这是我们如何实现 示例 2-5 中展示的 `Citizen` 对象的方式：
 
 ```py
 class Citizen {
@@ -989,14 +989,14 @@ class Citizen {
 const c = new Citizen('Groucho M.', 'Freedonia')
 ```
 
-我包含了 [示例 2-5](#bridge_citizen_js)，展示了 JavaScript 对象实例化中的 `new` 使用，因为你会经常遇到它的使用。但语法已经有点笨拙，当你尝试进行继承时会变得更糟。ECMAScript 5 引入了 `Object.create` 方法，这是创建对象和实现继承的更好方式。我建议在你自己的代码中使用它，但是 `new` 可能会在一些第三方库中出现。
+我包含了 示例 2-5，展示了 JavaScript 对象实例化中的 `new` 使用，因为你会经常遇到它的使用。但语法已经有点笨拙，当你尝试进行继承时会变得更糟。ECMAScript 5 引入了 `Object.create` 方法，这是创建对象和实现继承的更好方式。我建议在你自己的代码中使用它，但是 `new` 可能会在一些第三方库中出现。
 
-让我们使用 `Object.create` 创建一个 `Citizen` 及其 `Winner` 子类。强调一下，JavaScript 有很多方法可以做到这一点，但 [示例 2-6](#bridge_prototype_inheritance) 展示了我找到的最干净的方法和我的个人模式。
+让我们使用 `Object.create` 创建一个 `Citizen` 及其 `Winner` 子类。强调一下，JavaScript 有很多方法可以做到这一点，但 示例 2-6 展示了我找到的最干净的方法和我的个人模式。
 
 ##### 示例 2-6\. 使用 `Object.create` 进行原型继承
 
 ```py
-let Citizen = { ![1](assets/1.png)
+let Citizen = { ![1](img/1.png)
     setCitizen: function(name, country){
         this.name = name;
         this.country = country;
@@ -1030,7 +1030,7 @@ albert.logDetails();
 // Out: // Nobel winner Albert Einstein from Switzerland, category // Physics, year 1921
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO12-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO12-1)
 
 `Citizen` 现在是一个对象，而不是构造函数。将其视为任何新建筑（如 `Winner`）的基础。
 
@@ -1050,12 +1050,12 @@ JavaScript 的常见习语是 *方法链*，它由最常用的库 jQuery 推广�
 
 ```py
 let sel = d3.select('#viz')
-    .attr('width', '600px') ![1](assets/1.png)
+    .attr('width', '600px') ![1](img/1.png)
     .attr('height', '400px')
     .style('background', 'lightgray');
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO13-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO13-1)
 
 `attr` 方法返回调用它的 D3 选择器，然后用于调用另一个 `attr` 方法。
 
@@ -1120,26 +1120,26 @@ def fibonacci(n):
 ```py
 winner = 'Albert Einstein', 'Physics', 1921, 'Swiss'
 
-name, _, _, nationality = winner ![1](assets/1.png)
+name, _, _, nationality = winner ![1](img/1.png)
 print(f'{name}, {nationality}')
 # Albert Einstein, Swiss
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO14-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO14-1)
 
 Python 3 有一个 [* 操作符](https://oreil.ly/MFjiR)，在这种情况下，我们可以使用它来解包我们的变量：`name, *_, nationality = winner`
 
 JavaScript 语言正在迅速适应，并最近获得了一些非常强大的 [解构能力](https://oreil.ly/97rbT)。通过添加 *展开操作符* (`...`)，这使得一些非常简洁的数据操作成为可能：
 
 ```py
-let a, b, rem ![1](assets/1.png)
+let a, b, rem ![1](img/1.png)
 
 [a, b] = [1, 2]
 // swap variables [a, b] = [b, a]
 // using the spread operator [a, b, ...rem] = [1, 2, 3, 4, 5, 6,] // rem = [3, 4, 5, 6]
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO15-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO15-1)
 
 不像 Python，你仍然需要声明你将要使用的任何变量。
 
@@ -1160,39 +1160,39 @@ Out:
 Counter({'C': 3, 'A': 2, 'F': 2, 'B': 1, 'E': 1})
 Counter({'A': 2, 'C': 2, 'F': 2, 'B': 1, 'E': 1})
 
-d = defaultdict(int) ![1](assets/1.png)
+d = defaultdict(int) ![1](img/1.png)
 
 for item in items:
-    d[item] += 1 ![2](assets/2.png)
+    d[item] += 1 ![2](img/2.png)
 
 d
 Out:
 defaultdict(<type 'int'>, {'A': 2, 'C': 3, 'B': 1, 'E': 1, 'F': 2})
 
-OrderedDict(sorted(d.items(), key=lambda i: i[1])) ![3](assets/3.png)
+OrderedDict(sorted(d.items(), key=lambda i: i[1])) ![3](img/3.png)
 Out:
-OrderedDict([('B', 1), ('E', 1), ('A', 2), ('F', 2), ('C', 3)]) ![4](assets/4.png)
+OrderedDict([('B', 1), ('E', 1), ('A', 2), ('F', 2), ('C', 3)]) ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO16-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO16-1)
 
 将字典默认设置为整数，默认值为 0。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO16-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO16-2)
 
 如果项目键不存在，则将其值设置为默认值 0 并添加 1。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO16-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO16-3)
 
 获取字典 `d` 中项目的键值对列表，按整数值排序，然后创建一个排序后列表的 `OrderedDict`。
 
-[![4](assets/4.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO16-4)
+![4](img/#co_a_language_learning_bridge_between_python_and_javascript_CO16-4)
 
 `OrderedDict` 记住了添加到其中的项目的（排序后的）顺序。
 
 您可以在 [Python 文档](https://oreil.ly/IOK7c) 中获取有关 `collections` 模块的更多详细信息。
 
-如果您想使用更常规的 JavaScript 库复制一些 Python 的 `collections` 函数，Underscore（或其功能上完全相同的替代品 Lodash^([20](ch02.xhtml#idm45607800747696)）是一个很好的起点。这些库提供了一些增强的函数式编程工具。让我们快速看看这个非常方便的工具。
+如果您想使用更常规的 JavaScript 库复制一些 Python 的 `collections` 函数，Underscore（或其功能上完全相同的替代品 Lodash^(20）是一个很好的起点。这些库提供了一些增强的函数式编程工具。让我们快速看看这个非常方便的工具。
 
 ## 下划线
 
@@ -1208,12 +1208,12 @@ Underscore 有大量有用的函数。例如，有一个 `countBy` 方法，其�
 ```py
 let items = ['F', 'C', 'C', 'A', 'B', 'A', 'C', 'E', 'F'];
 
-_.countBy(items) ![1](assets/1.png)
+_.countBy(items) ![1](img/1.png)
 Out:
 Object {F: 2, C: 3, A: 2, B: 1, E: 1}
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO17-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO17-1)
 
 现在你知道为什么这个库叫 Underscore 了。
 
@@ -1232,7 +1232,7 @@ journeys = [
 
 let groups = _.groupBy(journeys, 'period');
 let mTimes = _.pluck(groups['morning'], 'times');
-mTimes = _.flatten(mTimes); ![1](assets/1.png)
+mTimes = _.flatten(mTimes); ![1](img/1.png)
 let average = function(l){
   let sum = _.reduce(l, function(a,b){return a+b},0);
   return sum/l.length;
@@ -1242,7 +1242,7 @@ Out:
 Average morning time is 33.81818181818182
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO18-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO18-1)
 
 我们的早晨时间数组（`[[44, 34, 56, 31], [33...]]`）需要 *展平* 成一个单一的数字数组。
 
@@ -1255,45 +1255,45 @@ Average morning time is 33.81818181818182
 ```py
 let nums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
-let sum = nums.filter(x => x%2) ![1](assets/1.png)
-  .map(x => x * x) ![2](assets/2.png)
-  .reduce((total, current) => total + current, 0); ![3](assets/3.png)
+let sum = nums.filter(x => x%2) ![1](img/1.png)
+  .map(x => x * x) ![2](img/2.png)
+  .reduce((total, current) => total + current, 0); ![3](img/3.png)
 
 console.log('Sum of the odd squares is ' + sum);
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO19-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO19-1)
 
 过滤列表以获取奇数（即对 `modulus (%) 2` 操作返回 `1`）。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO19-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO19-2)
 
 `map` 通过将函数应用于每个成员来生成新列表（即 `[1, 3, 5...]` → `[1, 9, 25...]`）。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO19-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO19-3)
 
 `reduce` 逐个处理映射后的列表，依次提供当前值（在此例中为求和后的值 `total`）和项目值（`current`）。默认情况下，第一个参数（`total`）的初始值为 `0`，但在这里我们显式地提供了它作为第二个参数。
 
 Python 强大的列表推导式可以轻松模拟上一个例子：
 
 ```py
-nums = range(10) ![1](assets/1.png)
+nums = range(10) ![1](img/1.png)
 
-odd_squares = [x * x for x in nums if x%2] ![2](assets/2.png)
-sum(odd_squares) ![3](assets/3.png)
+odd_squares = [x * x for x in nums if x%2] ![2](img/2.png)
+sum(odd_squares) ![3](img/3.png)
 Out:
 165
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO20-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO20-1)
 
 Python 有一个方便的内置 `range` 函数，也可以接受起始、结束和步长（例如，`range(2, 8, 2)` → `(2, 4, 6)`）。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO20-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO20-2)
 
 `if` 条件检测 `x` 的奇数性，并将通过此筛选的数字进行平方并插入列表。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO20-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO20-3)
 
 Python 还有一个内置且经常使用的 `sum` 语句。
 
@@ -1317,7 +1317,7 @@ def sq(x):
 sum([sq(x) for x in items if is_odd(x)])
 ```
 
-使用 JavaScript，类似的构思也可以增加可读性，并促进 DRY 代码：^([21](ch02.xhtml#idm45607799695392))
+使用 JavaScript，类似的构思也可以增加可读性，并促进 DRY 代码：^(21)
 
 ```py
 let isOdd = function(x){ return x%2; };
@@ -1343,12 +1343,12 @@ nums = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
 
 odds = filter(lambda x: x % 2, nums)
 odds_sq = map(lambda x: x * x, odds)
-reduce(lambda x, y: x + y, odds_sq) ![1](assets/1.png)
+reduce(lambda x, y: x + y, odds_sq) ![1](img/1.png)
 Out:
 165
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO21-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO21-1)
 
 在这里，`reduce` 方法向 lambda 函数提供两个参数，lambda 函数使用它们在冒号后返回表达式。
 
@@ -1356,22 +1356,22 @@ Out:
 
 JavaScript 的一个关键概念之一是*闭包*，它本质上是一个嵌套函数声明，使用在外部（但不是全局）作用域中声明的变量，在函数返回后仍然*保持活跃*。闭包允许实现许多非常有用的编程模式，是该语言的一个常见特性。
 
-让我们看看闭包可能是最常见的用法之一，也是我们在模块模式中已经看到并利用的用法（[示例 2-2](#pyjs_module)）：在保持对本质上是私有的成员变量的访问的同时，公开了有限的 API。
+让我们看看闭包可能是最常见的用法之一，也是我们在模块模式中已经看到并利用的用法（示例 2-2）：在保持对本质上是私有的成员变量的访问的同时，公开了有限的 API。
 
 一个简单的闭包示例是这个小计数器：
 
 ```py
 function Counter(inc) {
   let count = 0;
-  let add = function() { ![1](assets/1.png)
+  let add = function() { ![1](img/1.png)
     count += inc;
     console.log('Current count: ' + count);
   }
   return add;
 }
 
-let inc2 = Counter(2); ![2](assets/2.png)
-inc2(); ![3](assets/3.png)
+let inc2 = Counter(2); ![2](img/2.png)
+inc2(); ![3](img/3.png)
 Out:
 Current count: 2
 inc2();
@@ -1379,19 +1379,19 @@ Out:
 Current count: 4
 ```
 
-[![1](assets/1.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO22-1)
+![1](img/#co_a_language_learning_bridge_between_python_and_javascript_CO22-1)
 
 `add` 函数可以访问本质上是私有的外部作用域中的 `count` 和 `inc` 变量。
 
-[![2](assets/2.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO22-2)
+![2](img/#co_a_language_learning_bridge_between_python_and_javascript_CO22-2)
 
 这返回一个带有闭包变量 `count`（`0`）和 `inc`（`2`）的 `add` 函数。
 
-[![3](assets/3.png)](#co_a_language_learning_bridge_between_python_and_javascript_CO22-3)
+![3](img/#co_a_language_learning_bridge_between_python_and_javascript_CO22-3)
 
 调用 `inc2` 会调用 `add`，从而更新*封闭的* `count` 变量。
 
-我们可以扩展 `Counter` 来添加一个小 API。这种技术是 JavaScript 模块和许多简单库的基础，尤其是在使用基于脚本的 JavaScript 时。^([22](ch02.xhtml#idm45607799372592)) 本质上，它选择性地公开公共方法，同时隐藏私有方法和变量，这在编程界通常被视为良好的实践：
+我们可以扩展 `Counter` 来添加一个小 API。这种技术是 JavaScript 模块和许多简单库的基础，尤其是在使用基于脚本的 JavaScript 时。^(22) 本质上，它选择性地公开公共方法，同时隐藏私有方法和变量，这在编程界通常被视为良好的实践：
 
 ```py
 function Counter(inc) {
@@ -1428,7 +1428,7 @@ cntr.reset() // Count reset to 0
 
 +   [“JavaScript 闭包用例”](https://oreil.ly/xz4G5) 作者 Juriy Zaytsev
 
-Python 也有闭包，但它们并没有像 JavaScript 那样被广泛使用，也许是因为一些使得代码略显尴尬的怪异之处。尽管如此，这些问题是可以克服的。为了演示这一点，[示例 2-7](#pyjs_pyclosure_1) 尝试复制之前的 JavaScript 计数器。
+Python 也有闭包，但它们并没有像 JavaScript 那样被广泛使用，也许是因为一些使得代码略显尴尬的怪异之处。尽管如此，这些问题是可以克服的。为了演示这一点，示例 2-7 尝试复制之前的 JavaScript 计数器。
 
 ##### 示例 2-7\. Python 计数器闭包的初步尝试
 
@@ -1441,7 +1441,7 @@ def get_counter(inc):
     return add
 ```
 
-如果你用 `get_counter` 创建一个计数器（[示例 2-7](#pyjs_pyclosure_1)），然后尝试运行它，你会得到一个 `UnboundLocalError`：
+如果你用 `get_counter` 创建一个计数器（示例 2-7），然后尝试运行它，你会得到一个 `UnboundLocalError`：
 
 ```py
 cntr = get_counter(2)
@@ -1454,7 +1454,7 @@ assignment
 
 有趣的是，尽管我们可以在 `add` 函数内读取 `count` 的值（注释掉 `count += inc` 行来尝试），但尝试改变它会抛出错误。这是因为在 Python 中，尝试将值分配给某些东西会假定它是局部范围的。`add` 函数中没有 `count`，因此会抛出错误。
 
-在 Python 3 中，我们可以通过使用 `nonlocal` 关键字来绕过 [示例 2-7](#pyjs_pyclosure_1) 中的错误，告诉 Python `count` 在一个非局部范围内：
+在 Python 3 中，我们可以通过使用 `nonlocal` 关键字来绕过 示例 2-7 中的错误，告诉 Python `count` 在一个非局部范围内：
 
 ```py
 ...
@@ -1485,29 +1485,29 @@ def get_counter(inc):
 
 # 速查表
 
-作为一个方便的参考指南，图 [2-2](#build_cheat_basic) 至 [2-7](#build_cheat_classes) 包括了一组速查表，用于在 Python 和 JavaScript 之间转换基本操作。
+作为一个方便的参考指南，图 2-2 至 2-7 包括了一组速查表，用于在 Python 和 JavaScript 之间转换基本操作。
 
-![dpj2 0202](assets/dpj2_0202.png)
+![dpj2 0202](img/dpj2_0202.png)
 
 ###### 图 2-2\. 一些基本语法
 
-![dpj2 0203](assets/dpj2_0203.png)
+![dpj2 0203](img/dpj2_0203.png)
 
 ###### 图 2-3\. 布尔值
 
-![dpj2 0204](assets/dpj2_0204.png)
+![dpj2 0204](img/dpj2_0204.png)
 
 ###### 图 2-4\. 循环和迭代
 
-![dpj2 0205](assets/dpj2_0205.png)
+![dpj2 0205](img/dpj2_0205.png)
 
 ###### 图 2-5\. 条件语句
 
-![dpj2 0206](assets/dpj2_0206.png)
+![dpj2 0206](img/dpj2_0206.png)
 
 ###### 图 2-6\. 容器
 
-![dpj2 0207](assets/dpj2_0207.png)
+![dpj2 0207](img/dpj2_0207.png)
 
 ###### 图 2-7\. 类和原型
 
@@ -1519,46 +1519,46 @@ def get_counter(inc):
 
 将其视为教程的一部分，也是未来章节的参考。未涵盖的任何内容将在引入时进行讨论。
 
-^([1](ch02.xhtml#idm45607814867312-marker)) 特别讨厌的小坑之一是，Python 使用 `pop` 来移除列表项，但却使用 `append` 而不是 `push` 来添加项。JavaScript 使用 `push` 来添加项，而 `append` 则用于连接数组。
+^(1) 特别讨厌的小坑之一是，Python 使用 `pop` 来移除列表项，但却使用 `append` 而不是 `push` 来添加项。JavaScript 使用 `push` 来添加项，而 `append` 则用于连接数组。
 
-^([2](ch02.xhtml#idm45607814847776-marker)) [node.js](https://nodejs.org/en) 的兴起将 JavaScript 扩展到了服务器端。
+^(2) [node.js](https://nodejs.org/en) 的兴起将 JavaScript 扩展到了服务器端。
 
-^([3](ch02.xhtml#idm45607814841712-marker)) 随着像 [TensorFlow.js](https://oreil.ly/kDw6M) 和 [Danfo.js](https://oreil.ly/dJnOl)（基于 TensorFlow 的 JavaScript pandas 替代品）等库的出现，这一情况正在改变，但 JS 仍远远落后于 Python、R 等。
+^(3) 随着像 [TensorFlow.js](https://oreil.ly/kDw6M) 和 [Danfo.js](https://oreil.ly/dJnOl)（基于 TensorFlow 的 JavaScript pandas 替代品）等库的出现，这一情况正在改变，但 JS 仍远远落后于 Python、R 等。
 
-^([4](ch02.xhtml#idm45607814829968-marker)) 以在服务器上运行 Python 解释器为代价。
+^(4) 以在服务器上运行 Python 解释器为代价。
 
-^([5](ch02.xhtml#idm45607817504464-marker)) 通过 HTTP 在网络上传输 JS 脚本的限制在很大程度上造成了这种情况。
+^(5) 通过 HTTP 在网络上传输 JS 脚本的限制在很大程度上造成了这种情况。
 
-^([6](ch02.xhtml#idm45607819371024-marker)) 通过使用 ECMAScript 5 的 `'use strict'` 指令，可以消除遗漏 `var` 的可能性。
+^(6) 通过使用 ECMAScript 5 的 `'use strict'` 指令，可以消除遗漏 `var` 的可能性。
 
-^([7](ch02.xhtml#idm45607813738384-marker)) 这实际上是 JavaScript 压缩器为了减小下载网页文件大小而完成的。
+^(7) 这实际上是 JavaScript 压缩器为了减小下载网页文件大小而完成的。
 
-^([8](ch02.xhtml#idm45607813736320-marker)) 软制表符与硬制表符的争论引发了激烈的讨论，有很多争执却鲜有建设性意见。PEP-8 规定了使用空格，这对我来说已经足够好了。
+^(8) 软制表符与硬制表符的争论引发了激烈的讨论，有很多争执却鲜有建设性意见。PEP-8 规定了使用空格，这对我来说已经足够好了。
 
-^([9](ch02.xhtml#idm45607813735088-marker)) 可能是两个甚至三个空格，但这个数字在整个模块中必须保持一致。
+^(9) 可能是两个甚至三个空格，但这个数字在整个模块中必须保持一致。
 
-^([10](ch02.xhtml#idm45607813787904-marker)) JavaScript 使用 UTF-16 的普遍假设导致了许多由 bug 引起的痛苦。请参阅 [Mathias Bynens 的博文](https://oreil.ly/9otVB) 进行有趣的分析。
+^(10) JavaScript 使用 UTF-16 的普遍假设导致了许多由 bug 引起的痛苦。请参阅 [Mathias Bynens 的博文](https://oreil.ly/9otVB) 进行有趣的分析。
 
-^([11](ch02.xhtml#idm45607813786288-marker)) Python 3 中转向 Unicode 字符串是一个重大变化。考虑到通常伴随 Unicode 编码/解码的混乱，值得阅读有关 [此方面的一些内容](https://oreil.ly/5FNwi)。Python 2 使用字节字符串。
+^(11) Python 3 中转向 Unicode 字符串是一个重大变化。考虑到通常伴随 Unicode 编码/解码的混乱，值得阅读有关 [此方面的一些内容](https://oreil.ly/5FNwi)。Python 2 使用字节字符串。
 
-^([12](ch02.xhtml#idm45607813779728-marker)) `parseInt` 的功能远不止四舍五入。例如，`parseInt(*12.5px*)` 返回 12，首先去除 *`px`*，然后将字符串转换为数字。它还有第二个 `radix` 参数来指定转换的基数。具体细节请参见 [Mozilla 文档](https://oreil.ly/ZtA4n)。
+^(12) `parseInt` 的功能远不止四舍五入。例如，`parseInt(*12.5px*)` 返回 12，首先去除 *`px`*，然后将字符串转换为数字。它还有第二个 `radix` 参数来指定转换的基数。具体细节请参见 [Mozilla 文档](https://oreil.ly/ZtA4n)。
 
-^([13](ch02.xhtml#idm45607815619968-marker)) 因为 JavaScript 中的所有数字都是浮点数，它只支持 53 位整数。使用更大的整数（例如常用的 64 位）可能导致不连续的整数。请参阅这篇 [2ality 博文](https://oreil.ly/hBxvS) 获取更多信息。
+^(13) 因为 JavaScript 中的所有数字都是浮点数，它只支持 53 位整数。使用更大的整数（例如常用的 64 位）可能导致不连续的整数。请参阅这篇 [2ality 博文](https://oreil.ly/hBxvS) 获取更多信息。
 
-^([14](ch02.xhtml#idm45607815328112-marker)) 这使得遍历它们的属性比可能要棘手一些。查看[这个 Stack Overflow 线程](https://oreil.ly/3kJW3)以获取更多详情。
+^(14) 这使得遍历它们的属性比可能要棘手一些。查看[这个 Stack Overflow 线程](https://oreil.ly/3kJW3)以获取更多详情。
 
-^([15](ch02.xhtml#idm45607815158832-marker)) 如果你好奇，Angus Croll 的[一篇博客文章](https://oreil.ly/YyUyx)对此有一个很好的总结。
+^(15) 如果你好奇，Angus Croll 的[一篇博客文章](https://oreil.ly/YyUyx)对此有一个很好的总结。
 
-^([16](ch02.xhtml#idm45607802789056-marker)) 这是 JavaScript 明显胜过 Python 的一个领域，许多人希望 Python 也能有类似的功能。
+^(16) 这是 JavaScript 明显胜过 Python 的一个领域，许多人希望 Python 也能有类似的功能。
 
-^([17](ch02.xhtml#idm45607802786192-marker)) 从 ECMAScript 5 开始，并在所有现代浏览器中可用。
+^(17) 从 ECMAScript 5 开始，并在所有现代浏览器中可用。
 
-^([18](ch02.xhtml#idm45607802261472-marker)) 我告诉一个有才华的程序员朋友，我面临向 Python 程序员解释原型的挑战，他指出大多数 JavaScript 程序员可能也需要一些指导。这有很多道理，许多 JavaScript 程序员通过 *优雅* 地使用原型，在边缘情况下进行技巧性的编码来保持高效。
+^(18) 我告诉一个有才华的程序员朋友，我面临向 Python 程序员解释原型的挑战，他指出大多数 JavaScript 程序员可能也需要一些指导。这有很多道理，许多 JavaScript 程序员通过 *优雅* 地使用原型，在边缘情况下进行技巧性的编码来保持高效。
 
-^([19](ch02.xhtml#idm45607801599376-marker)) 这是使用 ECMAScript 5 的 `'use strict;'` 指令的另一个原因，它引起了这类错误的注意。
+^(19) 这是使用 ECMAScript 5 的 `'use strict;'` 指令的另一个原因，它引起了这类错误的注意。
 
-^([20](ch02.xhtml#idm45607800747696-marker)) 出于性能原因，这是我的个人选择。
+^(20) 出于性能原因，这是我的个人选择。
 
-^([21](ch02.xhtml#idm45607799695392-marker)) 不要重复自己（DRY）是一种可靠的编码约定。
+^(21) 不要重复自己（DRY）是一种可靠的编码约定。
 
-^([22](ch02.xhtml#idm45607799372592-marker)) 现代 JavaScript 有适当的模块，可以导入和导出封装的变量。使用这些会有额外的开销，因为它们目前需要一个构建阶段来准备好供浏览器使用。
+^(22) 现代 JavaScript 有适当的模块，可以导入和导出封装的变量。使用这些会有额外的开销，因为它们目前需要一个构建阶段来准备好供浏览器使用。

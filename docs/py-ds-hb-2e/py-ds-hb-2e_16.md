@@ -1,4 +1,4 @@
-# 第 13 章. 介绍 Pandas 对象
+# 第十三章. 介绍 Pandas 对象
 
 在非常基本的层面上，Pandas 对象可以被认为是 NumPy 结构化数组的增强版本，其中的行和列被标签而不是简单的整数索引所标识。正如我们将在本章课程中看到的那样，Pandas 在基本数据结构之上提供了一系列有用的工具、方法和功能，但几乎所有接下来的内容都需要理解这些结构。因此，在我们继续之前，让我们看看这三种基本的 Pandas 数据结构：`Series`、`DataFrame` 和 `Index`。
 
@@ -132,11 +132,11 @@ Out[13]: California    39538223
          dtype: int64
 ```
 
-我们将在[第14章](ch14.xhtml#section-0302-data-indexing-and-selection)讨论Pandas索引和切片的一些怪癖。
+我们将在第十四章讨论 Pandas 索引和切片的一些怪癖。
 
-## 构建Series对象
+## 构建 Series 对象
 
-我们已经看到了几种从头开始构建Pandas `Series`的方法。所有这些方法都是以下版本的某种形式：
+我们已经看到了几种从头开始构建 Pandas `Series`的方法。所有这些方法都是以下版本的某种形式：
 
 ```py
 pd.Series(data, index=index)
@@ -144,7 +144,7 @@ pd.Series(data, index=index)
 
 其中`index`是一个可选参数，`data`可以是多个实体之一。
 
-例如，`data`可以是一个列表或NumPy数组，此时`index`默认为整数序列：
+例如，`data`可以是一个列表或 NumPy 数组，此时`index`默认为整数序列：
 
 ```py
 In [14]: pd.Series([2, 4, 6])
@@ -183,11 +183,11 @@ Out[17]: 1    b
          dtype: object
 ```
 
-# Pandas DataFrame对象
+# Pandas DataFrame 对象
 
-Pandas中的下一个基本结构是`DataFrame`。与前一节讨论的`Series`对象类似，`DataFrame`可以被视为NumPy数组的泛化，或者Python字典的特殊化。我们现在将看看每种观点。
+Pandas 中的下一个基本结构是`DataFrame`。与前一节讨论的`Series`对象类似，`DataFrame`可以被视为 NumPy 数组的泛化，或者 Python 字典的特殊化。我们现在将看看每种观点。
 
-## DataFrame作为广义的NumPy数组
+## DataFrame 作为广义的 NumPy 数组
 
 如果`Series`是具有显式索引的一维数组的类比，那么`DataFrame`就是具有显式行和列索引的二维数组的类比。正如你可能把二维数组看作一系列对齐的一维列的有序序列一样，你可以把`DataFrame`看作一系列对齐的`Series`对象。这里，“对齐”意味着它们共享相同的索引。
 
@@ -235,9 +235,9 @@ In [21]: states.columns
 Out[21]: Index(['population', 'area'], dtype='object')
 ```
 
-因此，`DataFrame`可以被视为二维NumPy数组的泛化，其中行和列都有用于访问数据的泛化索引。
+因此，`DataFrame`可以被视为二维 NumPy 数组的泛化，其中行和列都有用于访问数据的泛化索引。
 
-## DataFrame作为特殊的字典
+## DataFrame 作为特殊的字典
 
 同样，我们也可以把`DataFrame`视为字典的特殊情况。在字典将键映射到值的情况下，`DataFrame`将列名映射到包含列数据的`Series`。例如，请求`'area'`属性将返回包含我们之前看到的面积的`Series`对象：
 
@@ -251,7 +251,7 @@ Out[22]: California      423967
          Name: area, dtype: int64
 ```
 
-注意这里可能的混淆点：在一个二维 NumPy 数组中，`data[0]` 将返回第一行。对于 `DataFrame`，`data['col0']` 将返回第一列。因此，最好将 `DataFrame` 视为广义的字典，而不是广义的数组，尽管两种视角都是有用的。我们将在 [第 14 章](ch14.xhtml#section-0302-data-indexing-and-selection) 探讨更灵活的 `DataFrame` 索引方式。
+注意这里可能的混淆点：在一个二维 NumPy 数组中，`data[0]` 将返回第一行。对于 `DataFrame`，`data['col0']` 将返回第一列。因此，最好将 `DataFrame` 视为广义的字典，而不是广义的数组，尽管两种视角都是有用的。我们将在 第十四章 探讨更灵活的 `DataFrame` 索引方式。
 
 ## 构造 DataFrame 对象
 
@@ -285,7 +285,7 @@ Out[24]:    a  b
          2  2  4
 ```
 
-即使字典中有些键是缺失的，Pandas 也会用 `NaN` 值（即“Not a Number”；参见 [第 16 章](ch16.xhtml#section-0304-missing-values)）来填充它们：
+即使字典中有些键是缺失的，Pandas 也会用 `NaN` 值（即“Not a Number”；参见 第十六章）来填充它们：
 
 ```py
 In [25]: pd.DataFrame([{'a': 1, 'b': 2}, {'b': 3, 'c': 4}])
@@ -325,7 +325,7 @@ Out[27]:         foo       bar
 
 ### 从 NumPy 结构化数组
 
-我们在 [第 12 章](ch12.xhtml#section-0209-structured-data-numpy) 中讨论了结构化数组。Pandas `DataFrame` 的操作方式与结构化数组非常相似，可以直接从结构化数组创建一个：
+我们在 第十二章 中讨论了结构化数组。Pandas `DataFrame` 的操作方式与结构化数组非常相似，可以直接从结构化数组创建一个：
 
 ```py
 In [28]: A = np.zeros(3, dtype=[('A', 'i8'), ('B', 'f8')])

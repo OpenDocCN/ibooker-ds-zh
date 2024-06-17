@@ -1,4 +1,4 @@
-# 第 20 章。聚合和分组
+# 第二十章。聚合和分组
 
 许多数据分析任务的基本组成部分是高效的汇总：计算`sum`、`mean`、`median`、`min`和`max`等聚合，其中单个数字总结了可能有很多数据集的各个方面。在本章中，我们将探索 Pandas 中的聚合，从类似于我们在 NumPy 数组上看到的简单操作到基于`groupby`概念的更复杂的操作。
 
@@ -27,7 +27,7 @@ In [1]: import numpy as np
 
 # 行星数据
 
-在这里，我们将使用通过 [Seaborn package](http://seaborn.pydata.org)（参见[第 36 章](ch36.xhtml#section-0414-visualization-with-seaborn)）提供的 Planets 数据集。它提供了天文学家在其他恒星周围发现的行星的信息（被称为*太阳系外行星*或*外行星*）。可以通过简单的 Seaborn 命令下载：
+在这里，我们将使用通过 [Seaborn package](http://seaborn.pydata.org)（参见第三十六章）提供的 Planets 数据集。它提供了天文学家在其他恒星周围发现的行星的信息（被称为*太阳系外行星*或*外行星*）。可以通过简单的 Seaborn 命令下载：
 
 ```py
 In [2]: import seaborn as sns
@@ -50,7 +50,7 @@ Out[3]:             method  number  orbital_period   mass  distance  year
 
 # Pandas 中的简单聚合
 
-在[第 7 章](ch07.xhtml#section-0204-computation-on-arrays-aggregates)中，我们探讨了 NumPy 数组可用的一些数据聚合。对于 Pandas 的 Series，聚合返回一个单一值：
+在第七章中，我们探讨了 NumPy 数组可用的一些数据聚合。对于 Pandas 的 Series，聚合返回一个单一值：
 
 ```py
 In [4]: rng = np.random.RandomState(42)
@@ -107,7 +107,7 @@ Out[9]: 0    0.088290
         dtype: float64
 ```
 
-Pandas 的 Series 和 DataFrame 对象包含了[第 7 章](ch07.xhtml#section-0204-computation-on-arrays-aggregates)中提到的所有常见聚合；此外，还有一个方便的方法`describe`，它为每列计算了几个常见聚合并返回结果。让我们在 Planets 数据上使用它，目前删除具有缺失值的行：
+Pandas 的 Series 和 DataFrame 对象包含了第七章中提到的所有常见聚合；此外，还有一个方便的方法`describe`，它为每列计算了几个常见聚合并返回结果。让我们在 Planets 数据上使用它，目前删除具有缺失值的行：
 
 ```py
 In [10]: planets.dropna().describe()
@@ -124,7 +124,7 @@ Out[10]:           number  orbital_period        mass    distance         year
 
 这种方法帮助我们了解数据集的整体属性。例如，在`year`列中，我们可以看到尽管有外行星发现的年份可以追溯到 1989 年，但数据集中一半以上的行星直到 2010 年或之后才被发现。这在很大程度上要归功于*开普勒*任务，其目标是使用专门设计的空间望远镜在其他恒星周围寻找凌日行星。
 
-[表 20-1](#table-20-1) 总结了一些其他内置的 Pandas 聚合。
+表 20-1 总结了一些其他内置的 Pandas 聚合。
 
 表 20-1。Pandas 聚合方法列表
 
@@ -149,9 +149,9 @@ Out[10]:           number  orbital_period        mass    distance         year
 
 ## 分割、应用、组合
 
-这个分割-应用-组合操作的典型示例，其中“应用”是一个求和聚合，如[图 20-1](#fig_images_in_0308-split-apply-combine)所示。
+这个分割-应用-组合操作的典型示例，其中“应用”是一个求和聚合，如图 20-1 所示。
 
-[图 20-1](#fig_images_in_0308-split-apply-combine)展示了`groupby`操作的完成情况：
+图 20-1 展示了`groupby`操作的完成情况：
 
 +   *分割*步骤涉及根据指定键的值拆分和分组`DataFrame`。
 
@@ -159,9 +159,9 @@ Out[10]:           number  orbital_period        mass    distance         year
 
 +   *合并*步骤将这些操作的结果合并到输出数组中。
 
-![03.08 split apply combine](assets/03.08-split-apply-combine.png)
+![03.08 split apply combine](img/03.08-split-apply-combine.png)
 
-###### 图 20-1\. `groupby`操作的视觉表示^([1](ch20.xhtml#idm45858775097184))
+###### 图 20-1\. `groupby`操作的视觉表示^(1)
 
 虽然这当然可以通过一些组合使用先前介绍的掩码、聚合和合并命令来手动完成，但重要的认识是*中间的分割不需要显式实例化*。相反，`groupby`可以（通常）在数据的单次遍历中执行此操作，沿途更新每个组的总和、平均值、计数、最小值或其他聚合。`groupby`的威力在于它抽象出了这些步骤：用户不需要考虑计算在幕后是如何进行的，而是可以将*操作作为一个整体*来思考。
 
@@ -284,7 +284,7 @@ Out[18]:        method
          Length: 80, dtype: float64
 ```
 
-查看这张表有助于我们更好地理解数据：例如，直到2014年，绝大多数行星是通过径向速度和凌日法发现的，尽管后者方法近年来变得更为普遍。最新的方法似乎是凌时差变化和轨道亮度调制，直到2011年才用于发现新行星。
+查看这张表有助于我们更好地理解数据：例如，直到 2014 年，绝大多数行星是通过径向速度和凌日法发现的，尽管后者方法近年来变得更为普遍。最新的方法似乎是凌时差变化和轨道亮度调制，直到 2011 年才用于发现新行星。
 
 注意，这些分派方法是应用在*每个单独的组*上的，并且结果然后在`GroupBy`内组合并返回。同样地，任何有效的`DataFrame`/`Series`方法都可以在对应的`GroupBy`对象上类似地调用。
 
@@ -363,7 +363,7 @@ Out[22]: df                         df.groupby('key').std()
          5   C      5      9
 ```
 
-过滤函数应返回一个布尔值，指定组是否通过过滤。在这里，因为A组的标准偏差不大于4，所以它从结果中被删除。
+过滤函数应返回一个布尔值，指定组是否通过过滤。在这里，因为 A 组的标准偏差不大于 4，所以它从结果中被删除。
 
 ### 变换
 
@@ -384,7 +384,7 @@ Out[23]:    data1  data2
 
 ### 应用方法
 
-`apply`方法允许您将任意函数应用于组结果。该函数应接受一个`DataFrame`，并返回一个Pandas对象（例如`DataFrame`、`Series`）或一个标量；合并步骤的行为将根据返回的输出类型进行调整。
+`apply`方法允许您将任意函数应用于组结果。该函数应接受一个`DataFrame`，并返回一个 Pandas 对象（例如`DataFrame`、`Series`）或一个标量；合并步骤的行为将根据返回的输出类型进行调整。
 
 例如，这里是一个通过第一列的总和来归一化的`apply`操作：
 
@@ -404,7 +404,7 @@ Out[24]:   key     data1  data2
          5   C  0.416667      9
 ```
 
-在`GroupBy`中的`apply`非常灵活：唯一的标准是函数接受`DataFrame`并返回Pandas对象或标量。在中间您可以做任何事情！
+在`GroupBy`中的`apply`非常灵活：唯一的标准是函数接受`DataFrame`并返回 Pandas 对象或标量。在中间您可以做任何事情！
 
 ## 指定分割密钥
 
@@ -453,9 +453,9 @@ Out[27]: df2                    df2.groupby(mapping).sum()
          C        5      9
 ```
 
-### 任何Python函数
+### 任何 Python 函数
 
-类似于映射，您可以传递任何Python函数，该函数将输入索引值并输出组：
+类似于映射，您可以传递任何 Python 函数，该函数将输入索引值并输出组：
 
 ```py
 In [28]: df2.groupby(str.lower).mean()
@@ -481,7 +481,7 @@ Out[29]:                data1  data2
 
 ## 分组示例
 
-举例来说，在几行Python代码中，我们可以将所有这些组合在一起，并按方法和十年计数发现的行星：
+举例来说，在几行 Python 代码中，我们可以将所有这些组合在一起，并按方法和十年计数发现的行星：
 
 ```py
 In [30]: decade = 10 * (planets['year'] // 10)
@@ -506,4 +506,4 @@ Out[30]: decade                         1980s  1990s  2000s  2010s
 
 我建议深入研究这几行代码，并评估每个步骤，以确保您完全理解它们对结果的影响。这当然是一个有些复杂的例子，但理解这些部分将使您能够类似地探索自己的数据。
 
-^([1](ch20.xhtml#idm45858775097184-marker)) 生成此图的代码可以在[在线附录](https://oreil.ly/zHqzu)中找到。
+^(1) 生成此图的代码可以在[在线附录](https://oreil.ly/zHqzu)中找到。

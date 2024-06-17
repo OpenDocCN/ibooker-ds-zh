@@ -1,6 +1,6 @@
-# 第43章：深入探讨支持向量机
+# 第四十三章：深入探讨支持向量机
 
-支持向量机（SVMs）是一种特别强大和灵活的监督算法类，适用于分类和回归。在本章中，我们将探讨SVM背后的直觉及其在分类问题中的应用。
+支持向量机（SVMs）是一种特别强大和灵活的监督算法类，适用于分类和回归。在本章中，我们将探讨 SVM 背后的直觉及其在分类问题中的应用。
 
 我们从标准导入开始：
 
@@ -14,13 +14,13 @@ In [1]: %matplotlib inline
 
 ###### 注
 
-全尺寸、全彩色图像可在[GitHub的补充材料](https://oreil.ly/PDSH_GitHub)中找到。
+全尺寸、全彩色图像可在[GitHub 的补充材料](https://oreil.ly/PDSH_GitHub)中找到。
 
 # 激励支持向量机
 
-作为我们讨论贝叶斯分类的一部分（参见[第41章](ch41.xhtml#section-0505-naive-bayes)），我们了解到了描述每个潜在类分布的简单模型，并尝试使用它来概率地确定新点的标签。那是一个生成分类的例子；在这里，我们将考虑判别分类。也就是说，我们不再模拟每个类，而是简单地找到一个（在二维中为线或曲线，在多维中为流形），将类彼此分开。
+作为我们讨论贝叶斯分类的一部分（参见第四十一章），我们了解到了描述每个潜在类分布的简单模型，并尝试使用它来概率地确定新点的标签。那是一个生成分类的例子；在这里，我们将考虑判别分类。也就是说，我们不再模拟每个类，而是简单地找到一个（在二维中为线或曲线，在多维中为流形），将类彼此分开。
 
-作为一个例子，考虑一个分类任务的简单情况，其中两类点是完全分开的（见[图43-1](#fig_0507-support-vector-machines_files_in_output_5_0)）。
+作为一个例子，考虑一个分类任务的简单情况，其中两类点是完全分开的（见图 43-1）。
 
 ```py
 In [2]: from sklearn.datasets import make_blobs
@@ -29,13 +29,13 @@ In [2]: from sklearn.datasets import make_blobs
         plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='autumn');
 ```
 
-![output 5 0](assets/output_5_0.png)
+![output 5 0](img/output_5_0.png)
 
-###### 图43-1\. 分类简单数据
+###### 图 43-1\. 分类简单数据
 
 线性判别分类器将尝试画一条直线分隔两组数据，并因此创建一个分类模型。对于像这样的二维数据，我们可以手动完成这项任务。但我们立即看到了一个问题：存在不止一条可能完全区分这两类的分界线！
 
-我们可以如下绘制其中一些；[图43-2](#fig_0507-support-vector-machines_files_in_output_7_0)展示了结果：
+我们可以如下绘制其中一些；图 43-2 展示了结果：
 
 ```py
 In [3]: xfit = np.linspace(-1, 3.5)
@@ -48,15 +48,15 @@ In [3]: xfit = np.linspace(-1, 3.5)
         plt.xlim(-1, 3.5);
 ```
 
-![output 7 0](assets/output_7_0.png)
+![output 7 0](img/output_7_0.png)
 
-###### 图43-2\. 我们数据的三个完美线性判别分类器
+###### 图 43-2\. 我们数据的三个完美线性判别分类器
 
 这是三个*非常*不同的分隔符，尽管如此，它们完全可以区分这些样本。根据你选择的分界线，新的数据点（例如，在这个图中用“X”标记的点）将被分配不同的标签！显然，我们简单的“在类之间画一条线”的直觉不够好，我们需要更深入地思考。
 
 # 支持向量机：最大化边缘
 
-支持向量机提供了一种改进方法。其直觉是：与其简单地在类之间画一条零宽度线，我们可以在每条线周围绘制一定宽度的*边缘*，直到最近的点。这是一个展示的例子（见[图43-3](#fig_0507-support-vector-machines_files_in_output_10_0)）。
+支持向量机提供了一种改进方法。其直觉是：与其简单地在类之间画一条零宽度线，我们可以在每条线周围绘制一定宽度的*边缘*，直到最近的点。这是一个展示的例子（见图 43-3）。
 
 ```py
 In [4]: xfit = np.linspace(-1, 3.5)
@@ -73,13 +73,13 @@ In [4]: xfit = np.linspace(-1, 3.5)
 
 最大化这个边缘的线就是我们将选择作为最优模型的线。
 
-![output 10 0](assets/output_10_0.png)
+![output 10 0](img/output_10_0.png)
 
-###### 图43-3\. 判别分类器内“边缘”的可视化
+###### 图 43-3\. 判别分类器内“边缘”的可视化
 
 ## 适配支持向量机
 
-现在让我们看看对这些数据进行实际拟合的结果：我们将使用Scikit-Learn的支持向量分类器（`SVC`）来训练一个SVM模型。暂时地，我们将使用线性核并将参数`C`设置为一个非常大的数（稍后我们将深入讨论它们的含义）：
+现在让我们看看对这些数据进行实际拟合的结果：我们将使用 Scikit-Learn 的支持向量分类器（`SVC`）来训练一个 SVM 模型。暂时地，我们将使用线性核并将参数`C`设置为一个非常大的数（稍后我们将深入讨论它们的含义）：
 
 ```py
 In [5]: from sklearn.svm import SVC # "Support vector classifier"
@@ -88,7 +88,7 @@ In [5]: from sklearn.svm import SVC # "Support vector classifier"
 Out[5]: SVC(C=10000000000.0, kernel='linear')
 ```
 
-为了更好地可视化这里发生的情况，让我们创建一个快速便利函数，它将为我们绘制SVM决策边界（[图 43-4](#fig_0507-support-vector-machines_files_in_output_16_0)）。
+为了更好地可视化这里发生的情况，让我们创建一个快速便利函数，它将为我们绘制 SVM 决策边界（图 43-4）。
 
 ```py
 In [6]: def plot_svc_decision_function(model, ax=None, plot_support=True):
@@ -125,11 +125,11 @@ In [7]: plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='autumn')
         plot_svc_decision_function(model);
 ```
 
-![output 16 0](assets/output_16_0.png)
+![output 16 0](img/output_16_0.png)
 
 ###### 图 43-4\. 一个拟合到数据的支持向量机分类器，显示了边界（虚线）和支持向量（圆点）
 
-这是最大化两组点之间间隔的分隔线。请注意，一些训练点恰好接触边界：它们在[图 43-5](#fig_0507-support-vector-machines_files_in_output_20_0)中被圈出来。这些点是此拟合的关键元素；它们被称为*支持向量*，并赋予了算法其名称。在Scikit-Learn中，这些点的标识存储在分类器的`support_vectors_`属性中：
+这是最大化两组点之间间隔的分隔线。请注意，一些训练点恰好接触边界：它们在图 43-5 中被圈出来。这些点是此拟合的关键元素；它们被称为*支持向量*，并赋予了算法其名称。在 Scikit-Learn 中，这些点的标识存储在分类器的`support_vectors_`属性中：
 
 ```py
 In [8]: model.support_vectors_
@@ -140,7 +140,7 @@ Out[8]: array([[0.44359863, 3.11530945],
 
 此分类器成功的关键在于对拟合来说，只有支持向量的位置是重要的；远离边界但在正确一侧的点不会修改拟合。从技术上讲，这是因为这些点不会对用于拟合模型的损失函数产生贡献，因此它们的位置和数量并不重要，只要它们不跨越边界。
 
-例如，如果我们绘制从这个数据集的前60个点和前120个点学习到的模型（[图 43-5](#fig_0507-support-vector-machines_files_in_output_20_0)），我们可以看到这一点。
+例如，如果我们绘制从这个数据集的前 60 个点和前 120 个点学习到的模型（图 43-5），我们可以看到这一点。
 
 ```py
 In [9]: def plot_svm(N=10, ax=None):
@@ -164,13 +164,13 @@ In [9]: def plot_svm(N=10, ax=None):
             axi.set_title('N = {0}'.format(N))
 ```
 
-![output 20 0](assets/output_20_0.png)
+![output 20 0](img/output_20_0.png)
 
-###### 图 43-5\. 新训练点对SVM模型的影响
+###### 图 43-5\. 新训练点对 SVM 模型的影响
 
-在左侧面板中，我们看到了60个训练点的模型和支持向量。在右侧面板中，我们增加了训练点的数量，但模型没有改变：左侧面板中的三个支持向量与右侧面板中的支持向量相同。这种对远点行为的确切不敏感性是SVM模型的一种优势之一。
+在左侧面板中，我们看到了 60 个训练点的模型和支持向量。在右侧面板中，我们增加了训练点的数量，但模型没有改变：左侧面板中的三个支持向量与右侧面板中的支持向量相同。这种对远点行为的确切不敏感性是 SVM 模型的一种优势之一。
 
-如果您正在实时运行此笔记本，您可以使用IPython的交互式小部件来交互地查看SVM模型的此功能：
+如果您正在实时运行此笔记本，您可以使用 IPython 的交互式小部件来交互地查看 SVM 模型的此功能：
 
 ```py
 In [10]: from ipywidgets import interact, fixed
@@ -181,9 +181,9 @@ Out[10]: interactive(children=(IntSlider(value=10, description='N', max=200, min
 
 ## 超越线性边界：核支持向量机
 
-当SVM与*核*结合时，它可以变得非常强大。我们之前在[第42章](ch42.xhtml#section-0506-linear-regression)中已经看到了核的一个版本，即基函数回归。在那里，我们将数据投影到由多项式和高斯基函数定义的更高维空间中，从而能够使用线性分类器拟合非线性关系。
+当 SVM 与*核*结合时，它可以变得非常强大。我们之前在第四十二章中已经看到了核的一个版本，即基函数回归。在那里，我们将数据投影到由多项式和高斯基函数定义的更高维空间中，从而能够使用线性分类器拟合非线性关系。
 
-在 SVM 模型中，我们可以使用相同思想的一个版本。为了证明核函数的必要性，让我们看一些不是线性可分的数据（参见[图 43-6](#fig_0507-support-vector-machines_files_in_output_25_0)）。
+在 SVM 模型中，我们可以使用相同思想的一个版本。为了证明核函数的必要性，让我们看一些不是线性可分的数据（参见图 43-6）。
 
 ```py
 In [11]: from sklearn.datasets import make_circles
@@ -195,17 +195,17 @@ In [11]: from sklearn.datasets import make_circles
          plot_svc_decision_function(clf, plot_support=False);
 ```
 
-![output 25 0](assets/output_25_0.png)
+![output 25 0](img/output_25_0.png)
 
 ###### 图 43-6\. 线性分类器对非线性边界的性能较差。
 
-很明显，没有任何线性判别能*永远*分离这些数据。但我们可以从[第 42 章](ch42.xhtml#section-0506-linear-regression)的基函数回归中吸取教训，并思考如何将数据投影到更高的维度，以便线性分隔器*足够*。例如，我们可以使用的一个简单投影是在中间聚集上计算一个*径向基函数*（RBF）：
+很明显，没有任何线性判别能*永远*分离这些数据。但我们可以从第四十二章的基函数回归中吸取教训，并思考如何将数据投影到更高的维度，以便线性分隔器*足够*。例如，我们可以使用的一个简单投影是在中间聚集上计算一个*径向基函数*（RBF）：
 
 ```py
 In [12]: r = np.exp(-(X ** 2).sum(1))
 ```
 
-我们可以使用三维图来可视化这个额外的数据维度，如[图 43-7](#fig_0507-support-vector-machines_files_in_output_29_0)所示。
+我们可以使用三维图来可视化这个额外的数据维度，如图 43-7 所示。
 
 ```py
 In [13]: from mpl_toolkits import mplot3d
@@ -218,7 +218,7 @@ In [13]: from mpl_toolkits import mplot3d
          ax.set_zlabel('r');
 ```
 
-![output 29 0](assets/output_29_0.png)
+![output 29 0](img/output_29_0.png)
 
 ###### 图 43-7\. 为数据添加的第三个维度允许线性分离
 
@@ -238,7 +238,7 @@ In [14]: clf = SVC(kernel='rbf', C=1E6)
 Out[14]: SVC(C=1000000.0)
 ```
 
-让我们使用之前定义的函数来可视化拟合并标识支持向量（参见[图 43-8](#fig_0507-support-vector-machines_files_in_output_33_0)）。
+让我们使用之前定义的函数来可视化拟合并标识支持向量（参见图 43-8）。
 
 ```py
 In [15]: plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='autumn')
@@ -247,7 +247,7 @@ In [15]: plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='autumn')
                      s=300, lw=1, facecolors='none');
 ```
 
-![output 33 0](assets/output_33_0.png)
+![output 33 0](img/output_33_0.png)
 
 ###### 图 43-8\. 核 SVM 对数据的拟合
 
@@ -255,7 +255,7 @@ In [15]: plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='autumn')
 
 ## 调整 SVM：软化间隔
 
-到目前为止，我们的讨论集中在非常干净的数据集上，其中存在完美的决策边界。但是如果您的数据有一定的重叠呢？例如，您可能有这样的数据（见[图 43-9](#fig_0507-support-vector-machines_files_in_output_36_0)）。
+到目前为止，我们的讨论集中在非常干净的数据集上，其中存在完美的决策边界。但是如果您的数据有一定的重叠呢？例如，您可能有这样的数据（见图 43-9）。
 
 ```py
 In [16]: X, y = make_blobs(n_samples=100, centers=2,
@@ -263,13 +263,13 @@ In [16]: X, y = make_blobs(n_samples=100, centers=2,
          plt.scatter(X[:, 0], X[:, 1], c=y, s=50, cmap='autumn');
 ```
 
-![output 36 0](assets/output_36_0.png)
+![output 36 0](img/output_36_0.png)
 
 ###### 图 43-9\. 具有一定重叠级别的数据
 
 为了处理这种情况，SVM 实现中有一个“软化”间隔的修正因子：即，如果允许更好的拟合，某些点可以进入间隔。间隔的硬度由调整参数控制，通常称为`C`。对于很大的`C`，间隔是硬的，点不能位于其中。对于较小的`C`，间隔较软，并且可以包含一些点。
 
-[图 43-10](#fig_0507-support-vector-machines_files_in_output_38_0)中显示的图表展示了通过软化间隔来改变`C`如何影响最终拟合的视觉效果：
+图 43-10 中显示的图表展示了通过软化间隔来改变`C`如何影响最终拟合的视觉效果：
 
 ```py
 In [17]: X, y = make_blobs(n_samples=100, centers=2,
@@ -288,11 +288,11 @@ In [17]: X, y = make_blobs(n_samples=100, centers=2,
              axi.set_title('C = {0:.1f}'.format(C), size=14)
 ```
 
-![output 38 0](assets/output_38_0.png)
+![output 38 0](img/output_38_0.png)
 
 ###### 图 43-10\. `C` 参数对支持向量拟合的影响
 
-`C` 的最佳值将取决于您的数据集，您应该使用交叉验证或类似的程序来调整此参数（参考[第 39 章](ch39.xhtml#section-0503-hyperparameters-and-model-validation)）。
+`C` 的最佳值将取决于您的数据集，您应该使用交叉验证或类似的程序来调整此参数（参考第三十九章）。
 
 # 示例：人脸识别
 
@@ -308,7 +308,7 @@ Out[18]: ['Ariel Sharon' 'Colin Powell' 'Donald Rumsfeld' 'George W Bush'
          (1348, 62, 47)
 ```
 
-让我们绘制几张这些人脸，看看我们正在处理的内容（见[图 43-11](#fig_0507-support-vector-machines_files_in_output_43_0)）。
+让我们绘制几张这些人脸，看看我们正在处理的内容（见图 43-11）。
 
 ```py
 In [19]: fig, ax = plt.subplots(3, 5, figsize=(8, 6))
@@ -318,11 +318,11 @@ In [19]: fig, ax = plt.subplots(3, 5, figsize=(8, 6))
                      xlabel=faces.target_names[faces.target[i]])
 ```
 
-![output 43 0](assets/output_43_0.png)
+![output 43 0](img/output_43_0.png)
 
 ###### 图 43-11\. 来自野外标记人脸数据集的示例
 
-每个图像包含 62 × 47，约 3,000 个像素。我们可以简单地使用每个像素值作为特征，但通常使用某种预处理器来提取更有意义的特征更为有效；在这里，我们将使用主成分分析（见[第 45 章](ch45.xhtml#section-0509-principal-component-analysis)）提取 150 个基本组分，以供支持向量机分类器使用。我们可以通过将预处理器和分类器打包到单个管道中来实现这一点：
+每个图像包含 62 × 47，约 3,000 个像素。我们可以简单地使用每个像素值作为特征，但通常使用某种预处理器来提取更有意义的特征更为有效；在这里，我们将使用主成分分析（见第四十五章）提取 150 个基本组分，以供支持向量机分类器使用。我们可以通过将预处理器和分类器打包到单个管道中来实现这一点：
 
 ```py
 In [20]: from sklearn.svm import SVC
@@ -367,7 +367,7 @@ In [23]: model = grid.best_estimator_
          yfit = model.predict(Xtest)
 ```
 
-让我们看一些测试图像及其预测值（见[图 43-12](#fig_0507-support-vector-machines_files_in_output_53_0)）。
+让我们看一些测试图像及其预测值（见图 43-12）。
 
 ```py
 In [24]: fig, ax = plt.subplots(4, 6)
@@ -379,7 +379,7 @@ In [24]: fig, ax = plt.subplots(4, 6)
          fig.suptitle('Predicted Names; Incorrect Labels in Red', size=14);
 ```
 
-![output 53 0](assets/output_53_0.png)
+![output 53 0](img/output_53_0.png)
 
 ###### 图 43-12\. 我们模型预测的标签
 
@@ -405,7 +405,7 @@ Out[25]:                    precision    recall  f1-score   support
               weighted avg       0.86      0.85      0.85       337
 ```
 
-我们还可以显示这些类别之间的混淆矩阵（见[图 43-13](#fig_0507-support-vector-machines_files_in_output_57_0)）。
+我们还可以显示这些类别之间的混淆矩阵（见图 43-13）。
 
 ```py
 In [26]: from sklearn.metrics import confusion_matrix
@@ -419,7 +419,7 @@ In [26]: from sklearn.metrics import confusion_matrix
          plt.ylabel('predicted label');
 ```
 
-![output 57 0](assets/output_57_0.png)
+![output 57 0](img/output_57_0.png)
 
 ###### 图 43-13\. 面部数据的混淆矩阵
 
@@ -447,4 +447,4 @@ In [26]: from sklearn.metrics import confusion_matrix
 
 +   结果没有直接的概率解释。可以通过内部交叉验证来估计（参见`SVC`的`probability`参数），但这额外的估计是昂贵的。
 
-考虑到这些特性，我通常只有在其他更简单、更快速、不需要过多调整的方法被证明不足以满足我的需求时，才会转向支持向量机（SVM）。尽管如此，如果你有足够的CPU周期来进行数据训练和交叉验证SVM，这种方法可以带来出色的结果。
+考虑到这些特性，我通常只有在其他更简单、更快速、不需要过多调整的方法被证明不足以满足我的需求时，才会转向支持向量机（SVM）。尽管如此，如果你有足够的 CPU 周期来进行数据训练和交叉验证 SVM，这种方法可以带来出色的结果。

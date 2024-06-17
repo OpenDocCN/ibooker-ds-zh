@@ -22,41 +22,41 @@
 
 在工作中，数据科学家需要预见他们编写代码时的决策如何以及数据集的大小可能会如何影响统计分析。为了为读者未来的工作做好准备，《学习数据科学》整合了计算和统计思维。我们还通过模拟研究而非数学证明来激励统计概念。
 
-本书的文本和代码都是开源的，[在GitHub上可获取](https://github.com/DS-100/textbook/)。
+本书的文本和代码都是开源的，[在 GitHub 上可获取](https://github.com/DS-100/textbook/)。
 
 # 预期的背景知识
 
-我们期望读者精通Python，并了解如何使用内置的数据结构如列表、字典和集合；导入和使用其他包中的函数和类；并且能够从头开始编写函数。我们还使用`numpy` Python包而不进行介绍，但不要求读者具有太多使用经验。
+我们期望读者精通 Python，并了解如何使用内置的数据结构如列表、字典和集合；导入和使用其他包中的函数和类；并且能够从头开始编写函数。我们还使用`numpy` Python 包而不进行介绍，但不要求读者具有太多使用经验。
 
 如果读者对概率、微积分和线性代数有一些了解，他们将从本书中受益更多，但我们的目标是直观地解释数学思想。
 
 # 本书的组织结构
 
-本书共有21章，分为六个部分：
+本书共有 21 章，分为六个部分：
 
-[第一部分](part01.html#part-1)（章节[1](ch01.html#ch-lifecycle)–[5](ch05.html#ch-bus)）
+第一部分（章节 1–5）
 
-[第一部分](part01.html#part-1) 描述了生命周期是什么，以基本水平通过了整个生命周期，并介绍了本书中使用的术语。该部分以一个关于公交到站时间的短期案例研究结束。
+第一部分 描述了生命周期是什么，以基本水平通过了整个生命周期，并介绍了本书中使用的术语。该部分以一个关于公交到站时间的短期案例研究结束。
 
-[第二部分](part02.html#part-2)（第 [6](ch06.html#ch-pandas) – [7](ch07.html#ch-sql) 章）
+第二部分（第 6 – 7 章）
 
-[第二部分](part02.html#part-2) 介绍数据框架和关系以及如何编写代码使用 `pandas` 和 SQL 操作数据。
+第二部分 介绍数据框架和关系以及如何编写代码使用 `pandas` 和 SQL 操作数据。
 
-[第三部分](part03.html#part-3)（第 [8](ch08.html#ch-files) – [12](ch12.html#ch-pa) 章）
+第三部分（第 8 – 12 章）
 
-[第三部分](part03.html#part-3) 关注数据获取，发现其特征和发现问题。在理解这些概念后，读者可以获取一个数据文件，并向他人描述数据集的有趣特征。本部分以一个关于空气质量的案例研究结束。
+第三部分 关注数据获取，发现其特征和发现问题。在理解这些概念后，读者可以获取一个数据文件，并向他人描述数据集的有趣特征。本部分以一个关于空气质量的案例研究结束。
 
-[第四部分](part04.html#part-4)（第 [13](ch13.html#ch-text) – [14](ch14.html#ch-web) 章）
+第四部分（第 13 – 14 章）
 
-[第四部分](part04.html#part-4) 探讨了广泛使用的替代数据源，如文本，二进制和来自网络的数据。
+第四部分 探讨了广泛使用的替代数据源，如文本，二进制和来自网络的数据。
 
-[第五部分](part05.html#part-5)（第 [15](ch15.html#ch-linear) – [18](ch18.html#ch-donkey) 章）
+第五部分（第 15 – 18 章）
 
-[第五部分](part05.html#part-5) 专注于使用数据理解世界。除了模型拟合，特征工程和模型选择之外，它还涵盖了推断主题，如置信区间和假设检验。本部分以一个关于为肯尼亚兽医预测驴重的案例研究结束。
+第五部分 专注于使用数据理解世界。除了模型拟合，特征工程和模型选择之外，它还涵盖了推断主题，如置信区间和假设检验。本部分以一个关于为肯尼亚兽医预测驴重的案例研究结束。
 
-[第六部分](part06.html#part-6)（第 [19](ch19.html#ch-logistic) – [21](ch21.html#ch-fake-news) 章）
+第六部分（第 19 – 21 章）
 
-[第六部分](part06.html#part-6) 完成了我们对使用逻辑回归和优化进行监督学习的研究。它以一个案例研究结束，预测新闻文章是否做出真实或虚假声明。
+第六部分 完成了我们对使用逻辑回归和优化进行监督学习的研究。它以一个案例研究结束，预测新闻文章是否做出真实或虚假声明。
 
 本书末尾，我们提供了有关本书引入的许多主题的更多学习资源，并提供了使用的完整数据集列表。
 
@@ -94,23 +94,23 @@
 
 # 使用代码示例
 
-补充材料（代码示例，练习等）可在 *[https://learningds.org](https://learningds.org)* 下载。
+补充材料（代码示例，练习等）可在 *[`learningds.org`](https://learningds.org)* 下载。
 
-如果您有技术问题或在使用代码示例时遇到问题，请发送电子邮件至 [bookquestions@oreilly.com](mailto:bookquestions%40oreilly.com)。
+如果您有技术问题或在使用代码示例时遇到问题，请发送电子邮件至 bookquestions@oreilly.com。
 
-本书旨在帮助您完成工作。一般情况下，如果本书提供示例代码，您可以在自己的程序和文档中使用它。除非您复制了大量代码片段，否则无需征得我们的许可。例如，编写使用本书多个代码片段的程序不需要许可。售卖或分发来自O’Reilly书籍的示例需要许可。引用本书并引用示例代码回答问题不需要许可。将本书大量示例代码整合到您产品的文档中需要许可。
+本书旨在帮助您完成工作。一般情况下，如果本书提供示例代码，您可以在自己的程序和文档中使用它。除非您复制了大量代码片段，否则无需征得我们的许可。例如，编写使用本书多个代码片段的程序不需要许可。售卖或分发来自 O’Reilly 书籍的示例需要许可。引用本书并引用示例代码回答问题不需要许可。将本书大量示例代码整合到您产品的文档中需要许可。
 
-我们感谢您的署名。署名通常包括标题、作者、出版商和ISBN。例如：“*学习数据科学* by Sam Lau, Joseph Gonzalez, and Deborah Nolan (O’Reilly). Copyright 2023 Sam Lau, Joseph Gonzalez, and Deborah Nolan, 978-1-098-11300-1.”
+我们感谢您的署名。署名通常包括标题、作者、出版商和 ISBN。例如：“*学习数据科学* by Sam Lau, Joseph Gonzalez, and Deborah Nolan (O’Reilly). Copyright 2023 Sam Lau, Joseph Gonzalez, and Deborah Nolan, 978-1-098-11300-1.”
 
-如果您认为使用代码示例超出了公平使用范围或上述权限，请随时通过[bookquestions@oreilly.com](mailto:bookquestions%40oreilly.com)与我们联系。
+如果您认为使用代码示例超出了公平使用范围或上述权限，请随时通过 bookquestions@oreilly.com 与我们联系。
 
-# O’Reilly在线学习
+# O’Reilly 在线学习
 
 ###### 注意
 
-40多年来，[*O’Reilly Media*](https://oreilly.com) 提供技术和商业培训，为企业的成功提供知识和见解。
+40 多年来，[*O’Reilly Media*](https://oreilly.com) 提供技术和商业培训，为企业的成功提供知识和见解。
 
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、交互式编码环境以及来自O’Reilly和200多个其他出版商的大量文本和视频。欲了解更多信息，请访问[*https://oreilly.com*](https://oreilly.com).
+我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、交互式编码环境以及来自 O’Reilly 和 200 多个其他出版商的大量文本和视频。欲了解更多信息，请访问[*https://oreilly.com*](https://oreilly.com).
 
 # 如何联系我们
 
@@ -128,7 +128,7 @@
 
 +   707-829-0104（传真）
 
-+   [*support@oreilly.com*](mailto:support@oreilly.com)
++   *support@oreilly.com*
 
 +   [*https://www.oreilly.com/about/contact.html*](https://www.oreilly.com/about/contact.html)
 
@@ -136,18 +136,18 @@
 
 获取有关我们的书籍和课程的新闻和信息，请访问[*https://oreilly.com*](https://oreilly.com).
 
-在LinkedIn上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media).
+在 LinkedIn 上找到我们：[*https://linkedin.com/company/oreilly-media*](https://linkedin.com/company/oreilly-media).
 
-在Twitter上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia).
+在 Twitter 上关注我们：[*https://twitter.com/oreillymedia*](https://twitter.com/oreillymedia).
 
-在YouTube上观看我们：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia).
+在 YouTube 上观看我们：[*https://youtube.com/oreillymedia*](https://youtube.com/oreillymedia).
 
 # 致谢
 
-这本书源于我们共同设计和教授的“数据科学原理与技术”课程，这是加州大学伯克利分校的本科课程。我们首次在2017年春季教授了“数据100”，以响应学生对第二门数据科学课程的需求；他们希望这门课程能为他们在数据科学的深造和职场生涯做好准备。
+这本书源于我们共同设计和教授的“数据科学原理与技术”课程，这是加州大学伯克利分校的本科课程。我们首次在 2017 年春季教授了“数据 100”，以响应学生对第二门数据科学课程的需求；他们希望这门课程能为他们在数据科学的深造和职场生涯做好准备。
 
-自那次首次开设以来，我们教授的成千上万名学生对我们是一种激励。我们还受益于与其他讲师的合作教学，包括Ani Adhikari、Andrew Bray、John DeNero、Sandrine Dudoit、Will Fithian、Joe Hellerstein、Josh Hug、Anthony Joseph、Scott Lee、Fernando Perez、Alvin Wan、Lisa Yan和Bin Yu。我们特别感谢Joe Hellerstein在数据整理方面的见解，Fernando Perez鼓励我们包含像NetCDF这样的更复杂的数据结构，Josh Hug提出了PurpleAir案例研究的想法，Duncan Temple Lang在课程早期版本上的合作。我们还感谢伯克利的学生担任助教，并特别提到那些为本书的早期版本做出贡献的人员：Ananth Agarwal、Ashley Chien、Andrew Do、Tiffany Jann、Sona Jeswani、Andrew Kim、Jun Seo Park、Allen Shen、Katherine Yen和Daniel Zhu。
+自那次首次开设以来，我们教授的成千上万名学生对我们是一种激励。我们还受益于与其他讲师的合作教学，包括 Ani Adhikari、Andrew Bray、John DeNero、Sandrine Dudoit、Will Fithian、Joe Hellerstein、Josh Hug、Anthony Joseph、Scott Lee、Fernando Perez、Alvin Wan、Lisa Yan 和 Bin Yu。我们特别感谢 Joe Hellerstein 在数据整理方面的见解，Fernando Perez 鼓励我们包含像 NetCDF 这样的更复杂的数据结构，Josh Hug 提出了 PurpleAir 案例研究的想法，Duncan Temple Lang 在课程早期版本上的合作。我们还感谢伯克利的学生担任助教，并特别提到那些为本书的早期版本做出贡献的人员：Ananth Agarwal、Ashley Chien、Andrew Do、Tiffany Jann、Sona Jeswani、Andrew Kim、Jun Seo Park、Allen Shen、Katherine Yen 和 Daniel Zhu。
 
 本书的核心部分是我们整理和分析的许多数据集，我们非常感谢那些使他们的数据向我们开放和可用的个人和组织。在本书的结尾，我们列出这些贡献者以及原始数据来源，以及相关的研究论文、博客文章和报告。
 
-最后，我们感谢O’Reilly团队的工作，将这本书从课堂笔记转化为出版物，特别是Melissa Potter、Jess Haberman、Aaron Black、Danny Elfanbaum和Mike Loukides。我们还要感谢技术审阅人员的评论，这些评论改进了本书：Sona Jeswani、Thomas Nield、Siddharth Yadav和Abhijit Dasgupta。
+最后，我们感谢 O’Reilly 团队的工作，将这本书从课堂笔记转化为出版物，特别是 Melissa Potter、Jess Haberman、Aaron Black、Danny Elfanbaum 和 Mike Loukides。我们还要感谢技术审阅人员的评论，这些评论改进了本书：Sona Jeswani、Thomas Nield、Siddharth Yadav 和 Abhijit Dasgupta。

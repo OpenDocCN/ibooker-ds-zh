@@ -1,6 +1,6 @@
-# 第49章\. 深入探讨：核密度估计
+# 第四十九章\. 深入探讨：核密度估计
 
-在[第48章](ch48.xhtml#section-0512-gaussian-mixtures)中，我们讨论了高斯混合模型，这是一种聚类估计器和密度估计器之间的混合类型。回想一下，密度估计器是一种算法，它接受一个<math alttext="upper D"><mi>D</mi></math>维数据集，并生成数据抽取自其中的<math alttext="upper D"><mi>D</mi></math>维概率分布的估计。GMM算法通过将密度表示为高斯分布的加权和来实现这一点。*核密度估计*（KDE）在某种意义上是将高斯混合思想推向其逻辑极限的算法：它使用每个点一个高斯分量的混合，从而得到一个基本上是非参数的密度估计器。在本章中，我们将探讨KDE的动机和用途。
+在第四十八章中，我们讨论了高斯混合模型，这是一种聚类估计器和密度估计器之间的混合类型。回想一下，密度估计器是一种算法，它接受一个<math alttext="upper D"><mi>D</mi></math>维数据集，并生成数据抽取自其中的<math alttext="upper D"><mi>D</mi></math>维概率分布的估计。GMM 算法通过将密度表示为高斯分布的加权和来实现这一点。*核密度估计*（KDE）在某种意义上是将高斯混合思想推向其逻辑极限的算法：它使用每个点一个高斯分量的混合，从而得到一个基本上是非参数的密度估计器。在本章中，我们将探讨 KDE 的动机和用途。
 
 我们从标准导入开始：
 
@@ -27,17 +27,17 @@ In [2]: def make_data(N, f=0.3, rseed=1):
         x = make_data(1000)
 ```
 
-我们之前看到，可以通过指定直方图的`density`参数来创建标准的基于计数的直方图。通过这种方式得到的是归一化的直方图，其中箱子的高度不反映计数，而是反映概率密度（参见[图 49-1](#fig_0513-kernel-density-estimation_files_in_output_6_0)）。
+我们之前看到，可以通过指定直方图的`density`参数来创建标准的基于计数的直方图。通过这种方式得到的是归一化的直方图，其中箱子的高度不反映计数，而是反映概率密度（参见图 49-1）。
 
 ```py
 In [3]: hist = plt.hist(x, bins=30, density=True)
 ```
 
-![output 6 0](assets/output_6_0.png)
+![output 6 0](img/output_6_0.png)
 
 ###### 图 49-1\. 从正态分布组合中绘制的数据
 
-对于等距分箱，这种归一化仅仅改变了y轴的比例，使得相对高度基本上与计数直方图中的相同。选择这种归一化是为了使直方图下面积等于1，我们可以通过直方图函数的输出来确认：
+对于等距分箱，这种归一化仅仅改变了 y 轴的比例，使得相对高度基本上与计数直方图中的相同。选择这种归一化是为了使直方图下面积等于 1，我们可以通过直方图函数的输出来确认：
 
 ```py
 In [4]: density, bins, patches = hist
@@ -46,7 +46,7 @@ In [4]: density, bins, patches = hist
 Out[4]: 1.0
 ```
 
-使用直方图作为密度估计器的一个问题是，箱子的大小和位置的选择可能导致具有不同特征的表现。例如，如果我们查看只有20个点的此数据的一个版本，如何绘制箱子的选择可以导致对数据的完全不同解释！考虑到这个例子，在[图 49-2](#fig_0513-kernel-density-estimation_files_in_output_11_0)中可视化。
+使用直方图作为密度估计器的一个问题是，箱子的大小和位置的选择可能导致具有不同特征的表现。例如，如果我们查看只有 20 个点的此数据的一个版本，如何绘制箱子的选择可以导致对数据的完全不同解释！考虑到这个例子，在图 49-2 中可视化。
 
 ```py
 In [5]: x = make_data(20)
@@ -65,13 +65,13 @@ In [6]: fig, ax = plt.subplots(1, 2, figsize=(12, 4),
                        markeredgewidth=1)
 ```
 
-![output 11 0](assets/output_11_0.png)
+![output 11 0](img/output_11_0.png)
 
 ###### 图 49-2\. 直方图的问题：箱子的位置会影响解释
 
 左侧，直方图清楚地显示这是一个双峰分布。右侧，我们看到一个长尾单峰分布。如果不看前面的代码，你可能不会猜到这两个直方图是由同一组数据构建的。有了这个认识，我们如何相信直方图所传达的直觉呢？我们如何改进这一点呢？
 
-总结一下，我们可以把直方图看作是一堆块，我们在数据集中的每个点上都堆叠一个块。让我们直接查看这一点（见[图 49-3](#fig_0513-kernel-density-estimation_files_in_output_13_1)）。
+总结一下，我们可以把直方图看作是一堆块，我们在数据集中的每个点上都堆叠一个块。让我们直接查看这一点（见图 49-3）。
 
 ```py
 In [7]: fig, ax = plt.subplots()
@@ -87,11 +87,11 @@ In [7]: fig, ax = plt.subplots()
 Out[7]: (-0.2, 8.0)
 ```
 
-![output 13 1](assets/output_13_1.png)
+![output 13 1](img/output_13_1.png)
 
 ###### 图 49-3\. 堆叠的块直方图
 
-我们两次分箱的问题源于这样一个事实：块堆叠的高度经常反映不出附近点的实际密度，而是由于分箱与数据点对齐的巧合。这种点与它们块之间的不对齐可能是导致这里糟糕直方图结果的一个潜在原因。但是，如果我们不是将块与*分箱*对齐，而是将块与*它们所代表的点*对齐会怎样呢？如果我们这样做，块就不会对齐，但我们可以在每个 x 轴位置上添加它们的贡献来找到结果。让我们试试这个方法（见[图 49-4](#fig_0513-kernel-density-estimation_files_in_output_15_0)）。
+我们两次分箱的问题源于这样一个事实：块堆叠的高度经常反映不出附近点的实际密度，而是由于分箱与数据点对齐的巧合。这种点与它们块之间的不对齐可能是导致这里糟糕直方图结果的一个潜在原因。但是，如果我们不是将块与*分箱*对齐，而是将块与*它们所代表的点*对齐会怎样呢？如果我们这样做，块就不会对齐，但我们可以在每个 x 轴位置上添加它们的贡献来找到结果。让我们试试这个方法（见图 49-4）。
 
 ```py
 In [8]: x_d = np.linspace(-4, 8, 2000)
@@ -103,11 +103,11 @@ In [8]: x_d = np.linspace(-4, 8, 2000)
         plt.axis([-4, 8, -0.2, 8]);
 ```
 
-![output 15 0](assets/output_15_0.png)
+![output 15 0](img/output_15_0.png)
 
 ###### 图 49-4\. 一个“直方图”，其中每个块都以各个个体点为中心；这是一个核密度估计的示例
 
-结果看起来有些杂乱，但它比标准直方图更能鲜明地反映实际数据特征。尽管如此，其粗糙的边缘既不美观，也不能反映数据的任何真实特性。为了平滑它们，我们可以决定在每个位置用一个平滑函数来取代这些块，比如一个高斯函数。让我们在每个点上使用一个标准正态曲线代替一个块（见[图 49-5](#fig_0513-kernel-density-estimation_files_in_output_17_0)）。
+结果看起来有些杂乱，但它比标准直方图更能鲜明地反映实际数据特征。尽管如此，其粗糙的边缘既不美观，也不能反映数据的任何真实特性。为了平滑它们，我们可以决定在每个位置用一个平滑函数来取代这些块，比如一个高斯函数。让我们在每个点上使用一个标准正态曲线代替一个块（见图 49-5）。
 
 ```py
 In [9]: from scipy.stats import norm
@@ -120,7 +120,7 @@ In [9]: from scipy.stats import norm
         plt.axis([-4, 8, -0.2, 5]);
 ```
 
-![output 17 0](assets/output_17_0.png)
+![output 17 0](img/output_17_0.png)
 
 ###### 图 49-5\. 一个使用高斯核的核密度估计
 
@@ -134,7 +134,7 @@ In [9]: from scipy.stats import norm
 
 虽然 Python 中有几个实现 KDE 的版本（特别是在 SciPy 和 `statsmodels` 包中），但我更倾向于使用 Scikit-Learn 的版本，因为它高效且灵活。它是在 `sklearn.neighbors.KernelDensity` 估计器中实现的，可以使用六种核函数和几十种距离度量来处理多维 KDE。由于 KDE 可能计算量较大，Scikit-Learn 的估计器在底层使用基于树的算法，并可以通过 `atol`（绝对容差）和 `rtol`（相对容差）参数在计算时间和准确性之间进行权衡。核带宽可以使用 Scikit-Learn 的标准交叉验证工具来确定，这很快我们会看到。
 
-让我们首先展示一个简单的示例，使用 Scikit-Learn 的 `KernelDensity` 估计器复制先前的图（参见 [Figure 49-6](#fig_0513-kernel-density-estimation_files_in_output_20_0)）。
+让我们首先展示一个简单的示例，使用 Scikit-Learn 的 `KernelDensity` 估计器复制先前的图（参见 Figure 49-6）。
 
 ```py
 In [10]: from sklearn.neighbors import KernelDensity
@@ -151,11 +151,11 @@ In [10]: from sklearn.neighbors import KernelDensity
          plt.ylim(-0.02, 0.22);
 ```
 
-![output 20 0](assets/output_20_0.png)
+![output 20 0](img/output_20_0.png)
 
 ###### 图 49-6\. 使用 Scikit-Learn 计算的核密度估计
 
-此处的结果已归一化，使得曲线下面积等于1。
+此处的结果已归一化，使得曲线下面积等于 1。
 
 # 通过交叉验证选择带宽
 
@@ -183,27 +183,27 @@ In [12]: grid.best_params_
 Out[12]: {'bandwidth': 1.1233240329780276}
 ```
 
-最优带宽与我们在之前示例图中使用的非常接近，那里的带宽是1.0（即`scipy.stats.norm`的默认宽度）。
+最优带宽与我们在之前示例图中使用的非常接近，那里的带宽是 1.0（即`scipy.stats.norm`的默认宽度）。
 
 # 示例：不那么朴素的贝叶斯
 
-此示例探讨了带KDE的贝叶斯生成分类，并演示了如何使用Scikit-Learn架构创建自定义估计器。
+此示例探讨了带 KDE 的贝叶斯生成分类，并演示了如何使用 Scikit-Learn 架构创建自定义估计器。
 
-在[第41章](ch41.xhtml#section-0505-naive-bayes)中，我们探讨了朴素贝叶斯分类，其中我们为每个类别创建了一个简单的生成模型，并使用这些模型构建了一个快速分类器。对于高斯朴素贝叶斯，生成模型是一个简单的轴对齐高斯分布。使用KDE等密度估计算法，我们可以去除“朴素”元素，并使用更复杂的生成模型为每个类别执行相同的分类。它仍然是贝叶斯分类，但不再是朴素的。
+在第四十一章中，我们探讨了朴素贝叶斯分类，其中我们为每个类别创建了一个简单的生成模型，并使用这些模型构建了一个快速分类器。对于高斯朴素贝叶斯，生成模型是一个简单的轴对齐高斯分布。使用 KDE 等密度估计算法，我们可以去除“朴素”元素，并使用更复杂的生成模型为每个类别执行相同的分类。它仍然是贝叶斯分类，但不再是朴素的。
 
 生成分类的一般方法如下：
 
 1.  根据标签将训练数据进行拆分。
 
-1.  对每个集合，拟合一个KDE以获得数据的生成模型。这允许你对于任意观测值<math alttext="x"><mi>x</mi></math>和标签<math alttext="y"><mi>y</mi></math>，计算出一个似然概率<math alttext="upper P left-parenthesis x vertical-bar y right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>x</mi> <mo>|</mo> <mi>y</mi> <mo>)</mo></mrow></math>。
+1.  对每个集合，拟合一个 KDE 以获得数据的生成模型。这允许你对于任意观测值<math alttext="x"><mi>x</mi></math>和标签<math alttext="y"><mi>y</mi></math>，计算出一个似然概率<math alttext="upper P left-parenthesis x vertical-bar y right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>x</mi> <mo>|</mo> <mi>y</mi> <mo>)</mo></mrow></math>。
 
 1.  根据训练集中每个类别的示例数量，计算*类先验*<math alttext="upper P left-parenthesis y right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>y</mi> <mo>)</mo></mrow></math>。
 
 1.  对于未知点<math alttext="x"><mi>x</mi></math>，每个类别的后验概率为<math alttext="upper P left-parenthesis y vertical-bar x right-parenthesis proportional-to upper P left-parenthesis x vertical-bar y right-parenthesis upper P left-parenthesis y right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>y</mi> <mo>|</mo> <mi>x</mi> <mo>)</mo> <mo>∝</mo> <mi>P</mi> <mo>(</mo> <mi>x</mi> <mo>|</mo> <mi>y</mi> <mo>)</mo> <mi>P</mi> <mo>(</mo> <mi>y</mi> <mo>)</mo></mrow></math>。最大化这个后验概率的类别是分配给该点的标签。
 
-算法很简单直观易懂；更难的部分是将其嵌入Scikit-Learn框架中，以便利用网格搜索和交叉验证架构。
+算法很简单直观易懂；更难的部分是将其嵌入 Scikit-Learn 框架中，以便利用网格搜索和交叉验证架构。
 
-这是在Scikit-Learn框架中实现算法的代码；我们将在代码块后面逐步分析它：
+这是在 Scikit-Learn 框架中实现算法的代码；我们将在代码块后面逐步分析它：
 
 ```py
 In [13]: from sklearn.base import BaseEstimator, ClassifierMixin
@@ -261,7 +261,7 @@ class KDEClassifier(BaseEstimator, ClassifierMixin):
  """
 ```
 
-Scikit-Learn 中的每个评估器都是一个类，最方便的是这个类也应该从 `BaseEstimator` 类以及适当的 mixin 继承，提供标准功能。例如，在这里，`BaseEstimator` 包含了克隆/复制评估器以供交叉验证过程使用的必要逻辑，而 `ClassifierMixin` 定义了这些例程使用的默认 `score` 方法。我们还提供了一个文档字符串，这将被 IPython 的帮助功能捕获（参见 [第一章](ch01.xhtml#section-0101-help-and-documentation)）。
+Scikit-Learn 中的每个评估器都是一个类，最方便的是这个类也应该从 `BaseEstimator` 类以及适当的 mixin 继承，提供标准功能。例如，在这里，`BaseEstimator` 包含了克隆/复制评估器以供交叉验证过程使用的必要逻辑，而 `ClassifierMixin` 定义了这些例程使用的默认 `score` 方法。我们还提供了一个文档字符串，这将被 IPython 的帮助功能捕获（参见 第一章）。
 
 接下来是类的初始化方法：
 
@@ -314,7 +314,7 @@ label = model.fit(X, y).predict(X)
 
 ## 使用我们的自定义评估器
 
-让我们尝试将这个自定义评估器应用于我们之前见过的问题：手写数字的分类。在这里，我们将加载数字并使用 `GridSearchCV` 元评估器计算一系列候选带宽的交叉验证分数（参考 [第 39 章](ch39.xhtml#section-0503-hyperparameters-and-model-validation)）：
+让我们尝试将这个自定义评估器应用于我们之前见过的问题：手写数字的分类。在这里，我们将加载数字并使用 `GridSearchCV` 元评估器计算一系列候选带宽的交叉验证分数（参考 第三十九章）：
 
 ```py
 In [14]: from sklearn.datasets import load_digits
@@ -327,7 +327,7 @@ In [14]: from sklearn.datasets import load_digits
          grid.fit(digits.data, digits.target);
 ```
 
-接下来，我们可以绘制交叉验证分数作为带宽的函数（参见 [图 49-7](#fig_0513-kernel-density-estimation_files_in_output_37_1)）。
+接下来，我们可以绘制交叉验证分数作为带宽的函数（参见 图 49-7）。
 
 ```py
 In [15]: fig, ax = plt.subplots()
@@ -341,11 +341,11 @@ Out[15]: best param: {'bandwidth': 6.135907273413174}
          accuracy = 0.9677298050139276
 ```
 
-![output 37 1](assets/output_37_1.png)
+![output 37 1](img/output_37_1.png)
 
 ###### 图 49-7\. 基于 KDE 的贝叶斯分类器的验证曲线
 
-这表明我们的KDE分类器达到了超过96%的交叉验证准确率，而朴素贝叶斯分类器的准确率约为80%。
+这表明我们的 KDE 分类器达到了超过 96%的交叉验证准确率，而朴素贝叶斯分类器的准确率约为 80%。
 
 ```py
 In [16]: from sklearn.naive_bayes import GaussianNB
@@ -354,12 +354,12 @@ In [16]: from sklearn.naive_bayes import GaussianNB
 Out[16]: 0.8069281956050759
 ```
 
-这样一个生成分类器的一个好处是结果的可解释性：对于每个未知样本，我们不仅获得一个概率分类，而且获得了与其比较的点分布的*完整模型*！如果需要，这为特定分类的原因提供了一个直观的窗口，而像SVM和随机森林这样的算法往往会掩盖这些原因。
+这样一个生成分类器的一个好处是结果的可解释性：对于每个未知样本，我们不仅获得一个概率分类，而且获得了与其比较的点分布的*完整模型*！如果需要，这为特定分类的原因提供了一个直观的窗口，而像 SVM 和随机森林这样的算法往往会掩盖这些原因。
 
-如果您希望进一步进行，这里有一些可以改进我们的KDE分类器模型的想法：
+如果您希望进一步进行，这里有一些可以改进我们的 KDE 分类器模型的想法：
 
 +   您可以允许每个类别中的带宽独立变化。
 
 +   不应该基于它们的预测分数来优化这些带宽，而是应该基于每个类别中生成模型下训练数据的可能性（即使用`KernelDensity`本身的分数而不是全局预测准确度）。
 
-最后，如果你想要一些练习来构建自己的估计器，可以尝试使用高斯混合模型而不是KDE来构建类似的贝叶斯分类器。
+最后，如果你想要一些练习来构建自己的估计器，可以尝试使用高斯混合模型而不是 KDE 来构建类似的贝叶斯分类器。

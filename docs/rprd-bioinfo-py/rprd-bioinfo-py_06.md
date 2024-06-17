@@ -1,10 +1,10 @@
-# 第五章。计算GC含量：解析FASTA和分析序列
+# 第五章。计算 GC 含量：解析 FASTA 和分析序列
 
-在[第一章](ch01.html#ch01)中，你统计了DNA字符串中的所有碱基。在这个练习中，你需要计算序列中的*G*和*C*的数量，并除以序列的长度，以确定GC含量，如[Rosalind GC页面](https://oreil.ly/gv8V7)所述。GC含量在几个方面具有信息性。较高的GC含量水平表明在分子生物学中相对较高的熔解温度，并且编码蛋白质的DNA序列倾向于在富含GC的区域中找到。解决此问题的方法有很多种，它们都始于使用Biopython解析FASTA文件，这是生物信息学中的一个关键文件格式。我将向你展示如何使用`Bio.SeqIO`模块迭代文件中的序列，以识别具有最高GC含量的序列。
+在第一章中，你统计了 DNA 字符串中的所有碱基。在这个练习中，你需要计算序列中的*G*和*C*的数量，并除以序列的长度，以确定 GC 含量，如[Rosalind GC 页面](https://oreil.ly/gv8V7)所述。GC 含量在几个方面具有信息性。较高的 GC 含量水平表明在分子生物学中相对较高的熔解温度，并且编码蛋白质的 DNA 序列倾向于在富含 GC 的区域中找到。解决此问题的方法有很多种，它们都始于使用 Biopython 解析 FASTA 文件，这是生物信息学中的一个关键文件格式。我将向你展示如何使用`Bio.SeqIO`模块迭代文件中的序列，以识别具有最高 GC 含量的序列。
 
 你将学到：
 
-+   如何使用`Bio.SeqIO`解析FASTA格式
++   如何使用`Bio.SeqIO`解析 FASTA 格式
 
 +   如何读取`STDIN`（读音为*standard in*）
 
@@ -22,7 +22,7 @@
 
 # 入门指南
 
-此程序的所有代码和测试位于*05_gc*目录中。虽然我想将此程序命名为`gc.py`，但事实证明这与一个非常重要的名为[`gc.py`](https://oreil.ly/7eNBw)的Python模块发生了冲突，该模块用于垃圾回收，例如释放内存。相反，我将使用`cgc.py`代替*calculate GC*。
+此程序的所有代码和测试位于*05_gc*目录中。虽然我想将此程序命名为`gc.py`，但事实证明这与一个非常重要的名为[`gc.py`](https://oreil.ly/7eNBw)的 Python 模块发生了冲突，该模块用于垃圾回收，例如释放内存。相反，我将使用`cgc.py`代替*calculate GC*。
 
 如果我将我的程序命名为`gc.py`，我的代码将会*遮蔽*内置的`gc`模块，使其不可用。同样，我可以创建具有名称`len`或`dict`的变量和函数，这将遮蔽那些内置函数。这将导致许多不良情况发生，因此最好避免使用这些名称。诸如`pylint`和`flake8`之类的程序可以发现这样的问题。
 
@@ -31,27 +31,27 @@
 ```py
 $ cp solution1_list.py cgc.py
 $ ./cgc.py -h
-usage: cgc.py [-h] [FILE] ![1](assets/1.png)
+usage: cgc.py [-h] [FILE] ![1](img/1.png)
 
 Compute GC content
 
 positional arguments:
-  FILE        Input sequence file (default: <_io.TextIOWrapper ![2](assets/2.png)
+  FILE        Input sequence file (default: <_io.TextIOWrapper ![2](img/2.png)
               name='<stdin>' mode='r' encoding='utf-8'>)
 
 optional arguments:
   -h, --help  show this help message and exit
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO1-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO1-1)
 
 注意，位置参数`[FILE]`位于方括号中，表示它是可选的。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO1-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO1-2)
 
 这是一个相当丑陋的消息，试图解释默认输入是`STDIN`。
 
-如[第二章](ch02.html#ch02)所述，该程序期望一个文件作为输入，并将拒绝无效或无法读取的文件。为了说明第二点，使用`touch`创建一个空文件，然后使用`chmod`（改变模式）将权限设置为`000`（所有读/写/执行位关闭）：
+如第二章所述，该程序期望一个文件作为输入，并将拒绝无效或无法读取的文件。为了说明第二点，使用`touch`创建一个空文件，然后使用`chmod`（改变模式）将权限设置为`000`（所有读/写/执行位关闭）：
 
 ```py
 $ touch cant-touch-this
@@ -67,14 +67,14 @@ cgc.py: error: argument FILE: can't open 'cant-touch-this': [Errno 13]
 Permission denied: 'cant-touch-this'
 ```
 
-现在用有效的输入运行程序，并观察程序打印具有最高GC百分比的记录的ID：
+现在用有效的输入运行程序，并观察程序打印具有最高 GC 百分比的记录的 ID：
 
 ```py
 $ ./cgc.py tests/inputs/1.fa
 Rosalind_0808 60.919540
 ```
 
-该程序还可以从`STDIN`中读取。仅仅因为我觉得有趣，我会向你展示如何在`bash` shell中使用管道操作符（`|`）将一个程序的`STDOUT`输出路由到另一个程序的`STDIN`中。例如，`cat`程序会将文件的内容打印到`STDOUT`：
+该程序还可以从`STDIN`中读取。仅仅因为我觉得有趣，我会向你展示如何在`bash` shell 中使用管道操作符（`|`）将一个程序的`STDOUT`输出路由到另一个程序的`STDIN`中。例如，`cat`程序会将文件的内容打印到`STDOUT`：
 
 ```py
 $ cat tests/inputs/1.fa
@@ -120,7 +120,7 @@ from Bio import SeqIO
 
 class Args(NamedTuple):
     """ Command-line arguments """
-    file: TextIO ![1](assets/1.png)
+    file: TextIO ![1](img/1.png)
 
 def get_args() -> Args:
     """ Get command-line arguments """
@@ -131,7 +131,7 @@ def get_args() -> Args:
 
     parser.add_argument('file',
                         metavar='FILE',
-                        type=argparse.FileType('rt'), ![2](assets/2.png)
+                        type=argparse.FileType('rt'), ![2](img/2.png)
                         nargs='?',
                         default=sys.stdin,
                         help='Input sequence file')
@@ -141,15 +141,15 @@ def get_args() -> Args:
     return Args(args.file)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO2-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO2-1)
 
 `Args`类的唯一属性是一个文件句柄。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO2-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO2-2)
 
 创建一个位置参数文件，如果提供，必须是可读的文本文件。
 
-很少将位置参数设为可选，但在这种情况下，我想要处理一个单个文件输入或者从`STDIN`读取。为此，我使用`nargs='?'`指示该参数应接受零个或一个参数（见[表 2-2](ch02.html#table_2.2)中的[“打开输出文件”](ch02.html#openingOutputFiles)）并设置`default=sys.stdin`。在第二章中，我提到`sys.stdout`是一个始终打开写入的文件句柄。类似地，`sys.stdin`是一个始终打开读取`STDIN`的文件句柄。这是使你的程序能够从文件或`STDIN`中读取的所有所需代码，我觉得这相当整洁和清晰。
+很少将位置参数设为可选，但在这种情况下，我想要处理一个单个文件输入或者从`STDIN`读取。为此，我使用`nargs='?'`指示该参数应接受零个或一个参数（见表 2-2 中的“打开输出文件”）并设置`default=sys.stdin`。在第二章中，我提到`sys.stdout`是一个始终打开写入的文件句柄。类似地，`sys.stdin`是一个始终打开读取`STDIN`的文件句柄。这是使你的程序能够从文件或`STDIN`中读取的所有所需代码，我觉得这相当整洁和清晰。
 
 修改你的`main()`函数以打印文件的名称：
 
@@ -184,12 +184,12 @@ _____________________________ test_good_input1 ______________________________
     def test_good_input1():
         """ Works on good input """
 
-        rv, out = getstatusoutput(f'{RUN} {SAMPLE1}') ![1](assets/1.png)
+        rv, out = getstatusoutput(f'{RUN} {SAMPLE1}') ![1](img/1.png)
         assert rv == 0
->       assert out == 'Rosalind_0808 60.919540' ![2](assets/2.png)
+>       assert out == 'Rosalind_0808 60.919540' ![2](img/2.png)
 E       AssertionError: assert './tests/inputs/1.fa' == 'Rosalind_0808 60.919540'
-E         - Rosalind_0808 60.919540 ![3](assets/3.png)
-E         + ./tests/inputs/1.fa ![4](assets/4.png)
+E         - Rosalind_0808 60.919540 ![3](img/3.png)
+E         + ./tests/inputs/1.fa ![4](img/4.png)
 
 tests/cgc_test.py:48: AssertionError
 ========================== short test summary info ==========================
@@ -198,32 +198,32 @@ FAILED tests/cgc_test.py::test_good_input1 - AssertionError: assert './tes...
 ======================== 1 failed, 3 passed in 0.34s ========================
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-1)
 
 测试正在使用第一个输入文件运行程序。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-2)
 
 预期输出是给定的字符串。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-3)
 
 这是预期的字符串。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO3-4)
 
 这是打印出的字符串。
 
-到目前为止，你已经通过相对较少的工作创建了一个语法正确、结构良好并且有文档的程序来验证文件输入。接下来，你需要找出如何找到GC含量最高的序列。
+到目前为止，你已经通过相对较少的工作创建了一个语法正确、结构良好并且有文档的程序来验证文件输入。接下来，你需要找出如何找到 GC 含量最高的序列。
 
-## 使用Biopython解析FASTA文件
+## 使用 Biopython 解析 FASTA 文件
 
-来自传入文件或`STDIN`的数据应该是以FASTA格式表示的序列数据，这是表示生物序列的常见方式。让我们看看第一个文件，以了解格式：
+来自传入文件或`STDIN`的数据应该是以 FASTA 格式表示的序列数据，这是表示生物序列的常见方式。让我们看看第一个文件，以了解格式：
 
 ```py
 $ cat tests/inputs/1.fa
->Rosalind_6404 ![1](assets/1.png)
-CCTGCGGAAGATCGGCACTAGAATAGCCAGAACCGTTTCTCTGAGGCTTCCGGCCTTCCC ![2](assets/2.png)
+>Rosalind_6404 ![1](img/1.png)
+CCTGCGGAAGATCGGCACTAGAATAGCCAGAACCGTTTCTCTGAGGCTTCCGGCCTTCCC ![2](img/2.png)
 TCCCACTAATAATTCTGAGG
 >Rosalind_5959
 CCATCGGTAGCGCATCCTTAGTCCAATTAAGTCCCTATCCAGGCGCTCCGCCGAAGGTCT
@@ -233,24 +233,24 @@ CCACCCTCGTGGTATGGCTAGGCATTCAGGAACCGGAGAACGCTTCAGACCAGCCCGGAC
 TGGGAACCTGCGGGCAGTAGGTGGAAT
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO4-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO4-1)
 
-FASTA记录以行首的`>`开始。序列ID是直到第一个空格的任何后续文本。
+FASTA 记录以行首的`>`开始。序列 ID 是直到第一个空格的任何后续文本。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO4-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO4-2)
 
 序列可以是任意长度，可以跨多行或放在单行上。
 
-FASTA文件的头部可能会非常混乱，非常快速。我鼓励您从国家生物技术信息中心（NCBI）下载真实序列或查看*17_synth/tests/inputs*目录中的文件以获取更多示例。
+FASTA 文件的头部可能会非常混乱，非常快速。我鼓励您从国家生物技术信息中心（NCBI）下载真实序列或查看*17_synth/tests/inputs*目录中的文件以获取更多示例。
 
-虽然教您如何手动解析此文件可能很有趣（对于某些有趣的价值观来说），但我将直接使用Biopython的`Bio.SeqIO`模块：
+虽然教您如何手动解析此文件可能很有趣（对于某些有趣的价值观来说），但我将直接使用 Biopython 的`Bio.SeqIO`模块：
 
 ```py
 >>> from Bio import SeqIO
->>> recs = SeqIO.parse('tests/inputs/1.fa', 'fasta') ![1](assets/1.png)
+>>> recs = SeqIO.parse('tests/inputs/1.fa', 'fasta') ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO5-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO5-1)
 
 第一个参数是输入文件的名称。由于此函数可以解析许多不同的记录格式，因此第二个参数是数据的格式。
 
@@ -261,7 +261,7 @@ FASTA文件的头部可能会非常混乱，非常快速。我鼓励您从国家
 <class 'Bio.SeqIO.FastaIO.FastaIterator'>
 ```
 
-我已经几次展示了迭代器，甚至在[第4章](ch04.html#ch04)中创建了一个。在那个练习中，我使用`next()`函数从斐波那契数列生成器中获取下一个值。我将在这里做同样的事情，以获取第一个记录并检查其类型：
+我已经几次展示了迭代器，甚至在第四章中创建了一个。在那个练习中，我使用`next()`函数从斐波那契数列生成器中获取下一个值。我将在这里做同样的事情，以获取第一个记录并检查其类型：
 
 ```py
 >>> rec = next(recs)
@@ -269,28 +269,28 @@ FASTA文件的头部可能会非常混乱，非常快速。我鼓励您从国家
 <class 'Bio.SeqRecord.SeqRecord'>
 ```
 
-要了解有关序列记录的更多信息，我强烈建议您阅读[SeqRecord文档](https://biopython.org/wiki/SeqRecord)，此外还可以在REPL中查看文档，您可以使用**`help(rec)`**查看。必须*解析*FASTA记录的数据，这意味着从其语法和结构中辨别数据的含义。如果您在REPL中查看`rec`，您将看到类似于字典的输出。此输出与`repr(seq)`的输出相同，后者用于“返回对象的规范字符串表示”：
+要了解有关序列记录的更多信息，我强烈建议您阅读[SeqRecord 文档](https://biopython.org/wiki/SeqRecord)，此外还可以在 REPL 中查看文档，您可以使用**`help(rec)`**查看。必须*解析*FASTA 记录的数据，这意味着从其语法和结构中辨别数据的含义。如果您在 REPL 中查看`rec`，您将看到类似于字典的输出。此输出与`repr(seq)`的输出相同，后者用于“返回对象的规范字符串表示”：
 
 ```py
 SeqRecord(
-  seq=Seq('CCTGCGGAAGATCGGCACTAGAATAGCCAGAACCGTTTCTCTGAGGCTTCCGGC...AGG'), ![1](assets/1.png)
-  id='Rosalind_6404', ![2](assets/2.png)
-  name='Rosalind_6404', ![3](assets/3.png)
+  seq=Seq('CCTGCGGAAGATCGGCACTAGAATAGCCAGAACCGTTTCTCTGAGGCTTCCGGC...AGG'), ![1](img/1.png)
+  id='Rosalind_6404', ![2](img/2.png)
+  name='Rosalind_6404', ![3](img/3.png)
   description='Rosalind_6404',
   dbxrefs=[])
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO6-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO6-1)
 
 序列的多行被连接成一个由`Seq`对象表示的单个序列。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO6-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO6-2)
 
-FASTA记录的`ID`是从`>`之后开始的标题中的所有字符，直到第一个空格。
+FASTA 记录的`ID`是从`>`之后开始的标题中的所有字符，直到第一个空格。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO6-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO6-3)
 
-`SeqRecord`对象还可以处理具有更多字段的数据，例如`name`、`description`和数据库交叉引用(`dbxrefs`)。由于这些字段在FASTA记录中不存在，ID会被复制为`name`和`description`，而`dbxrefs`的值则为空列表。
+`SeqRecord`对象还可以处理具有更多字段的数据，例如`name`、`description`和数据库交叉引用(`dbxrefs`)。由于这些字段在 FASTA 记录中不存在，ID 会被复制为`name`和`description`，而`dbxrefs`的值则为空列表。
 
 如果打印序列，这些信息将被*字符串化*，因此更容易阅读。这个输出与`str(rec)`的输出相同，后者旨在提供对象的有用字符串表示：
 
@@ -310,7 +310,7 @@ Seq('CCTGCGGAAGATCGGCACTAGAATAGCCAGAACCGTTTCTCTGAGGCTTCCGGC...AGG')
 <class 'Bio.Seq.Seq'>
 ```
 
-使用**`help(rec.seq)`**查看`Seq`对象提供的属性和方法。我只想要DNA序列本身，可以通过`str()`函数将序列强制转换为字符串来获取：
+使用**`help(rec.seq)`**查看`Seq`对象提供的属性和方法。我只想要 DNA 序列本身，可以通过`str()`函数将序列强制转换为字符串来获取：
 
 ```py
 >>> str(rec.seq)
@@ -324,7 +324,7 @@ Seq('CCTGCGGAAGATCGGCACTAGAATAGCCAGAACCGTTTCTCTGAGGCTTCCGGC...AGG')
 Seq('CCTCAGAATTATTAGTGGGAGGGAAGGCCGGAAGCCTCAGAGAAACGGTTCTGG...AGG')
 ```
 
-`Seq`对象还有许多其他有用的方法，我鼓励你探索文档，因为这些方法可以节省大量时间。^([1](ch05.html#idm45963634979240)) 现在，你可能已经有足够的信息来完成挑战了。你需要遍历所有序列，确定*G*或*C*碱基的百分比，并返回具有最大值的记录的ID和GC含量。我建议你自己编写一个解决方案。如果需要更多帮助，我会展示一种方法，并介绍几种解决方案的变体。
+`Seq`对象还有许多其他有用的方法，我鼓励你探索文档，因为这些方法可以节省大量时间。^(1) 现在，你可能已经有足够的信息来完成挑战了。你需要遍历所有序列，确定*G*或*C*碱基的百分比，并返回具有最大值的记录的 ID 和 GC 含量。我建议你自己编写一个解决方案。如果需要更多帮助，我会展示一种方法，并介绍几种解决方案的变体。
 
 ## 使用`for`循环迭代序列
 
@@ -335,7 +335,7 @@ Seq('CCTCAGAATTATTAGTGGGAGGGAAGGCCGGAAGCCTCAGAGAAACGGTTCTGG...AGG')
 >>> recs = SeqIO.parse(open('./tests/inputs/1.fa'), 'fasta')
 ```
 
-我可以使用`for`循环来遍历每个记录，打印出ID和每个序列的前10个碱基：
+我可以使用`for`循环来遍历每个记录，打印出 ID 和每个序列的前 10 个碱基：
 
 ```py
 >>> for rec in recs:
@@ -365,25 +365,25 @@ Rosalind_0808 CCACCCTCGT
 我需要找出字符串中有多少个*C*和*G*。我可以使用另一个`for`循环来迭代序列的每个碱基，并在碱基为*G*或*C*时增加一个计数器：
 
 ```py
-gc = 0 ![1](assets/1.png)
-for base in seq: ![2](assets/2.png)
-    if base in ('G', 'C'): ![3](assets/3.png)
-        gc += 1 ![4](assets/4.png)
+gc = 0 ![1](img/1.png)
+for base in seq: ![2](img/2.png)
+    if base in ('G', 'C'): ![3](img/3.png)
+        gc += 1 ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-1)
 
 初始化一个变量用于计算*G/C*碱基的计数。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-2)
 
 迭代每个序列中的每个碱基（字符）。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-3)
 
 看看元组中是否包含`G`或`C`的碱基。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO7-4)
 
 增加 GC 计数器。
 
@@ -400,7 +400,7 @@ for base in seq: ![2](assets/2.png)
 
 程序输出应为具有最高`GC`计数的序列的 ID，一个空格，并截断为六个有效数字的 GC 含量。格式化数字的最简单方法是了解更多关于`str.format()`的信息。`help`中没有太多文档，因此建议您阅读[PEP 3101](https://oreil.ly/OIpEq)以了解高级字符串格式化。
 
-在[第一章](ch01.html#ch01)中，我展示了如何使用`{}`作为占位符来插入变量，无论是使用`str.format()`还是 f-string。您可以在花括号中的冒号（`:`）后添加格式化指令。这种语法看起来像类C语言中的`printf()`函数使用的语法，因此`{:0.6f}`是一个六位数的浮点数：
+在第一章中，我展示了如何使用`{}`作为占位符来插入变量，无论是使用`str.format()`还是 f-string。您可以在花括号中的冒号（`:`）后添加格式化指令。这种语法看起来像类 C 语言中的`printf()`函数使用的语法，因此`{:0.6f}`是一个六位数的浮点数：
 
 ```py
 >>> '{:0.6f}'.format(gc * 100 / len(seq))
@@ -451,64 +451,64 @@ Success: no issues found in 2 source files
 
 与以往一样，所有解决方案共享相同的`get_args()`，因此只显示差异。
 
-## 解决方案1：使用列表
+## 解决方案 1：使用列表
 
 让我们来看看我的第一个解决方案。我总是试图从最明显和简单的方法开始，您会发现这通常是最冗长的。一旦理解了逻辑，希望您能够理解更强大和更简洁的表达相同想法的方式。对于这个第一个解决方案，确保还从`typing`模块中导入`List`和`Tuple`：
 
 ```py
 def main() -> None:
     args = get_args()
-    seqs: List[Tuple[float, str]] = [] ![1](assets/1.png)
+    seqs: List[Tuple[float, str]] = [] ![1](img/1.png)
 
-    for rec in SeqIO.parse(args.file, 'fasta'): ![2](assets/2.png)
-        gc = 0 ![3](assets/3.png)
-        for base in rec.seq.upper(): ![4](assets/4.png)
-            if base in ('C', 'G'): ![5](assets/5.png)
-                gc += 1 ![6](assets/6.png)
-        pct = (gc * 100) / len(rec.seq) ![7](assets/7.png)
-        seqs.append((pct, rec.id)) ![8](assets/8.png)
+    for rec in SeqIO.parse(args.file, 'fasta'): ![2](img/2.png)
+        gc = 0 ![3](img/3.png)
+        for base in rec.seq.upper(): ![4](img/4.png)
+            if base in ('C', 'G'): ![5](img/5.png)
+                gc += 1 ![6](img/6.png)
+        pct = (gc * 100) / len(rec.seq) ![7](img/7.png)
+        seqs.append((pct, rec.id)) ![8](img/8.png)
 
-    high = max(seqs) ![9](assets/9.png)
-    print(f'{high[1]} {high[0]:0.6f}') ![10](assets/10.png)
+    high = max(seqs) ![9](img/9.png)
+    print(f'{high[1]} {high[0]:0.6f}') ![10](img/10.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-1)
 
 初始化一个空列表以保存 GC 含量和序列 ID 的元组。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-2)
 
 遍历输入文件中的每个记录。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-3)
 
 初始化一个 GC 计数器。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-4)
 
 遍历每个序列，将其大写以防止可能的混合大小写输入。
 
-[![5](assets/5.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-5)
+![5](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-5)
 
 检查基序是否为*C*或*G*。
 
-[![6](assets/6.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-6)
+![6](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-6)
 
 增加 GC 计数器。
 
-[![7](assets/7.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-7)
+![7](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-7)
 
 计算 GC 含量。
 
-[![8](assets/8.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-8)
+![8](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-8)
 
 添加一个新的元组，包括 GC 含量和序列 ID。
 
-[![9](assets/9.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-9)
+![9](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-9)
 
 取最大值。
 
-[![10](assets/10.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-10)
+![10](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO8-10)
 
 打印最高值的序列 ID 和 GC 含量。
 
@@ -565,17 +565,17 @@ print(f'{high[1]} {high[0]:0.6f}')
 在`for`循环中隐藏着一个计算 GC 含量的代码片段，需要将其提取到一个带有测试的函数中。遵循测试驱动开发（TDD）的思想，我将首先定义一个`find_gc()`函数：
 
 ```py
-def find_gc(seq: str) -> float: ![1](assets/1.png)
+def find_gc(seq: str) -> float: ![1](img/1.png)
     """ Calculate GC content """
 
-    return 0\. ![2](assets/2.png)
+    return 0\. ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO9-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO9-1)
 
 此函数接受一个`str`并返回一个`float`。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO9-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO9-2)
 
 目前我返回 `0`。请注意，末尾的 `.` 告诉 Python 这是一个 `float`。这是 `0.0` 的简写。
 
@@ -585,27 +585,27 @@ def find_gc(seq: str) -> float: ![1](assets/1.png)
 def test_find_gc():
     """ Test find_gc """
 
-    assert find_gc('') == 0\. ![1](assets/1.png)
-    assert find_gc('C') == 100\. ![2](assets/2.png)
-    assert find_gc('G') == 100\. ![3](assets/3.png)
-    assert find_gc('CGCCG') == 100\. ![4](assets/4.png)
+    assert find_gc('') == 0\. ![1](img/1.png)
+    assert find_gc('C') == 100\. ![2](img/2.png)
+    assert find_gc('G') == 100\. ![3](img/3.png)
+    assert find_gc('CGCCG') == 100\. ![4](img/4.png)
     assert find_gc('ATTAA') == 0.
     assert find_gc('ACGT') == 50.
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-1)
 
 如果一个函数接受一个 `str`，我总是从空字符串开始测试，以确保它返回一些有用的东西。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-2)
 
 单个 `C` 应为 100% GC。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-3)
 
 单个 `G` 也是如此。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO10-4)
 
 各种其他测试混合各种百分比的碱基。
 
@@ -618,7 +618,7 @@ $ pytest -v cgc.py
 ============================ test session starts ============================
 ...
 
-cgc.py::test_find_gc FAILED                                           [100%] ![1](assets/1.png)
+cgc.py::test_find_gc FAILED                                           [100%] ![1](img/1.png)
 
 ================================= FAILURES ==================================
 __________________________________ test_gc __________________________________
@@ -626,8 +626,8 @@ __________________________________ test_gc __________________________________
     def test_find_gc():
         """ Test find_gc """
 
-        assert find_gc('') == 0\. ![2](assets/2.png)
->       assert find_gc('C') == 100\. ![3](assets/3.png)
+        assert find_gc('') == 0\. ![2](img/2.png)
+>       assert find_gc('C') == 100\. ![3](img/3.png)
 E       assert 0 == 100.0
 E         +0
 E         -100.0
@@ -638,15 +638,15 @@ FAILED cgc.py::test_gc - assert 0 == 100.0
 ============================= 1 failed in 0.32s =============================
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO11-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO11-1)
 
 单元测试如预期般失败。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO11-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO11-2)
 
 第一个测试通过，因为预期结果是`0`。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO11-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO11-3)
 
 这个测试失败，因为它应该返回 `100`。
 
@@ -656,10 +656,10 @@ FAILED cgc.py::test_gc - assert 0 == 100.0
 def find_gc(seq: str) -> float:
     """ Calculate GC content """
 
-    if not seq: ![1](assets/1.png)
-        return 0 ![2](assets/2.png)
+    if not seq: ![1](img/1.png)
+        return 0 ![2](img/2.png)
 
-    gc = 0 ![3](assets/3.png)
+    gc = 0 ![3](img/3.png)
     for base in seq.upper():
         if base in ('C', 'G'):
             gc += 1
@@ -667,15 +667,15 @@ def find_gc(seq: str) -> float:
     return (gc * 100) / len(seq)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO12-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO12-1)
 
 当序列为空字符串时，防止尝试除以 0。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO12-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO12-2)
 
 如果没有序列，GC 含量为 0。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO12-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO12-3)
 
 这与之前的代码相同。
 
@@ -710,15 +710,15 @@ cgc.py::test_gc PASSED                                                [100%]
 ```py
 class MySeq(NamedTuple):
     """ Sequence """
-    gc: float ![1](assets/1.png)
-    name: str ![2](assets/2.png)
+    gc: float ![1](img/1.png)
+    name: str ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO13-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO13-1)
 
 GC 含量是一个百分比。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO13-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO13-2)
 
 我更愿意使用字段名`id`，但那与内置于 Python 中的`id()`*标识*函数冲突。
 
@@ -727,28 +727,28 @@ GC 含量是一个百分比。
 ```py
 def main() -> None:
     args = get_args()
-    seqs: List[MySeq] = [] ![1](assets/1.png)
+    seqs: List[MySeq] = [] ![1](img/1.png)
 
     for rec in SeqIO.parse(args.file, 'fasta'):
-        seqs.append(MySeq(find_gc(rec.seq), rec.id)) ![2](assets/2.png)
+        seqs.append(MySeq(find_gc(rec.seq), rec.id)) ![2](img/2.png)
 
-    high = sorted(seqs)[-1] ![3](assets/3.png)
-    print(f'{high.name} {high.gc:0.6f}') ![4](assets/4.png)
+    high = sorted(seqs)[-1] ![3](img/3.png)
+    print(f'{high.name} {high.gc:0.6f}') ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-1)
 
 使用`MySeq`作为类型注解。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-2)
 
 使用来自`find_gc()`函数的返回值和记录 ID 创建`MySeq`。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-3)
 
 这仍然有效，因为`MySeq`是一个元组。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO14-4)
 
 使用字段访问而不是元组的索引位置。
 
@@ -756,40 +756,40 @@ def main() -> None:
 
 ## 解决方案 3：保持运行的最大变量
 
-前一个解决方案效果不错，但有点啰嗦，并且在我只关心最大值时无谓地跟踪*所有*序列。考虑到测试输入很小，这永远不会成为问题，但生物信息学始终关注扩展。试图存储所有序列的解决方案最终会导致内存耗尽。考虑处理100万、10亿或1000亿序列。最终，内存会耗尽。
+前一个解决方案效果不错，但有点啰嗦，并且在我只关心最大值时无谓地跟踪*所有*序列。考虑到测试输入很小，这永远不会成为问题，但生物信息学始终关注扩展。试图存储所有序列的解决方案最终会导致内存耗尽。考虑处理 100 万、10 亿或 1000 亿序列。最终，内存会耗尽。
 
 这是一个能够适应任意序列数量的解决方案，因为它只分配一个单个元组来记住最高值：
 
 ```py
 def main():
     args = get_args()
-    high = MySeq(0., '') ![1](assets/1.png)
+    high = MySeq(0., '') ![1](img/1.png)
 
     for rec in SeqIO.parse(args.file, 'fasta'):
-        pct = find_gc(rec.seq) ![2](assets/2.png)
-        if pct > high.gc: ![3](assets/3.png)
-            high = MySeq(pct, rec.id) ![4](assets/4.png)
+        pct = find_gc(rec.seq) ![2](img/2.png)
+        if pct > high.gc: ![3](img/3.png)
+            high = MySeq(pct, rec.id) ![4](img/4.png)
 
-    print(f'{high.name} {high.gc:0.6f}') ![5](assets/5.png)
+    print(f'{high.name} {high.gc:0.6f}') ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-1)
 
 初始化一个变量来记住最高值。类型注释是多余的，因为`mypy`将期望此变量始终保持此类型。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-2)
 
-计算GC含量。
+计算 GC 含量。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-3)
 
-查看GC百分比是否大于最高值。
+查看 GC 百分比是否大于最高值。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-4)
 
-如果是，使用这个百分比GC和序列ID覆盖最高值。
+如果是，使用这个百分比 GC 和序列 ID 覆盖最高值。
 
-[![5](assets/5.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-5)
+![5](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO15-5)
 
 打印最高值。
 
@@ -799,19 +799,19 @@ def main():
 def find_gc(seq: str) -> float:
     """ Calculate GC content """
 
-    return (seq.upper().count('C') + ![1](assets/1.png)
-            seq.upper().count('G')) * 100 / len(seq) if seq else 0 ![2](assets/2.png)
+    return (seq.upper().count('C') + ![1](img/1.png)
+            seq.upper().count('G')) * 100 / len(seq) if seq else 0 ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO16-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO16-1)
 
 使用`str.count()`方法来查找序列中的`C`和`G`。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO16-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO16-2)
 
 由于序列状态有两个条件——空字符串或非空字符串——我更喜欢使用一个`if`表达式编写单个`return`。
 
-我将用最后一个解决方案来进行基准测试。首先，我需要生成一个包含大量序列的输入文件，比如10K。在*05_gc*目录中，您会找到一个类似于我在*02_rna*目录中使用的`genseq.py`文件。这个文件生成一个FASTA文件：
+我将用最后一个解决方案来进行基准测试。首先，我需要生成一个包含大量序列的输入文件，比如 10K。在*05_gc*目录中，您会找到一个类似于我在*02_rna*目录中使用的`genseq.py`文件。这个文件生成一个 FASTA 文件：
 
 ```py
 $ ./genseq.py -h
@@ -853,17 +853,17 @@ Summary
     4.19 ± 0.10 times faster than './solution2_unit_test.py 10K.fa'
 ```
 
-看起来第三个解决方案比在10K序列上运行的第二个解决方案快大约四倍。您可以尝试生成更多和更长的序列进行自己的基准测试。我建议您创建一个包含至少一百万序列的文件，并将您的第一个解决方案与此版本进行比较。
+看起来第三个解决方案比在 10K 序列上运行的第二个解决方案快大约四倍。您可以尝试生成更多和更长的序列进行自己的基准测试。我建议您创建一个包含至少一百万序列的文件，并将您的第一个解决方案与此版本进行比较。
 
 ## 解决方案 4：使用带有保护条件的列表推导式
 
-[图 5-1](#fig_5.1) 显示了在序列中查找所有*C*和*G*的另一种方法是使用列表推导和第一个解决方案中的`if`比较，这被称为*guard*。
+图 5-1 显示了在序列中查找所有*C*和*G*的另一种方法是使用列表推导和第一个解决方案中的`if`比较，这被称为*guard*。
 
-![mpfb 0501](assets/mpfb_0501.png)
+![mpfb 0501](img/mpfb_0501.png)
 
-###### 图 5-1\. 一个带有guard的列表推导将只选择对于`if`表达式返回真值的元素
+###### 图 5-1\. 一个带有 guard 的列表推导将只选择对于`if`表达式返回真值的元素
 
-列表推导仅产生通过检查`base`是否在字符串`'CG'`中的guard的元素：
+列表推导仅产生通过检查`base`是否在字符串`'CG'`中的 guard 的元素：
 
 ```py
 >>> gc = [base for base in 'CCACCCTCGTGGTATGGCT' if base in 'CG']
@@ -887,17 +887,17 @@ def find_gc(seq: str) -> float:
     if not seq:
         return 0
 
-    gc = len([base for base in seq.upper() if base in 'CG']) ![1](assets/1.png)
+    gc = len([base for base in seq.upper() if base in 'CG']) ![1](img/1.png)
     return (gc * 100) / len(seq)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO17-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO17-1)
 
-另一种计算*C*和*G*数量的方法是使用带有guard的列表推导来选择它们。
+另一种计算*C*和*G*数量的方法是使用带有 guard 的列表推导来选择它们。
 
-## Solution 5: 使用filter()函数
+## Solution 5: 使用 filter()函数
 
-带有guard的列表推导的概念可以使用高阶函数`filter()`来表达。在本章的早些时候，我使用`map()`函数将`int()`函数应用于列表的所有元素，以产生一个新的整数列表。`filter()`函数的工作方式类似，接受一个函数作为第一个参数和一个可迭代对象作为第二个参数。但它有所不同，只有在应用函数时返回真值的元素才会被返回。由于这是一个惰性函数，因此在REPL中我需要用`list()`来强制转换：
+带有 guard 的列表推导的概念可以使用高阶函数`filter()`来表达。在本章的早些时候，我使用`map()`函数将`int()`函数应用于列表的所有元素，以产生一个新的整数列表。`filter()`函数的工作方式类似，接受一个函数作为第一个参数和一个可迭代对象作为第二个参数。但它有所不同，只有在应用函数时返回真值的元素才会被返回。由于这是一个惰性函数，因此在 REPL 中我需要用`list()`来强制转换：
 
 ```py
 >>> list(filter(lambda base: base in 'CG', 'CCACCCTCGTGGTATGGCT'))
@@ -913,17 +913,17 @@ def find_gc(seq: str) -> float:
     if not seq:
         return 0
 
-    gc = len(list(filter(lambda base: base in 'CG', seq.upper()))) ![1](assets/1.png)
+    gc = len(list(filter(lambda base: base in 'CG', seq.upper()))) ![1](img/1.png)
     return (gc * 100) / len(seq)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO18-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO18-1)
 
 使用`filter()`选择仅匹配*C*或*G*的碱基。
 
-## Solution 6: 使用map()函数和布尔值求和
+## Solution 6: 使用 map()函数和布尔值求和
 
-`map()`函数是我喜欢的一个函数，所以我想展示另一种使用它的方法。我可以使用`map()`将每个碱基转换为1（如果它是*C*或*G*），否则为`0`：
+`map()`函数是我喜欢的一个函数，所以我想展示另一种使用它的方法。我可以使用`map()`将每个碱基转换为 1（如果它是*C*或*G*），否则为`0`：
 
 ```py
 >>> seq = 'CCACCCTCGTGGTATGGCT'
@@ -954,23 +954,23 @@ def find_gc(seq: str) -> float:
     if not seq:
         return 0
 
-    gc = sum(map(lambda base: base in 'CG', seq.upper())) ![1](assets/1.png)
+    gc = sum(map(lambda base: base in 'CG', seq.upper())) ![1](img/1.png)
     return (gc * 100) / len(seq)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO19-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO19-1)
 
 根据它们与碱基*C*或*G*的比较将序列转换为布尔值，然后对`True`值求和以得到计数。
 
 ## Solution 7: 使用正则表达式查找模式
 
-到目前为止，我已经向您展示了多种手动迭代字符串中字符序列的方法，以挑选出匹配`C`或`G`的字符。这就是模式匹配，而这正是正则表达式所做的。对您来说，学习另一种领域特定语言（DSL）的成本是必要的，但由于正则表达式在Python之外广泛使用，这是值得的。首先导入`re`模块：
+到目前为止，我已经向您展示了多种手动迭代字符串中字符序列的方法，以挑选出匹配`C`或`G`的字符。这就是模式匹配，而这正是正则表达式所做的。对您来说，学习另一种领域特定语言（DSL）的成本是必要的，但由于正则表达式在 Python 之外广泛使用，这是值得的。首先导入`re`模块：
 
 ```py
 >>> import re
 ```
 
-你应该阅读**`help(re)`**，因为这是一个非常有用的模块。我想使用`re.findall()`函数来查找字符串中模式的所有出现。我可以通过使用方括号将要包含的任何字符括起来来为正则表达式引擎创建*字符类*模式。类`[GC]`表示*匹配G或C*：
+你应该阅读**`help(re)`**，因为这是一个非常有用的模块。我想使用`re.findall()`函数来查找字符串中模式的所有出现。我可以通过使用方括号将要包含的任何字符括起来来为正则表达式引擎创建*字符类*模式。类`[GC]`表示*匹配 G 或 C*：
 
 ```py
 >>> re.findall('[GC]', 'CCACCCTCGTGGTATGGCT')
@@ -994,18 +994,18 @@ def main() -> None:
     high = MySeq(0., '')
 
     for rec in SeqIO.parse(args.file, 'fasta'):
-        pct = find_gc(str(rec.seq)) ![1](assets/1.png)
+        pct = find_gc(str(rec.seq)) ![1](img/1.png)
         if pct > high.gc:
             high = MySeq(pct, rec.id)
 
     print(f'{high.name} {high.gc:0.6f}')
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO20-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO20-1)
 
 强制将序列转换为字符串值，否则将传递`Seq`对象。
 
-## 解决方案8：一个更复杂的`find_gc()`函数
+## 解决方案 8：一个更复杂的`find_gc()`函数
 
 在这个最终的解决方案中，我将几乎所有代码从`main()`移动到`find_gc()`函数中。我希望该函数接受一个`SeqRecord`对象而不是序列的字符串，并且希望它返回`MySeq`元组。
 
@@ -1043,34 +1043,34 @@ SeqRecord(seq=Seq('ACTG'),
 如果你运行**`pytest`**，你的`test_find_gc()`函数应该失败，因为你还没有修改`find_gc()`函数。以下是我编写它的方式：
 
 ```py
-def find_gc(rec: SeqRecord) -> MySeq: ![1](assets/1.png)
+def find_gc(rec: SeqRecord) -> MySeq: ![1](img/1.png)
     """ Return the GC content, record ID for a sequence """
 
-    pct = 0\. ![2](assets/2.png)
-    if seq := str(rec.seq): ![3](assets/3.png)
-        gc = len(re.findall('[GC]', seq.upper())) ![4](assets/4.png)
+    pct = 0\. ![2](img/2.png)
+    if seq := str(rec.seq): ![3](img/3.png)
+        gc = len(re.findall('[GC]', seq.upper())) ![4](img/4.png)
         pct = (gc * 100) / len(seq)
 
-    return MySeq(pct, rec.id) ![5](assets/5.png)
+    return MySeq(pct, rec.id) ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-1)
 
 该函数接受一个`SeqRecord`并返回一个`MySeq`。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-2)
 
 将其初始化为浮点数`0.`。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-3)
 
 此语法是 Python 3.8 新增的，允许在一行中使用*海象*操作符（`:=`）进行变量赋值（第一步）和测试（第二步）。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-4)
 
 这段代码与以前的代码相同。
 
-[![5](assets/5.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-5)
+![5](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO21-5)
 
 返回一个`MySeq`对象。
 
@@ -1081,31 +1081,31 @@ def find_gc(rec: SeqRecord) -> MySeq: ![1](assets/1.png)
 ```py
 def main() -> None:
     args = get_args()
-    high = MySeq(0., '') ![1](assets/1.png)
-    for seq in map(find_gc, SeqIO.parse(args.file, 'fasta')): ![2](assets/2.png)
-        if seq.gc > high.gc: ![3](assets/3.png)
-            high = seq ![4](assets/4.png)
+    high = MySeq(0., '') ![1](img/1.png)
+    for seq in map(find_gc, SeqIO.parse(args.file, 'fasta')): ![2](img/2.png)
+        if seq.gc > high.gc: ![3](img/3.png)
+            high = seq ![4](img/4.png)
 
-    print(f'{high.name} {high.gc:0.6f}') ![5](assets/5.png)
+    print(f'{high.name} {high.gc:0.6f}') ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-1)
+![1](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-1)
 
 初始化`high`变量。
 
-[![2](assets/2.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-2)
+![2](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-2)
 
 使用`map()`将每个`SeqRecord`转换为`MySeq`。
 
-[![3](assets/3.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-3)
+![3](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-3)
 
-将当前序列的GC含量与运行时高值进行比较。
+将当前序列的 GC 含量与运行时高值进行比较。
 
-[![4](assets/4.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-4)
+![4](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-4)
 
 覆盖该值。
 
-[![5](assets/5.png)](#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-5)
+![5](img/#co_computing_gc_content__parsing_fasta__span_class__keep_together__and_analyzing_sequences__span__CO22-5)
 
 打印结果。
 
@@ -1129,7 +1129,7 @@ Summary
 
 # 进一步
 
-尝试编写一个FASTA解析器。创建一个名为*faparser*的新目录：
+尝试编写一个 FASTA 解析器。创建一个名为*faparser*的新目录：
 
 ```py
 $ mkdir faparser
@@ -1156,7 +1156,7 @@ $ tree
 1 directory, 3 files
 ```
 
-你可以运行**`make test`**或**`pytest`**来验证至少一切都在运行。将*05_gc*目录中的*tests/inputs*目录复制到新的*tests*目录中，以便有一些测试输入文件。现在考虑一下你希望你的新程序如何工作。我想它将接受一个（或多个）可读的文本文件作为输入，因此您可以相应地定义您的参数。然后，您的程序会对数据做什么？例如，您是否希望打印每个序列的ID和长度？现在编写测试和代码来手动解析输入的FASTA文件并打印输出。挑战自己。
+你可以运行**`make test`**或**`pytest`**来验证至少一切都在运行。将*05_gc*目录中的*tests/inputs*目录复制到新的*tests*目录中，以便有一些测试输入文件。现在考虑一下你希望你的新程序如何工作。我想它将接受一个（或多个）可读的文本文件作为输入，因此您可以相应地定义您的参数。然后，您的程序会对数据做什么？例如，您是否希望打印每个序列的 ID 和长度？现在编写测试和代码来手动解析输入的 FASTA 文件并打印输出。挑战自己。
 
 # 复习
 
@@ -1164,7 +1164,7 @@ $ tree
 
 +   你可以从打开的文件句柄`sys.stdin`读取`STDIN`。
 
-+   `Bio.SeqIO.parse()`函数将解析FASTA格式的序列文件为记录，这样可以访问记录的ID和序列。
++   `Bio.SeqIO.parse()`函数将解析 FASTA 格式的序列文件为记录，这样可以访问记录的 ID 和序列。
 
 +   您可以使用多种结构来访问可迭代对象的所有元素，包括`for`循环、列表推导式以及`filter()`和`map()`函数。
 
@@ -1182,4 +1182,4 @@ $ tree
 
 +   正则表达式可以找到文本的模式。
 
-^([1](ch05.html#idm45963634979240-marker)) 俗话说，“几周的编码可以节省几小时的规划。”
+^(1) 俗话说，“几周的编码可以节省几小时的规划。”

@@ -1,6 +1,6 @@
-# 第6章\. 找到海明距离：计算点突变
+# 第六章\. 找到海明距离：计算点突变
 
-海明距离，以前言中提到的理查德·哈明的名字命名，是将一个字符串转变为另一个所需的编辑次数。这是衡量序列相似性的一种度量。我为此编写了几个其他度量标准，从[第1章](ch01.html#ch01)开始使用四核苷酸频率，继续到[第5章](ch05.html#ch05)使用GC含量。尽管后者在实际中可能是有信息量的，因为编码区域倾向于富含GC，但四核苷酸频率远远不能称得上是有用的。例如，序列*AAACCCGGGTTT*和*CGACGATATGTC*完全不同，但产生相同的碱基频率：
+海明距离，以前言中提到的理查德·哈明的名字命名，是将一个字符串转变为另一个所需的编辑次数。这是衡量序列相似性的一种度量。我为此编写了几个其他度量标准，从第一章开始使用四核苷酸频率，继续到第五章使用 GC 含量。尽管后者在实际中可能是有信息量的，因为编码区域倾向于富含 GC，但四核苷酸频率远远不能称得上是有用的。例如，序列*AAACCCGGGTTT*和*CGACGATATGTC*完全不同，但产生相同的碱基频率：
 
 ```py
 $ ./dna.py AAACCCGGGTTT
@@ -9,19 +9,19 @@ $ ./dna.py CGACGATATGTC
 3 3 3 3
 ```
 
-单独观察，四核苷酸频率使这些序列看起来相同，但很明显它们会产生完全不同的蛋白质序列，因此在功能上是不同的。[图 6-1](#fig_6.1)显示了这2个序列的对齐，表明只有12个碱基中的3个是相同的，这意味着它们只有25%的相似性。
+单独观察，四核苷酸频率使这些序列看起来相同，但很明显它们会产生完全不同的蛋白质序列，因此在功能上是不同的。图 6-1 显示了这 2 个序列的对齐，表明只有 12 个碱基中的 3 个是相同的，这意味着它们只有 25%的相似性。
 
-![mpfb 0601](assets/mpfb_0601.png)
+![mpfb 0601](img/mpfb_0601.png)
 
-###### 图6-1\. 显示匹配碱基的垂直条的两个序列的对齐
+###### 图 6-1\. 显示匹配碱基的垂直条的两个序列的对齐
 
-另一种表达这个概念的方式是说，12个碱基中有9个需要改变才能将其中一个序列变成另一个。这就是海明距离，它在生物信息学中与单核苷酸多态性（SNP，发音为*snips*）或单核苷酸变异（SNVs，发音为*snivs*）有些类似。该算法只考虑将一个碱基更改为另一个值，并且远远不能像序列对齐那样识别插入和删除。例如，[图 6-2](#fig_6.2)显示，当对齐时序列*AAACCCGGGTTT*和*AACCCGGGTTTA*是92%相似的（在左边），因为它们仅相差一个碱基。然而，海明距离（在右边）只显示有8个碱基是相同的，这意味着它们只有66%的相似性。
+另一种表达这个概念的方式是说，12 个碱基中有 9 个需要改变才能将其中一个序列变成另一个。这就是海明距离，它在生物信息学中与单核苷酸多态性（SNP，发音为*snips*）或单核苷酸变异（SNVs，发音为*snivs*）有些类似。该算法只考虑将一个碱基更改为另一个值，并且远远不能像序列对齐那样识别插入和删除。例如，图 6-2 显示，当对齐时序列*AAACCCGGGTTT*和*AACCCGGGTTTA*是 92%相似的（在左边），因为它们仅相差一个碱基。然而，海明距离（在右边）只显示有 8 个碱基是相同的，这意味着它们只有 66%的相似性。
 
-![mpfb 0602](assets/mpfb_0602.png)
+![mpfb 0602](img/mpfb_0602.png)
 
-###### 图6-2\. 这些序列的对齐显示它们几乎相同，而海明距离发现它们只有66%的相似性
+###### 图 6-2\. 这些序列的对齐显示它们几乎相同，而海明距离发现它们只有 66%的相似性
 
-该程序将始终严格比较字符串从它们的开头开始，这限制了实际应用于真实世界生物信息学的可能性。尽管如此，这个天真的算法事实证明是衡量序列相似性的一个有用的度量，并且编写实现在Python中提出了许多有趣的解决方案。
+该程序将始终严格比较字符串从它们的开头开始，这限制了实际应用于真实世界生物信息学的可能性。尽管如此，这个天真的算法事实证明是衡量序列相似性的一个有用的度量，并且编写实现在 Python 中提出了许多有趣的解决方案。
 
 在本章中，您将学到：
 
@@ -74,7 +74,7 @@ Done, see new script "hamm.py".
 import argparse
 from typing import NamedTuple
 
-class Args(NamedTuple): ![1](assets/1.png)
+class Args(NamedTuple): ![1](img/1.png)
     """ Command-line arguments """
     seq1: str
     seq2: str
@@ -87,24 +87,24 @@ def get_args():
         description='Hamming distance',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('seq1', metavar='str', help='Sequence 1') ![2](assets/2.png)
+    parser.add_argument('seq1', metavar='str', help='Sequence 1') ![2](img/2.png)
 
     parser.add_argument('seq2', metavar='str', help='Sequence 2')
 
     args = parser.parse_args()
 
-    return Args(args.seq1, args.seq2) ![3](assets/3.png)
+    return Args(args.seq1, args.seq2) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO1-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO1-1)
 
 程序参数将包含两个字符串值，用于这两个序列。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO1-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO1-2)
 
 这两个序列是必需的位置字符串值。
 
-[![3](assets/3.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO1-3)
+![3](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO1-3)
 
 实例化`Args`对象，使用这两个序列。
 
@@ -139,18 +139,18 @@ _________________________________ test_input1 __________________________________
 tests/hamm_test.py:47:
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
-file = './tests/inputs/1.txt' ![1](assets/1.png)
+file = './tests/inputs/1.txt' ![1](img/1.png)
 
     def run(file: str) -> None:
         """ Run with input """
 
         assert os.path.isfile(file)
-        seq1, seq2, expected = open(file).read().splitlines() ![2](assets/2.png)
+        seq1, seq2, expected = open(file).read().splitlines() ![2](img/2.png)
 
-        rv, out = getstatusoutput(f'{RUN} {seq1} {seq2}') ![3](assets/3.png)
+        rv, out = getstatusoutput(f'{RUN} {seq1} {seq2}') ![3](img/3.png)
         assert rv == 0
->       assert out.rstrip() == expected ![4](assets/4.png)
-E       AssertionError: assert 'GAGCCTACTAACGGGAT CATCGTAATGACGGCCT' == '7' ![5](assets/5.png)
+>       assert out.rstrip() == expected ![4](img/4.png)
+E       AssertionError: assert 'GAGCCTACTAACGGGAT CATCGTAATGACGGCCT' == '7' ![5](img/5.png)
 E         - 7
 E         + GAGCCTACTAACGGGAT CATCGTAATGACGGCCT
 
@@ -161,23 +161,23 @@ FAILED tests/hamm_test.py::test_input1 - AssertionError: assert 'GAGCCTACTAAC...
 ========================= 1 failed, 3 passed in 0.27s ==========================
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-1)
 
 测试的输入来自文件*./tests/inputs/1.txt*。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-2)
 
 打开文件并读取两个序列和预期结果。
 
-[![3](assets/3.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-3)
+![3](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-3)
 
 使用这两个序列运行程序。
 
-[![4](assets/4.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-4)
+![4](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-4)
 
 当程序的输出与预期答案不匹配时，`assert`会失败。
 
-[![5](assets/5.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-5)
+![5](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO2-5)
 
 具体来说，当程序应该打印两个序列时，它却打印了`7`。
 
@@ -189,7 +189,7 @@ FAILED tests/hamm_test.py::test_input1 - AssertionError: assert 'GAGCCTACTAAC...
 >>> seq1, seq2 = 'AC', 'ACGT'
 ```
 
-距离为2，因为你需要在第一个序列中添加*GT*或从第二个序列中删除*GT*使它们相同。我建议基线距离是它们长度的差异。请注意，Rosalind挑战假设两个相等长度的字符串，但我想使用这个练习来考虑长度不同的字符串。
+距离为 2，因为你需要在第一个序列中添加*GT*或从第二个序列中删除*GT*使它们相同。我建议基线距离是它们长度的差异。请注意，Rosalind 挑战假设两个相等长度的字符串，但我想使用这个练习来考虑长度不同的字符串。
 
 根据做减法的顺序，可能会得到一个负数：
 
@@ -223,86 +223,86 @@ A A
 C C
 ```
 
-当这两个字符*不*相等时，应增加`distance`变量，因为我必须更改一个值以使其匹配另一个。请记住，Rosalind挑战总是从它们的开头比较这两个序列。例如，序列*ATTG*和*TTG*在一个碱基上不同，因为我可以从第一个中删除*A*或将其添加到第二个中以使它们匹配，但这个特定挑战的规则会说正确答案是3：
+当这两个字符*不*相等时，应增加`distance`变量，因为我必须更改一个值以使其匹配另一个。请记住，Rosalind 挑战总是从它们的开头比较这两个序列。例如，序列*ATTG*和*TTG*在一个碱基上不同，因为我可以从第一个中删除*A*或将其添加到第二个中以使它们匹配，但这个特定挑战的规则会说正确答案是 3：
 
 ```py
 $ ./hamm.py ATTG TTG
 3
 ```
 
-我相信这些信息足以帮助您编写一个通过测试套件的解决方案。一旦您有了可用的解决方案，请探索一些其他编写算法的方法，并使用测试套件不断检查您的工作。除了通过**`pytest`**运行测试外，确保使用**`make test`**选项验证您的代码也通过各种linting和类型检查测试。
+我相信这些信息足以帮助您编写一个通过测试套件的解决方案。一旦您有了可用的解决方案，请探索一些其他编写算法的方法，并使用测试套件不断检查您的工作。除了通过**`pytest`**运行测试外，确保使用**`make test`**选项验证您的代码也通过各种 linting 和类型检查测试。
 
 # 解决方案
 
 本节将介绍如何计算汉明距离的八种变体，从完全手动计算几行代码到将几个函数合并在一行的解决方案。
 
-## 解决方案1：迭代和计数
+## 解决方案 1：迭代和计数
 
 第一个解决方案来自前一节的建议：
 
 ```py
 def main():
     args = get_args()
-    seq1, seq2 = args.seq1, args.seq2 ![1](assets/1.png)
+    seq1, seq2 = args.seq1, args.seq2 ![1](img/1.png)
 
-    l1, l2 = len(seq1), len(seq2) ![2](assets/2.png)
-    distance = abs(l1 - l2) ![3](assets/3.png)
+    l1, l2 = len(seq1), len(seq2) ![2](img/2.png)
+    distance = abs(l1 - l2) ![3](img/3.png)
 
-    for i in range(min(l1, l2)): ![4](assets/4.png)
-        if seq1[i] != seq2[i]: ![5](assets/5.png)
-            distance += 1 ![6](assets/6.png)
+    for i in range(min(l1, l2)): ![4](img/4.png)
+        if seq1[i] != seq2[i]: ![5](img/5.png)
+            distance += 1 ![6](img/6.png)
 
-    print(distance) ![7](assets/7.png)
+    print(distance) ![7](img/7.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-1)
 
 将两个序列复制到变量中。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-2)
 
 由于我会多次使用长度，我将它们存储在变量中。
 
-[![3](assets/3.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-3)
+![3](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-3)
 
 基础距离是两个长度之间的差异。
 
-[![4](assets/4.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-4)
+![4](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-4)
 
 使用较短的长度来找到共有的索引。
 
-[![5](assets/5.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-5)
+![5](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-5)
 
 检查每个位置的字母。
 
-[![6](assets/6.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-6)
+![6](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-6)
 
-将距离增加1。
+将距离增加 1。
 
-[![7](assets/7.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-7)
+![7](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO3-7)
 
 打印距离。
 
 此解决方案非常明确，列出了比较两个字符串所有字符所需的每个单独步骤。接下来的解决方案将开始缩短许多步骤，所以请确保你对这里展示的内容非常熟悉。
 
-## 解决方案2：创建单元测试
+## 解决方案 2：创建单元测试
 
 第一个解决方案让我感到有些不舒服，因为计算汉明距离的代码应该在一个带有测试的函数中。我将首先创建一个名为`hamming()`的函数，放在`main()`函数之后。就风格而言，我喜欢先放`get_args()`，这样我一打开程序就能立即看到。我的`main()`函数总是其次，其他所有函数和测试都在其后。
 
 我将从想象函数的输入和输出开始：
 
 ```py
-def hamming(seq1: str, seq2: str) -> int: ![1](assets/1.png)
+def hamming(seq1: str, seq2: str) -> int: ![1](img/1.png)
     """ Calculate Hamming distance """
 
-    return 0 ![2](assets/2.png)
+    return 0 ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO4-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO4-1)
 
 该函数将接受两个字符串作为位置参数，并返回一个整数。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO4-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO4-2)
 
 要开始，该函数将始终返回`0`。
 
@@ -314,20 +314,20 @@ def hamming(seq1: str, seq2: str) -> int: ![1](assets/1.png)
 def test_hamming() -> None:
     """ Test hamming """
 
-    assert hamming('', '') == 0 ![1](assets/1.png)
-    assert hamming('AC', 'ACGT') == 2 ![2](assets/2.png)
-    assert hamming('GAGCCTACTAACGGGAT', 'CATCGTAATGACGGCCT') == 7 ![3](assets/3.png)
+    assert hamming('', '') == 0 ![1](img/1.png)
+    assert hamming('AC', 'ACGT') == 2 ![2](img/2.png)
+    assert hamming('GAGCCTACTAACGGGAT', 'CATCGTAATGACGGCCT') == 7 ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO5-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO5-1)
 
 我总是认为将空字符串发送给字符串输入是一种良好的实践。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO5-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO5-2)
 
 差异仅仅是长度的不同。
 
-[![3](assets/3.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO5-3)
+![3](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO5-3)
 
 这是文档中的示例。
 
@@ -393,38 +393,38 @@ hamm.py::test_hamming PASSED                                      [100%]
 ```py
 def main():
     args = get_args()
-    print(hamming(args.seq1, args.seq2))  ![1](assets/1.png)
+    print(hamming(args.seq1, args.seq2))  ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO6-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO6-1)
 
 打印给定序列的函数返回值。
 
 这将程序的复杂性隐藏在一个命名、文档化和测试过的单元中，缩短了程序的主体并提高了可读性。
 
-## 解决方案3：使用`zip()`函数
+## 解决方案 3：使用`zip()`函数
 
-下面的解决方案使用`zip()`函数将两个序列的元素组合起来。结果是一个包含每个位置字符的元组列表（见图6-3）。请注意，`zip()`是另一个惰性函数，因此我将使用`list()`在REPL中强制执行值：
+下面的解决方案使用`zip()`函数将两个序列的元素组合起来。结果是一个包含每个位置字符的元组列表（见图 6-3）。请注意，`zip()`是另一个惰性函数，因此我将使用`list()`在 REPL 中强制执行值：
 
 ```py
 >>> list(zip('ABC', '123'))
 [('A', '1'), ('B', '2'), ('C', '3')]
 ```
 
-![mpfb 0603](assets/mpfb_0603.png)
+![mpfb 0603](img/mpfb_0603.png)
 
-###### 图6-3。元组由共同位置的字符组成。
+###### 图 6-3。元组由共同位置的字符组成。
 
-如果我使用*AC*和*ACGT*序列，您将注意到`zip()`会停在较短的序列处，如图6-4所示：
+如果我使用*AC*和*ACGT*序列，您将注意到`zip()`会停在较短的序列处，如图 6-4 所示：
 
 ```py
 >>> list(zip('AC', 'ACGT'))
 [('A', 'A'), ('C', 'C')]
 ```
 
-![mpfb 0604](assets/mpfb_0604.png)
+![mpfb 0604](img/mpfb_0604.png)
 
-###### 图6-4。`zip()`函数将在最短序列处停止
+###### 图 6-4。`zip()`函数将在最短序列处停止
 
 我可以使用`for`循环遍历每一对。到目前为止，在我的`for`循环中，我使用单个变量表示列表中的每个元素，就像这样：
 
@@ -436,7 +436,7 @@ def main():
 ('C', 'C')
 ```
 
-在[第1章](ch01.html#ch01)，我展示了如何将元组中的值*解包*为单独的变量。Python的`for`循环允许我将每个元组解包为两个字符，如下所示：
+在第一章，我展示了如何将元组中的值*解包*为单独的变量。Python 的`for`循环允许我将每个元组解包为两个字符，如下所示：
 
 ```py
 >>> for char1, char2 in zip('AC', 'ACGT'):
@@ -452,34 +452,34 @@ C C
 def hamming(seq1: str, seq2: str) -> int:
     """ Calculate Hamming distance """
 
-    distance = abs(len(seq1) - len(seq2)) ![1](assets/1.png)
+    distance = abs(len(seq1) - len(seq2)) ![1](img/1.png)
 
-    for char1, char2 in zip(seq1, seq2): ![2](assets/2.png)
-        if char1 != char2: ![3](assets/3.png)
-            distance += 1 ![4](assets/4.png)
+    for char1, char2 in zip(seq1, seq2): ![2](img/2.png)
+        if char1 != char2: ![3](img/3.png)
+            distance += 1 ![4](img/4.png)
 
     return distance
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-1)
 
 从长度的绝对差开始。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-2)
 
 使用`zip()`将两个字符串的字符配对。
 
-[![3](assets/3.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-3)
+![3](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-3)
 
 检查两个字符是否不相等。
 
-[![4](assets/4.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-4)
+![4](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO7-4)
 
 增加距离。
 
-## 解决方案4：使用`zip_longest()`函数
+## 解决方案 4：使用`zip_longest()`函数
 
-下一个解决方案从 `itertools` 模块导入 `zip_longest()` 函数。顾名思义，它将把列表压缩到最长列表的长度。[Figure 6-5](#fig_6.5) 显示当较短的序列已用尽时，该函数将插入 `None` 值：
+下一个解决方案从 `itertools` 模块导入 `zip_longest()` 函数。顾名思义，它将把列表压缩到最长列表的长度。Figure 6-5 显示当较短的序列已用尽时，该函数将插入 `None` 值：
 
 ```py
 >>> from itertools import zip_longest
@@ -487,7 +487,7 @@ def hamming(seq1: str, seq2: str) -> int:
 [('A', 'A'), ('C', 'C'), (None, 'G'), (None, 'T')]
 ```
 
-![mpfb 0605](assets/mpfb_0605.png)
+![mpfb 0605](img/mpfb_0605.png)
 
 ###### 图 6-5\. `zip_longest()` 函数将在最长序列处停止
 
@@ -497,27 +497,27 @@ def hamming(seq1: str, seq2: str) -> int:
 def hamming(seq1: str, seq2: str) -> int:
     """ Calculate Hamming distance """
 
-    distance = 0 ![1](assets/1.png)
-    for char1, char2 in zip_longest(seq1, seq2): ![2](assets/2.png)
-        if char1 != char2: ![3](assets/3.png)
-            distance += 1 ![4](assets/4.png)
+    distance = 0 ![1](img/1.png)
+    for char1, char2 in zip_longest(seq1, seq2): ![2](img/2.png)
+        if char1 != char2: ![3](img/3.png)
+            distance += 1 ![4](img/4.png)
 
     return distance
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-1)
 
 初始化距离为 `0`。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-2)
 
 将序列压缩到最长的长度。
 
-[![3](assets/3.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-3)
+![3](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-3)
 
 比较字符。
 
-[![4](assets/4.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-4)
+![4](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO8-4)
 
 增加计数器。
 
@@ -543,18 +543,18 @@ def hamming(seq1: str, seq2: str) -> int:
 另一种表达这个想法的方式是通过使用 *保护* 子句，即在列表推导式末尾的条件语句，决定是否允许特定元素：
 
 ```py
->>> ones = [1 for c1, c2 in zip_longest(seq1, seq2) if c1 != c2] ![1](assets/1.png)
+>>> ones = [1 for c1, c2 in zip_longest(seq1, seq2) if c1 != c2] ![1](img/1.png)
 >>> ones
 [1, 1, 1, 1, 1, 1, 1]
 >>> sum(ones)
 7
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO9-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO9-1)
 
 `if` 语句是保护子句，如果两个字符不相等，则产生值 `1`。
 
-您还可以使用我在 [Chapter 5](ch05.html#ch05) 中展示的布尔值/整数强制转换，其中每个 `True` 值将被视为 `1`，而 `False` 是 `0`：
+您还可以使用我在 Chapter 5 中展示的布尔值/整数强制转换，其中每个 `True` 值将被视为 `1`，而 `False` 是 `0`：
 
 ```py
 >>> bools = [c1 != c2 for c1, c2 in zip_longest(seq1, seq2)]
@@ -576,7 +576,7 @@ def hamming(seq1: str, seq2: str) -> int:
 
 ## Solution 6: 使用 `filter()` 函数
 
-章节 [4](ch04.html#ch04) 和 [5](ch05.html#ch05) 表明，带有保护子句的列表推导式也可以使用 `filter()` 函数来表达。语法有些难看，因为Python不允许将 `zip_longest()` 中的元组解包为单独的变量。也就是说，我想编写一个 `lambda` 函数，将 `char1` 和 `char2` 解包为单独的变量，但这是不可能的：
+章节 4 和 5 表明，带有保护子句的列表推导式也可以使用 `filter()` 函数来表达。语法有些难看，因为 Python 不允许将 `zip_longest()` 中的元组解包为单独的变量。也就是说，我想编写一个 `lambda` 函数，将 `char1` 和 `char2` 解包为单独的变量，但这是不可能的：
 
 ```py
 >>> list(filter(lambda char1, char2: char1 != char2, zip_longest(seq1, seq2)))
@@ -608,15 +608,15 @@ TypeError: object of type 'filter' has no len()
 def hamming(seq1: str, seq2: str) -> int:
     """ Calculate Hamming distance """
 
-    distance = filter(lambda t: t[0] != t[1], zip_longest(seq1, seq2)) ![1](assets/1.png)
-    return len(list((distance))) ![2](assets/2.png)
+    distance = filter(lambda t: t[0] != t[1], zip_longest(seq1, seq2)) ![1](img/1.png)
+    return len(list((distance))) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO10-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO10-1)
 
 使用`filter()`查找不同字符的元组对。
 
-[![2](assets/2.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO10-2)
+![2](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO10-2)
 
 返回结果列表的长度。
 
@@ -630,9 +630,9 @@ def hamming(seq1: str, seq2: str) -> int:
 [False, False, True, True]
 ```
 
-这个`lambda`与用作*谓词*来确定哪些元素被允许通过的`filter()`中的lambda完全相同。在这里，代码*转换*元素成为应用`lambda`函数到参数后的结果，如[Figure 6-6](#fig_6.6)所示。记住，`map()`将始终返回与其消耗相同数量的元素，但`filter()`可能返回较少或根本不返回。
+这个`lambda`与用作*谓词*来确定哪些元素被允许通过的`filter()`中的 lambda 完全相同。在这里，代码*转换*元素成为应用`lambda`函数到参数后的结果，如 Figure 6-6 所示。记住，`map()`将始终返回与其消耗相同数量的元素，但`filter()`可能返回较少或根本不返回。
 
-![mpfb 0606](assets/mpfb_0606.png)
+![mpfb 0606](img/mpfb_0606.png)
 
 ###### 图 6-6\. `map()`函数将每个元组转换为表示两个元素不等的布尔值
 
@@ -653,7 +653,7 @@ def hamming(seq1: str, seq2: str) -> int:
     return sum(map(lambda t: t[0] != t[1], zip_longest(seq1, seq2)))
 ```
 
-尽管这些函数已经从10多行代码减少到一行，但将其作为具有描述性名称和测试的函数仍然是有意义的。最终，您将开始创建可在项目间共享的可重用代码模块。
+尽管这些函数已经从 10 多行代码减少到一行，但将其作为具有描述性名称和测试的函数仍然是有意义的。最终，您将开始创建可在项目间共享的可重用代码模块。
 
 ## 解决方案 8：使用`starmap()`和`operator.ne()`函数
 
@@ -689,7 +689,7 @@ Traceback (most recent call last):
 TypeError: <lambda>() missing 1 required positional argument: 'b'
 ```
 
-我需要的是`map()`的一个版本，它可以展开传入的元组（正如我在[第1章](ch01.html#ch01)中首次展示的那样），通过在元组前添加`*`（星号、星号、星形）来将其展开为其元素，这正是`itertools.starmap()`函数所做的（参见[图6-7](#fig_6.7)）：
+我需要的是`map()`的一个版本，它可以展开传入的元组（正如我在第一章中首次展示的那样），通过在元组前添加`*`（星号、星号、星形）来将其展开为其元素，这正是`itertools.starmap()`函数所做的（参见图 6-7）：
 
 ```py
 >>> from itertools import zip_longest, starmap
@@ -698,9 +698,9 @@ TypeError: <lambda>() missing 1 required positional argument: 'b'
 [False, False, True, True]
 ```
 
-![mpfb 0607](assets/mpfb_0607.png)
+![mpfb 0607](img/mpfb_0607.png)
 
-###### 图6-7. `starmap()`函数对传入的元组应用星号，将其转换为`lambda`所期望的两个值
+###### 图 6-7. `starmap()`函数对传入的元组应用星号，将其转换为`lambda`所期望的两个值
 
 但等等，还有更多！我甚至不需要编写自己的`not_same()`函数，因为我已经有`operator.ne()`（不等于），通常使用`!=`操作符来编写：
 
@@ -712,7 +712,7 @@ False
 True
 ```
 
-*运算符*是一种特殊的二元函数（接受两个参数），函数名称通常是一些符号，如`+`，它位于参数之间。对于`+`，Python必须决定这是否意味着`operator.add()`：
+*运算符*是一种特殊的二元函数（接受两个参数），函数名称通常是一些符号，如`+`，它位于参数之间。对于`+`，Python 必须决定这是否意味着`operator.add()`：
 
 ```py
 >>> 1 + 2
@@ -752,10 +752,10 @@ True
 def hamming(seq1: str, seq2: str) -> int:
     """ Calculate Hamming distance """
 
-    return sum(starmap(operator.ne, zip_longest(seq1, seq2))) ![1](assets/1.png)
+    return sum(starmap(operator.ne, zip_longest(seq1, seq2))) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO11-1)
+![1](img/#co_finding_the_hamming_distance___span_class__keep_together__counting_point_mutations__span__CO11-1)
 
 将序列压缩，将元组转换为布尔比较，并求和。
 
@@ -765,13 +765,13 @@ def hamming(seq1: str, seq2: str) -> int:
 
 +   不查看源代码，编写`zip_longest()`的一个版本。确保从测试开始，然后编写满足测试的函数。
 
-+   扩展你的程序以处理超过两个输入序列。使你的程序打印每对序列之间的汉明距离。这意味着程序将打印*n*选择*k*个数，即*n*！/（*k*！（*n* - *k*）！）。对于三个序列，你的程序将打印3！/（2！（3 - 2）！）= 6 / 2 = 3距离对。
++   扩展你的程序以处理超过两个输入序列。使你的程序打印每对序列之间的汉明距离。这意味着程序将打印*n*选择*k*个数，即*n*！/（*k*！（*n* - *k*）！）。对于三个序列，你的程序将打印 3！/（2！（3 - 2）！）= 6 / 2 = 3 距离对。
 
 +   尝试编写一个序列对齐算法，该算法将显示例如序列*AAACCCGGGTTT*和*AACCCGGGTTTA*之间仅有一个差异。
 
 # 回顾
 
-这是一个相当深的兔子洞，只为了找到汉明距离，但它突出了关于Python函数的许多有趣细节：
+这是一个相当深的兔子洞，只为了找到汉明距离，但它突出了关于 Python 函数的许多有趣细节：
 
 +   内置的`zip()`函数将两个或更多个列表合并为元组列表，将相同位置的元素分组。它会停在最短的序列处，因此如果要处理最长的序列，请使用`itertools.zip_longest()`函数。
 

@@ -1,13 +1,13 @@
-# 第二章。将DNA转录为mRNA：突变字符串，读写文件
+# 第二章。将 DNA 转录为 mRNA：突变字符串，读写文件
 
-为了表达维持生命所必需的蛋白质，DNA区域必须被转录成一种称为*messenger RNA*（mRNA）的RNA形式。虽然DNA和RNA之间有许多迷人的生化差异，但就我们的目的而言，唯一的区别是DNA序列中代表嘧啶碱基的所有*T*字符需要更改为尿嘧啶字母*U*。正如在[Rosalind RNA页面](https://oreil.ly/9Dddm)上所描述的那样，我将向您展示如何编写一个接受像`ACGT`这样的DNA字符串并打印转录mRNA `ACGU`的程序。我可以使用Python的`str.replace()`函数在一行中完成这个任务：
+为了表达维持生命所必需的蛋白质，DNA 区域必须被转录成一种称为*messenger RNA*（mRNA）的 RNA 形式。虽然 DNA 和 RNA 之间有许多迷人的生化差异，但就我们的目的而言，唯一的区别是 DNA 序列中代表嘧啶碱基的所有*T*字符需要更改为尿嘧啶字母*U*。正如在[Rosalind RNA 页面](https://oreil.ly/9Dddm)上所描述的那样，我将向您展示如何编写一个接受像`ACGT`这样的 DNA 字符串并打印转录 mRNA `ACGU`的程序。我可以使用 Python 的`str.replace()`函数在一行中完成这个任务：
 
 ```py
 >>> 'GATGGAACTTGACTACGTAAATT'.replace('T', 'U')
 'GAUGGAACUUGACUACGUAAAUU'
 ```
 
-您已经在[第1章](ch01.html#ch01)中看到如何编写一个从命令行或文件接受DNA序列并打印结果的程序，因此如果再次这样做，您不会学到太多新东西。我将通过解决生物信息学中常见的模式来使这个程序更有趣。具体来说，我将展示如何处理一个或多个输入文件，并将结果放置在输出目录中。例如，将测序运行的结果作为包含需要进行质量检查和过滤的文件目录返回，将清理后的序列放入新的目录进行分析。这里的输入文件包含DNA序列，每行一个，我将mRNA序列写入到同名文件中。
+您已经在第一章中看到如何编写一个从命令行或文件接受 DNA 序列并打印结果的程序，因此如果再次这样做，您不会学到太多新东西。我将通过解决生物信息学中常见的模式来使这个程序更有趣。具体来说，我将展示如何处理一个或多个输入文件，并将结果放置在输出目录中。例如，将测序运行的结果作为包含需要进行质量检查和过滤的文件目录返回，将清理后的序列放入新的目录进行分析。这里的输入文件包含 DNA 序列，每行一个，我将 mRNA 序列写入到同名文件中。
 
 在本章中，您将学习：
 
@@ -32,32 +32,32 @@ $ cp solution1_str_replace.py rna.py
 
 ```py
 $ ./rna.py -h
-usage: rna.py [-h] [-o DIR] FILE [FILE ...] ![1](assets/1.png)
+usage: rna.py [-h] [-o DIR] FILE [FILE ...] ![1](img/1.png)
 
 Transcribe DNA into RNA
 
-positional arguments: ![2](assets/2.png)
+positional arguments: ![2](img/2.png)
   FILE                  Input DNA file
 
 optional arguments:
   -h, --help            show this help message and exit
   -o DIR, --out_dir DIR
-                        Output directory (default: out) ![3](assets/3.png)
+                        Output directory (default: out) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO1-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO1-1)
 
 用方括号（`[]`）括起来的参数是可选的。`[FILE ...]`语法表示可以重复使用该参数。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO1-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO1-2)
 
 输入`FILE`参数将是位置参数。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO1-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO1-3)
 
 可选的输出目录默认为*out*。
 
-该程序的目标是处理一个或多个包含DNA序列的文件。以下是第一个测试输入文件：
+该程序的目标是处理一个或多个包含 DNA 序列的文件。以下是第一个测试输入文件：
 
 ```py
 $ cat tests/inputs/input1.txt
@@ -78,7 +78,7 @@ $ ls out/
 input1.txt
 ```
 
-文件的内容应与输入的DNA序列匹配，但所有的*T*都应更改为*U*：
+文件的内容应与输入的 DNA 序列匹配，但所有的*T*都应更改为*U*：
 
 ```py
 $ cat out/input1.txt
@@ -106,9 +106,9 @@ $ wc -l rna/*
 
 如您从前面的使用情况所见，您的程序应接受以下参数：
 
-+   一个或多个位置参数，必须是每个包含要转录的DNA字符串的可读文本文件。
++   一个或多个位置参数，必须是每个包含要转录的 DNA 字符串的可读文本文件。
 
-+   一个可选的`-o`或`--out_dir`参数，用于命名一个输出目录以将RNA序列写入其中。默认值应为`out`。
++   一个可选的`-o`或`--out_dir`参数，用于命名一个输出目录以将 RNA 序列写入其中。默认值应为`out`。
 
 您可以自由编写和结构化您的程序（只要它们通过测试），但我总是会使用**`new.py`**和我在第一章展示的结构来启动程序。`--force`标志表示应覆盖现有的`rna.py`：
 
@@ -122,35 +122,35 @@ Done, see new script "rna.py".
 修改`get_args()`函数以接受前面部分描述的参数。首先定义`out_dir`参数。我建议您将由`new.py`生成的`-a|--arg`选项更改为以下内容：
 
 ```py
-parser.add_argument('-o', ![1](assets/1.png)
-                    '--out_dir', ![2](assets/2.png)
-                    help='Output directory', ![3](assets/3.png)
-                    metavar='DIR', ![4](assets/4.png)
-                    type=str, ![5](assets/5.png)
-                    default='out') ![6](assets/6.png)
+parser.add_argument('-o', ![1](img/1.png)
+                    '--out_dir', ![2](img/2.png)
+                    help='Output directory', ![3](img/3.png)
+                    metavar='DIR', ![4](img/4.png)
+                    type=str, ![5](img/5.png)
+                    default='out') ![6](img/6.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-1)
 
 这是短标志名称。短标志以单个破折号开头，后跟单个字符。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-2)
 
 这是长标志名称。长标志以两个破折号开头，后跟比短标志更易记的字符串。这也将是`argparse`用来访问值的名称。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-3)
 
 这将包含在使用说明中，以描述该参数。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-4)
 
 `metavar`也是在使用中显示的简短描述。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-5)
 
 所有参数的默认类型都是`str`（字符串），因此这在技术上是多余的，但仍然是记录文档的一个好主意。
 
-[![6](assets/6.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-6)
+![6](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO2-6)
 
 如果在定义选项时未指定`default`属性，则默认值将为`None`。
 
@@ -159,36 +159,36 @@ parser.add_argument('-o', ![1](assets/1.png)
 对于`FILE`值，我可以修改默认的`-f|--file`参数如下：
 
 ```py
-parser.add_argument('file', ![1](assets/1.png)
-                    help='Input DNA file(s)', ![2](assets/2.png)
-                    metavar='FILE', ![3](assets/3.png)
-                    nargs='+', ![4](assets/4.png)
-                    type=argparse.FileType('rt')) ![5](assets/5.png)
+parser.add_argument('file', ![1](img/1.png)
+                    help='Input DNA file(s)', ![2](img/2.png)
+                    metavar='FILE', ![3](img/3.png)
+                    nargs='+', ![4](img/4.png)
+                    type=argparse.FileType('rt')) ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-1)
 
 移除`-f`短标记和`--file`中的两个破折号，使其成为一个*位置*参数称为`file`。可选参数以破折号开头，位置参数不会。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-2)
 
-`help`字符串指示参数应为一个或多个包含DNA序列的文件。
+`help`字符串指示参数应为一个或多个包含 DNA 序列的文件。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-3)
 
 此字符串在简短的使用说明中打印，表示该参数是一个文件。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-4)
 
 这表明参数的数量。`+`表示需要一个或多个值。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO3-5)
 
 这是`argparse`将强制执行的实际类型。我要求任何值都必须是可读的文本（`rt`）文件。
 
-## 使用nargs定义参数的数量
+## 使用 nargs 定义参数的数量
 
-我使用`nargs`来描述程序接受的*参数数量*。除了使用整数值来准确描述允许的数目外，还可以使用[Table 2-1](#table_2.1)中显示的三个符号。
+我使用`nargs`来描述程序接受的*参数数量*。除了使用整数值来准确描述允许的数目外，还可以使用 Table 2-1 中显示的三个符号。
 
 表 2-1\. `nargs`的可能值
 
@@ -200,7 +200,7 @@ parser.add_argument('file', ![1](assets/1.png)
 
 当您在`nargs`中使用`+`时，`argparse`将提供参数作为一个列表。即使只有一个参数，也会得到包含一个元素的列表。您永远不会得到空列表，因为至少需要一个参数。
 
-## 使用argparse.FileType()验证文件参数
+## 使用 argparse.FileType()验证文件参数
 
 `argparse.FileType()`函数非常强大，使用它可以节省大量验证文件输入的时间。当您使用此类型定义参数时，如果任何参数不是文件，`argparse`将打印错误消息并停止程序的执行。例如，我会假设在您的*02_dna*目录中没有名为*blargh*的文件。请注意当我传递该值时的结果：
 
@@ -223,7 +223,7 @@ No such file or directory: 'blargh'
 
 这就是一个良好编写的程序应该如何工作，尽快检测和拒绝不良参数，并通知用户出现的问题。所有这些都是在我仅仅描述所需参数类型的情况下发生的。再次强调，最好的代码是您根本不需要编写的代码（或者像埃隆·马斯克说的那样，“最好的零件是没有零件，最好的流程是没有流程。”）
 
-因为我使用了文件*类型*，列表的元素不会是表示文件名的字符串，而是打开的文件句柄。文件句柄是读写文件内容的机制。在上一章节中，当DNA参数是文件名时，我使用了文件句柄。
+因为我使用了文件*类型*，列表的元素不会是表示文件名的字符串，而是打开的文件句柄。文件句柄是读写文件内容的机制。在上一章节中，当 DNA 参数是文件名时，我使用了文件句柄。
 
 在源代码中定义这些参数的顺序在此情况下并不重要。您可以在位置参数之前或之后定义选项。只有当您有多个位置参数时，顺序才重要——第一个参数将用于第一个位置参数，第二个参数用于第二个位置参数，依此类推。
 
@@ -232,23 +232,23 @@ No such file or directory: 'blargh'
 最后，我需要一种方法来定义`Args`类，以表示参数：
 
 ```py
-from typing import NamedTuple, List, TextIO ![1](assets/1.png)
+from typing import NamedTuple, List, TextIO ![1](img/1.png)
 
 class Args(NamedTuple):
     """ Command-line arguments """
-    files: List[TextIO] ![2](assets/2.png)
-    out_dir: str ![3](assets/3.png)
+    files: List[TextIO] ![2](img/2.png)
+    out_dir: str ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO4-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO4-1)
 
 我将需要从`typing`模块导入两个新项，`List`用于描述列表，`TextIO`用于打开文件句柄。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO4-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO4-2)
 
 `files`属性将是一个打开的文件句柄列表。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO4-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO4-3)
 
 `out_dir`属性将是一个字符串。
 
@@ -274,41 +274,41 @@ return Args(files=args.file, out_dir=args.out_dir)
 def main() -> None:
     args = get_args()
 
-    if not os.path.isdir(args.out_dir): ![1](assets/1.png)
-        os.makedirs(args.out_dir) ![2](assets/2.png)
+    if not os.path.isdir(args.out_dir): ![1](img/1.png)
+        os.makedirs(args.out_dir) ![2](img/2.png)
 
-    num_files, num_seqs = 0, 0 ![3](assets/3.png)
-    for fh in args.files: ![4](assets/4.png)
-        # open an output file in the output directory ![5](assets/5.png)
+    num_files, num_seqs = 0, 0 ![3](img/3.png)
+    for fh in args.files: ![4](img/4.png)
+        # open an output file in the output directory ![5](img/5.png)
         # for each line/sequence from the input file:
             # write the transcribed sequence to the output file
             # update the number of sequences processed
         # update the number of files processed
 
-    print('Done.') ![6](assets/6.png)
+    print('Done.') ![6](img/6.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-1)
 
 `os.path.isdir()`函数将报告输出目录是否存在。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-2)
 
 `os.makedirs()`函数将创建目录路径。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-3)
 
 初始化变量以记录写入的文件数和序列数，以在程序退出时提供反馈。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-4)
 
 使用`for`循环迭代`args.files`列表中的文件句柄。迭代变量`fh`有助于我记住其类型。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-5)
 
 这是描述你需要对每个文件处理的伪代码步骤。
 
-[![6](assets/6.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-6)
+![6](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO5-6)
 
 为用户打印一个摘要，让他们知道发生了什么。
 
@@ -324,7 +324,7 @@ def main() -> None:
 for fh in args.files:
 ```
 
-我想在这里强调，我选择了一个迭代器变量称为 `fh`，因为每个值都是文件句柄。我有时看到一些人总是在 `for` 循环中使用像 `i` 或 `x` 这样的迭代器变量名，但这些都不是描述性的变量名。[^1] 我会承认，在迭代数字时使用像 `n`（代表 *number*）或 `i`（代表 *integer*）这样的变量名是非常常见的，比如：
+我想在这里强调，我选择了一个迭代器变量称为 `fh`，因为每个值都是文件句柄。我有时看到一些人总是在 `for` 循环中使用像 `i` 或 `x` 这样的迭代器变量名，但这些都不是描述性的变量名。[¹] 我会承认，在迭代数字时使用像 `n`（代表 *number*）或 `i`（代表 *integer*）这样的变量名是非常常见的，比如：
 
 ```py
 for i in range(10):
@@ -342,7 +342,7 @@ for x in xs:
 
 根据伪代码，第一个目标是打开一个输出文件。为此，我需要一个文件名，该文件名将输入文件的基本名称与输出目录的名称结合起来。也就是说，如果输入文件是 *dna/input1.txt*，输出目录是 *rna*，那么输出文件路径应该是 *rna/input1.txt*。
 
-`os` 模块用于与操作系统（如Windows、macOS或Linux）交互，而 `os.path` 模块有许多方便的函数可以使用，比如 `os.path.dirname()` 函数用于从文件路径中获取目录名称和 `os.path.basename()` 函数用于获取文件名称（见 [Figure 2-1](#fig_2.1)）：
+`os` 模块用于与操作系统（如 Windows、macOS 或 Linux）交互，而 `os.path` 模块有许多方便的函数可以使用，比如 `os.path.dirname()` 函数用于从文件路径中获取目录名称和 `os.path.basename()` 函数用于获取文件名称（见 Figure 2-1）：
 
 ```py
 >>> import os
@@ -352,13 +352,13 @@ for x in xs:
 'input1.txt'
 ```
 
-![mpfb 0201](assets/mpfb_0201.png)
+![mpfb 0201](img/mpfb_0201.png)
 
 ###### 图 2-1\. `os.path` 模块包含诸如 `dirname()` 和 `basename()` 这样的有用函数，用于从文件路径中提取部分
 
-新序列将被写入到 `args.out_dir` 中的输出文件中。我建议您使用 `os.path.join()` 函数与输入文件的基本名称创建输出文件名，如 [Figure 2-2](#fig_2.2) 所示。这将确保输出文件名在Unix和Windows上都有效，因为它们使用不同的路径分隔符—斜杠 (`/`) 和反斜杠 (`\`)。您可能还想要研究类似功能的 `pathlib` 模块。
+新序列将被写入到 `args.out_dir` 中的输出文件中。我建议您使用 `os.path.join()` 函数与输入文件的基本名称创建输出文件名，如 Figure 2-2 所示。这将确保输出文件名在 Unix 和 Windows 上都有效，因为它们使用不同的路径分隔符—斜杠 (`/`) 和反斜杠 (`\`)。您可能还想要研究类似功能的 `pathlib` 模块。
 
-![mpfb 0202](assets/mpfb_0202.png)
+![mpfb 0202](img/mpfb_0202.png)
 
 ###### 图 2-2\. `os.path.join()` 将通过将输出目录与输入文件的基本名称组合来创建输出路径
 
@@ -387,7 +387,7 @@ tests/inputs/input3.txt -> out/input3.txt
 
 当你用 `w` 模式打开现有文件时，文件将会*被覆盖*，这意味着其先前的内容会立即且永久丢失。如果需要，你可以使用 `os.path.isfile()` 函数来检查你是否打开了一个已存在的文件。
 
-如 [表 2-2](#table_2.2) 所示，你还可以使用值 `r` 代表*读取*（默认值），使用 `a` 来*追加*，这样可以在现有文件末尾写入更多内容。
+如 表 2-2 所示，你还可以使用值 `r` 代表*读取*（默认值），使用 `a` 来*追加*，这样可以在现有文件末尾写入更多内容。
 
 表 2-2\. 文件写入模式
 
@@ -397,7 +397,7 @@ tests/inputs/input3.txt -> out/input3.txt
 | `r` | 读取 |
 | `a` | 追加 |
 
-[表 2-3](#table_2.3) 显示你也可以使用 `t` 和 `b` 模式来读取和写入文本或原始字节。
+表 2-3 显示你也可以使用 `t` 和 `b` 模式来读取和写入文本或原始字节。
 
 表 2-3\. 文件内容模式
 
@@ -411,10 +411,10 @@ tests/inputs/input3.txt -> out/input3.txt
 ```py
 for fh in args.files:
     out_file = os.path.join(args.out_dir, os.path.basename(fh.name))
-    out_fh = open(out_file, 'wt') ![1](assets/1.png)
+    out_fh = open(out_file, 'wt') ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO6-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO6-1)
 
 注意，我将变量命名为 `out_fh` 是为了提醒自己这是输出文件句柄。
 
@@ -435,18 +435,18 @@ TTAGCCCAGACTAGGACTTT
 AACTAGTCAAAGTACACC
 ```
 
-首先，我将展示如何将每个序列打印到控制台，然后演示如何使用 `print()` 将内容写入文件句柄。[第 1 章](ch01.html#ch01) 提到 `print()` 函数将自动追加换行符（在 Unix 平台上是 `\n`，在 Windows 上是 `\r\n`），除非我告诉它不要这样做。为了避免以下代码产生两个换行符，一个来自序列，一个来自 `print()`，我可以使用 `str.rstrip()` 函数删除序列中的换行符，如下所示：
+首先，我将展示如何将每个序列打印到控制台，然后演示如何使用 `print()` 将内容写入文件句柄。第一章 提到 `print()` 函数将自动追加换行符（在 Unix 平台上是 `\n`，在 Windows 上是 `\r\n`），除非我告诉它不要这样做。为了避免以下代码产生两个换行符，一个来自序列，一个来自 `print()`，我可以使用 `str.rstrip()` 函数删除序列中的换行符，如下所示：
 
 ```py
 >>> fh = open('./tests/inputs/input2.txt')
 >>> for dna in fh:
-...     print(dna.rstrip()) ![1](assets/1.png)
+...     print(dna.rstrip()) ![1](img/1.png)
 ...
 TTAGCCCAGACTAGGACTTT
 AACTAGTCAAAGTACACC
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO7-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO7-1)
 
 使用 `dna.rstrip()` 去除末尾的换行符。
 
@@ -455,17 +455,17 @@ AACTAGTCAAAGTACACC
 ```py
 >>> fh = open('./tests/inputs/input2.txt')
 >>> for dna in fh:
-...     print(dna, end='') ![1](assets/1.png)
+...     print(dna, end='') ![1](img/1.png)
 ...
 TTAGCCCAGACTAGGACTTT
 AACTAGTCAAAGTACACC
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO8-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO8-1)
 
 在结尾使用空字符串而不是换行符。
 
-目标是将每个DNA序列转录为RNA并将结果写入 `out_fh`。在本章的介绍中，我建议您可以使用 `str.replace()` 函数。如果您在 REPL 中阅读 `help(str.replace)`，您将看到它将“返回一个将所有出现的旧子字符串替换为新子字符串的副本”：
+目标是将每个 DNA 序列转录为 RNA 并将结果写入 `out_fh`。在本章的介绍中，我建议您可以使用 `str.replace()` 函数。如果您在 REPL 中阅读 `help(str.replace)`，您将看到它将“返回一个将所有出现的旧子字符串替换为新子字符串的副本”：
 
 ```py
 >>> dna = 'ACTG'
@@ -473,7 +473,7 @@ AACTAGTCAAAGTACACC
 'ACUG'
 ```
 
-有其他方法可以将 *T* 更改为 *U*，我稍后会探讨。首先，我想指出，在Python中，字符串是不可变的，这意味着它们不能在原地修改。也就是说，我可以检查DNA字符串中是否有字母 *T*，然后使用 `str.index()` 函数找到位置并尝试用字母 *U* 覆盖它，但这会引发异常：
+有其他方法可以将 *T* 更改为 *U*，我稍后会探讨。首先，我想指出，在 Python 中，字符串是不可变的，这意味着它们不能在原地修改。也就是说，我可以检查 DNA 字符串中是否有字母 *T*，然后使用 `str.index()` 函数找到位置并尝试用字母 *U* 覆盖它，但这会引发异常：
 
 ```py
 >>> dna = 'ACTG'
@@ -502,13 +502,13 @@ print(...)
 
     Prints the values to a stream, or to sys.stdout by default.
     Optional keyword arguments:
-    file:  a file-like object (stream); defaults to the current sys.stdout. ![1](assets/1.png)
+    file:  a file-like object (stream); defaults to the current sys.stdout. ![1](img/1.png)
     sep:   string inserted between values, default a space.
     end:   string appended after the last value, default a newline.
     flush: whether to forcibly flush the stream.
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO9-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO9-1)
 
 这是我需要将字符串打印到打开的文件句柄的选项。
 
@@ -520,7 +520,7 @@ print(...)
 
 当我的程序运行完成时，我几乎总是喜欢打印一些东西，这样我至少知道它们已经完成了。可能只是简单的“完成了！”然而，在这里，我想知道处理了多少个序列在多少个文件中。我还想知道在哪里找到输出，如果我忘记了默认输出目录的名称，这尤其有帮助。
 
-测试期望您使用正确的语法^([2](ch02.html#idm45963631818520))来描述数字，例如 *1 sequence* 和 *1 file*：
+测试期望您使用正确的语法^(2)来描述数字，例如 *1 sequence* 和 *1 file*：
 
 ```py
 $ ./rna.py tests/inputs/input1.txt
@@ -530,11 +530,11 @@ Done, wrote 1 sequence in 1 file to directory "out".
 或者 *3 sequences* 和 *2 files*：
 
 ```py
-$ ./rna.py --out_dir rna tests/inputs/input[12].txt ![1](assets/1.png)
+$ ./rna.py --out_dir rna tests/inputs/input[12].txt ![1](img/1.png)
 Done, wrote 3 sequences in 2 files to directory "rna".
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO10-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO10-1)
 
 语法 `input[12].txt` 是一种说法，表示 1 或 2 可能出现，因此 *input1.txt* 和 *input2.txt* 都会匹配。
 
@@ -547,69 +547,69 @@ $ pytest -xv
 ======================= test session starts ========================
 ...
 
-tests/rna_test.py::test_exists PASSED                        [ 14%] ![1](assets/1.png)
-tests/rna_test.py::test_usage PASSED                         [ 28%] ![2](assets/2.png)
-tests/rna_test.py::test_no_args PASSED                       [ 42%] ![3](assets/3.png)
-tests/rna_test.py::test_bad_file PASSED                      [ 57%] ![4](assets/4.png)
-tests/rna_test.py::test_good_input1 PASSED                   [ 71%] ![5](assets/5.png)
+tests/rna_test.py::test_exists PASSED                        [ 14%] ![1](img/1.png)
+tests/rna_test.py::test_usage PASSED                         [ 28%] ![2](img/2.png)
+tests/rna_test.py::test_no_args PASSED                       [ 42%] ![3](img/3.png)
+tests/rna_test.py::test_bad_file PASSED                      [ 57%] ![4](img/4.png)
+tests/rna_test.py::test_good_input1 PASSED                   [ 71%] ![5](img/5.png)
 tests/rna_test.py::test_good_input2 PASSED                   [ 85%]
 tests/rna_test.py::test_good_multiple_inputs PASSED          [100%]
 
 ======================== 7 passed in 0.37s =========================
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-1)
 
 `rna.py` 程序存在。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-2)
 
 当请求时，程序打印用法说明。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-3)
 
 当未提供参数时，程序以错误退出。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-4)
 
 当提供错误文件参数时，程序打印错误消息。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO11-5)
 
 接下来的测试都验证程序在给出良好输入时是否正常工作。
 
 一般来说，我首先编写尝试破坏程序的测试，然后再给出良好输入。例如，我希望程序在没有文件或给出不存在的文件时失败。正如最好的侦探可以像罪犯一样思考，我尝试想象所有可能破坏我的程序的方法，并测试它们在这些情况下的可预测行为。
 
-前三个测试与[第1章](ch01.html#ch01)完全相同。对于第四个测试，我传递一个不存在的文件，并期望非零退出值以及用法和错误消息。请注意，错误明确提到了有问题的值，即坏文件名。您应努力创建反馈，让用户准确地知道问题所在以及如何修复：
+前三个测试与第一章完全相同。对于第四个测试，我传递一个不存在的文件，并期望非零退出值以及用法和错误消息。请注意，错误明确提到了有问题的值，即坏文件名。您应努力创建反馈，让用户准确地知道问题所在以及如何修复：
 
 ```py
 def test_bad_file():
     """ Die on missing input """
 
-    bad = random_filename() ![1](assets/1.png)
-    retval, out = getstatusoutput(f'{RUN} {bad}') ![2](assets/2.png)
-    assert retval != 0 ![3](assets/3.png)
-    assert re.match('usage:', out, re.IGNORECASE) ![4](assets/4.png)
-    assert re.search(f"No such file or directory: '{bad}'", out) ![5](assets/5.png)
+    bad = random_filename() ![1](img/1.png)
+    retval, out = getstatusoutput(f'{RUN} {bad}') ![2](img/2.png)
+    assert retval != 0 ![3](img/3.png)
+    assert re.match('usage:', out, re.IGNORECASE) ![4](img/4.png)
+    assert re.search(f"No such file or directory: '{bad}'", out) ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-1)
 
 这是我编写的一个函数，用于生成一串随机字符。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-2)
 
 用这个不存在的文件运行程序。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-3)
 
 确保退出值不是`0`。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-4)
 
 使用正则表达式（*regex*）查找输出中的用法。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO12-5)
 
 使用另一个正则表达式来查找描述坏输入文件名的错误消息。
 
@@ -630,61 +630,61 @@ rna.py: error: argument FILE: can't open 'dKej82':
 def test_good_input1():
     """ Runs on good input """
 
-    out_dir = 'out' ![1](assets/1.png)
-    try: ![2](assets/2.png)
-        if os.path.isdir(out_dir): ![3](assets/3.png)
-            shutil.rmtree(out_dir) ![4](assets/4.png)
+    out_dir = 'out' ![1](img/1.png)
+    try: ![2](img/2.png)
+        if os.path.isdir(out_dir): ![3](img/3.png)
+            shutil.rmtree(out_dir) ![4](img/4.png)
 
-        retval, out = getstatusoutput(f'{RUN} {INPUT1}') ![5](assets/5.png)
+        retval, out = getstatusoutput(f'{RUN} {INPUT1}') ![5](img/5.png)
         assert retval == 0
         assert out == 'Done, wrote 1 sequence in 1 file to directory "out".'
-        assert os.path.isdir(out_dir) ![6](assets/6.png)
+        assert os.path.isdir(out_dir) ![6](img/6.png)
         out_file = os.path.join(out_dir, 'input1.txt')
-        assert os.path.isfile(out_file) ![7](assets/7.png)
-        assert open(out_file).read().rstrip() == 'GAUGGAACUUGACUACGUAAAUU' ![8](assets/8.png)
+        assert os.path.isfile(out_file) ![7](img/7.png)
+        assert open(out_file).read().rstrip() == 'GAUGGAACUUGACUACGUAAAUU' ![8](img/8.png)
 
-    finally: ![9](assets/9.png)
-        if os.path.isdir(out_dir): ![10](assets/10.png)
+    finally: ![9](img/9.png)
+        if os.path.isdir(out_dir): ![10](img/10.png)
             shutil.rmtree(out_dir)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-1)
 
 这是默认的输出目录名称。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-2)
 
 `try`/`finally`块有助于确保在测试失败时进行清理。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-3)
 
 查看输出目录是否留有上次运行的残留物。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-4)
 
 使用`shutil.rmtree()`函数删除目录及其内容。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-5)
 
 用已知的良好输入文件运行程序。
 
-[![6](assets/6.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-6)
+![6](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-6)
 
 确保已创建预期的输出目录。
 
-[![7](assets/7.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-7)
+![7](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-7)
 
 确保已创建预期的输出文件。
 
-[![8](assets/8.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-8)
+![8](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-8)
 
 确保输出文件的内容是正确的。
 
-[![9](assets/9.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-9)
+![9](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-9)
 
 即使`try`块中出现失败，也会执行此`finally`块。
 
-[![10](assets/10.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-10)
+![10](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO13-10)
 
 清理测试环境。
 
@@ -694,13 +694,13 @@ def test_good_input1():
 
 尽管你可以使用 `pytest` 运行 *tests/rna_test.py* 中的测试，我也建议你使用 `pylint`、`flake8` 和 `mypy` 来检查你的程序。`make test` 快捷方式可以为您执行此操作，因为它将使用额外的参数执行 `pytest` 来运行这些工具。您的目标应该是一个完全干净的测试套件。
 
-你可能会发现 `pylint` 会抱怨像 `fh` 这样的变量名太短，或者不是 *snake_case*，即小写单词用下划线连接。我在GitHub仓库的顶层包含了一个 *pylintrc* 配置文件。将其复制到家目录下的文件 *.pylintrc* 中，以消除这些错误。
+你可能会发现 `pylint` 会抱怨像 `fh` 这样的变量名太短，或者不是 *snake_case*，即小写单词用下划线连接。我在 GitHub 仓库的顶层包含了一个 *pylintrc* 配置文件。将其复制到家目录下的文件 *.pylintrc* 中，以消除这些错误。
 
 现在你应该有足够的信息和测试来帮助你完成这个程序。在你查看我的解决方案之前，如果你尝试自己编写工作程序，你将从这本书中获得最大的收益。一旦你有一个工作版本，尝试找到其他解决方法。如果你了解正则表达式，那是一个很好的解决方案。如果不了解，我将演示一个使用它们的版本。
 
 # 解决方案
 
-下面的两个解决方案仅在如何用 *T* 替换 *U* 方面有所不同。第一个使用 `str.replace()` 方法，第二个引入了正则表达式并使用了Python的 `re.sub()` 函数。
+下面的两个解决方案仅在如何用 *T* 替换 *U* 方面有所不同。第一个使用 `str.replace()` 方法，第二个引入了正则表达式并使用了 Python 的 `re.sub()` 函数。
 
 ## 解决方案 1：使用 str.replace()
 
@@ -753,68 +753,68 @@ def main() -> None:
     if not os.path.isdir(args.out_dir):
         os.makedirs(args.out_dir)
 
-    num_files, num_seqs = 0, 0 ![1](assets/1.png)
-    for fh in args.files: ![2](assets/2.png)
-        num_files += 1 ![3](assets/3.png)
+    num_files, num_seqs = 0, 0 ![1](img/1.png)
+    for fh in args.files: ![2](img/2.png)
+        num_files += 1 ![3](img/3.png)
         out_file = os.path.join(args.out_dir, os.path.basename(fh.name))
-        out_fh = open(out_file, 'wt') ![4](assets/4.png)
+        out_fh = open(out_file, 'wt') ![4](img/4.png)
 
-        for dna in fh: ![5](assets/5.png)
-            num_seqs += 1 ![6](assets/6.png)
-            out_fh.write(dna.replace('T', 'U')) ![7](assets/7.png)
+        for dna in fh: ![5](img/5.png)
+            num_seqs += 1 ![6](img/6.png)
+            out_fh.write(dna.replace('T', 'U')) ![7](img/7.png)
 
-        out_fh.close() ![8](assets/8.png)
+        out_fh.close() ![8](img/8.png)
 
     print(f'Done, wrote {num_seqs} sequence{"" if num_seqs == 1 else "s"} '
           f'in {num_files} file{"" if num_files == 1 else "s"} '
-          f'to directory "{args.out_dir}".') ![9](assets/9.png)
+          f'to directory "{args.out_dir}".') ![9](img/9.png)
 
 # --------------------------------------------------
 if __name__ == '__main__':
     main()
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-1)
 
 初始化文件和序列的计数器。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-2)
 
 迭代文件句柄。
 
-[![3](assets/3.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-3)
+![3](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-3)
 
 递增文件计数器。
 
-[![4](assets/4.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-4)
+![4](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-4)
 
 打开用于此输入文件的输出文件。
 
-[![5](assets/5.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-5)
+![5](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-5)
 
 迭代输入文件中的序列。
 
-[![6](assets/6.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-6)
+![6](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-6)
 
 递增序列的计数器。
 
-[![7](assets/7.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-7)
+![7](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-7)
 
 将转录的序列写入输出文件。
 
-[![8](assets/8.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-8)
+![8](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-8)
 
 关闭输出文件句柄。
 
-[![9](assets/9.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-9)
+![9](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO14-9)
 
-打印状态。请注意，我依赖于Python隐式连接相邻字符串来创建一个输出字符串。
+打印状态。请注意，我依赖于 Python 隐式连接相邻字符串来创建一个输出字符串。
 
 ## 解决方案 2：使用 re.sub()
 
-我之前建议过，你可以探索如何使用正则表达式来解决这个问题。正则表达式是一种描述文本模式的语言。它们存在已久，甚至在Python诞生之前就有了。虽然一开始它们可能看起来有些令人畏惧，但是学习正则表达式绝对是值得的。^([3](ch02.html#idm45963631621240))
+我之前建议过，你可以探索如何使用正则表达式来解决这个问题。正则表达式是一种描述文本模式的语言。它们存在已久，甚至在 Python 诞生之前就有了。虽然一开始它们可能看起来有些令人畏惧，但是学习正则表达式绝对是值得的。^(3)
 
-要在Python中使用正则表达式，我必须导入`re`模块：
+要在 Python 中使用正则表达式，我必须导入`re`模块：
 
 ```py
 >>> import re
@@ -823,15 +823,15 @@ if __name__ == '__main__':
 之前，我使用了`re.search()`函数在另一个字符串中查找文本模式。对于这个程序，我要找的模式是字母*T*，我可以直接写成一个字符串：
 
 ```py
->>> re.search('T', 'ACGT') ![1](assets/1.png)
-<re.Match object; span=(3, 4), match='T'> ![2](assets/2.png)
+>>> re.search('T', 'ACGT') ![1](img/1.png)
+<re.Match object; span=(3, 4), match='T'> ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO15-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO15-1)
 
 在字符串`ACGT`中搜索模式`T`。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO15-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO15-2)
 
 因为找到了`T`，返回值是一个`Re.Match`对象，显示找到模式的位置。如果搜索失败，则返回`None`。
 
@@ -842,42 +842,42 @@ if __name__ == '__main__':
 'T'
 ```
 
-但不只是找到*T*，我想用字符串`T`替换为`U`。如[图2-3](#fig_2.3)所示，`re.sub()`（*substitute*）函数可以实现这一点。
+但不只是找到*T*，我想用字符串`T`替换为`U`。如图 2-3 所示，`re.sub()`（*substitute*）函数可以实现这一点。
 
-![mpfb 0203](assets/mpfb_0203.png)
+![mpfb 0203](img/mpfb_0203.png)
 
-###### 图2-3\. `re.sub()`函数将返回一个新字符串，其中所有模式的实例都被替换为新字符串
+###### 图 2-3\. `re.sub()`函数将返回一个新字符串，其中所有模式的实例都被替换为新字符串
 
 结果是一个新字符串，其中所有*T*都已替换为*U*：
 
 ```py
->>> re.sub('T', 'U', 'ACGT') ![1](assets/1.png)
-'ACGU' ![2](assets/2.png)
+>>> re.sub('T', 'U', 'ACGT') ![1](img/1.png)
+'ACGU' ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO16-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO16-1)
 
 在字符串`ACGT`中用`U`替换每个`T`。
 
-[![2](assets/2.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO16-2)
+![2](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO16-2)
 
 结果是一个新字符串，其中进行了替换。
 
-要使用这个版本，我可以修改内部的`for`循环，如所示。请注意，我选择使用`str.strip()`方法来删除输入DNA字符串末尾的换行符，因为`print()`会添加一个换行符：
+要使用这个版本，我可以修改内部的`for`循环，如所示。请注意，我选择使用`str.strip()`方法来删除输入 DNA 字符串末尾的换行符，因为`print()`会添加一个换行符：
 
 ```py
 for dna in fh:
     num_seqs += 1
-    print(re.sub('T', 'U', dna.rstrip()), file=out_fh) ![1](assets/1.png)
+    print(re.sub('T', 'U', dna.rstrip()), file=out_fh) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO17-1)
+![1](img/#co_transcribing_dna_into_mrna__mutating_strings__reading_and_writing_files_CO17-1)
 
 从`dna`中删除换行符，用`U`替换所有的`T`，并将结果打印到输出文件句柄。
 
 # Benchmarking
 
-你可能会好奇哪个解决方案更快。比较程序的相对运行时间称为*基准测试*，我将展示一种简单的方法，使用一些基本的`bash`命令比较这两个解决方案。我将使用*./tests/inputs/input3.txt*文件，因为它是最大的测试文件。我可以在`bash`中编写一个`for`循环，几乎与Python的语法相同。请注意，我在这个命令中使用换行符以提高可读性，并用`>`表示行继续。你可以用分号(`;`)来将其写成一行：
+你可能会好奇哪个解决方案更快。比较程序的相对运行时间称为*基准测试*，我将展示一种简单的方法，使用一些基本的`bash`命令比较这两个解决方案。我将使用*./tests/inputs/input3.txt*文件，因为它是最大的测试文件。我可以在`bash`中编写一个`for`循环，几乎与 Python 的语法相同。请注意，我在这个命令中使用换行符以提高可读性，并用`>`表示行继续。你可以用分号(`;`)来将其写成一行：
 
 ```py
 $ for py in ./solution*
@@ -955,8 +955,8 @@ sys	0m0.385s
 
 +   字符串是不可变的，有许多方法可以将字符串更改为新字符串，包括 `str.replace()` 和 `re.sub()`。
 
-^([1](ch02.html#idm45963631969784-marker)) 正如 Phil Karlton 所说，“计算机科学中只有两件难事：缓存失效和命名事物。”
+^(1) 正如 Phil Karlton 所说，“计算机科学中只有两件难事：缓存失效和命名事物。”
 
-^([2](ch02.html#idm45963631818520-marker)) 抱歉，但我无法停止做英语专业的人。
+^(2) 抱歉，但我无法停止做英语专业的人。
 
-^([3](ch02.html#idm45963631621240-marker)) [*精通正则表达式*](https://oreil.ly/R7O1r) 由 Jeffrey Friedl（O’Reilly，2006）是我找到的最佳书籍之一。
+^(3) [*精通正则表达式*](https://oreil.ly/R7O1r) 由 Jeffrey Friedl（O’Reilly，2006）是我找到的最佳书籍之一。

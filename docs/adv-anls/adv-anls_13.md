@@ -1,26 +1,26 @@
-# 第10章。Python初学者的第一步
+# 第十章。Python 初学者的第一步
 
-Python是由Guido van Rossum于1991年创建的编程语言，与R一样，是自由且开源的。当时，van Rossum正在阅读《蒙提·派森的飞行马戏团》的剧本，并决定以这部英国喜剧命名这种语言。与专门为数据分析设计的R不同，Python被开发为一种通用语言，用于与操作系统交互、处理处理错误等任务。这对Python如何“思考”和处理数据有一些重要的影响。例如，在[第7章](ch07.html#data-structures-in-r)中你看到，R有一个内置的表格数据结构。而Python并非如此；我们将更多地依赖外部包来处理数据。
+Python 是由 Guido van Rossum 于 1991 年创建的编程语言，与 R 一样，是自由且开源的。当时，van Rossum 正在阅读《蒙提·派森的飞行马戏团》的剧本，并决定以这部英国喜剧命名这种语言。与专门为数据分析设计的 R 不同，Python 被开发为一种通用语言，用于与操作系统交互、处理处理错误等任务。这对 Python 如何“思考”和处理数据有一些重要的影响。例如，在第七章中你看到，R 有一个内置的表格数据结构。而 Python 并非如此；我们将更多地依赖外部包来处理数据。
 
-这并不一定是一个问题：与R一样，Python有数千个由充满活力的贡献者社区维护的包。你会发现Python被用于从移动应用开发到嵌入式设备再到数据分析等各个领域。它的多样化用户群体正在迅速增长，Python不仅成为了最受欢迎的分析编程语言之一，也成为了计算领域的一种重要工具。
+这并不一定是一个问题：与 R 一样，Python 有数千个由充满活力的贡献者社区维护的包。你会发现 Python 被用于从移动应用开发到嵌入式设备再到数据分析等各个领域。它的多样化用户群体正在迅速增长，Python 不仅成为了最受欢迎的分析编程语言之一，也成为了计算领域的一种重要工具。
 
 ###### 注意
 
-Python最初被设计为一种通用编程语言，而R则是专门用于统计分析。
+Python 最初被设计为一种通用编程语言，而 R 则是专门用于统计分析。
 
-# 下载Python
+# 下载 Python
 
-[Python软件基金会](https://python.org)维护着“官方”的Python源代码。由于Python是开源的，任何人都可以获取、添加和重新分发Python代码。Anaconda是其中一种Python发行版，也是本书建议的安装方式。它由同名的盈利公司维护，提供了付费版本；我们将使用免费的个人版本。Python现在已经到了第三个版本，Python 3。您可以在[Anaconda的网站](https://oreil.ly/3RYeQ)下载Python 3的最新版本。
+[Python 软件基金会](https://python.org)维护着“官方”的 Python 源代码。由于 Python 是开源的，任何人都可以获取、添加和重新分发 Python 代码。Anaconda 是其中一种 Python 发行版，也是本书建议的安装方式。它由同名的盈利公司维护，提供了付费版本；我们将使用免费的个人版本。Python 现在已经到了第三个版本，Python 3。您可以在[Anaconda 的网站](https://oreil.ly/3RYeQ)下载 Python 3 的最新版本。
 
-除了简化的Python安装外，Anaconda还提供了额外的内容，包括一些我们在本书中稍后会使用的流行包。它还附带了一个Web应用程序，我们将用它来处理Python：Jupyter Notebook。
+除了简化的 Python 安装外，Anaconda 还提供了额外的内容，包括一些我们在本书中稍后会使用的流行包。它还附带了一个 Web 应用程序，我们将用它来处理 Python：Jupyter Notebook。
 
-# 开始使用Jupyter
+# 开始使用 Jupyter
 
-如[第6章](ch06.html#first-steps-r)中所述，R是在EDA程序S的基础上建模的。由于EDA的迭代性质，语言的预期工作流程是执行和探索所选代码行的输出。这使得直接从R脚本*.r进行数据分析变得容易。我们使用了RStudio IDE，为我们的编程会话提供了额外的支持，例如专门用于帮助文档和环境中对象信息的窗格。
+如第六章中所述，R 是在 EDA 程序 S 的基础上建模的。由于 EDA 的迭代性质，语言的预期工作流程是执行和探索所选代码行的输出。这使得直接从 R 脚本*.r 进行数据分析变得容易。我们使用了 RStudio IDE，为我们的编程会话提供了额外的支持，例如专门用于帮助文档和环境中对象信息的窗格。
 
 相比之下，Python 在某些方面更像是“低级”编程语言，其中代码首先需要编译成机器可读文件，*然后*再运行。这使得从 Python 脚本 *.py* 进行分步数据分析相对更加棘手。物理学家兼软件开发者费尔南多·佩雷斯及其同事在 2001 年启动了 IPython 项目，以使 Python 更加交互式（IPython 是对“交互式 Python”的俏皮简称）。这一倡议的一个结果是一种新类型的文件，即 *IPython Notebook*，以 *.ipynb* 文件扩展名表示。
 
-该项目逐渐受到关注，并于2014年发展成更广泛的 Jupyter 项目，这是一个与语言无关的倡议，旨在开发交互式、开源的计算软件。因此，IPython Notebook 成为了 Jupyter Notebook，同时保留了 *.ipynb* 扩展名。Jupyter 笔记本作为交互式网络应用程序运行，允许用户将代码与文本、方程式等结合起来，创建媒体丰富的交互式文档。事实上，Jupyter 在一定程度上是为了向伽利略用于记录其发现木星卫星的笔记本致敬而命名的。*内核* 在幕后用于执行笔记本的代码。通过下载 Anaconda，您已经设置好了执行 Python 的 Jupyter 笔记本所需的所有必要部分：现在您只需要启动一个会话。
+该项目逐渐受到关注，并于 2014 年发展成更广泛的 Jupyter 项目，这是一个与语言无关的倡议，旨在开发交互式、开源的计算软件。因此，IPython Notebook 成为了 Jupyter Notebook，同时保留了 *.ipynb* 扩展名。Jupyter 笔记本作为交互式网络应用程序运行，允许用户将代码与文本、方程式等结合起来，创建媒体丰富的交互式文档。事实上，Jupyter 在一定程度上是为了向伽利略用于记录其发现木星卫星的笔记本致敬而命名的。*内核* 在幕后用于执行笔记本的代码。通过下载 Anaconda，您已经设置好了执行 Python 的 Jupyter 笔记本所需的所有必要部分：现在您只需要启动一个会话。
 
 启动 Jupyter 笔记本的步骤因 Windows 和 Mac 计算机而异。在 Windows 上，打开“开始”菜单，然后搜索并启动 `Anaconda Prompt`。这是一个用于处理您的 Anaconda 发行版的命令行工具，也是与 Python 代码交互的另一种方式。在 Anaconda 提示符内部，输入 `jupyter notebook` 并按 `Enter` 键。您的命令将类似于以下内容，但主目录路径不同：
 
@@ -36,13 +36,13 @@ user@MacBook-Pro ~ % jupyter notebook
 
 在任一系统上执行此操作后，将会发生几件事情：首先，会在您的计算机上启动一个类似终端的额外窗口。*请勿关闭此窗口。* 这将建立与内核的连接。此外，Jupyter 笔记本界面应会自动在您的默认网络浏览器中打开。如果没有自动打开，终端窗口中会包含一个您可以复制并粘贴到浏览器中的链接。图 10-1 中展示了您在浏览器中应该看到的内容。Jupyter 启动时会显示一个类似文件浏览器的界面。现在，您可以导航至您希望保存笔记本的文件夹。
 
-![Jupyter 起始页面](assets/aina_1001.png)
+![Jupyter 起始页面](img/aina_1001.png)
 
 ###### 图 10-1\. Jupyter 起始页面
 
-要打开一个新的笔记本，请转至浏览器窗口右上角，选择 New → Notebook → Python 3\. 一个新标签页将打开，显示一个空白的 Jupyter 笔记本。与 RStudio 类似，Jupyter 提供的功能远远超出了我们在介绍中所能覆盖的范围；我们将重点介绍一些关键要点，以帮助您入门。Jupyter 笔记本的四个主要组成部分在 [Figure 10-2](#jupyter-interface) 中进行了标注；让我们逐一了解一下。
+要打开一个新的笔记本，请转至浏览器窗口右上角，选择 New → Notebook → Python 3\. 一个新标签页将打开，显示一个空白的 Jupyter 笔记本。与 RStudio 类似，Jupyter 提供的功能远远超出了我们在介绍中所能覆盖的范围；我们将重点介绍一些关键要点，以帮助您入门。Jupyter 笔记本的四个主要组成部分在 Figure 10-2 中进行了标注；让我们逐一了解一下。
 
-![Jupyter 笔记本界面截图](assets/aina_1002.png)
+![Jupyter 笔记本界面截图](img/aina_1002.png)
 
 ###### 图 10-2\. Jupyter 界面的组成元素
 
@@ -56,9 +56,9 @@ user@MacBook-Pro ~ % jupyter notebook
 
 在 Jupyter 中，您会花费大部分时间，您可以在笔记本中插入和重新定位 *单元格*。要开始，请使用工具栏进行最后一项操作：您会在那里找到一个下拉菜单，当前设置为 Code；将其更改为 Markdown。
 
-现在，导航到您的第一个代码单元格，并输入短语 `Hello, Jupyter!` 然后返回工具栏并选择运行图标。会发生几件事情。首先，您会看到您的 `Hello, Jupyter!` 单元格渲染成为类似文字处理文档的样子。接下来，您会看到一个新的代码单元格放置在前一个单元格下面，并且已经设置好让您输入更多信息。您的笔记本应该类似于 [Figure 10-3](#hello-world-jupyter)。
+现在，导航到您的第一个代码单元格，并输入短语 `Hello, Jupyter!` 然后返回工具栏并选择运行图标。会发生几件事情。首先，您会看到您的 `Hello, Jupyter!` 单元格渲染成为类似文字处理文档的样子。接下来，您会看到一个新的代码单元格放置在前一个单元格下面，并且已经设置好让您输入更多信息。您的笔记本应该类似于 Figure 10-3。
 
-![Jupyter keyboard shortcuts](assets/aina_1003.png)
+![Jupyter keyboard shortcuts](img/aina_1003.png)
 
 ###### 图 10-3\. “Hello, Jupyter!”
 
@@ -82,15 +82,15 @@ user@MacBook-Pro ~ % jupyter notebook
 Refer to code without running it as `fixed-width text`
 ```
 
-现在运行该单元格：您可以从工具栏或使用快捷键 Alt + Enter（Windows）、Option + Return（Mac）来完成。您的选择将呈现如 [Figure 10-4](#jupyter-markdown) 所示。
+现在运行该单元格：您可以从工具栏或使用快捷键 Alt + Enter（Windows）、Option + Return（Mac）来完成。您的选择将呈现如 Figure 10-4 所示。
 
-![Markdown in Jupyter](assets/aina_1004.png)
+![Markdown in Jupyter](img/aina_1004.png)
 
 ###### 图 10-4\. Jupyter 中 Markdown 格式化的示例
 
 要了解更多关于 Markdown 的信息，请返回菜单栏中的帮助部分。值得学习，以构建优雅的笔记本，可以包括图像、方程式等。但在本书中，我们将专注于 *code* 块，因为那里可以执行 Python 代码。您现在应该在第三个代码单元格上；您可以将此保留为代码格式。最后，我们将在 Python 中进行编码。
 
-Python 可以像 Excel 和 R 一样用作高级计算器。[Table 10-1](#python-arithmetic) 列出了 Python 中一些常见的算术运算符。
+Python 可以像 Excel 和 R 一样用作高级计算器。Table 10-1 列出了 Python 中一些常见的算术运算符。
 
 表 10-1\. Python 中常见的算术运算符
 
@@ -172,9 +172,9 @@ In [8]:  ABS(-100)
         NameError: name 'ABS' is not defined
 ```
 
-与 R 类似，你可以使用 `?` 运算符获取有关函数、包等的信息。会打开一个窗口，就像 [图 10-5](#jupyter-help) 中展示的那样，你可以展开它或在新窗口中打开。
+与 R 类似，你可以使用 `?` 运算符获取有关函数、包等的信息。会打开一个窗口，就像 图 10-5 中展示的那样，你可以展开它或在新窗口中打开。
 
-![在 Jupyter 中的帮助文档](assets/aina_1005.png)
+![在 Jupyter 中的帮助文档](img/aina_1005.png)
 
 ###### 图 10-5\. 在 Jupyter 笔记本中打开帮助文档
 
@@ -204,7 +204,7 @@ Out[12]: 100
 
 Python 中的对象名称必须以字母或下划线开头，其余部分只能包含字母、数字或下划线。还有一些禁用的关键字。同样，你可以广泛命名 Python 对象，但并不意味着你应该把对象命名为 `scooby_doo`。
 
-就像在 R 中一样，我们的 Python 对象可以由不同的数据类型组成。[表 10-2](#data-types-python) 展示了一些基本的 Python 类型。你能看出与 R 的相似性和差异吗？
+就像在 R 中一样，我们的 Python 对象可以由不同的数据类型组成。表 10-2 展示了一些基本的 Python 类型。你能看出与 R 的相似性和差异吗？
 
 表 10-2\. Python 的基本对象类型
 
@@ -334,7 +334,7 @@ In [26]:  !pip install pyxlsb
 
 # 升级 Python、Anaconda 和 Python 包
 
-[Table 10-3](#python-update-options) 列出了维护您的 Python 环境的几个其他有用的命令。您还可以使用 Anaconda Navigator 通过点和点击界面安装和维护 Anaconda 包，Anaconda Navigator 与 Anaconda 个人版一起安装。要开始，请在计算机上启动该应用程序，然后转到帮助菜单以阅读更多文档。
+Table 10-3 列出了维护您的 Python 环境的几个其他有用的命令。您还可以使用 Anaconda Navigator 通过点和点击界面安装和维护 Anaconda 包，Anaconda Navigator 与 Anaconda 个人版一起安装。要开始，请在计算机上启动该应用程序，然后转到帮助菜单以阅读更多文档。
 
 表 10-3\. 维护 Python 包的有用命令
 
@@ -347,26 +347,26 @@ In [26]:  !pip install pyxlsb
 
 # 结论
 
-在本章中，你学会了如何在Python中处理对象和包，并且掌握了使用Jupyter笔记本的技巧。
+在本章中，你学会了如何在 Python 中处理对象和包，并且掌握了使用 Jupyter 笔记本的技巧。
 
 # 练习：
 
 以下练习提供了关于这些主题的额外练习和深入见解：
 
-1.  从一个新的Jupyter笔记本开始，做以下操作：
+1.  从一个新的 Jupyter 笔记本开始，做以下操作：
 
-    +   将1和-4的和分配给变量`a`。
+    +   将 1 和-4 的和分配给变量`a`。
 
     +   将变量`a`的绝对值分配给变量`b`。
 
-    +   将`b`减1的结果分配给变量`d`。
+    +   将`b`减 1 的结果分配给变量`d`。
 
-    +   变量`d`是否大于2？
+    +   变量`d`是否大于 2？
 
-1.  Python标准库包括一个名为`random`的模块，其中包含一个名为`randint()`的函数。这个函数的用法类似于Excel中的`RANDBETWEEN()`；例如，`randint(1, 6)`会返回一个介于1和6之间的整数。使用这个函数找到一个介于0和36之间的随机数。
+1.  Python 标准库包括一个名为`random`的模块，其中包含一个名为`randint()`的函数。这个函数的用法类似于 Excel 中的`RANDBETWEEN()`；例如，`randint(1, 6)`会返回一个介于 1 和 6 之间的整数。使用这个函数找到一个介于 0 和 36 之间的随机数。
 
-1.  Python标准库还包括一个名为`this`的模块。当你导入该模块时会发生什么？
+1.  Python 标准库还包括一个名为`this`的模块。当你导入该模块时会发生什么？
 
-1.  从Anaconda下载`xlutils`包，然后使用`?`操作符检索可用的文档。
+1.  从 Anaconda 下载`xlutils`包，然后使用`?`操作符检索可用的文档。
 
-我再次鼓励你尽快在日常工作中开始使用这种语言，即使一开始只是作为计算器。你也可以尝试在R和Python中执行相同的任务，然后进行比较和对比。如果你是通过将R与Excel相关联来学习的，那么将Python与R相关联也是一样的道理。
+我再次鼓励你尽快在日常工作中开始使用这种语言，即使一开始只是作为计算器。你也可以尝试在 R 和 Python 中执行相同的任务，然后进行比较和对比。如果你是通过将 R 与 Excel 相关联来学习的，那么将 Python 与 R 相关联也是一样的道理。

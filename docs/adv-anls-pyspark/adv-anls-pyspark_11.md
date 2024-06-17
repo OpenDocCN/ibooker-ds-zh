@@ -1,14 +1,14 @@
-# 第11章。使用MLflow管理机器学习生命周期
+# 第十一章。使用 MLflow 管理机器学习生命周期
 
-随着机器学习在各行业的重要性日益突出并在生产环境中部署，围绕它的协作和复杂性水平也相应增加。幸运的是，已经出现了平台和工具，以有组织的方式管理机器学习生命周期。一个与PySpark兼容的这类平台是MLflow。在本章中，我们将展示如何使用MLflow与PySpark。在此过程中，我们将介绍您可以在数据科学工作流中引入的关键实践。
+随着机器学习在各行业的重要性日益突出并在生产环境中部署，围绕它的协作和复杂性水平也相应增加。幸运的是，已经出现了平台和工具，以有组织的方式管理机器学习生命周期。一个与 PySpark 兼容的这类平台是 MLflow。在本章中，我们将展示如何使用 MLflow 与 PySpark。在此过程中，我们将介绍您可以在数据科学工作流中引入的关键实践。
 
-与其从头开始，我们将在[第4章](ch04.xhtml#making_predictions_with_decision_trees_and_decision_forests)所做的工作基础上进行构建。我们将使用Covtype数据集重新审视我们的决策树实现。这一次，我们将使用MLflow来管理机器学习生命周期。
+与其从头开始，我们将在第四章所做的工作基础上进行构建。我们将使用 Covtype 数据集重新审视我们的决策树实现。这一次，我们将使用 MLflow 来管理机器学习生命周期。
 
-我们将首先解释围绕机器学习生命周期的挑战和过程。然后我们将介绍MLflow及其组件，以及MLflow对PySpark的支持。接下来我们将介绍如何使用MLflow跟踪机器学习训练运行。然后我们将学习如何使用MLflow Models管理机器学习模型。然后我们将讨论我们的PySpark模型的部署并对其进行实现。我们将通过创建一个MLflow项目来结束本章。这将展示如何使我们迄今为止的工作对合作者可重现。让我们开始讨论机器学习生命周期。
+我们将首先解释围绕机器学习生命周期的挑战和过程。然后我们将介绍 MLflow 及其组件，以及 MLflow 对 PySpark 的支持。接下来我们将介绍如何使用 MLflow 跟踪机器学习训练运行。然后我们将学习如何使用 MLflow Models 管理机器学习模型。然后我们将讨论我们的 PySpark 模型的部署并对其进行实现。我们将通过创建一个 MLflow 项目来结束本章。这将展示如何使我们迄今为止的工作对合作者可重现。让我们开始讨论机器学习生命周期。
 
 # 机器学习生命周期
 
-描述机器学习生命周期的方法有多种。一个简单的方法是将其分解为不同的组件或步骤，如[图11-1](#ml_lifecycle)所示。这些步骤对于每个项目来说不一定是顺序的，并且生命周期往往是循环的。
+描述机器学习生命周期的方法有多种。一个简单的方法是将其分解为不同的组件或步骤，如图 11-1 所示。这些步骤对于每个项目来说不一定是顺序的，并且生命周期往往是循环的。
 
 +   业务项目定义和利益相关者的对齐
 
@@ -20,9 +20,9 @@
 
 +   模型实施和部署
 
-![机器学习生命周期](assets/machine_learning_lifecycle.png)
+![机器学习生命周期](img/machine_learning_lifecycle.png)
 
-###### 图11-1。ML生命周期
+###### 图 11-1。ML 生命周期
 
 你能够迭代机器学习生命周期的速度影响你能够将工作投入实际应用的速度。例如，由于底层数据的变化，实施的模型可能会过时。在这种情况下，你需要重新审视过去的工作并再次构建。
 
@@ -42,7 +42,7 @@
 
 MLflow 是一个管理端到端机器学习生命周期的开源平台。它帮助我们复现和共享实验，管理模型并为最终用户部署模型。除了 REST API 和 CLI 外，它还提供了 Python、R 和 Java/Scala 的 API。
 
-如 [图 11-2](#mlflow_components) 所示，它有四个主要组件：
+如 图 11-2 所示，它有四个主要组件：
 
 MLflow Tracking
 
@@ -60,7 +60,7 @@ MLflow 注册表
 
 此组件使您能够在中心存储中协作跟踪模型衍生、模型版本、阶段转换和注释。
 
-![MLflow 组件](assets/aaps_1102.png)
+![MLflow 组件](img/aaps_1102.png)
 
 ###### 图 11-2\. MLflow 组件
 
@@ -74,7 +74,7 @@ $ pip3 install mlflow
 
 MLflow 与许多流行的机器学习框架集成，如 Spark、TensorFlow、PyTorch 等。接下来的几节中，我们将使用它对 Spark 的本地支持。导入特定于 Spark 的 MLflow 组件就像运行 `import mlflow.spark` 一样简单。
 
-在下一节中，我们将介绍 MLflow Tracking 并将其添加到我们的决策树代码中 [第 4 章](ch04.xhtml#making_predictions_with_decision_trees_and_decision_forests)。
+在下一节中，我们将介绍 MLflow Tracking 并将其添加到我们的决策树代码中 第四章。
 
 # 实验跟踪
 
@@ -82,7 +82,7 @@ MLflow 与许多流行的机器学习框架集成，如 Spark、TensorFlow、PyT
 
 MLflow Tracking 是一个 API 和 UI，用于在运行机器学习代码时记录参数、代码版本、指标和工件，并在稍后可视化结果。您可以在任何环境中使用 MLflow Tracking（例如独立脚本或笔记本）将结果记录到本地文件或服务器，然后比较多次运行。它与多个框架集成且与库无关。
 
-MLflow跟踪围绕“运行”这一概念组织，这些运行是某段数据科学代码的执行。MLflow跟踪提供了一个界面，让您可以可视化，搜索和比较运行，以及下载运行的工件或元数据以在其他工具中进行分析。它包含以下关键功能：
+MLflow 跟踪围绕“运行”这一概念组织，这些运行是某段数据科学代码的执行。MLflow 跟踪提供了一个界面，让您可以可视化，搜索和比较运行，以及下载运行的工件或元数据以在其他工具中进行分析。它包含以下关键功能：
 
 +   基于实验的运行列表和比较
 
@@ -92,7 +92,7 @@ MLflow跟踪围绕“运行”这一概念组织，这些运行是某段数据�
 
 +   下载运行结果
 
-让我们在PySpark shell中的决策树代码中添加MLflow跟踪。假设您已下载了[Covtype数据集](https://oreil.ly/0xyky)并对其熟悉。Covtype数据集以压缩的CSV格式数据文件*covtype.data.gz*和配套的信息文件*covtype.info*的形式在线提供。
+让我们在 PySpark shell 中的决策树代码中添加 MLflow 跟踪。假设您已下载了[Covtype 数据集](https://oreil.ly/0xyky)并对其熟悉。Covtype 数据集以压缩的 CSV 格式数据文件*covtype.data.gz*和配套的信息文件*covtype.info*的形式在线提供。
 
 启动`pyspark-shell`。如前所述，构建决策树可能需要大量资源。如果您有足够的内存，请指定`--driver-memory 8g`或类似的值。
 
@@ -137,7 +137,7 @@ classifier = DecisionTreeClassifier(seed = 1234,
 pipeline = Pipeline(stages=[vector_assembler, classifier])
 ```
 
-要开始使用MLflow记录日志，我们使用`mlflow.start_run`启动一个运行。我们将使用`with`子句来在块结束时自动结束运行：
+要开始使用 MLflow 记录日志，我们使用`mlflow.start_run`启动一个运行。我们将使用`with`子句来在块结束时自动结束运行：
 
 ```py
 import mlflow
@@ -169,29 +169,29 @@ with mlflow.start_run(run_name="decision-tree"):
     mlflow.log_artifact("feature-importance.csv")
 ```
 
-现在我们可以通过跟踪界面访问我们的实验数据。运行`mlflow ui`命令启动它。默认情况下，它会在端口5000上启动。您可以使用`-p <port_name>`选项更改默认端口。一旦成功启动界面，请转到[*http://localhost:5000/*](http://localhost:5000/)。您将看到一个如[图11-3](#mlflow_ui)所示的界面。您可以搜索所有运行，过滤符合特定条件的运行，将运行进行比较等。如果您愿意，还可以将内容导出为CSV文件以进行本地分析。点击界面中名为`decision-tree`的运行。
+现在我们可以通过跟踪界面访问我们的实验数据。运行`mlflow ui`命令启动它。默认情况下，它会在端口 5000 上启动。您可以使用`-p <port_name>`选项更改默认端口。一旦成功启动界面，请转到[*http://localhost:5000/*](http://localhost:5000/)。您将看到一个如图 11-3 所示的界面。您可以搜索所有运行，过滤符合特定条件的运行，将运行进行比较等。如果您愿意，还可以将内容导出为 CSV 文件以进行本地分析。点击界面中名为`decision-tree`的运行。
 
-![MLflow UI 1](assets/aaps_1103.png)
+![MLflow UI 1](img/aaps_1103.png)
 
-###### 图11-3\. MLflow UI 1
+###### 图 11-3\. MLflow UI 1
 
-在查看单个运行时，如[图11-4](#mlflow_ui_2)所示，您会注意到MLflow存储了所有相应的参数，指标等。您可以在其中添加关于此运行的自由文本注释，以及标签。
+在查看单个运行时，如图 11-4 所示，您会注意到 MLflow 存储了所有相应的参数，指标等。您可以在其中添加关于此运行的自由文本注释，以及标签。
 
-![MLflow UI 2](assets/aaps_1104.png)
+![MLflow UI 2](img/aaps_1104.png)
 
-###### 图11-4\. MLflow UI 2
+###### 图 11-4\. MLflow UI 2
 
-现在我们能够跟踪和重现我们的实验。现在让我们讨论使用MLflow管理我们的模型。
+现在我们能够跟踪和重现我们的实验。现在让我们讨论使用 MLflow 管理我们的模型。
 
 # 管理和提供机器学习模型
 
-MLflow模型是打包机器学习模型的标准格式，可以在各种下游工具中使用，例如通过REST API进行实时服务或在Apache Spark上进行批量推断。该格式定义了一种约定，可让您以不同的“口味”保存模型，这些口味可以被不同的库理解。
+MLflow 模型是打包机器学习模型的标准格式，可以在各种下游工具中使用，例如通过 REST API 进行实时服务或在 Apache Spark 上进行批量推断。该格式定义了一种约定，可让您以不同的“口味”保存模型，这些口味可以被不同的库理解。
 
 Flavor 是使 MLflow 模型强大的关键概念。它使得可以编写可以与任何 ML 库中的模型一起工作的工具，而无需将每个工具与每个库集成。MLflow 定义了几种“标准” flavor，所有其内置部署工具都支持，如描述如何将模型作为 Python 函数运行的“Python function” flavor。然而，库也可以定义和使用其他 flavors。例如，MLflow 的`mlflow.sklearn`库允许将模型加载回作为 scikit-learn 的`Pipeline`对象，在意识到 scikit-learn 的代码中使用，或者作为通用 Python 函数在仅需要应用模型的工具中使用（例如用于将模型部署到 Amazon SageMaker 的`mlflow.sagemaker`工具）。
 
-MLflow 模型是一个包含一组文件的目录。我们之前使用`log_model`API记录了我们的模型。这创建了一个名为 *MLmodel* 的文件。打开决策树运行并向下滚动到“Artifacts”部分。查看 *MLmodel* 文件。它的内容应类似于[图 11-5](#mlflow_model)所示。
+MLflow 模型是一个包含一组文件的目录。我们之前使用`log_model`API 记录了我们的模型。这创建了一个名为 *MLmodel* 的文件。打开决策树运行并向下滚动到“Artifacts”部分。查看 *MLmodel* 文件。它的内容应类似于图 11-5 所示。
 
-![MLflow 模型](assets/aaps_1105.png)
+![MLflow 模型](img/aaps_1105.png)
 
 ###### 图 11-5\. MLflow 模型
 
@@ -204,8 +204,8 @@ Spark 模型风格支持将 Spark MLlib 模型导出为 MLflow 模型。例如�
 ```py
 import mlflow
 
-run_id = "0433bb047f514e28a73109bbab767222" ![1](assets/1.png)
-logged_model = f'runs:/{run_id}/model' ![2](assets/2.png)
+run_id = "0433bb047f514e28a73109bbab767222" ![1](img/1.png)
+logged_model = f'runs:/{run_id}/model' ![2](img/2.png)
 
 # Load model as a Spark UDF.
 loaded_model = mlflow.spark.load_model(model_uri=logged_model)
@@ -217,17 +217,17 @@ preds.select('Cover_Type', 'rawPrediction', 'probability', 'prediction').\
 ...
 -RECORD 0-----------------------------
  Cover_Type    | 6.0
- rawPrediction | [0.0,0.0,605.0,15...
+ rawPrediction | 0.0,0.0,605.0,15...
  probability   | [0.0,0.0,0.024462...
  prediction    | 3.0
 only showing top 1 row
 ```
 
-[![1](assets/1.png)](#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-1)
+[![1](img/#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-1)
 
 可以从相关的 *MLmodel* 文件在追踪 UI 中获取此 ID。
 
-[![2](assets/2.png)](#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-2)
+![2](img/#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-2)
 
 我们使用 Python f-strings 添加相关的运行 ID。
 
@@ -247,7 +247,7 @@ Solving environment: done ...
 
 您已成功将模型部署为 REST API！
 
-现在我们可以使用这个端点进行推断。让我们准备并发送一个请求到端点来看看它的运行情况。我们将使用`requests`库来完成这个操作。如果你还没有安装它，请先使用pip进行安装：
+现在我们可以使用这个端点进行推断。让我们准备并发送一个请求到端点来看看它的运行情况。我们将使用`requests`库来完成这个操作。如果你还没有安装它，请先使用 pip 进行安装：
 
 ```py
 pip3 install requests
@@ -305,17 +305,17 @@ Predictions: [2.0]
 
 # 创建和使用 MLflow 项目
 
-MLflow Projects是一个可重复使用和可复制打包的标准格式。它是一个自包含单元，捆绑了执行机器学习工作流所需的所有机器代码和依赖项，并使你能够在任何系统或环境上生成特定模型运行。MLflow Projects包括一个API和命令行工具来运行项目。它还可以用于将项目链接到工作流中。
+MLflow Projects 是一个可重复使用和可复制打包的标准格式。它是一个自包含单元，捆绑了执行机器学习工作流所需的所有机器代码和依赖项，并使你能够在任何系统或环境上生成特定模型运行。MLflow Projects 包括一个 API 和命令行工具来运行项目。它还可以用于将项目链接到工作流中。
 
-每个项目只是一个文件目录，或者是一个包含你的代码的Git仓库。MLflow可以根据在该目录中放置文件的约定来运行某些项目（例如，*conda.yml*文件被视为一个Conda环境），但是你可以通过添加MLproject文件来更详细地描述你的项目，该文件是一个格式为YAML的文本文件。
+每个项目只是一个文件目录，或者是一个包含你的代码的 Git 仓库。MLflow 可以根据在该目录中放置文件的约定来运行某些项目（例如，*conda.yml*文件被视为一个 Conda 环境），但是你可以通过添加 MLproject 文件来更详细地描述你的项目，该文件是一个格式为 YAML 的文本文件。
 
-MLflow当前支持以下项目环境：Conda环境、Docker容器环境和系统环境。默认情况下，MLflow使用系统路径来查找和运行Conda二进制文件。
+MLflow 当前支持以下项目环境：Conda 环境、Docker 容器环境和系统环境。默认情况下，MLflow 使用系统路径来查找和运行 Conda 二进制文件。
 
-创建一个基本的MLflow项目很简单。所需的步骤列在[图 11-6](#how_to_build_an_mflow_project)中。
+创建一个基本的 MLflow 项目很简单。所需的步骤列在图 11-6 中。
 
-![如何构建一个MLflow项目](assets/aaps_1106.png)
+![如何构建一个 MLflow 项目](img/aaps_1106.png)
 
-###### 图 11-6\. 如何构建一个MLflow项目
+###### 图 11-6\. 如何构建一个 MLflow 项目
 
 我们将从创建名为*decision_tree_project*的项目目录开始：
 
@@ -324,7 +324,7 @@ mkdir decision_tree_project
 cd decision_tree_project
 ```
 
-接下来，我们首先会创建一个MLproject文件：
+接下来，我们首先会创建一个 MLproject 文件：
 
 ```py
 name: decision_tree_project
@@ -336,7 +336,7 @@ entry_points:
     command: "python train.py"
 ```
 
-现在我们需要我们的*conda.yml*文件。我们可以从之前介绍的MLflow UI中获取这个。进入我们之前看到的decision-tree运行。向下滚动到Artifacts，点击conda YAML文件，将其内容复制到我们项目目录中的*conda.yml*中：
+现在我们需要我们的*conda.yml*文件。我们可以从之前介绍的 MLflow UI 中获取这个。进入我们之前看到的 decision-tree 运行。向下滚动到 Artifacts，点击 conda YAML 文件，将其内容复制到我们项目目录中的*conda.yml*中：
 
 ```py
 channels:
@@ -351,7 +351,7 @@ dependencies:
 name: mlflow-env
 ```
 
-现在我们将创建Python脚本，用于在执行MLflow项目时训练决策树模型。为此，我们将使用前面一节中的代码：
+现在我们将创建 Python 脚本，用于在执行 MLflow 项目时训练决策树模型。为此，我们将使用前面一节中的代码：
 
 ```py
 from pyspark.sql import SparkSession
@@ -367,7 +367,7 @@ spark = SparkSession.builder.appName("App").getOrCreate()
 def main():
     data_without_header = spark.read.option("inferSchema", True).\
                                     option("header", False).\
-                                    csv("../data/covtype.data") ![1](assets/1.png)
+                                    csv("../data/covtype.data") ![1](img/1.png)
 
     colnames = ["Elevation", "Aspect", "Slope",
                 "Horizontal_Distance_To_Hydrology",
@@ -411,11 +411,11 @@ if __name__ == "__main__":
     main()
 ```
 
-[![1](assets/1.png)](#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO2-1)
+![1](img/#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO2-1)
 
-假设数据位于执行的MLflow项目目录的上一级目录。
+假设数据位于执行的 MLflow 项目目录的上一级目录。
 
-数据也可以包含在MLflow项目中。在这种情况下，我们没有这样做是因为数据太大了。在这种情况下，可以使用AWS S3或GCS等云存储来共享数据。
+数据也可以包含在 MLflow 项目中。在这种情况下，我们没有这样做是因为数据太大了。在这种情况下，可以使用 AWS S3 或 GCS 等云存储来共享数据。
 
 在分享之前，你也可以在本地模拟协作者如何工作，我们使用`mlflow run`命令来实现这一点。
 
@@ -426,10 +426,10 @@ mlflow run decision_tree_project
 {'accuracy': 0.6988990605087336, 'f1': 0.6805617730220171}
 ```
 
-现在我们有一个可复制的MLflow项目。我们可以将其上传到GitHub仓库，并与协作者分享，对方能够复现我们的工作。
+现在我们有一个可复制的 MLflow 项目。我们可以将其上传到 GitHub 仓库，并与协作者分享，对方能够复现我们的工作。
 
 # 从这里开始
 
-本章介绍了MLflow项目，并指导您如何在简单项目中实施它。 MLflow项目本身有很多可以探索的内容。 您可以在[官方文档](https://mlflow.org)中找到更多信息。 还有其他工具可供选择。 这些包括开源项目，如Metaflow和Kubeflow，以及亚马逊SageMaker和Databricks平台等大型云提供商的专有产品。
+本章介绍了 MLflow 项目，并指导您如何在简单项目中实施它。 MLflow 项目本身有很多可以探索的内容。 您可以在[官方文档](https://mlflow.org)中找到更多信息。 还有其他工具可供选择。 这些包括开源项目，如 Metaflow 和 Kubeflow，以及亚马逊 SageMaker 和 Databricks 平台等大型云提供商的专有产品。
 
 当然，工具只是应对现实世界中机器学习项目挑战的一部分解决方案。 进程需要由参与任何项目的人员定义。 我们希望您能在本章提供的基础上建立，并为野外成功的机器学习项目做出贡献。

@@ -1,4 +1,4 @@
-# 第15章。Seqmagique：创建和格式化报告
+# 第十五章。Seqmagique：创建和格式化报告
 
 在生物信息学项目中，你经常会发现自己盯着一个目录，里面充满了序列文件，通常是 FASTA 或 FASTQ 格式。你可能希望首先了解文件中序列的分布情况，例如每个文件中有多少序列以及序列的平均长度、最小长度和最大长度。你需要知道是否有任何文件损坏了，也许它们从测序中心传输时没有完全完成，或者是否有任何样本读数远低，可能表明需要重新进行糟糕的测序运行。在本章中，我将介绍使用哈希检查序列文件的一些技术，并编写一个小型实用程序来模拟 Seqmagick 的部分功能，以说明如何创建格式化的文本表格。这个程序可以作为处理给定文件集中所有记录并生成汇总统计表格的任何程序的模板。
 
@@ -47,19 +47,19 @@ usage: seqmagique.py [-h] [-t table] FILE [FILE ...]
 Mimic seqmagick
 
 positional arguments:
-  FILE                  Input FASTA file(s) ![1](assets/1.png)
+  FILE                  Input FASTA file(s) ![1](img/1.png)
 
 optional arguments:
   -h, --help            show this help message and exit
-  -t table, --tablefmt table ![2](assets/2.png)
+  -t table, --tablefmt table ![2](img/2.png)
                         Tabulate table style (default: plain)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO1-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO1-1)
 
 程序接受一个或多个应该是 FASTA 格式的输入文件。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO1-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO1-2)
 
 这个选项控制输出表格的格式。
 
@@ -165,7 +165,7 @@ $ md5sum --check checksums.md5
 empty.fa: OK
 ```
 
-MD5校验和提供了比手动检查文件大小更完整和更简便的数据完整性验证方式。虽然文件摘要不直接属于本练习的一部分，但在开始任何分析之前了解如何验证数据的完整性和未损坏性非常重要。
+MD5 校验和提供了比手动检查文件大小更完整和更简便的数据完整性验证方式。虽然文件摘要不直接属于本练习的一部分，但在开始任何分析之前了解如何验证数据的完整性和未损坏性非常重要。
 
 # 入门指南
 
@@ -194,7 +194,7 @@ def get_args() -> Args:
         description='Argparse Python script',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('file', ![1](assets/1.png)
+    parser.add_argument('file', ![1](img/1.png)
                         metavar='FILE',
                         type=argparse.FileType('rt'),
                         nargs='+',
@@ -204,7 +204,7 @@ def get_args() -> Args:
                         '--tablefmt',
                         metavar='table',
                         type=str,
-                        choices=[ ![2](assets/2.png)
+                        choices= ![2
                             'plain', 'simple', 'grid', 'pipe', 'orgtbl', 'rst',
                             'mediawiki', 'latex', 'latex_raw', 'latex_booktabs'
                         ],
@@ -216,15 +216,15 @@ def get_args() -> Args:
     return Args(args.file, args.tablefmt)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO2-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO2-1)
 
 为一个或多个可读文本文件定义一个位置参数。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO2-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO2-2)
 
 定义一个选项，使用`choices`来限制参数为列表中的值，确保定义一个合理的`default`值。
 
-使用`choices`选项来控制`--tablefmt`参数确实可以大大减少验证用户输入的工作量。如在[“使用Seqmagick分析序列文件”](#UsingSeqmagick)，对于表格格式选项的错误值会触发有用的错误消息。
+使用`choices`选项来控制`--tablefmt`参数确实可以大大减少验证用户输入的工作量。如在“使用 Seqmagick 分析序列文件”，对于表格格式选项的错误值会触发有用的错误消息。
 
 修改`main()`函数以打印输入文件名：
 
@@ -266,17 +266,17 @@ tests/inputs/empty.fa
 
 序列的数量
 
-如果你想为程序准备一些真实的输入文件，可以使用[`fastq-dump`工具](https://oreil.ly/Vmb0w)从NCBI下载来自研究[“北太平洋亚热带环流中的浮游微生物群落”](https://oreil.ly/aAGUA)的序列：
+如果你想为程序准备一些真实的输入文件，可以使用[`fastq-dump`工具](https://oreil.ly/Vmb0w)从 NCBI 下载来自研究[“北太平洋亚热带环流中的浮游微生物群落”](https://oreil.ly/aAGUA)的序列：
 
 ```py
-$ fastq-dump --split-3 SAMN00000013 ![1](assets/1.png)
+$ fastq-dump --split-3 SAMN00000013 ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO3-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO3-1)
 
 `--split-3`选项将确保成对端读取正确分割为正向/反向/未配对的读取。`SAMN00000013`字符串是实验中[一个样本](https://oreil.ly/kBCQU)的访问号。
 
-## 使用tabulate()格式化文本表格
+## 使用 tabulate()格式化文本表格
 
 程序的输出将是使用该模块的`tabulate()`函数格式化的文本表格。确保阅读文档：
 
@@ -285,19 +285,19 @@ $ fastq-dump --split-3 SAMN00000013 ![1](assets/1.png)
 >>> help(tabulate)
 ```
 
-我需要为表格定义标题，并决定使用与Seqmagick相同的标题（减去`alignment`列）：
+我需要为表格定义标题，并决定使用与 Seqmagick 相同的标题（减去`alignment`列）：
 
 ```py
 >>> hdr = ['name', 'min_len', 'max_len', 'avg_len', 'num_seqs']
 ```
 
-第一个测试文件*tests/inputs/1.fa*只有一个长度为50的序列，因此其列如下：
+第一个测试文件*tests/inputs/1.fa*只有一个长度为 50 的序列，因此其列如下：
 
 ```py
 >>> f1 = ['tests/inputs/1.fa', 50, 50, 50.00, 1]
 ```
 
-第二个测试文件*tests/inputs/2.fa*有五个序列，长度从49个碱基到79个碱基，平均长度为64个碱基：
+第二个测试文件*tests/inputs/2.fa*有五个序列，长度从 49 个碱基到 79 个碱基，平均长度为 64 个碱基：
 
 ```py
 >>> f2 = ['tests/inputs/2.fa', 49, 79, 64.00, 5]
@@ -374,52 +374,52 @@ from Bio import SeqIO
 在 REPL 中运行 **`help(np)`** 可以查看文档。这是我编写此函数的方式：
 
 ```py
-def process(fh: TextIO) -> FastaInfo: ![1](assets/1.png)
+def process(fh: TextIO) -> FastaInfo: ![1](img/1.png)
     """ Process a file """
 
-    if lengths := [len(rec.seq) for rec in SeqIO.parse(fh, 'fasta')]: ![2](assets/2.png)
-        return FastaInfo(filename=fh.name, ![3](assets/3.png)
-                         min_len=min(lengths), ![4](assets/4.png)
-                         max_len=max(lengths), ![5](assets/5.png)
-                         avg_len=round(float(np.mean(lengths)), 2), ![6](assets/6.png)
-                         num_seqs=len(lengths)) ![7](assets/7.png)
+    if lengths := [len(rec.seq) for rec in SeqIO.parse(fh, 'fasta')]: ![2](img/2.png)
+        return FastaInfo(filename=fh.name, ![3](img/3.png)
+                         min_len=min(lengths), ![4](img/4.png)
+                         max_len=max(lengths), ![5](img/5.png)
+                         avg_len=round(float(np.mean(lengths)), 2), ![6](img/6.png)
+                         num_seqs=len(lengths)) ![7](img/7.png)
 
-    return FastaInfo(filename=fh.name, ![8](assets/8.png)
+    return FastaInfo(filename=fh.name, ![8](img/8.png)
                      min_len=0,
                      max_len=0,
                      avg_len=0,
                      num_seqs=0)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-1)
 
 该函数接受一个文件句柄，并返回一个 `FastaInfo` 对象。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-2)
 
 使用列表推导式从文件句柄中读取所有序列。使用 `len()` 函数返回每个序列的长度。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-3)
 
 文件的名称可以通过 `fh.name` 属性获得。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-4)
 
 `min()`函数将返回最小值。
 
-[![5](assets/5.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-5)
+![5](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-5)
 
 `max()`函数将返回最大值。
 
-[![6](assets/6.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-6)
+![6](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-6)
 
 `np.mean()`函数将返回值列表的平均值。`round()`函数用于将此浮点值四舍五入为两位有效数字。
 
-[![7](assets/7.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-7)
+![7](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-7)
 
 序列的数量是列表的长度。
 
-[![8](assets/8.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-8)
+![8](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO4-8)
 
 如果没有序列，对所有值返回零。
 
@@ -437,28 +437,28 @@ GGATAAAGCGAGAGGCTGGATCATGCACCAACTGCGTGCAACGAAGGAAT
 
 ```py
 >>> import io
->>> f1 = '>SEQ0\nGGATAAAGCGAGAGGCTGGATCATGCACCAACTGCGTGCAACGAAGGAAT\n' ![1](assets/1.png)
->>> fh = io.StringIO(f1) ![2](assets/2.png)
->>> for line in fh: ![3](assets/3.png)
-...     print(line, end='') ![4](assets/4.png)
+>>> f1 = '>SEQ0\nGGATAAAGCGAGAGGCTGGATCATGCACCAACTGCGTGCAACGAAGGAAT\n' ![1](img/1.png)
+>>> fh = io.StringIO(f1) ![2](img/2.png)
+>>> for line in fh: ![3](img/3.png)
+...     print(line, end='') ![4](img/4.png)
 ...
 >SEQ0
 GGATAAAGCGAGAGGCTGGATCATGCACCAACTGCGTGCAACGAAGGAAT
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-1)
 
 这是来自第一个输入文件的数据。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-2)
 
 创建一个模拟文件句柄。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-3)
 
 遍历模拟文件句柄的各行。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO5-4)
 
 打印具有换行符（`\n`）的行，因此使用`end=''`以避免额外的换行符。
 
@@ -471,7 +471,7 @@ Traceback (most recent call last):
 AttributeError: '_io.StringIO' object has no attribute 'name'
 ```
 
-幸运的是，还有另一种方法可以使用Python的标准`unittest`模块创建模拟文件句柄。虽然我几乎在所有写作中更喜欢使用`pytest`模块，但`unittest`模块已存在很长时间，是另一个能够编写和运行测试的功能强大的框架。在这种情况下，我需要导入[`uni⁠t​test.mock.mock_open()`函数。](https://oreil.ly/EGvXh)这是我如何使用来自第一个测试文件的数据创建模拟文件句柄。我使用`read_data`来定义将由`fh.read()`方法返回的数据：
+幸运的是，还有另一种方法可以使用 Python 的标准`unittest`模块创建模拟文件句柄。虽然我几乎在所有写作中更喜欢使用`pytest`模块，但`unittest`模块已存在很长时间，是另一个能够编写和运行测试的功能强大的框架。在这种情况下，我需要导入[`uni⁠t​test.mock.mock_open()`函数。](https://oreil.ly/EGvXh)这是我如何使用来自第一个测试文件的数据创建模拟文件句柄。我使用`read_data`来定义将由`fh.read()`方法返回的数据：
 
 ```py
 >>> from unittest.mock import mock_open
@@ -490,48 +490,48 @@ AttributeError: '_io.StringIO' object has no attribute 'name'
 虽然我经常将单元测试放在与它们测试的函数相同的模块中，但在这种情况下，我更愿意将其放在一个单独的`unit.py`模块中，以使主程序更短。我编写了测试来处理一个空文件，一个带有一个序列的文件和一个带有多个序列的文件（这也反映在三个输入测试文件中）。假设如果函数对这三种情况有效，则对于所有其他情况都应有效：
 
 ```py
-from unittest.mock import mock_open ![1](assets/1.png)
-from seqmagique import process ![2](assets/2.png)
+from unittest.mock import mock_open ![1](img/1.png)
+from seqmagique import process ![2](img/2.png)
 
 def test_process() -> None:
     """ Test process """
 
-    empty = process(mock_open(read_data='')()) ![3](assets/3.png)
+    empty = process(mock_open(read_data='')()) ![3](img/3.png)
     assert empty.min_len == 0
     assert empty.max_len == 0
     assert empty.avg_len == 0
     assert empty.num_seqs == 0
 
-    one = process(mock_open(read_data='>SEQ0\nAAA')()) ![4](assets/4.png)
+    one = process(mock_open(read_data='>SEQ0\nAAA')()) ![4](img/4.png)
     assert one.min_len == 3
     assert one.max_len == 3
     assert one.avg_len == 3
     assert one.num_seqs == 1
 
-    two = process(mock_open(read_data='>SEQ0\nAAA\n>SEQ1\nCCCC')()) ![5](assets/5.png)
+    two = process(mock_open(read_data='>SEQ0\nAAA\n>SEQ1\nCCCC')()) ![5](img/5.png)
     assert two.min_len == 3
     assert two.max_len == 4
     assert two.avg_len == 3.5
     assert two.num_seqs == 2
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-1)
 
 导入`mock_open()`函数。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-2)
 
 导入我正在测试的`process()`函数。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-3)
 
 一个模拟空文件句柄，所有值应该为零。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-4)
 
 一个具有三个碱基的单一序列。
 
-[![5](assets/5.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-5)
+![5](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO6-5)
 
 一个带有两个序列的文件句柄，一个有三个碱基，一个有四个碱基。
 
@@ -552,20 +552,20 @@ unit.py::test_process PASSED                                             [100%]
 ```py
 def main() -> None:
     args = get_args()
-    data = [process(fh) for fh in args.files] ![1](assets/1.png)
-    hdr = ['name', 'min_len', 'max_len', 'avg_len', 'num_seqs'] ![2](assets/2.png)
-    print(tabulate(data, tablefmt=args.tablefmt, headers=hdr, floatfmt='.2f')) ![3](assets/3.png)
+    data = [process(fh) for fh in args.files] ![1](img/1.png)
+    hdr = ['name', 'min_len', 'max_len', 'avg_len', 'num_seqs'] ![2](img/2.png)
+    print(tabulate(data, tablefmt=args.tablefmt, headers=hdr, floatfmt='.2f')) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO7-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO7-1)
 
 将所有输入文件处理成一个`FastaInfo`对象（元组）列表。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO7-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO7-2)
 
 定义表头。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO7-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO7-3)
 
 使用`tabulate()`函数打印格式化的输出表格。
 
@@ -579,7 +579,7 @@ def main() -> None:
 
 +   所有输入文件
 
-要开始，我使用默认表格样式运行所有这些。然后我需要验证所有10个表格样式是否正确创建。将所有可能的测试输入与所有表格样式结合起来会产生很高的*圈复杂度*——参数可以组合的不同方式的数量。
+要开始，我使用默认表格样式运行所有这些。然后我需要验证所有 10 个表格样式是否正确创建。将所有可能的测试输入与所有表格样式结合起来会产生很高的*圈复杂度*——参数可以组合的不同方式的数量。
 
 要测试这个，我首先需要手动验证我的程序是否正确运行。然后我需要为我打算测试的每个组合生成样本输出。我编写了以下`bash`脚本来为给定的输入文件和可能的表格样式创建一个*out*文件：
 
@@ -587,13 +587,13 @@ def main() -> None:
 $ cat mk-outs.sh
 #!/usr/bin/env bash
 
-PRG="./seqmagique.py" ![1](assets/1.png)
-DIR="./tests/inputs" ![2](assets/2.png)
-INPUT1="${DIR}/1.fa" ![3](assets/3.png)
+PRG="./seqmagique.py" ![1](img/1.png)
+DIR="./tests/inputs" ![2](img/2.png)
+INPUT1="${DIR}/1.fa" ![3](img/3.png)
 INPUT2="${DIR}/2.fa"
 EMPTY="${DIR}/empty.fa"
 
-$PRG $INPUT1 > "${INPUT1}.out" ![4](assets/4.png)
+$PRG $INPUT1 > "${INPUT1}.out" ![4](img/4.png)
 $PRG $INPUT2 > "${INPUT2}.out"
 $PRG $EMPTY > "${EMPTY}.out"
 $PRG $INPUT1 $INPUT2 $EMPTY > "$DIR/all.fa.out"
@@ -601,7 +601,7 @@ $PRG $INPUT1 $INPUT2 $EMPTY > "$DIR/all.fa.out"
 STYLES="plain simple grid pipe orgtbl rst mediawiki latex latex_raw
  latex_booktabs"
 
-for FILE in $INPUT1 $INPUT2; do ![5](assets/5.png)
+for FILE in $INPUT1 $INPUT2; do ![5](img/5.png)
     for STYLE in $STYLES; do
         $PRG -t $STYLE $FILE > "$FILE.${STYLE}.out"
     done
@@ -610,23 +610,23 @@ done
 echo Done.
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-1)
 
 正在测试的程序。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-2)
 
 输入文件的目录。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-3)
 
 输入文件。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-4)
 
 使用三个输入文件和默认的表格样式运行程序。
 
-[![5](assets/5.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-5)
+![5](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO8-5)
 
 使用两个输入文件和所有表格样式运行程序。
 
@@ -642,25 +642,25 @@ TEST1 = ('./tests/inputs/1.fa', './tests/inputs/1.fa.out')
 def run(input_file: str, expected_file: str) -> None:
     """ Runs on command-line input """
 
-    expected = open(expected_file).read().rstrip() ![1](assets/1.png)
-    rv, out = getstatusoutput(f'{RUN} {input_file}') ![2](assets/2.png)
-    assert rv == 0 ![3](assets/3.png)
-    assert out == expected ![4](assets/4.png)
+    expected = open(expected_file).read().rstrip() ![1](img/1.png)
+    rv, out = getstatusoutput(f'{RUN} {input_file}') ![2](img/2.png)
+    assert rv == 0 ![3](img/3.png)
+    assert out == expected ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-1)
 
 从文件中读取预期的输出。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-2)
 
 使用默认的表格样式运行给定的输入文件。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-3)
 
 检查返回值是否为`0`。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO9-4)
 
 检查输出是否符合预期值。
 
@@ -670,10 +670,10 @@ def run(input_file: str, expected_file: str) -> None:
 def test_input1() -> None:
     """ Runs on command-line input """
 
-    run(*TEST1) ![1](assets/1.png)
+    run(*TEST1) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO10-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO10-1)
 
 将元组展开以将两个值按位置传递给`run()`函数。
 
@@ -683,55 +683,55 @@ def test_input1() -> None:
 def test_styles() -> None:
     """ Test table styles """
 
-    styles = [ ![1](assets/1.png)
+    styles =  ![1
         'plain', 'simple', 'grid', 'pipe', 'orgtbl', 'rst', 'mediawiki',
         'latex', 'latex_raw', 'latex_booktabs'
     ]
 
-    for file in [TEST1[0], TEST2[0]]: ![2](assets/2.png)
-        for style in styles: ![3](assets/3.png)
-            expected_file = file + '.' + style + '.out' ![4](assets/4.png)
-            assert os.path.isfile(expected_file) ![5](assets/5.png)
-            expected = open(expected_file).read().rstrip() ![6](assets/6.png)
-            flag = '--tablefmt' if random.choice([0, 1]) else '-t' ![7](assets/7.png)
-            rv, out = getstatusoutput(f'{RUN} {flag} {style} {file}') ![8](assets/8.png)
-            assert rv == 0 ![9](assets/9.png)
+    for file in [TEST1[0], TEST2[0]]: ![2](img/2.png)
+        for style in styles: ![3](img/3.png)
+            expected_file = file + '.' + style + '.out' ![4](img/4.png)
+            assert os.path.isfile(expected_file) ![5](img/5.png)
+            expected = open(expected_file).read().rstrip() ![6](img/6.png)
+            flag = '--tablefmt' if random.choice([0, 1]) else '-t' ![7](img/7.png)
+            rv, out = getstatusoutput(f'{RUN} {flag} {style} {file}') ![8](img/8.png)
+            assert rv == 0 ![9](img/9.png)
             assert out == expected
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-1)
 
 定义一个包含所有可能样式的列表。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-2)
 
 使用两个非空文件。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-3)
 
 遍历每种样式。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-4)
 
 输出文件是输入文件名加上样式和扩展名*.out*。
 
-[![5](assets/5.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-5)
+![5](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-5)
 
 检查文件是否存在。
 
-[![6](assets/6.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-6)
+![6](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-6)
 
 从文件中读取预期值。
 
-[![7](assets/7.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-7)
+![7](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-7)
 
 随机选择短或长标志进行测试。
 
-[![8](assets/8.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-8)
+![8](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-8)
 
 使用标志选项、样式和文件运行程序。
 
-[![9](assets/9.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-9)
+![9](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO11-9)
 
 确保程序无错误运行，并生成正确的输出。
 
@@ -739,9 +739,9 @@ def test_styles() -> None:
 
 ## 解决方案 2：使用 rich 进行格式化
 
-在这第二个解决方案中，我想展示另一种创建输出表格的方法，使用 `rich` 模块来跟踪输入文件的处理并创建一个更漂亮的输出表格。[图 15-1](#fig_15.1) 展示了输出的外观。
+在这第二个解决方案中，我想展示另一种创建输出表格的方法，使用 `rich` 模块来跟踪输入文件的处理并创建一个更漂亮的输出表格。图 15-1 展示了输出的外观。
 
-![mpfb 1501](assets/mpfb_1501.png)
+![mpfb 1501](img/mpfb_1501.png)
 
 ###### 图 15-1\. 使用 `rich` 模块的进度指示器和输出表格更加华丽
 
@@ -759,39 +759,39 @@ from rich.table import Table, Column
 def main() -> None:
     args = get_args()
 
-    table = Table('Name', ![1](assets/1.png)
+    table = Table('Name', ![1](img/1.png)
                   Column(header='Min. Len', justify='right'),
                   Column(header='Max. Len', justify='right'),
                   Column(header='Avg. Len', justify='right'),
                   Column(header='Num. Seqs', justify='right'),
                   header_style="bold black")
 
-    for fh in track(args.file): ![2](assets/2.png)
-        file = process(fh) ![3](assets/3.png)
-        table.add_row(file.filename, str(file.min_len), str(file.max_len), ![4](assets/4.png)
+    for fh in track(args.file): ![2](img/2.png)
+        file = process(fh) ![3](img/3.png)
+        table.add_row(file.filename, str(file.min_len), str(file.max_len), ![4](img/4.png)
                       str(file.avg_len), str(file.num_seqs))
 
-    console = Console() ![5](assets/5.png)
+    console = Console() ![5](img/5.png)
     console.print(table)
 ```
 
-[![1](assets/1.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-1)
+![1](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-1)
 
 创建表格来保存数据。名称列是一个标准的左对齐字符串字段。所有其他列都需要右对齐，并需要一个自定义的 `Column` 对象。
 
-[![2](assets/2.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-2)
+![2](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-2)
 
 使用 `track()` 函数迭代每个文件句柄，为用户创建进度条。
 
-[![3](assets/3.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-3)
+![3](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-3)
 
 处理文件以获取统计信息。
 
-[![4](assets/4.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-4)
+![4](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-4)
 
 将文件的统计信息添加到表格中。注意，所有值必须是字符串。
 
-[![5](assets/5.png)](#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-5)
+![5](img/#co_seqmagique__creating__span_class__keep_together__and_formatting_reports__span__CO12-5)
 
 创建一个 `Console` 对象，并用它来打印输出。
 

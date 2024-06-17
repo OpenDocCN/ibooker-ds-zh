@@ -1,18 +1,18 @@
-# 第36章 可视化与Seaborn
+# 第三十六章 可视化与 Seaborn
 
-Matplotlib已经是Python科学可视化的核心工具数十年了，但即使是忠实的用户也会承认它经常留下很多不足之处。关于Matplotlib经常提到的几个抱怨有：
+Matplotlib 已经是 Python 科学可视化的核心工具数十年了，但即使是忠实的用户也会承认它经常留下很多不足之处。关于 Matplotlib 经常提到的几个抱怨有：
 
-+   一个常见的早期抱怨，现在已经过时：在2.0版本之前，Matplotlib的颜色和样式默认值有时很差，并显得过时。
++   一个常见的早期抱怨，现在已经过时：在 2.0 版本之前，Matplotlib 的颜色和样式默认值有时很差，并显得过时。
 
-+   Matplotlib的API相对较低级。虽然可以进行复杂的统计可视化，但通常需要大量的样板代码。
++   Matplotlib 的 API 相对较低级。虽然可以进行复杂的统计可视化，但通常需要大量的样板代码。
 
-+   Matplotlib比Pandas早十多年，因此不设计用于与Pandas的`DataFrame`对象一起使用。为了可视化`DataFrame`中的数据，必须提取每个`Series`并经常将它们连接成正确的格式。更好的是有一个可以智能使用`DataFrame`标签进行绘图的绘图库。
++   Matplotlib 比 Pandas 早十多年，因此不设计用于与 Pandas 的`DataFrame`对象一起使用。为了可视化`DataFrame`中的数据，必须提取每个`Series`并经常将它们连接成正确的格式。更好的是有一个可以智能使用`DataFrame`标签进行绘图的绘图库。
 
-解决这些问题的一个答案是[Seaborn](http://seaborn.pydata.org)。Seaborn在Matplotlib之上提供了一个API，提供了合理的绘图样式和颜色默认设置，定义了常见统计绘图类型的简单高级函数，并与Pandas提供的功能集成。
+解决这些问题的一个答案是[Seaborn](http://seaborn.pydata.org)。Seaborn 在 Matplotlib 之上提供了一个 API，提供了合理的绘图样式和颜色默认设置，定义了常见统计绘图类型的简单高级函数，并与 Pandas 提供的功能集成。
 
-公平地说，Matplotlib团队已经适应了不断变化的环境：它添加了在[第34章](ch34.xhtml#section-0411-settings-and-stylesheets)讨论的`plt.style`工具，并且Matplotlib开始更无缝地处理Pandas数据。但基于刚讨论的所有原因，Seaborn仍然是一个有用的附加组件。
+公平地说，Matplotlib 团队已经适应了不断变化的环境：它添加了在第三十四章讨论的`plt.style`工具，并且 Matplotlib 开始更无缝地处理 Pandas 数据。但基于刚讨论的所有原因，Seaborn 仍然是一个有用的附加组件。
 
-按照惯例，Seaborn通常被导入为`sns`：
+按照惯例，Seaborn 通常被导入为`sns`：
 
 ```py
 In [1]: %matplotlib inline
@@ -26,17 +26,17 @@ In [1]: %matplotlib inline
 
 ###### 注意
 
-全彩色图像可以在[GitHub上的补充材料](https://oreil.ly/PDSH_GitHub)中找到。
+全彩色图像可以在[GitHub 上的补充材料](https://oreil.ly/PDSH_GitHub)中找到。
 
-# 探索Seaborn绘图
+# 探索 Seaborn 绘图
 
-Seaborn的主要思想是提供高级命令来创建各种对统计数据探索有用的绘图类型，甚至一些统计模型拟合。
+Seaborn 的主要思想是提供高级命令来创建各种对统计数据探索有用的绘图类型，甚至一些统计模型拟合。
 
-让我们看看Seaborn中提供的几个数据集和绘图类型。请注意，所有以下内容*都可以*使用原始的Matplotlib命令完成（实际上，Seaborn在幕后确实这样做），但Seaborn的API更加方便。
+让我们看看 Seaborn 中提供的几个数据集和绘图类型。请注意，所有以下内容*都可以*使用原始的 Matplotlib 命令完成（实际上，Seaborn 在幕后确实这样做），但 Seaborn 的 API 更加方便。
 
-## 直方图，KDE和密度
+## 直方图，KDE 和密度
 
-在统计数据可视化中，您通常只想绘制变量的直方图和联合分布。我们已经看到在Matplotlib中这相对比较简单（见[图36-1](#fig_0414-visualization-with-seaborn_files_in_output_5_0)）。
+在统计数据可视化中，您通常只想绘制变量的直方图和联合分布。我们已经看到在 Matplotlib 中这相对比较简单（见图 36-1）。
 
 ```py
 In [2]: data = np.random.multivariate_normal([0, 0], [[5, 2], [2, 2]], size=2000)
@@ -46,27 +46,27 @@ In [2]: data = np.random.multivariate_normal([0, 0], [[5, 2], [2, 2]], size=2000
             plt.hist(data[col], density=True, alpha=0.5)
 ```
 
-![output 5 0](assets/output_5_0.png)
+![output 5 0](img/output_5_0.png)
 
-###### 图36-1 直方图可视化分布
+###### 图 36-1 直方图可视化分布
 
-不仅仅是提供直方图作为可视化输出，我们还可以使用核密度估计获得分布的平滑估计（在[第28章](ch28.xhtml#section-0404-density-and-contour-plots)介绍），Seaborn通过`sns.kdeplot`来实现（参见[图36-2](#fig_0414-visualization-with-seaborn_files_in_output_7_0)）。
+不仅仅是提供直方图作为可视化输出，我们还可以使用核密度估计获得分布的平滑估计（在第二十八章介绍），Seaborn 通过`sns.kdeplot`来实现（参见图 36-2）。
 
 ```py
 In [3]: sns.kdeplot(data=data, shade=True);
 ```
 
-![output 7 0](assets/output_7_0.png)
+![output 7 0](img/output_7_0.png)
 
-###### 图36-2 核密度估计可视化分布
+###### 图 36-2 核密度估计可视化分布
 
-如果我们将`x`和`y`列传递给`kdeplot`，我们将得到一个二维可视化的联合密度（见[图 36-3](#fig_0414-visualization-with-seaborn_files_in_output_9_0)）。
+如果我们将`x`和`y`列传递给`kdeplot`，我们将得到一个二维可视化的联合密度（见图 36-3）。
 
 ```py
 In [4]: sns.kdeplot(data=data, x='x', y='y');
 ```
 
-![output 9 0](assets/output_9_0.png)
+![output 9 0](img/output_9_0.png)
 
 ###### 图 36-3\. 一个二维核密度图
 
@@ -89,19 +89,19 @@ Out[5]:    sepal_length  sepal_width  petal_length  petal_width species
         4           5.0          3.6           1.4          0.2  setosa
 ```
 
-将样本之间的多维关系可视化就像调用`sns.pairplot`一样简单（见[图 36-4](#fig_0414-visualization-with-seaborn_files_in_output_14_0)）。
+将样本之间的多维关系可视化就像调用`sns.pairplot`一样简单（见图 36-4）。
 
 ```py
 In [6]: sns.pairplot(iris, hue='species', height=2.5);
 ```
 
-![output 14 0](assets/output_14_0.png)
+![output 14 0](img/output_14_0.png)
 
 ###### 图 36-4\. 显示四个变量之间关系的对角线图
 
 ## 分面直方图
 
-有时查看数据的最佳方式是通过子集的直方图，如[图 36-5](#fig_0414-visualization-with-seaborn_files_in_output_17_0)所示。Seaborn 的`FacetGrid`使得这变得简单。我们将查看一些数据，显示餐厅员工根据各种指标数据获得的小费金额：^([1](ch36.xhtml#idm45858747325904))
+有时查看数据的最佳方式是通过子集的直方图，如图 36-5 所示。Seaborn 的`FacetGrid`使得这变得简单。我们将查看一些数据，显示餐厅员工根据各种指标数据获得的小费金额：^(1)
 
 ```py
 In [7]: tips = sns.load_dataset('tips')
@@ -121,15 +121,15 @@ In [8]: tips['tip_pct'] = 100 * tips['tip'] / tips['total_bill']
         grid.map(plt.hist, "tip_pct", bins=np.linspace(0, 40, 15));
 ```
 
-![output 17 0](assets/output_17_0.png)
+![output 17 0](img/output_17_0.png)
 
 ###### 图 36-5\. 一个分面直方图的示例
 
-分面图为我们提供了一些关于数据集的快速见解：例如，我们看到它包含的关于晚餐时间男服务员的数据远远多于其他类别，并且典型的小费金额似乎在约10%到20%之间，两端都有一些异常值。
+分面图为我们提供了一些关于数据集的快速见解：例如，我们看到它包含的关于晚餐时间男服务员的数据远远多于其他类别，并且典型的小费金额似乎在约 10%到 20%之间，两端都有一些异常值。
 
 # 分类图
 
-分类图也可以用于这种类型的可视化。这允许您查看由任何其他参数定义的箱中参数的分布，如[图 36-6](#fig_0414-visualization-with-seaborn_files_in_output_19_0)所示。
+分类图也可以用于这种类型的可视化。这允许您查看由任何其他参数定义的箱中参数的分布，如图 36-6 所示。
 
 ```py
 In [9]: with sns.axes_style(style='ticks'):
@@ -138,36 +138,36 @@ In [9]: with sns.axes_style(style='ticks'):
             g.set_axis_labels("Day", "Total Bill");
 ```
 
-![output 19 0](assets/output_19_0.png)
+![output 19 0](img/output_19_0.png)
 
 ###### 图 36-6\. 一个因子图的示例，比较给定各种离散因子的分布
 
 ## 联合分布
 
-类似于我们之前看到的对角线图，我们可以使用`sns.jointplot`显示不同数据集之间的联合分布，以及相关的边缘分布（见[图 36-7](#fig_0414-visualization-with-seaborn_files_in_output_21_0)）。
+类似于我们之前看到的对角线图，我们可以使用`sns.jointplot`显示不同数据集之间的联合分布，以及相关的边缘分布（见图 36-7）。
 
 ```py
 In [10]: with sns.axes_style('white'):
              sns.jointplot(x="total_bill", y="tip", data=tips, kind='hex')
 ```
 
-![output 21 0](assets/output_21_0.png)
+![output 21 0](img/output_21_0.png)
 
 ###### 图 36-7\. 一个联合分布图
 
-联合图甚至可以进行一些自动的核密度估计和回归，如[图 36-8](#fig_0414-visualization-with-seaborn_files_in_output_23_0)所示。
+联合图甚至可以进行一些自动的核密度估计和回归，如图 36-8 所示。
 
 ```py
 In [11]: sns.jointplot(x="total_bill", y="tip", data=tips, kind='reg');
 ```
 
-![output 23 0](assets/output_23_0.png)
+![output 23 0](img/output_23_0.png)
 
 ###### 图 36-8\. 带有回归拟合的联合分布图
 
 ## 条形图
 
-可以使用`sns.factorplot`来绘制时间序列。在下面的示例中，我们将使用我们在[第20章](ch20.xhtml#section-0308-aggregation-and-grouping)中首次看到的Planets数据集；参见[图36-9](#fig_0414-visualization-with-seaborn_files_in_output_26_0)的结果。
+可以使用`sns.factorplot`来绘制时间序列。在下面的示例中，我们将使用我们在第二十章中首次看到的 Planets 数据集；参见图 36-9 的结果。
 
 ```py
 In [12]: planets = sns.load_dataset('planets')
@@ -187,11 +187,11 @@ In [13]: with sns.axes_style('white'):
              g.set_xticklabels(step=5)
 ```
 
-![output 26 0](assets/output_26_0.png)
+![output 26 0](img/output_26_0.png)
 
-###### 图36-9。柱状图作为因子图的特例
+###### 图 36-9。柱状图作为因子图的特例
 
-通过查看每个行星的发现*方法*，我们可以更多地了解这些行星（参见[图36-10](#fig_0414-visualization-with-seaborn_files_in_output_28_0)）。
+通过查看每个行星的发现*方法*，我们可以更多地了解这些行星（参见图 36-10）。
 
 ```py
 In [14]: with sns.axes_style('white'):
@@ -200,17 +200,17 @@ In [14]: with sns.axes_style('white'):
              g.set_ylabels('Number of Planets Discovered')
 ```
 
-![output 28 0](assets/output_28_0.png)
+![output 28 0](img/output_28_0.png)
 
-###### 图36-10。按年份和类型发现的行星数量
+###### 图 36-10。按年份和类型发现的行星数量
 
-有关使用Seaborn绘图的更多信息，请参见[Seaborn文档](https://oreil.ly/fCHxn)，特别是[示例画廊](https://oreil.ly/08xGE)。
+有关使用 Seaborn 绘图的更多信息，请参见[Seaborn 文档](https://oreil.ly/fCHxn)，特别是[示例画廊](https://oreil.ly/08xGE)。
 
 # 示例：探索马拉松完成时间
 
-在这里，我们将使用Seaborn来帮助可视化和理解马拉松的完成结果。^([2](ch36.xhtml#idm45858746633600)) 我从网络上的来源爬取了数据，进行了汇总并删除了任何识别信息，并将其放在了GitHub上，可以下载。^([3](ch36.xhtml#idm45858746632288))
+在这里，我们将使用 Seaborn 来帮助可视化和理解马拉松的完成结果。^(2) 我从网络上的来源爬取了数据，进行了汇总并删除了任何识别信息，并将其放在了 GitHub 上，可以下载。^(3)
 
-我们将从下载数据并加载到Pandas开始：
+我们将从下载数据并加载到 Pandas 开始：
 
 ```py
 In [15]: # url = ('https://raw.githubusercontent.com/jakevdp/'
@@ -229,7 +229,7 @@ Out[16]:    age gender     split     final
          4   31      M  01:06:32  02:13:59
 ```
 
-请注意，Pandas将时间列加载为Python字符串（类型为`object`）；我们可以通过查看`DataFrame`的`dtypes`属性来看到这一点：
+请注意，Pandas 将时间列加载为 Python 字符串（类型为`object`）；我们可以通过查看`DataFrame`的`dtypes`属性来看到这一点：
 
 ```py
 In [17]: data.dtypes
@@ -269,7 +269,7 @@ Out[19]: age                 int64
          dtype: object
 ```
 
-这将使时间数据更容易处理。为了我们的Seaborn绘图实用工具的目的，让我们接下来添加列，以秒为单位给出时间：
+这将使时间数据更容易处理。为了我们的 Seaborn 绘图实用工具的目的，让我们接下来添加列，以秒为单位给出时间：
 
 ```py
 In [20]: data['split_sec'] = data['split'].view(int) / 1E9
@@ -283,7 +283,7 @@ Out[20]:    age gender           split           final  split_sec  final_sec
          4   31      M 0 days 01:06:32 0 days 02:13:59     3992.0     8039.0
 ```
 
-为了了解数据的外观，我们可以在数据上绘制一个`jointplot`；[图36-11](#fig_0414-visualization-with-seaborn_files_in_output_41_0)显示了结果。
+为了了解数据的外观，我们可以在数据上绘制一个`jointplot`；图 36-11 显示了结果。
 
 ```py
 In [21]: with sns.axes_style('white'):
@@ -294,9 +294,9 @@ In [21]: with sns.axes_style('white'):
 
 虚线显示了如果某人以完全稳定的速度跑完马拉松，其时间会在哪里。分布高于此线表明（正如您所料），大多数人在马拉松比赛过程中放慢了速度。如果您曾经参加过竞争性比赛，您会知道那些在比赛的第二半段跑得更快的人被称为“负分裂”比赛。
 
-![output 41 0](assets/output_41_0.png)
+![output 41 0](img/output_41_0.png)
 
-###### 图36-11。半马拉松第一半分裂与全马拉松完成时间之间的关系
+###### 图 36-11。半马拉松第一半分裂与全马拉松完成时间之间的关系
 
 让我们在数据中创建另一列，即分裂比例，用于衡量每位选手进行负分裂或正分裂比赛的程度。
 
@@ -318,25 +318,25 @@ Out[22]:    age gender           split           final  split_sec  final_sec  \
          4    0.006842
 ```
 
-在这个分裂差小于零的地方，这个人通过这个比例进行了负分裂比赛。让我们做一个这个分裂比例的分布图（参见[图36-12](#fig_0414-visualization-with-seaborn_files_in_output_45_0)）。
+在这个分裂差小于零的地方，这个人通过这个比例进行了负分裂比赛。让我们做一个这个分裂比例的分布图（参见图 36-12）。
 
 ```py
 In [23]: sns.displot(data['split_frac'], kde=False)
          plt.axvline(0, color="k", linestyle="--");
 ```
 
-![output 45 0](assets/output_45_0.png)
+![output 45 0](img/output_45_0.png)
 
-###### 图36-12。分裂比例的分布；0.0表示在相同时间内完成了第一半和第二半马拉松的跑步者
+###### 图 36-12。分裂比例的分布；0.0 表示在相同时间内完成了第一半和第二半马拉松的跑步者
 
 ```py
 In [24]: sum(data.split_frac < 0)
 Out[24]: 251
 ```
 
-在将近40,000名参与者中，只有250人实现了负分裂的马拉松。
+在将近 40,000 名参与者中，只有 250 人实现了负分裂的马拉松。
 
-让我们看看这种分裂比例与其他变量是否有任何相关性。我们将使用`PairGrid`来完成这个任务，它会绘制所有这些相关性的图表（见[图 36-13](#fig_0414-visualization-with-seaborn_files_in_output_48_0)）。
+让我们看看这种分裂比例与其他变量是否有任何相关性。我们将使用`PairGrid`来完成这个任务，它会绘制所有这些相关性的图表（见图 36-13）。
 
 ```py
 In [25]: g = sns.PairGrid(data, vars=['age', 'split_sec', 'final_sec', 'split_frac'],
@@ -345,11 +345,11 @@ In [25]: g = sns.PairGrid(data, vars=['age', 'split_sec', 'final_sec', 'split_fr
          g.add_legend();
 ```
 
-![output 48 0](assets/output_48_0.png)
+![output 48 0](img/output_48_0.png)
 
 ###### 图 36-13\. 马拉松数据集内部量之间的关系
 
-分裂比例看起来与年龄没有特别相关性，但与最终时间相关：跑得更快的人往往在马拉松中有更接近均匀分裂的趋势。让我们来看一下按性别分隔的分裂比例直方图，显示在[图 36-14](#fig_0414-visualization-with-seaborn_files_in_output_50_0)中。
+分裂比例看起来与年龄没有特别相关性，但与最终时间相关：跑得更快的人往往在马拉松中有更接近均匀分裂的趋势。让我们来看一下按性别分隔的分裂比例直方图，显示在图 36-14 中。
 
 ```py
 In [26]: sns.kdeplot(data.split_frac[data.gender=='M'], label='men', shade=True)
@@ -357,24 +357,24 @@ In [26]: sns.kdeplot(data.split_frac[data.gender=='M'], label='men', shade=True)
          plt.xlabel('split_frac');
 ```
 
-![output 50 0](assets/output_50_0.png)
+![output 50 0](img/output_50_0.png)
 
 ###### 图 36-14\. 按性别分布的分裂比例
 
 这里有趣的是，有很多男性比女性更接近均匀分裂！在男性和女性中间几乎呈双峰分布。让我们看看是否可以通过年龄的函数来解析正在发生的事情。
 
-比较分布的一个好方法是使用*小提琴图*，显示在[图 36-15](#fig_0414-visualization-with-seaborn_files_in_output_52_0)中。
+比较分布的一个好方法是使用*小提琴图*，显示在图 36-15 中。
 
 ```py
 In [27]: sns.violinplot(x="gender", y="split_frac", data=data,
                         palette=["lightblue", "lightpink"]);
 ```
 
-![output 52 0](assets/output_52_0.png)
+![output 52 0](img/output_52_0.png)
 
 ###### 图 36-15\. 显示按性别分裂比例的小提琴图
 
-让我们深入一点，将这些小提琴图作为年龄的函数进行比较（见[图 36-16](#fig_0414-visualization-with-seaborn_files_in_output_55_0)）。我们将从创建一个新的列开始，该列指定每个人所在的年龄范围，按十年计算：
+让我们深入一点，将这些小提琴图作为年龄的函数进行比较（见图 36-16）。我们将从创建一个新的列开始，该列指定每个人所在的年龄范围，按十年计算：
 
 ```py
 In [28]: data['age_dec'] = data.age.map(lambda age: 10 * (age // 10))
@@ -404,20 +404,20 @@ In [29]: men = (data.gender == 'M')
                             palette=["lightblue", "lightpink"]);
 ```
 
-![output 55 0](assets/output_55_0.png)
+![output 55 0](img/output_55_0.png)
 
 ###### 图 36-16\. 显示按性别和年龄分裂比例的小提琴图
 
-我们可以看到男性和女性之间分布的不同之处：20到50岁男性的分裂分布向较低分裂过度密集，而与同龄的女性（或者任何年龄段的女性）相比如此。
+我们可以看到男性和女性之间分布的不同之处：20 到 50 岁男性的分裂分布向较低分裂过度密集，而与同龄的女性（或者任何年龄段的女性）相比如此。
 
-同样令人惊讶的是，80岁的女性似乎在分裂时间方面表现出色，尽管这可能是一个小数量效应，因为该范围内的参与者寥寥无几：
+同样令人惊讶的是，80 岁的女性似乎在分裂时间方面表现出色，尽管这可能是一个小数量效应，因为该范围内的参与者寥寥无几：
 
 ```py
 In [30]: (data.age > 80).sum()
 Out[30]: 7
 ```
 
-回到有负分裂的男性：这些跑步者是谁？这种分裂比例是否与快速完成相关联？我们可以轻松地绘制这个图表。我们将使用`regplot`，它会自动适应数据的线性回归模型（见[图 36-17](#fig_0414-visualization-with-seaborn_files_in_output_59_0)）。
+回到有负分裂的男性：这些跑步者是谁？这种分裂比例是否与快速完成相关联？我们可以轻松地绘制这个图表。我们将使用`regplot`，它会自动适应数据的线性回归模型（见图 36-17）。
 
 ```py
 In [31]: g = sns.lmplot(x='final_sec', y='split_frac', col='gender', data=data,
@@ -425,15 +425,15 @@ In [31]: g = sns.lmplot(x='final_sec', y='split_frac', col='gender', data=data,
          g.map(plt.axhline, y=0.0, color="k", ls=":");
 ```
 
-![output 59 0](assets/output_59_0.png)
+![output 59 0](img/output_59_0.png)
 
 ###### 图 36-17\. 按性别比较分裂比例与完成时间
 
-显然，无论是男性还是女性，分裂较快的人往往是在大约15,000秒内或约4小时内完成的更快的跑步者。比这慢的人很少有快速的第二分裂。
+显然，无论是男性还是女性，分裂较快的人往往是在大约 15,000 秒内或约 4 小时内完成的更快的跑步者。比这慢的人很少有快速的第二分裂。
 
 # 进一步的资源
 
-一本书的一部分永远无法涵盖 Matplotlib 中所有可用的特性和绘图类型。与其他包一样，IPython 的 Tab 键补全和帮助功能（参见 [第 1 章](ch01.xhtml#section-0101-help-and-documentation)）在探索 Matplotlib 的 API 时非常有帮助。此外，Matplotlib 的 [在线文档](http://matplotlib.org) 是一个有用的参考。特别是查看 [Matplotlib 图库](https://oreil.ly/WNiHP)，展示了数百种不同的绘图样式缩略图，每个缩略图都链接到一个页面，展示了生成它的 Python 代码片段。这使你能够视觉检查和学习各种不同的绘图风格和可视化技术。
+一本书的一部分永远无法涵盖 Matplotlib 中所有可用的特性和绘图类型。与其他包一样，IPython 的 Tab 键补全和帮助功能（参见 第一章）在探索 Matplotlib 的 API 时非常有帮助。此外，Matplotlib 的 [在线文档](http://matplotlib.org) 是一个有用的参考。特别是查看 [Matplotlib 图库](https://oreil.ly/WNiHP)，展示了数百种不同的绘图样式缩略图，每个缩略图都链接到一个页面，展示了生成它的 Python 代码片段。这使你能够视觉检查和学习各种不同的绘图风格和可视化技术。
 
 对于 Matplotlib 的书籍级处理，我推荐 *Interactive Applications Using Matplotlib*（Packt），作者是 Matplotlib 核心开发者 Ben Root。
 
@@ -451,8 +451,8 @@ In [31]: g = sns.lmplot(x='final_sec', y='split_frac', col='gender', data=data,
 
 Python 世界中的可视化景观在不断发展，我预计这份列表在本书出版时可能已经过时。此外，由于 Python 在许多领域中被广泛使用，你会发现许多为更具体用例构建的其他可视化工具。要跟踪所有这些工具可能有些困难，但了解这些广泛的可视化工具的好资源是 [PyViz](https://pyviz.org)，一个开放的、社区驱动的网站，包含许多不同可视化工具的教程和示例。
 
-^([1](ch36.xhtml#idm45858747325904-marker)) 本节使用的餐厅员工数据将员工分为两性：女性和男性。生物性别并非二元的，但以下讨论和可视化受到此数据的限制。
+^(1) 本节使用的餐厅员工数据将员工分为两性：女性和男性。生物性别并非二元的，但以下讨论和可视化受到此数据的限制。
 
-^([2](ch36.xhtml#idm45858746633600-marker)) 本节中使用的马拉松数据将跑步者分为两个性别：男性和女性。虽然性别是一个光谱，但以下讨论和可视化使用这个二元性别，因为它们依赖于数据。
+^(2) 本节中使用的马拉松数据将跑步者分为两个性别：男性和女性。虽然性别是一个光谱，但以下讨论和可视化使用这个二元性别，因为它们依赖于数据。
 
-^([3](ch36.xhtml#idm45858746632288-marker)) 如果您有兴趣使用Python进行网络抓取，我推荐由 O'Reilly 的 Ryan Mitchell 撰写的 [*Web Scraping with Python*](https://oreil.ly/e3Xdg)。
+^(3) 如果您有兴趣使用 Python 进行网络抓取，我推荐由 O'Reilly 的 Ryan Mitchell 撰写的 [*Web Scraping with Python*](https://oreil.ly/e3Xdg)。

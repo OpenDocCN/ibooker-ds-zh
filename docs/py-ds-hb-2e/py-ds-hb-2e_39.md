@@ -1,12 +1,12 @@
-# 第35章。Matplotlib中的三维绘图
+# 第三十五章。Matplotlib 中的三维绘图
 
-Matplotlib最初仅设计用于二维绘图。在1.0版本发布时，一些三维绘图工具建立在Matplotlib的二维显示之上，结果是一组便利的（虽然有些受限）用于三维数据可视化的工具。通过导入`mplot3d`工具包，可以启用三维绘图，这个工具包已经包含在主Matplotlib安装中：
+Matplotlib 最初仅设计用于二维绘图。在 1.0 版本发布时，一些三维绘图工具建立在 Matplotlib 的二维显示之上，结果是一组便利的（虽然有些受限）用于三维数据可视化的工具。通过导入`mplot3d`工具包，可以启用三维绘图，这个工具包已经包含在主 Matplotlib 安装中：
 
 ```py
 In [1]: from mpl_toolkits import mplot3d
 ```
 
-导入此子模块后，可以通过向任何常规坐标轴创建函数传递关键字`projection='3d'`来创建三维坐标轴，如下所示（见[Figure 35-1](#fig_0412-three-dimensional-plotting_files_in_output_5_0)）。
+导入此子模块后，可以通过向任何常规坐标轴创建函数传递关键字`projection='3d'`来创建三维坐标轴，如下所示（见 Figure 35-1）。
 
 ```py
 In [2]: %matplotlib inline
@@ -21,13 +21,13 @@ In [3]: fig = plt.figure()
 
 有了这个三维坐标轴，我们现在可以绘制各种三维图类型。三维绘图是从交互式视图中查看图形而不是静态图像中受益良多的功能之一；请记住，在运行此代码时，要使用交互式图形，可以使用`%matplotlib notebook`而不是`%matplotlib inline`。
 
-![output 5 0](assets/output_5_0.png)
+![output 5 0](img/output_5_0.png)
 
 ###### Figure 35-1\. 一个空的三维坐标轴
 
 # 三维点和线
 
-最基本的三维图是由一组(x, y, z)三元组创建的线条或散点图集合。类比之前讨论的常见二维图，可以使用`ax.plot3D`和`ax.scatter3D`函数创建这些图。这些函数的调用签名几乎与它们的二维对应物完全相同，因此您可以参考第[26](ch26.xhtml#section-0401-simple-line-plots)章和第[27](ch27.xhtml#section-0402-simple-scatter-plots)章以获取有关控制输出的更多信息。在这里，我们将绘制一个三角螺旋线，以及一些随机绘制在该线附近的点（见[Figure 35-2](#fig_0412-three-dimensional-plotting_files_in_output_8_0)）。
+最基本的三维图是由一组(x, y, z)三元组创建的线条或散点图集合。类比之前讨论的常见二维图，可以使用`ax.plot3D`和`ax.scatter3D`函数创建这些图。这些函数的调用签名几乎与它们的二维对应物完全相同，因此您可以参考第二十六章和第二十七章以获取有关控制输出的更多信息。在这里，我们将绘制一个三角螺旋线，以及一些随机绘制在该线附近的点（见 Figure 35-2）。
 
 ```py
 In [4]: ax = plt.axes(projection='3d')
@@ -45,7 +45,7 @@ In [4]: ax = plt.axes(projection='3d')
         ax.scatter3D(xdata, ydata, zdata, c=zdata, cmap='Greens');
 ```
 
-![output 8 0](assets/output_8_0.png)
+![output 8 0](img/output_8_0.png)
 
 ###### Figure 35-2\. 三维中的点和线
 
@@ -53,7 +53,7 @@ In [4]: ax = plt.axes(projection='3d')
 
 # 三维等高线图
 
-类似于我们在[Chapter 28](ch28.xhtml#section-0404-density-and-contour-plots)中探讨的等高线图，`mplot3d`包含使用相同输入创建三维浮雕图的工具。与`ax.contour`类似，`ax.contour3D`要求所有输入数据都以二维规则网格的形式提供，*z*数据在每个点进行评估。在这里，我们将展示一个三维正弦函数的等高线图（见[Figure 35-3](#fig_0412-three-dimensional-plotting_files_in_output_12_0)）。
+类似于我们在 Chapter 28 中探讨的等高线图，`mplot3d`包含使用相同输入创建三维浮雕图的工具。与`ax.contour`类似，`ax.contour3D`要求所有输入数据都以二维规则网格的形式提供，*z*数据在每个点进行评估。在这里，我们将展示一个三维正弦函数的等高线图（见 Figure 35-3）。
 
 ```py
 In [5]: def f(x, y):
@@ -75,26 +75,26 @@ In [6]: fig = plt.figure()
         ax.set_zlabel('z');
 ```
 
-![output 12 0](assets/output_12_0.png)
+![output 12 0](img/output_12_0.png)
 
 ###### Figure 35-3\. 一个三维等高线图
 
-有时默认的视角不是最佳的，这时我们可以使用`view_init`方法来设置仰角和方位角。在下面的例子中，可视化效果见[图 35-4](#fig_0412-three-dimensional-plotting_files_in_output_14_0)，我们将使用仰角60度（即相对于 x-y 平面上方60度）和方位角35度（即相对于 z 轴逆时针旋转35度）：
+有时默认的视角不是最佳的，这时我们可以使用`view_init`方法来设置仰角和方位角。在下面的例子中，可视化效果见图 35-4，我们将使用仰角 60 度（即相对于 x-y 平面上方 60 度）和方位角 35 度（即相对于 z 轴逆时针旋转 35 度）：
 
 ```py
 In [7]: ax.view_init(60, 35)
         fig
 ```
 
-同样地，请注意，当使用Matplotlib的交互式后端时，可以通过点击和拖动来实现这种类型的旋转。
+同样地，请注意，当使用 Matplotlib 的交互式后端时，可以通过点击和拖动来实现这种类型的旋转。
 
-![output 14 0](assets/output_14_0.png)
+![output 14 0](img/output_14_0.png)
 
 ###### 图 35-4\. 调整三维绘图的视角角度
 
 # 线框和表面绘图
 
-另外两种适用于网格数据的三维绘图类型是线框图和表面绘图。它们接受值网格并将其投影到指定的三维表面上，可以使得最终的三维形态非常易于可视化。这里有一个使用线框的例子（见[图 35-5](#fig_0412-three-dimensional-plotting_files_in_output_17_0)）。
+另外两种适用于网格数据的三维绘图类型是线框图和表面绘图。它们接受值网格并将其投影到指定的三维表面上，可以使得最终的三维形态非常易于可视化。这里有一个使用线框的例子（见图 35-5）。
 
 ```py
 In [8]: fig = plt.figure()
@@ -103,11 +103,11 @@ In [8]: fig = plt.figure()
         ax.set_title('wireframe');
 ```
 
-![output 17 0](assets/output_17_0.png)
+![output 17 0](img/output_17_0.png)
 
 ###### 图 35-5\. 一个线框图
 
-表面绘图类似于线框图，但线框的每个面都是填充多边形。为填充的多边形添加颜色映射可以帮助感知所可视化表面的拓扑结构，正如您在[图 35-6](#fig_0412-three-dimensional-plotting_files_in_output_19_0)中看到的那样。
+表面绘图类似于线框图，但线框的每个面都是填充多边形。为填充的多边形添加颜色映射可以帮助感知所可视化表面的拓扑结构，正如您在图 35-6 中看到的那样。
 
 ```py
 In [9]: ax = plt.axes(projection='3d')
@@ -116,11 +116,11 @@ In [9]: ax = plt.axes(projection='3d')
         ax.set_title('surface');
 ```
 
-![output 19 0](assets/output_19_0.png)
+![output 19 0](img/output_19_0.png)
 
 ###### 图 35-6\. 一个三维表面绘图
 
-尽管表面绘图的值网格需要是二维的，但不一定是矩形的。这里有一个创建部分极坐标网格的例子，当与`surface3D`绘图结合使用时，可以为我们提供所可视化函数的一个切片（见[图 35-7](#fig_0412-three-dimensional-plotting_files_in_output_21_0)）。
+尽管表面绘图的值网格需要是二维的，但不一定是矩形的。这里有一个创建部分极坐标网格的例子，当与`surface3D`绘图结合使用时，可以为我们提供所可视化函数的一个切片（见图 35-7）。
 
 ```py
 In [10]: r = np.linspace(0, 6, 20)
@@ -136,7 +136,7 @@ In [10]: r = np.linspace(0, 6, 20)
                          cmap='viridis', edgecolor='none');
 ```
 
-![output 21 0](assets/output_21_0.png)
+![output 21 0](img/output_21_0.png)
 
 ###### 图 35-7\. 一个极坐标表面绘图
 
@@ -152,18 +152,18 @@ In [11]: theta = 2 * np.pi * np.random.random(1000)
          z = f(x, y)
 ```
 
-我们可以创建一个散点图来了解我们正在抽样的表面，如[图 35-8](#fig_0412-three-dimensional-plotting_files_in_output_25_0)所示。
+我们可以创建一个散点图来了解我们正在抽样的表面，如图 35-8 所示。
 
 ```py
 In [12]: ax = plt.axes(projection='3d')
          ax.scatter(x, y, z, c=z, cmap='viridis', linewidth=0.5);
 ```
 
-![output 25 0](assets/output_25_0.png)
+![output 25 0](img/output_25_0.png)
 
 ###### 图 35-8\. 一个三维采样表面
 
-这个点云留下了许多问题。在这种情况下帮助我们的函数是`ax.plot_trisurf`，它通过首先在相邻点之间找到一组三角形来创建表面（请记住这里的`x`、`y`和`z`是一维数组）；结果如图 35-9 所示（见[图 35-9](#fig_0412-three-dimensional-plotting_files_in_output_27_0)）：
+这个点云留下了许多问题。在这种情况下帮助我们的函数是`ax.plot_trisurf`，它通过首先在相邻点之间找到一组三角形来创建表面（请记住这里的`x`、`y`和`z`是一维数组）；结果如图 35-9 所示（见图 35-9）：
 
 ```py
 In [13]: ax = plt.axes(projection='3d')
@@ -173,7 +173,7 @@ In [13]: ax = plt.axes(projection='3d')
 
 结果当然不像使用网格绘制时那么干净，但这种三角剖分的灵活性允许一些非常有趣的三维绘图。例如，实际上可以使用这种方法绘制一个三维莫比乌斯带，我们接下来会看到。
 
-![output 27 0](assets/output_27_0.png)
+![output 27 0](img/output_27_0.png)
 
 ###### 第 35-9 图。一个三角形表面绘图
 
@@ -206,7 +206,7 @@ In [16]: # radius in x-y plane
          z = np.ravel(w * np.sin(phi))
 ```
 
-最后，为了绘制这个对象，我们必须确保三角剖分是正确的。最好的方法是在基本参数化内定义三角剖分，然后让 Matplotlib 将这个三角剖分投影到莫比乌斯带的三维空间中。可以通过以下方式实现这一点（见 [第 35-10 图](#fig_0412-three-dimensional-plotting_files_in_output_36_0)）。
+最后，为了绘制这个对象，我们必须确保三角剖分是正确的。最好的方法是在基本参数化内定义三角剖分，然后让 Matplotlib 将这个三角剖分投影到莫比乌斯带的三维空间中。可以通过以下方式实现这一点（见 第 35-10 图）。
 
 ```py
 In [17]: # triangulate in the underlying parametrization
@@ -221,7 +221,7 @@ In [17]: # triangulate in the underlying parametrization
          ax.axis('off');
 ```
 
-![output 36 0](assets/output_36_0.png)
+![output 36 0](img/output_36_0.png)
 
 ###### 第 35-10 图。可视化莫比乌斯带
 

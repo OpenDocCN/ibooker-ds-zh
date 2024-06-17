@@ -1,4 +1,4 @@
-# 第8章\. R中的数据操作和可视化
+# 第八章\. R 中的数据操作和可视化
 
 美国统计学家罗纳德·蒂斯特德曾经说过：“原始数据就像生土豆一样，通常在使用之前需要清理。” 数据操作需要时间，如果你曾经做过以下工作，你可能感受到了痛苦：
 
@@ -10,9 +10,9 @@
 
 +   通过公共字段连接多个数据集
 
-很可能，你在Excel中已经*大量*进行了所有这些操作，并且可能深入研究了`VLOOKUP()`和透视表等著名功能来完成它们。在本章中，你将学习这些技术的R语言等效方法，特别是借助`dplyr`。
+很可能，你在 Excel 中已经*大量*进行了所有这些操作，并且可能深入研究了`VLOOKUP()`和透视表等著名功能来完成它们。在本章中，你将学习这些技术的 R 语言等效方法，特别是借助`dplyr`。
 
-数据操作通常与可视化紧密相关：正如前文所述，人类在视觉处理信息方面非常擅长，因此这是评估数据集的一种绝佳方式。您将学习如何使用美丽的`ggplot2`包可视化数据，该包与`dplyr`一样属于`tidyverse`。这将使您在使用R探索和测试数据关系时站稳脚跟，这将在[第9章](ch09.html#r-capstone)中介绍。让我们通过调用相关的包开始。在本章中，我们还将使用书籍的伴随存储库中的*star*数据集（https://oreil.ly/lmZb7）。
+数据操作通常与可视化紧密相关：正如前文所述，人类在视觉处理信息方面非常擅长，因此这是评估数据集的一种绝佳方式。您将学习如何使用美丽的`ggplot2`包可视化数据，该包与`dplyr`一样属于`tidyverse`。这将使您在使用 R 探索和测试数据关系时站稳脚跟，这将在第九章中介绍。让我们通过调用相关的包开始。在本章中，我们还将使用书籍的伴随存储库中的*star*数据集（https://oreil.ly/lmZb7）。
 
 ```py
 library(tidyverse)
@@ -31,11 +31,11 @@ head(star)
 #> 6      454      431 regular                 8 boy   yes      white       5
 ```
 
-# 使用dplyr进行数据操作
+# 使用 dplyr 进行数据操作
 
-`dplyr`是一个用于操作表格数据结构的流行包。它的许多函数，或者*动词*，工作方式类似，并且可以轻松地一起使用。[表 8-1](#dplyr-grammar)列出了一些常见的`dplyr`函数及其用途；本章将详细介绍每一个。
+`dplyr`是一个用于操作表格数据结构的流行包。它的许多函数，或者*动词*，工作方式类似，并且可以轻松地一起使用。表 8-1 列出了一些常见的`dplyr`函数及其用途；本章将详细介绍每一个。
 
-表8-1\. `dplyr`经常使用的动词
+表 8-1\. `dplyr`经常使用的动词
 
 | 功能 | 它的作用 |
 | --- | --- |
@@ -46,9 +46,9 @@ head(star)
 | `filter()` | 根据条件选择行 |
 | `group_by()` | 根据给定列分组行 |
 | `summarize()` | 汇总每个组的值 |
-| `left_join()` | 将表B中匹配的记录连接到表A；如果在表B中找不到匹配项，则结果为`NA` |
+| `left_join()` | 将表 B 中匹配的记录连接到表 A；如果在表 B 中找不到匹配项，则结果为`NA` |
 
-为了简洁起见，我不会涵盖`dplyr`的所有函数，甚至不会涵盖我们所涵盖的函数的所有使用方式。要了解更多关于该包的信息，请查看Hadley Wickham和Garrett Grolemund（O’Reilly）的《*R for Data Science*》。您还可以通过在RStudio中导航到帮助→ 速查表→ 使用`dplyr`进行数据转换来访问一张有用的速查表，总结`dplyr`的许多函数是如何一起工作的。
+为了简洁起见，我不会涵盖`dplyr`的所有函数，甚至不会涵盖我们所涵盖的函数的所有使用方式。要了解更多关于该包的信息，请查看 Hadley Wickham 和 Garrett Grolemund（O’Reilly）的《*R for Data Science*》。您还可以通过在 RStudio 中导航到帮助→ 速查表→ 使用`dplyr`进行数据转换来访问一张有用的速查表，总结`dplyr`的许多函数是如何一起工作的。
 
 ## 列操作
 
@@ -164,9 +164,9 @@ head(star)
 
 ## 逐行操作
 
-到目前为止，我们一直在*列*上操作。现在让我们专注于*行*；具体来说是排序和过滤。在 Excel 中，我们可以使用自定义排序菜单按多列排序。例如，如果我们希望按升序排序此数据框的 *classk*，然后按 *treadssk* 排序。在 Excel 中进行此操作的菜单看起来会像 [图 8-1](#custom-sort-excel)。
+到目前为止，我们一直在*列*上操作。现在让我们专注于*行*；具体来说是排序和过滤。在 Excel 中，我们可以使用自定义排序菜单按多列排序。例如，如果我们希望按升序排序此数据框的 *classk*，然后按 *treadssk* 排序。在 Excel 中进行此操作的菜单看起来会像 图 8-1。
 
-![Excel 中的自定义排序菜单](assets/aina_0801.png)
+![Excel 中的自定义排序菜单](img/aina_0801.png)
 
 ###### 图 8-1\. Excel 中的自定义排序菜单
 
@@ -274,13 +274,13 @@ filter(star, classk == 'small.class' & treadssk >= 500)
 
 ## 聚合和连接数据
 
-我喜欢称透视表为 Excel 的“WD-40”，因为它们允许我们将数据“旋转”到不同的方向，以便进行简单的分析。例如，让我们重新创建 [Figure 8-2](#excel-pivot-table) 中显示的按班级规模的平均数学分数的透视表：
+我喜欢称透视表为 Excel 的“WD-40”，因为它们允许我们将数据“旋转”到不同的方向，以便进行简单的分析。例如，让我们重新创建 Figure 8-2 中显示的按班级规模的平均数学分数的透视表：
 
-![Excel 透视表的工作原理](assets/aina_0802.png)
+![Excel 透视表的工作原理](img/aina_0802.png)
 
 ###### Figure 8-2\. Excel 透视表的工作原理
 
-如 [Figure 8-2](#excel-pivot-table) 所示，此透视表包括两个要素。首先，我按变量 *classk* 进行了数据聚合。然后，我通过计算 *tmathssk* 的平均值进行了总结。在 R 中，这些是离散的步骤，使用了不同的 `dplyr` 函数。首先，我们将使用 `group_by()` 进行数据聚合。我们的输出包括一行 `# Groups: classk [3]`，表示 `star_grouped` 根据 `classk` 变量分为三组：
+如 Figure 8-2 所示，此透视表包括两个要素。首先，我按变量 *classk* 进行了数据聚合。然后，我通过计算 *tmathssk* 的平均值进行了总结。在 R 中，这些是离散的步骤，使用了不同的 `dplyr` 函数。首先，我们将使用 `group_by()` 进行数据聚合。我们的输出包括一行 `# Groups: classk [3]`，表示 `star_grouped` 根据 `classk` 变量分为三组：
 
 ```py
 star_grouped <- group_by(star, classk)
@@ -297,7 +297,7 @@ head(star_grouped)
 #> 6      454      431 regular                 8       885
 ```
 
-我们通过一个变量进行了 *分组*，现在让我们用另一个变量来 *汇总* 它，使用 `summarize()` 函数（`summarise()` 也可以）。在这里，我们将指定结果列的名称以及如何计算它。[Table 8-2](#dplyr-agg-types) 列出了一些常见的聚合函数。
+我们通过一个变量进行了 *分组*，现在让我们用另一个变量来 *汇总* 它，使用 `summarize()` 函数（`summarise()` 也可以）。在这里，我们将指定结果列的名称以及如何计算它。Table 8-2 列出了一些常见的聚合函数。
 
 Table 8-2\. `dplyr` 的有用聚合函数
 
@@ -323,7 +323,7 @@ summarize(star_grouped, avg_math = mean(tmathssk))
 #> 3 small.class           491.
 ```
 
-`` `summarise()` ungrouping output `` 错误是一个警告，说明您通过聚合操作取消了分组 tibble 的分组。减去一些格式上的差异，我们得到了与 [Figure 8-2](#excel-pivot-table) 相同的结果。
+`` `summarise()` ungrouping output `` 错误是一个警告，说明您通过聚合操作取消了分组 tibble 的分组。减去一些格式上的差异，我们得到了与 Figure 8-2 相同的结果。
 
 如果透视表是 Excel 的 WD-40，那么 `VLOOKUP()` 就是胶带，可以轻松地从多个来源合并数据。在我们最初的 *star* 数据集中，*schidkin* 是一个学区指示器。我们在本章早些时候删除了此列，所以让我们重新读取它。但是，如果除了指示器编号外，我们还想知道这些区域的 *名称* 怎么办？幸运的是，书库中的 *districts.csv* 包含了这些信息，所以让我们将它们一起读取，并制定一个组合策略：
 
@@ -361,7 +361,7 @@ head(districts)
 #> 6       7 Cahokia         Sattley
 ```
 
-看起来需要的类似于`VLOOKUP()`的功能：我们希望从*districts*中“读入”*school_name*（可能还包括*county*）变量到*star*，给定共享的*schidkn*变量。要在R中实现这一点，我们将使用*joins*的方法，它来自关系数据库，这是在[第5章](ch05.html#data-analytics-stack)中讨论过的主题。与`VLOOKUP()`最接近的是左外连接，在`dplyr`中可以使用`left_join()`函数实现。我们将首先提供“基本”表(*star*)，然后是“查找”表(*districts*)。该函数将在*star*的每条记录中查找并返回*districts*中的匹配项，如果没有找到匹配项则返回`NA`。为了减少控制台输出的过多信息，我将仅保留来自*star*的一些列：
+看起来需要的类似于`VLOOKUP()`的功能：我们希望从*districts*中“读入”*school_name*（可能还包括*county*）变量到*star*，给定共享的*schidkn*变量。要在 R 中实现这一点，我们将使用*joins*的方法，它来自关系数据库，这是在第五章中讨论过的主题。与`VLOOKUP()`最接近的是左外连接，在`dplyr`中可以使用`left_join()`函数实现。我们将首先提供“基本”表(*star*)，然后是“查找”表(*districts*)。该函数将在*star*的每条记录中查找并返回*districts*中的匹配项，如果没有找到匹配项则返回`NA`。为了减少控制台输出的过多信息，我将仅保留来自*star*的一些列：
 
 ```py
 # Left outer join star on districts
@@ -385,11 +385,11 @@ left_join(select(star, schidkn, tmathssk, treadssk), districts)
 
 `left_join()`非常智能：它知道在`schidkn`上进行连接，并“查找”不仅*school_name*还包括*county*。要了解更多关于数据连接的信息，请查看帮助文档。
 
-在R中，缺失的观察结果表示为特殊值`NA`。例如，似乎没有找到第5区的地区名的匹配项。在`VLOOKUP()`中，这将导致`#N/A`错误。`NA`并*不*意味着观察结果等于零，只是其值缺失。在编程R时，你可能会看到其他特殊值，例如`NaN`或`NULL`；要了解更多信息，请查看帮助文档。
+在 R 中，缺失的观察结果表示为特殊值`NA`。例如，似乎没有找到第 5 区的地区名的匹配项。在`VLOOKUP()`中，这将导致`#N/A`错误。`NA`并*不*意味着观察结果等于零，只是其值缺失。在编程 R 时，你可能会看到其他特殊值，例如`NaN`或`NULL`；要了解更多信息，请查看帮助文档。
 
-## dplyr与管道操作符（%>%）
+## dplyr 与管道操作符（%>%）
 
-正如你所看到的，`dplyr`函数对于任何曾在Excel中处理数据的人来说都非常强大且直观。并且，任何曾处理过数据的人都知道，仅需一步就能准备好数据是非常罕见的。例如，你可能想用*star*进行典型的数据分析任务：
+正如你所看到的，`dplyr`函数对于任何曾在 Excel 中处理数据的人来说都非常强大且直观。并且，任何曾处理过数据的人都知道，仅需一步就能准备好数据是非常罕见的。例如，你可能想用*star*进行典型的数据分析任务：
 
 > 按班级类型查找平均阅读分数，从高到低排序。
 
@@ -419,7 +419,7 @@ star_avg_reading_sorted
 #> 3 regular                  435.
 ```
 
-这让我们得到了一个答案，但需要相当多的步骤，并且很难跟踪各种函数和对象名称。另一种方法是使用管道运算符`%>%`将这些函数链接在一起。这使我们能够将一个函数的输出直接传递给另一个函数的输入，因此我们能够避免不断重命名我们的输入和输出。此运算符的默认键盘快捷键为Windows下的Ctrl+Shift+M，Mac下的Cmd-Shift-M。
+这让我们得到了一个答案，但需要相当多的步骤，并且很难跟踪各种函数和对象名称。另一种方法是使用管道运算符`%>%`将这些函数链接在一起。这使我们能够将一个函数的输出直接传递给另一个函数的输入，因此我们能够避免不断重命名我们的输入和输出。此运算符的默认键盘快捷键为 Windows 下的 Ctrl+Shift+M，Mac 下的 Cmd-Shift-M。
 
 让我们重新创建上述步骤，这次使用管道操作符。我们将每个函数放在自己的一行上，用`%>%`将它们组合起来。虽然不必将每个步骤放在自己的行上，但通常出于可读性考虑。使用管道操作符时，无需突出显示整个代码块即可运行它；只需将光标放在所需选择中的任何位置并执行即可：
 
@@ -459,17 +459,17 @@ star %>%
 #> 6       6     428\.     470.
 ```
 
-## 使用tidyr重塑数据
+## 使用 tidyr 重塑数据
 
-尽管在R中，`group_by()`和`summarize()`与Excel中的透视表类似，但这些函数不能做到Excel透视表所能做的一切。如果你想要*重塑*数据，或者改变行和列的设置怎么办？例如，我们的*star*数据框有两列分别用于数学和阅读成绩，*tmathssk*和*treadssk*。我想将它们合并为一个名为*score*的列，并且用另一个名为*test_type*的列指示每个观察是数学还是阅读。我还想保留学校指示符*schidkn*作为分析的一部分。
+尽管在 R 中，`group_by()`和`summarize()`与 Excel 中的透视表类似，但这些函数不能做到 Excel 透视表所能做的一切。如果你想要*重塑*数据，或者改变行和列的设置怎么办？例如，我们的*star*数据框有两列分别用于数学和阅读成绩，*tmathssk*和*treadssk*。我想将它们合并为一个名为*score*的列，并且用另一个名为*test_type*的列指示每个观察是数学还是阅读。我还想保留学校指示符*schidkn*作为分析的一部分。
 
-[图8-3](#excel-reshape)展示了在Excel中的样子；请注意，我将*Values*字段从*tmathssk*和*treadssk*改名为*math*和*reading*。如果你想进一步查看此透视表，它在[书籍仓库中作为*ch-8.xlsx*可供查阅](https://oreil.ly/Kq93s)。在这里我再次使用了索引列；否则，透视表将尝试通过*schidkn*“汇总”所有值。
+图 8-3 展示了在 Excel 中的样子；请注意，我将*Values*字段从*tmathssk*和*treadssk*改名为*math*和*reading*。如果你想进一步查看此透视表，它在[书籍仓库中作为*ch-8.xlsx*可供查阅](https://oreil.ly/Kq93s)。在这里我再次使用了索引列；否则，透视表将尝试通过*schidkn*“汇总”所有值。
 
-![Excel中的重塑](assets/aina_0803.png)
+![Excel 中的重塑](img/aina_0803.png)
 
-###### 图8-3\. 在Excel中重塑*star*
+###### 图 8-3\. 在 Excel 中重塑*star*
 
-我们可以使用`tidyr`，这是`tidyverse`核心包，来重塑*star*。在R中重塑时，添加一个索引列也会很有帮助，就像在Excel中一样。我们可以用`row_number()`函数来创建一个：
+我们可以使用`tidyr`，这是`tidyverse`核心包，来重塑*star*。在 R 中重塑时，添加一个索引列也会很有帮助，就像在 Excel 中一样。我们可以用`row_number()`函数来创建一个：
 
 ```py
 star_pivot <- star %>%
@@ -477,7 +477,7 @@ star_pivot <- star %>%
                 mutate(id = row_number())
 ```
 
-要重塑数据框，我们将使用`tidyr`中的`pivot_longer()`和`pivot_wider()`。在你的脑海中和[图8-3](#excel-reshape)中考虑一下，如果我们将*tmathssk*和*treadssk*的分数合并到一列中，数据集会发生什么变化。数据集会变得更长，因为我们在这里添加了行。要使用`pivot_longer()`，我们将使用`cols`参数指定要拉长的列，并使用`values_to`来命名结果列。我们还将使用`names_to`来命名指示每个分数是数学还是阅读的列：
+要重塑数据框，我们将使用`tidyr`中的`pivot_longer()`和`pivot_wider()`。在你的脑海中和图 8-3 中考虑一下，如果我们将*tmathssk*和*treadssk*的分数合并到一列中，数据集会发生什么变化。数据集会变得更长，因为我们在这里添加了行。要使用`pivot_longer()`，我们将使用`cols`参数指定要拉长的列，并使用`values_to`来命名结果列。我们还将使用`names_to`来命名指示每个分数是数学还是阅读的列：
 
 ```py
 star_long <- star_pivot %>%
@@ -528,49 +528,49 @@ head(star_wide)
 #> 6       5     6   454     431
 ```
 
-数据重塑在R中是相对复杂的操作，所以在疑惑时，问问自己：*我是在将数据做宽还是做长？在数据透视表中我该怎么做？* 如果你能逻辑地走通实现所需最终状态的过程，编码就会容易得多。
+数据重塑在 R 中是相对复杂的操作，所以在疑惑时，问问自己：*我是在将数据做宽还是做长？在数据透视表中我该怎么做？* 如果你能逻辑地走通实现所需最终状态的过程，编码就会容易得多。
 
-# 使用ggplot2进行数据可视化
+# 使用 ggplot2 进行数据可视化
 
 `dplyr`还能做很多帮助我们操作数据的事情，但现在让我们将注意力转向数据可视化。具体来说，我们将关注另一个`tidyverse`包，`ggplot2`。该包的名称和模型是根据计算机科学家利兰·威尔金森（Leland Wilkinson）设计的“图形语法”来命名和建模的，`ggplot2`提供了一种构建图形的有序方法。这种结构模仿了语音元素如何结合在一起形成句子，因此被称为“图形语法”。
 
-我将在这里介绍一些`ggplot2`的基本元素和图表类型。更多关于该包的信息，请查阅包的原作者哈德利·威克汉姆（Hadley Wickham）所著的*ggplot2: Elegant Graphics for Data Analysis*（Springer）。你还可以通过在RStudio中导航到Help → Cheatsheets → Data Visualization with ggplot2来访问一个有用的速查表。一些`ggplot2`的基本元素可以在[表8-3](#elements-of-ggplot2)中找到。还有其他元素可用；更多信息，请查看前面提到的资源。
+我将在这里介绍一些`ggplot2`的基本元素和图表类型。更多关于该包的信息，请查阅包的原作者哈德利·威克汉姆（Hadley Wickham）所著的*ggplot2: Elegant Graphics for Data Analysis*（Springer）。你还可以通过在 RStudio 中导航到 Help → Cheatsheets → Data Visualization with ggplot2 来访问一个有用的速查表。一些`ggplot2`的基本元素可以在表 8-3 中找到。还有其他元素可用；更多信息，请查看前面提到的资源。
 
-表8-3。`ggplot2`的基础元素
+表 8-3。`ggplot2`的基础元素
 
 | 元素 | 描述 |
 | --- | --- |
 | `data` | 数据源 |
-| `aes` | 从数据到视觉属性（x轴和y轴、颜色、大小等）的美学映射 |
+| `aes` | 从数据到视觉属性（x 轴和 y 轴、颜色、大小等）的美学映射 |
 | `geom` | 图中观察到的几何对象类型（线条、条形、点等） |
 
-让我们从可视化*classk*每个级别的观测数量作为条形图开始。我们将从`ggplot()`函数开始，指定[表8-3](#elements-of-ggplot2)中的三个元素：
+让我们从可视化*classk*每个级别的观测数量作为条形图开始。我们将从`ggplot()`函数开始，指定表 8-3 中的三个元素：
 
 ```py
-ggplot(data = star, ![1](assets/1.png)
-          aes(x = classk)) + ![2](assets/2.png)
-   geom_bar() ![3](assets/3.png)
+ggplot(data = star, ![1](img/1.png)
+          aes(x = classk)) + ![2](img/2.png)
+   geom_bar() ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_data_manipulation_and_visualization_in_r_CO1-1)
+![1](img/#co_data_manipulation_and_visualization_in_r_CO1-1)
 
 数据源通过`data`参数指定。
 
-[![2](assets/2.png)](#co_data_manipulation_and_visualization_in_r_CO1-2)
+![2](img/#co_data_manipulation_and_visualization_in_r_CO1-2)
 
-从数据到可视化的美学映射通过`aes()`函数指定。在这里，我们要求*classk*映射到最终图表的x轴。
+从数据到可视化的美学映射通过`aes()`函数指定。在这里，我们要求*classk*映射到最终图表的 x 轴。
 
-[![3](assets/3.png)](#co_data_manipulation_and_visualization_in_r_CO1-3)
+![3](img/#co_data_manipulation_and_visualization_in_r_CO1-3)
 
-我们通过`geom_bar()`函数根据指定的数据和美学映射绘制一个几何对象。结果显示在[图8-4](#barplot-ggplot2)中。
+我们通过`geom_bar()`函数根据指定的数据和美学映射绘制一个几何对象。结果显示在图 8-4 中。
 
-![计数图](assets/aina_0804.png)
+![计数图](img/aina_0804.png)
 
-###### 图8-4。`ggplot2`中的条形图
+###### 图 8-4。`ggplot2`中的条形图
 
 类似于管道操作符，不必将每一层图形放在单独的行中，但通常为了可读性而更倾向于这样做。还可以通过将光标放置在代码块的任何位置并运行来执行整个绘图。
 
-因其模块化方法，使用 `ggplot2` 迭代可视化很容易。例如，我们可以通过将 *x* 映射更改为 *treadssk* 并使用 `geom_histogram()` 绘制结果，将我们的绘图切换为直方图。这导致了图 [8-5](#histogram-ggplot2) 中显示的直方图：
+因其模块化方法，使用 `ggplot2` 迭代可视化很容易。例如，我们可以通过将 *x* 映射更改为 *treadssk* 并使用 `geom_histogram()` 绘制结果，将我们的绘图切换为直方图。这导致了图 8-5 中显示的直方图：
 
 ```py
 ggplot(data = star, aes(x = treadssk)) +
@@ -579,66 +579,66 @@ ggplot(data = star, aes(x = treadssk)) +
 #> `stat_bin()` using `bins = 30`. Pick better value with `binwidth`.
 ```
 
-![直方图](assets/aina_0805.png)
+![直方图](img/aina_0805.png)
 
 ###### 图 8-5\. `ggplot2` 中的直方图
 
-还有许多方法可以自定义 `ggplot2` 绘图。例如，您可能已经注意到，上一个绘图的输出消息指出直方图使用了 30 个柱。让我们将该数字更改为 25，并在 `geom_histogram()` 中使用粉色填充以及几个其他参数。这导致了图 [8-6](#custom-histogram-ggplot2) 中显示的直方图：
+还有许多方法可以自定义 `ggplot2` 绘图。例如，您可能已经注意到，上一个绘图的输出消息指出直方图使用了 30 个柱。让我们将该数字更改为 25，并在 `geom_histogram()` 中使用粉色填充以及几个其他参数。这导致了图 8-6 中显示的直方图：
 
 ```py
 ggplot(data = star, aes(x = treadssk)) +
   geom_histogram(bins = 25, fill = 'pink')
 ```
 
-![自定义直方图](assets/aina_0806.png)
+![自定义直方图](img/aina_0806.png)
 
 ###### 图 8-6\. `ggplot2` 中的自定义直方图
 
-使用 `geom_boxplot()` 创建箱线图，如 [图 8-7](#boxplot-ggplot2) 所示：
+使用 `geom_boxplot()` 创建箱线图，如 图 8-7 所示：
 
 ```py
 ggplot(data = star, aes(x = treadssk)) +
   geom_boxplot()
 ```
 
-![箱线图](assets/aina_0807.png)
+![箱线图](img/aina_0807.png)
 
 ###### 图 8-7\. 箱线图
 
-到目前为止的任何情况下，我们都可以通过将兴趣变量包含在 `y` 映射中而不是 `x` 映射中来“翻转”图形。让我们尝试在我们的箱线图中进行此操作。图 [8-8](#reverse-boxplot-ggplot2) 展示了以下操作的结果：
+到目前为止的任何情况下，我们都可以通过将兴趣变量包含在 `y` 映射中而不是 `x` 映射中来“翻转”图形。让我们尝试在我们的箱线图中进行此操作。图 8-8 展示了以下操作的结果：
 
 ```py
 ggplot(data = star, aes(y = treadssk)) +
   geom_boxplot()
 ```
 
-![翻转的箱线图](assets/aina_0808.png)
+![翻转的箱线图](img/aina_0808.png)
 
 ###### 图 8-8\. “翻转”的箱线图
 
-现在让我们通过将 *classk* 映射到 x 轴和 *treadssk* 映射到 y 轴，为每个班级大小级别制作一个箱线图。这导致了图 [8-9](#grouped-boxplot-ggplot2) 中显示的箱线图：
+现在让我们通过将 *classk* 映射到 x 轴和 *treadssk* 映射到 y 轴，为每个班级大小级别制作一个箱线图。这导致了图 8-9 中显示的箱线图：
 
 ```py
 ggplot(data = star, aes(x = classk, y = treadssk)) +
   geom_boxplot()
 ```
 
-同样，我们可以使用 `geom_point()` 在 x 和 y 轴上绘制 *tmathssk* 和 *treadssk* 的关系，作为散点图。这导致了图 [8-10](#scatterplot-ggplot2) 中显示的结果：
+同样，我们可以使用 `geom_point()` 在 x 和 y 轴上绘制 *tmathssk* 和 *treadssk* 的关系，作为散点图。这导致了图 8-10 中显示的结果：
 
 ```py
 ggplot(data = star, aes(x = tmathssk, y = treadssk)) +
   geom_point()
 ```
 
-![分组箱线图](assets/aina_0809.png)
+![分组箱线图](img/aina_0809.png)
 
 ###### 图 8-9\. 按组绘制的箱线图
 
-![散点图](assets/aina_0810.png)
+![散点图](img/aina_0810.png)
 
 ###### 图 8-10\. 散点图
 
-我们可以使用一些额外的 `ggplot2` 函数在 x 和 y 轴上叠加标签，以及一个绘图标题。图 [8-11](#labeled-plot-ggplot2) 展示了结果：
+我们可以使用一些额外的 `ggplot2` 函数在 x 和 y 轴上叠加标签，以及一个绘图标题。图 8-11 展示了结果：
 
 ```py
 ggplot(data = star, aes(x = tmathssk, y = treadssk)) +
@@ -647,13 +647,13 @@ ggplot(data = star, aes(x = tmathssk, y = treadssk)) +
   ggtitle('Math score versus reading score')
 ```
 
-![具有自定义标签和标题的散点图](assets/aina_0811.png)
+![具有自定义标签和标题的散点图](img/aina_0811.png)
 
 ###### 图 8-11\. 带有自定义轴标签和标题的散点图
 
 # 结论
 
-`dplyr` 和 `ggplot2` 还可以做更多事情，但这已足以让您开始真正的任务：探索和测试数据中的关系。这将是 [第9章](ch09.html#r-capstone) 的重点。
+`dplyr` 和 `ggplot2` 还可以做更多事情，但这已足以让您开始真正的任务：探索和测试数据中的关系。这将是 第九章 的重点。
 
 # 练习
 
@@ -665,8 +665,8 @@ ggplot(data = star, aes(x = tmathssk, y = treadssk)) +
 
 1.  创建一个名为*density*的新列，计算人口除以土地面积的结果。
 
-1.  可视化2015年所有观测点的土地面积与人口之间的关系。
+1.  可视化 2015 年所有观测点的土地面积与人口之间的关系。
 
-1.  查找2015年每个地区的总人口。
+1.  查找 2015 年每个地区的总人口。
 
-1.  创建一个包含州名和人口的表格，每年2010年至2015年的人口分别放在一个单独的列中。
+1.  创建一个包含州名和人口的表格，每年 2010 年至 2015 年的人口分别放在一个单独的列中。

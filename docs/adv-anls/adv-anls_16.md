@@ -1,6 +1,6 @@
-# 第 13 章\. 项目实战：Python 数据分析
+# 第十三章\. 项目实战：Python 数据分析
 
-在 [第 8 章](ch08.html#r-data-manipulation-visualization) 结尾，你扩展了对 R 的学习，以探索和测试 *mpg* 数据集中的关系。在本章中，我们将使用 Python 进行相同的工作。我们在 Excel 和 R 中进行了相同的工作，所以我将更专注于如何在 Python 中进行分析，而不是为什么要进行分析。
+在 第八章 结尾，你扩展了对 R 的学习，以探索和测试 *mpg* 数据集中的关系。在本章中，我们将使用 Python 进行相同的工作。我们在 Excel 和 R 中进行了相同的工作，所以我将更专注于如何在 Python 中进行分析，而不是为什么要进行分析。
 
 要开始，请调用所有必要的模块。其中一些是新的：从 `scipy` 中，我们将导入 `stats` 子模块。为了告诉 Python 要查找哪个模块，我们将使用 `from` 关键字，然后使用 `import` 关键字来选择一个子模块。正如其名，我们将使用 `scipy` 的 `stats` 子模块来进行统计分析。我们还将使用一个称为 `sklearn` 或 *scikit-learn* 的新包，在训练/测试拆分上验证我们的模型。这个包已经成为机器学习的主要资源，并且与 Anaconda 一起安装。
 
@@ -88,33 +88,33 @@ Europe   68.0  27.602941  6.580182  16.2  23.75  26.0  30.125  44.3
 USA     245.0  20.033469  6.440384   9.0  15.00  18.5  24.000  39.0
 ```
 
-我们还可以像 [图 13-1](#mpg-hist-seaborn) 那样可视化 *mpg* 的整体分布：
+我们还可以像 图 13-1 那样可视化 *mpg* 的整体分布：
 
 ```py
 In[7]: sns.displot(data=mpg, x='mpg')
 ```
 
-![MPG 的直方图](assets/aina_1301.png)
+![MPG 的直方图](img/aina_1301.png)
 
 ###### 图 13-1\. *mpg* 的直方图
 
-现在让我们制作一个箱线图，如 [图 13-2](#mpg-box-seaborn)，比较每个 *origin* 水平上 *mpg* 的分布：
+现在让我们制作一个箱线图，如 图 13-2，比较每个 *origin* 水平上 *mpg* 的分布：
 
 ```py
 In[8]: sns.boxplot(x='origin', y='mpg', data=mpg, color='pink')
 ```
 
-![箱线图](assets/aina_1302.png)
+![箱线图](img/aina_1302.png)
 
 ###### 图 13-2\. 按 *origin* 分组的 *mpg* 箱线图
 
-或者，我们可以将 `displot()` 的 `col` 参数设置为 `origin` 来创建分面直方图，例如 [图 13-3](#mpg-facet-seaborn)：
+或者，我们可以将 `displot()` 的 `col` 参数设置为 `origin` 来创建分面直方图，例如 图 13-3：
 
 ```py
 In[9]: sns.displot(data=mpg, x="mpg", col="origin")
 ```
 
-![分面直方图](assets/aina_1303.png)
+![分面直方图](img/aina_1303.png)
 
 ###### 图 13-3\. 按 *origin* 分组的分面直方图
 
@@ -138,7 +138,7 @@ Out[11]: Ttest_indResult(statistic=-8.534455914399228,
             pvalue=6.306531719750568e-16)
 ```
 
-不幸的是，这里的输出相当有限：虽然包括了p值，但未包括置信区间。要获得更多输出的t检验结果，请查看`researchpy`模块。
+不幸的是，这里的输出相当有限：虽然包括了 p 值，但未包括置信区间。要获得更多输出的 t 检验结果，请查看`researchpy`模块。
 
 现在我们来分析我们的连续变量。我们将从相关矩阵开始。我们可以使用`pandas`中的`corr()`方法，只包括相关变量：
 
@@ -152,26 +152,26 @@ horsepower -0.778427    1.000000  0.864538
 weight     -0.832244    0.864538  1.000000
 ```
 
-接下来，让我们用散点图可视化*weight*和*mpg*之间的关系，如[图 13-4](#mpg-weight-scatter-seaborn)所示：
+接下来，让我们用散点图可视化*weight*和*mpg*之间的关系，如图 13-4 所示：
 
 ```py
 In[13]: sns.scatterplot(x='weight', y='mpg', data=mpg)
         plt.title('Relationship between weight and mileage')
 ```
 
-![散点图](assets/aina_1304.png)
+![散点图](img/aina_1304.png)
 
 ###### 图 13-4\. *mpg*按*weight*的散点图
 
-或者，我们可以使用`seaborn`的`pairplot()`函数在数据集的所有变量对上生成散点图。对角线上包括每个变量的直方图，如[图 13-5](#seaborn-pairplot)所示：
+或者，我们可以使用`seaborn`的`pairplot()`函数在数据集的所有变量对上生成散点图。对角线上包括每个变量的直方图，如图 13-5 所示：
 
 ```py
 In[14]: sns.pairplot(mpg[['mpg','horsepower','weight']])
 ```
 
-![Pairplot](assets/aina_1305.png)
+![Pairplot](img/aina_1305.png)
 
-###### 图 13-5\. *mpg*、*horsepower*和*weight*的Pairplot
+###### 图 13-5\. *mpg*、*horsepower*和*weight*的 Pairplot
 
 ## 线性回归
 
@@ -186,9 +186,9 @@ Out[15]: LinregressResult(slope=-0.007647342535779578,
    pvalue=6.015296051435726e-102, stderr=0.0002579632782734318)
 ```
 
-同样地，您会发现您习惯于看到的一些输出在这里是缺失的。*请注意：* 这里包含的`rvalue`是*相关系数*，而不是R平方。要获得更丰富的线性回归输出，请查看`statsmodels`模块。
+同样地，您会发现您习惯于看到的一些输出在这里是缺失的。*请注意：* 这里包含的`rvalue`是*相关系数*，而不是 R 平方。要获得更丰富的线性回归输出，请查看`statsmodels`模块。
 
-最后但同样重要，让我们在散点图上叠加回归线。`seaborn`有一个专门的函数来实现这一点：`regplot()`。与往常一样，我们将指定我们的独立和依赖变量，以及数据的来源。这将产生[图 13-6](#mpg-scatter-reg-seaborn)：
+最后但同样重要，让我们在散点图上叠加回归线。`seaborn`有一个专门的函数来实现这一点：`regplot()`。与往常一样，我们将指定我们的独立和依赖变量，以及数据的来源。这将产生图 13-6：
 
 ```py
 In[16]: # Fit regression line to scatterplot
@@ -198,15 +198,15 @@ In[16]: # Fit regression line to scatterplot
         plt.title('Relationship between weight and mileage')
 ```
 
-![拟合散点图](assets/aina_1306.png)
+![拟合散点图](img/aina_1306.png)
 
 ###### 图 13-6\. *mpg*按*weight*的散点图与拟合回归线
 
 ## 训练/测试拆分与验证
 
-在[第9章](ch09.html#r-capstone)结束时，您学习了如何在构建R中的线性回归模型时应用训练/测试拆分。
+在第九章结束时，您学习了如何在构建 R 中的线性回归模型时应用训练/测试拆分。
 
-我们将使用`train_test_split()`函数将数据集分为*四*个DataFrame：不仅包括训练和测试数据，还包括独立和依赖变量。我们将先传入包含独立变量的DataFrame，然后是包含依赖变量的DataFrame。使用`random_state`参数，我们会为随机数生成器设置种子，以确保本示例的结果保持一致：
+我们将使用`train_test_split()`函数将数据集分为*四*个 DataFrame：不仅包括训练和测试数据，还包括独立和依赖变量。我们将先传入包含独立变量的 DataFrame，然后是包含依赖变量的 DataFrame。使用`random_state`参数，我们会为随机数生成器设置种子，以确保本示例的结果保持一致：
 
 ```py
 In[17]: X_train, X_test, y_train, y_test =
@@ -214,7 +214,7 @@ In[17]: X_train, X_test, y_train, y_test =
         random_state=1234)
 ```
 
-默认情况下，数据以75/25的比例分割为训练和测试子集。
+默认情况下，数据以 75/25 的比例分割为训练和测试子集。
 
 ```py
 In[18]:  y_train.shape
@@ -256,9 +256,9 @@ In[21]:  regr.coef_
 Out[21]: array([[-0.00760282]])
 ```
 
-要获取关于模型的更多信息，如系数的p值或R平方，请尝试使用`statsmodels`包进行拟合。
+要获取关于模型的更多信息，如系数的 p 值或 R 平方，请尝试使用`statsmodels`包进行拟合。
 
-目前，我们将评估模型在测试数据上的表现，这次使用`sklearn`的`metrics`子模块。我们将实际值和预测值传递给`r2_score()`和`mean_squared_error()`函数，分别返回R平方和RMSE。
+目前，我们将评估模型在测试数据上的表现，这次使用`sklearn`的`metrics`子模块。我们将实际值和预测值传递给`r2_score()`和`mean_squared_error()`函数，分别返回 R 平方和 RMSE。
 
 ```py
 In[22]:  metrics.r2_score(y_test, y_pred)
@@ -272,11 +272,11 @@ Out[23]: 21.63348076436662
 
 # 结论
 
-这一章节的常规警告同样适用：我们只是触及了对这个或任何其他数据集可能进行的分析的表面。但我希望你感觉在使用Python处理数据方面已经步入佳境。
+这一章节的常规警告同样适用：我们只是触及了对这个或任何其他数据集可能进行的分析的表面。但我希望你感觉在使用 Python 处理数据方面已经步入佳境。
 
 # 练习
 
-再次查看*ais*数据集，这次使用Python。从[书籍仓库](https://oreil.ly/dsZDM)中读取Excel工作簿，并完成以下操作。现在你应该对这个分析已经非常熟悉了。
+再次查看*ais*数据集，这次使用 Python。从[书籍仓库](https://oreil.ly/dsZDM)中读取 Excel 工作簿，并完成以下操作。现在你应该对这个分析已经非常熟悉了。
 
 1.  通过性别（*sex*）可视化红细胞计数（*rcc*）的分布。
 
@@ -288,4 +288,4 @@ Out[23]: 21.63348076436662
 
 1.  将*wt*回归到*ht*上。找出拟合回归线的方程。是否存在显著关系？
 
-1.  将回归模型分割成训练集和测试集。测试模型的R平方和RMSE是多少？
+1.  将回归模型分割成训练集和测试集。测试模型的 R 平方和 RMSE 是多少？

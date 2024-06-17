@@ -1,8 +1,8 @@
-# 第18章。组合数据集：concat和append
+# 第十八章。组合数据集：concat 和 append
 
-一些最有趣的数据研究来自于结合不同的数据源。这些操作可以涉及从两个不同数据集的非常简单的连接到更复杂的数据库风格的联接和合并，正确处理数据集之间的任何重叠。`Series`和`DataFrame`是专为这类操作而构建的，Pandas包含使这种数据处理快速和简单的函数和方法。
+一些最有趣的数据研究来自于结合不同的数据源。这些操作可以涉及从两个不同数据集的非常简单的连接到更复杂的数据库风格的联接和合并，正确处理数据集之间的任何重叠。`Series`和`DataFrame`是专为这类操作而构建的，Pandas 包含使这种数据处理快速和简单的函数和方法。
 
-在这里，我们将使用`pd.concat`函数查看`Series`和`DataFrame`的简单连接；稍后我们将深入探讨Pandas中实现的更复杂的内存合并和连接。
+在这里，我们将使用`pd.concat`函数查看`Series`和`DataFrame`的简单连接；稍后我们将深入探讨 Pandas 中实现的更复杂的内存合并和连接。
 
 我们从标准导入开始：
 
@@ -28,7 +28,7 @@ Out[2]:     A   B   C
         2  A2  B2  C2
 ```
 
-另外，我们将创建一个快速的类，允许我们将多个`DataFrame`并排显示。该代码利用了特殊的`_repr_html_`方法，IPython/Jupyter用它来实现其丰富的对象显示：
+另外，我们将创建一个快速的类，允许我们将多个`DataFrame`并排显示。该代码利用了特殊的`_repr_html_`方法，IPython/Jupyter 用它来实现其丰富的对象显示：
 
 ```py
 In [3]: class display(object):
@@ -50,9 +50,9 @@ In [3]: class display(object):
 
 随着我们在以下部分继续讨论，使用这个将会更加清晰。
 
-# 回顾：NumPy数组的连接
+# 回顾：NumPy 数组的连接
 
-`Series`和`DataFrame`对象的连接行为与NumPy数组的连接类似，可以通过`np.concatenate`函数完成，如[第5章](ch05.xhtml#section-0202-the-basics-of-numpy-arrays)中所讨论的那样。记住，您可以使用它将两个或多个数组的内容合并为单个数组：
+`Series`和`DataFrame`对象的连接行为与 NumPy 数组的连接类似，可以通过`np.concatenate`函数完成，如第五章中所讨论的那样。记住，您可以使用它将两个或多个数组的内容合并为单个数组：
 
 ```py
 In [4]: x = [1, 2, 3]
@@ -128,7 +128,7 @@ Out[8]: df3           df4           pd.concat([df3, df4], axis='columns')
 
 ## 重复的索引
 
-`np.concatenate`和`pd.concat`之间的一个重要区别是，Pandas的连接*保留索引*，即使结果会有重复的索引！考虑以下简单示例：
+`np.concatenate`和`pd.concat`之间的一个重要区别是，Pandas 的连接*保留索引*，即使结果会有重复的索引！考虑以下简单示例：
 
 ```py
 In [9]: x = make_df('AB', [0, 1])
@@ -185,7 +185,7 @@ Out[12]: x              y             pd.concat([x, y], keys=['x', 'y'])
                                         1  A3  B3
 ```
 
-我们可以使用[第 17 章](ch17.xhtml#section-0305-hierarchical-indexing)中讨论的工具将这个多重索引的 `DataFrame` 转换为我们感兴趣的表示形式。
+我们可以使用第十七章中讨论的工具将这个多重索引的 `DataFrame` 转换为我们感兴趣的表示形式。
 
 ## 使用连接进行连接
 

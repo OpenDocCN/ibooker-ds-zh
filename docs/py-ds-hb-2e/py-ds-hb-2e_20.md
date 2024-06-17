@@ -1,4 +1,4 @@
-# 第 17 章。分层索引
+# 第十七章。分层索引
 
 到目前为止，我们主要关注存储在 Pandas `Series` 和 `DataFrame` 对象中的一维和二维数据。通常，超出这些维度存储更高维度的数据是有用的——也就是说，数据由超过一个或两个键索引。早期的 Pandas 版本提供了 `Panel` 和 `Panel4D` 对象，可以视为二维 `DataFrame` 的三维或四维类比，但在实践中使用起来有些笨拙。处理更高维数据的更常见模式是利用*分层索引*（也称为*多重索引*），在单个索引中包含多个索引*级别*。通过这种方式，高维数据可以在熟悉的一维 `Series` 和二维 `DataFrame` 对象中紧凑地表示。（如果你对带有 Pandas 风格灵活索引的真正的 *N* 维数组感兴趣，可以查看优秀的[Xarray 包](https://xarray.pydata.org)。）
 
@@ -141,7 +141,7 @@ Out[10]:                     total  under18
                     2020  29145505  7432474
 ```
 
-此外，所有在[第 15 章](ch15.xhtml#section-0303-operations-in-pandas)讨论的 ufunc 和其他功能也适用于层次索引。在此我们计算按年龄小于 18 岁人口的比例，给定上述数据：
+此外，所有在第十五章讨论的 ufunc 和其他功能也适用于层次索引。在此我们计算按年龄小于 18 岁人口的比例，给定上述数据：
 
 ```py
 In [11]: f_u18 = pop_df['under18'] / pop_df['total']
@@ -339,7 +339,7 @@ Out[23]: year
          dtype: int64
 ```
 
-可以进行部分切片，只要`MultiIndex`是排序的（参见[“排序和未排序索引”](#ch_0305-hierarchical-indexing_sorted-and-unsorted-indices)的讨论）：
+可以进行部分切片，只要`MultiIndex`是排序的（参见“排序和未排序索引”的讨论）：
 
 ```py
 In [24]: poploc['california':'new york']
@@ -362,7 +362,7 @@ Out[25]: state
          dtype: int64
 ```
 
-其他类型的索引和选择（在[第14章](ch14.xhtml#section-0302-data-indexing-and-selection)中讨论）同样适用；例如，基于布尔掩码的选择：
+其他类型的索引和选择（在第十四章中讨论）同样适用；例如，基于布尔掩码的选择：
 
 ```py
 In [26]: pop[pop > 22000000]
@@ -401,7 +401,7 @@ Out[28]: subject      Bob       Guido         Sue
               2      49.0  36.3  48.0  39.2  31.0  35.7
 ```
 
-记住，在`DataFrame`中，列是主要的，用于多重索引的`Series`的语法适用于列。例如，我们可以通过简单的操作恢复Guido的心率数据：
+记住，在`DataFrame`中，列是主要的，用于多重索引的`Series`的语法适用于列。例如，我们可以通过简单的操作恢复 Guido 的心率数据：
 
 ```py
 In [29]: health_data['Guido', 'HR']
@@ -413,7 +413,7 @@ Out[29]: year  visit
          Name: (Guido, HR), dtype: float64
 ```
 
-正如单索引情况一样，我们还可以使用在[第14章](ch14.xhtml#section-0302-data-indexing-and-selection)介绍的`loc`、`iloc`和`ix`索引器。例如：
+正如单索引情况一样，我们还可以使用在第十四章介绍的`loc`、`iloc`和`ix`索引器。例如：
 
 ```py
 In [30]: health_data.iloc[:2, :2]
@@ -443,7 +443,7 @@ In [32]: health_data.loc[(:, 1), (:, 'HR')]
 SyntaxError: invalid syntax (3311942670.py, line 1)
 ```
 
-您可以通过使用Python的内置`slice`函数来明确构建所需的切片，但在这种情况下更好的方法是使用`IndexSlice`对象，Pandas专门为此提供。例如：
+您可以通过使用 Python 的内置`slice`函数来明确构建所需的切片，但在这种情况下更好的方法是使用`IndexSlice`对象，Pandas 专门为此提供。例如：
 
 ```py
 In [33]: idx = pd.IndexSlice
@@ -492,7 +492,7 @@ In [35]: try:
 KeyError 'Key length (1) was greater than MultiIndex lexsort depth (0)'
 ```
 
-尽管从错误消息中不完全清楚，但这是由于`MultiIndex`未排序造成的。出于各种原因，部分切片和其他类似操作要求`MultiIndex`中的级别按排序（即词典）顺序排列。Pandas提供了许多方便的例程来执行这种类型的排序，例如`DataFrame`的`sort_index`和`sortlevel`方法。我们在这里将使用最简单的`sort_index`：
+尽管从错误消息中不完全清楚，但这是由于`MultiIndex`未排序造成的。出于各种原因，部分切片和其他类似操作要求`MultiIndex`中的级别按排序（即词典）顺序排列。Pandas 提供了许多方便的例程来执行这种类型的排序，例如`DataFrame`的`sort_index`和`sortlevel`方法。我们在这里将使用最简单的`sort_index`：
 
 ```py
 In [36]: data = data.sort_index()

@@ -1,6 +1,6 @@
 # 第一章。四核苷酸频率：计数事物
 
-在生物信息学中，计算DNA中的碱基可能是“Hello, World!”。[Rosalind DNA挑战](https://oreil.ly/maR31)描述了一个程序，它将获取一段DNA序列并打印出发现的*A*、*C*、*G*和*T*的计数。在Python中计数事物有很多令人惊讶的方式，我将探索这种语言提供的内容。我还将演示如何编写结构良好、有文档化的程序，验证其参数以及编写和运行测试以确保程序正常工作。
+在生物信息学中，计算 DNA 中的碱基可能是“Hello, World!”。[Rosalind DNA 挑战](https://oreil.ly/maR31)描述了一个程序，它将获取一段 DNA 序列并打印出发现的*A*、*C*、*G*和*T*的计数。在 Python 中计数事物有很多令人惊讶的方式，我将探索这种语言提供的内容。我还将演示如何编写结构良好、有文档化的程序，验证其参数以及编写和运行测试以确保程序正常工作。
 
 在本章中，您将学到：
 
@@ -20,7 +20,7 @@
 
 # 开始使用
 
-在开始之前，请确保您已阅读了[“获取代码和测试”](preface01.html#gettingCodeandTests)部分。一旦您有了代码仓库的本地副本，请切换到*01_dna*目录：
+在开始之前，请确保您已阅读了“获取代码和测试”部分。一旦您有了代码仓库的本地副本，请切换到*01_dna*目录：
 
 ```py
 $ cd 01_dna
@@ -44,7 +44,7 @@ dna.py: error: the following arguments are required: DNA
 
 这是复制性的首要元素之一。*程序应提供关于其运行方式的文档。*虽然通常有类似于*README*文件或甚至是论文来描述一个程序，但程序本身必须提供关于其参数和输出的文档。我将向您展示如何使用`argparse`模块定义和验证参数，并生成文档，这意味着由程序生成的使用说明不可能是错误的。与*README*文件和更改日志等可能很快与程序开发脱节的情况形成对比，希望您能欣赏到这种文档的效果。
 
-您可以从使用行看出，程序期望类似`DNA`的参数，因此让我们给它一个序列。正如在Rosalind页面上描述的那样，该程序按照顺序和用单个空格分隔的方式打印每个碱基*A*、*C*、*G*和*T*的计数：
+您可以从使用行看出，程序期望类似`DNA`的参数，因此让我们给它一个序列。正如在 Rosalind 页面上描述的那样，该程序按照顺序和用单个空格分隔的方式打印每个碱基*A*、*C*、*G*和*T*的计数：
 
 ```py
 $ ./dna.py ACCGGGTTTT
@@ -65,7 +65,7 @@ $ ./dna.py tests/inputs/input2.txt
 20 12 17 21
 ```
 
-在整本书中，我将使用`pytest`工具来运行确保程序按预期工作的测试。当我运行**`pytest`**命令时，它将递归搜索当前目录以寻找看起来像测试的测试和函数。请注意，如果你在Windows上，你可能需要运行**`python3 -m pytest`**或**`pytest.exe`**。现在运行它，你应该会看到类似以下的东西，表明程序通过了*tests/dna_test.py*文件中的所有四个测试：
+在整本书中，我将使用`pytest`工具来运行确保程序按预期工作的测试。当我运行**`pytest`**命令时，它将递归搜索当前目录以寻找看起来像测试的测试和函数。请注意，如果你在 Windows 上，你可能需要运行**`python3 -m pytest`**或**`pytest.exe`**。现在运行它，你应该会看到类似以下的东西，表明程序通过了*tests/dna_test.py*文件中的所有四个测试：
 
 ```py
 $ pytest
@@ -105,44 +105,44 @@ Done, see new script "dna.py."
 $ ./dna.py --help
 usage: dna.py [-h] [-a str] [-i int] [-f FILE] [-o] str
 
-Tetranucleotide frequency ![1](assets/1.png)
+Tetranucleotide frequency ![1](img/1.png)
 
 positional arguments:
-  str                   A positional argument ![2](assets/2.png)
+  str                   A positional argument ![2](img/2.png)
 
 optional arguments:
-  -h, --help            show this help message and exit ![3](assets/3.png)
-  -a str, --arg str     A named string argument (default: ) ![4](assets/4.png)
-  -i int, --int int     A named integer argument (default: 0) ![5](assets/5.png)
-  -f FILE, --file FILE  A readable file (default: None) ![6](assets/6.png)
-  -o, --on              A boolean flag (default: False) ![7](assets/7.png)
+  -h, --help            show this help message and exit ![3](img/3.png)
+  -a str, --arg str     A named string argument (default: ) ![4](img/4.png)
+  -i int, --int int     A named integer argument (default: 0) ![5](img/5.png)
+  -f FILE, --file FILE  A readable file (default: None) ![6](img/6.png)
+  -o, --on              A boolean flag (default: False) ![7](img/7.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-1)
 
 这里使用`new.py`的`--purpose`来描述程序。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-2)
 
 该程序接受一个单一的位置字符串参数。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-3)
 
 `-h` 和 `--help` 标志是由 `argparse` 自动添加的，将触发使用说明。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-4)
 
 这是一个命名选项，具有短 (`-a`) 和长 (`--arg`) 名称，用于字符串值。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-5)
 
 这是一个命名选项，具有短 (`-i`) 和长 (`--int`) 名称，用于整数值。
 
-[![6](assets/6.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-6)
+![6](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-6)
 
 这是一个命名选项，具有短 (`-f`) 和长 (`--file`) 名称，用于文件参数。
 
-[![7](assets/7.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-7)
+![7](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO1-7)
 
 这是一个布尔标志，当 `-o` 或 `--on` 存在时将为 `True`，当它们不存在时为 `False`。
 
@@ -178,98 +178,98 @@ dna.py: error: unrecognized arguments: GGTT
 我为 *Tiny Python Projects* 写了一个 `new.py` 的版本，你可以在[该书的 GitHub 仓库的 *bin* 目录](https://oreil.ly/7romb)找到。那个版本比我要求你使用的版本要简单一些。我将首先向你展示使用这个早期版本 `new.py` 创建的 `dna.py` 的一个版本：
 
 ```py
-#!/usr/bin/env python3 ![1](assets/1.png)
-""" Tetranucleotide frequency """ ![2](assets/2.png)
+#!/usr/bin/env python3 ![1](img/1.png)
+""" Tetranucleotide frequency """ ![2](img/2.png)
 
-import argparse ![3](assets/3.png)
+import argparse ![3](img/3.png)
 
 # --------------------------------------------------
-def get_args(): ![4](assets/4.png)
-    """ Get command-line arguments """ ![5](assets/5.png)
+def get_args(): ![4](img/4.png)
+    """ Get command-line arguments """ ![5](img/5.png)
 
-    parser = argparse.ArgumentParser( ![6](assets/6.png)
+    parser = argparse.ArgumentParser( ![6](img/6.png)
         description='Tetranucleotide frequency',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('dna', metavar='DNA', help='Input DNA sequence') ![7](assets/7.png)
+    parser.add_argument('dna', metavar='DNA', help='Input DNA sequence') ![7](img/7.png)
 
-    return parser.parse_args() ![8](assets/8.png)
+    return parser.parse_args() ![8](img/8.png)
 
 # --------------------------------------------------
-def main(): ![9](assets/9.png)
+def main(): ![9](img/9.png)
     """ Make a jazz noise here """
 
-    args = get_args() ![10](assets/10.png)
-    print(args.dna)   ![11](assets/11.png)
+    args = get_args() ![10](img/10.png)
+    print(args.dna)   ![11](img/11.png)
 
 # --------------------------------------------------
-if __name__ == '__main__': ![12](assets/12.png)
+if __name__ == '__main__': ![12](img/12.png)
     main()
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-1)
 
 俗称的*shebang*（`#!`）告诉操作系统使用`env`命令（*environment*）来找到`python3`以执行程序的其余部分。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-2)
 
 这是整个程序或模块的*文档字符串*（documentation string）。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-3)
 
 我导入`argparse`模块来处理命令行参数。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-4)
 
 我总是定义一个`get_args()`函数来处理`argparse`代码。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-5)
 
 这是一个函数的文档字符串。
 
-[![6](assets/6.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-6)
+![6](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-6)
 
 `parser`对象用于定义程序的参数。
 
-[![7](assets/7.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-7)
+![7](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-7)
 
 我定义了一个`dna`参数，它将是位置参数，因为名称`dna`*不*以破折号开头。`metavar`是参数的简短描述，将出现在短使用说明中。不需要其他参数。
 
-[![8](assets/8.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-8)
+![8](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-8)
 
 该函数返回解析参数的结果。帮助标志或参数错误将导致`argparse`打印使用说明或错误消息并退出程序。
 
-[![9](assets/9.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-9)
+![9](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-9)
 
 本书中的所有程序都将始于`main()`函数。
 
-[![10](assets/10.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-10)
+![10](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-10)
 
 `main()`中的第一步始终是调用`get_args()`。如果此调用成功，则参数必定是有效的。
 
-[![11](assets/11.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-11)
+![11](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-11)
 
 `DNA`值可以通过`args.dna`属性获得，因为这是参数的名称。
 
-[![12](assets/12.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-12)
+![12](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO2-12)
 
-这是Python程序中的常见习语，用于检测程序是否正在执行（而不是被导入），并执行`main()`函数。
+这是 Python 程序中的常见习语，用于检测程序是否正在执行（而不是被导入），并执行`main()`函数。
 
-当以`./dna.py`这样的形式调用程序时，Unix shell会使用shebang行。在Windows上，你需要运行**`python.exe dna.py`**来执行该程序。
+当以`./dna.py`这样的形式调用程序时，Unix shell 会使用 shebang 行。在 Windows 上，你需要运行**`python.exe dna.py`**来执行该程序。
 
-虽然这段代码完全正常工作，但从`get_args()`返回的值是一个在程序运行时*动态生成*的`argparse.Namespace`对象。也就是说，我正在使用像`parser.add_argument()`这样的代码在运行时修改这个对象的结构，因此Python无法在*编译时*确定解析参数中会有哪些属性或它们的类型。虽然你可能很明显只有一个必需的字符串参数，但代码中没有足够的信息让Python能够辨别这一点。
+虽然这段代码完全正常工作，但从`get_args()`返回的值是一个在程序运行时*动态生成*的`argparse.Namespace`对象。也就是说，我正在使用像`parser.add_argument()`这样的代码在运行时修改这个对象的结构，因此 Python 无法在*编译时*确定解析参数中会有哪些属性或它们的类型。虽然你可能很明显只有一个必需的字符串参数，但代码中没有足够的信息让 Python 能够辨别这一点。
 
-编译程序是将其转换为计算机可以执行的机器代码。某些语言（如C）必须在运行之前单独编译。Python程序通常在一步中编译并运行，但仍有编译阶段。有些错误可以在编译时捕获，而其他错误则直到运行时才会出现。例如，语法错误会阻止编译。最好在编译时有错误，而不是在运行时有错误。
+编译程序是将其转换为计算机可以执行的机器代码。某些语言（如 C）必须在运行之前单独编译。Python 程序通常在一步中编译并运行，但仍有编译阶段。有些错误可以在编译时捕获，而其他错误则直到运行时才会出现。例如，语法错误会阻止编译。最好在编译时有错误，而不是在运行时有错误。
 
-要了解为什么这可能是个问题，我将修改`main()`函数，引入一个类型错误。也就是说，我会故意误用`args.dna`值的*类型*。除非另有说明，通过`argparse`从命令行返回的所有参数值都是字符串。如果我试图将字符串`args.dna`除以整数值2，Python将引发异常并在运行时崩溃程序：
+要了解为什么这可能是个问题，我将修改`main()`函数，引入一个类型错误。也就是说，我会故意误用`args.dna`值的*类型*。除非另有说明，通过`argparse`从命令行返回的所有参数值都是字符串。如果我试图将字符串`args.dna`除以整数值 2，Python 将引发异常并在运行时崩溃程序：
 
 ```py
 def main():
     args = get_args()
-    print(args.dna / 2) ![1](assets/1.png)
+    print(args.dna / 2) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO3-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO3-1)
 
 将字符串除以整数会产生一个异常。
 
@@ -285,13 +285,13 @@ Traceback (most recent call last):
 TypeError: unsupported operand type(s) for /: 'str' and 'int'
 ```
 
-我们的大脑明白这是一个不可避免的错误，但Python看不到这个问题。我需要的是在程序运行时无法修改的*静态*参数定义。继续阅读，了解类型注解和其他工具如何检测这类错误。
+我们的大脑明白这是一个不可避免的错误，但 Python 看不到这个问题。我需要的是在程序运行时无法修改的*静态*参数定义。继续阅读，了解类型注解和其他工具如何检测这类错误。
 
 ## 查找代码中错误的工具
 
-这里的目标是在Python中编写正确、可复现的程序。有没有办法发现并避免像在数值运算中误用字符串这样的问题？`python3`解释器没有找到阻止我运行代码的问题。也就是说，程序在语法上是正确的，因此在前一节中的代码产生了一个*运行时错误*，因为只有当我执行程序时才会出错。多年前我曾在一个团队工作，我们开玩笑说：“如果能编译通过，就发布吧！”这显然是一种短视的编码方式。
+这里的目标是在 Python 中编写正确、可复现的程序。有没有办法发现并避免像在数值运算中误用字符串这样的问题？`python3`解释器没有找到阻止我运行代码的问题。也就是说，程序在语法上是正确的，因此在前一节中的代码产生了一个*运行时错误*，因为只有当我执行程序时才会出错。多年前我曾在一个团队工作，我们开玩笑说：“如果能编译通过，就发布吧！”这显然是一种短视的编码方式。
 
-我可以使用诸如linters和类型检查器之类的工具来找出代码中的一些问题。*Linters*是一种检查程序风格和许多种错误的工具，超越了简单的语法错误。[`pylint`工具](https://www.pylint.org)是一个流行的Python linter，我几乎每天都在使用。它能找到这个问题吗？显然不能，因为它给出了最大的赞扬：
+我可以使用诸如 linters 和类型检查器之类的工具来找出代码中的一些问题。*Linters*是一种检查程序风格和许多种错误的工具，超越了简单的语法错误。[`pylint`工具](https://www.pylint.org)是一个流行的 Python linter，我几乎每天都在使用。它能找到这个问题吗？显然不能，因为它给出了最大的赞扬：
 
 ```py
 $ pylint dna.py
@@ -315,7 +315,7 @@ Success: no issues found in 1 source file
 
 为了避免动态生成对象带来的问题，本书中的所有程序都将使用命名元组数据结构来静态定义从`get_args()`获取的参数。*元组*本质上是不可变的列表，通常用于表示 Python 中的记录型数据结构。这其中有很多内容需要理解，所以让我们先回到列表。
 
-首先，*列表*是有序的项目序列。项目可以是异构的；理论上来说，这意味着所有项目可以是不同类型的，但实际上，混合类型通常是一个坏主意。我将使用`python3` REPL来演示列表的一些方面。我建议你使用**`help(list)`**阅读文档。
+首先，*列表*是有序的项目序列。项目可以是异构的；理论上来说，这意味着所有项目可以是不同类型的，但实际上，混合类型通常是一个坏主意。我将使用`python3` REPL 来演示列表的一些方面。我建议你使用**`help(list)`**阅读文档。
 
 使用空方括号（`[]`）创建一个空列表，用于保存一些序列：
 
@@ -425,15 +425,15 @@ TypeError: 'tuple' object does not support item assignment
 >>> from collections import namedtuple
 ```
 
-如[图1-2](#fig_1.2)所示，我使用`namedtuple()`函数创建了一个具有`id`和`seq`字段的`Sequence`的概念：
+如图 1-2 所示，我使用`namedtuple()`函数创建了一个具有`id`和`seq`字段的`Sequence`的概念：
 
 ```py
 >>> Sequence = namedtuple('Sequence', ['id', 'seq'])
 ```
 
-![mpfb 0102](assets/mpfb_0102.png)
+![mpfb 0102](img/mpfb_0102.png)
 
-###### 图1-2\. `namedtuple()`函数生成一种方法，用于创建具有`id`和`seq`字段的`Sequence`类对象
+###### 图 1-2\. `namedtuple()`函数生成一种方法，用于创建具有`id`和`seq`字段的`Sequence`类对象
 
 这里的`Sequence`究竟是什么？
 
@@ -460,7 +460,7 @@ TypeError: 'tuple' object does not support item assignment
 Sequence(id='CAM_0231669729', seq='GTGTTTATTCAATGCTAG')
 ```
 
-尽管可以使用索引访问ID和序列：
+尽管可以使用索引访问 ID 和序列：
 
 ```py
 >>> 'ID = ' + seq1[0]
@@ -487,11 +487,11 @@ Traceback (most recent call last):
 AttributeError: can't set attribute
 ```
 
-我经常希望在我的代码中保证一个值不会被意外改变。Python没有声明变量为*常量*或不可变的方式。元组默认是不可变的，我认为用一个不能被修改的数据结构来表示程序的输入是有道理的。这些输入是神圣的，几乎不应该被修改。
+我经常希望在我的代码中保证一个值不会被意外改变。Python 没有声明变量为*常量*或不可变的方式。元组默认是不可变的，我认为用一个不能被修改的数据结构来表示程序的输入是有道理的。这些输入是神圣的，几乎不应该被修改。
 
 ## 为命名元组添加类型
 
-尽管`namedtuple()`很好用，但通过从`typing`模块导入`NamedTuple`类，可以使其变得更好。此外，可以使用此语法为字段分配*类型*。请注意，在REPL中需要使用空行来指示块已完成：
+尽管`namedtuple()`很好用，但通过从`typing`模块导入`NamedTuple`类，可以使其变得更好。此外，可以使用此语法为字段分配*类型*。请注意，在 REPL 中需要使用空行来指示块已完成：
 
 ```py
 >>> from typing import NamedTuple
@@ -501,7 +501,7 @@ AttributeError: can't set attribute
 ...
 ```
 
-您看到的`...`是行继续符。REPL显示到目前为止输入的内容不是完整的表达式。您需要输入一个空行来告诉REPL您已经完成了代码块。
+您看到的`...`是行继续符。REPL 显示到目前为止输入的内容不是完整的表达式。您需要输入一个空行来告诉 REPL 您已经完成了代码块。
 
 与`namedtuple()`方法一样，`Sequence`是一个新类型：
 
@@ -531,7 +531,7 @@ AttributeError: can't set attribute
 >>> seq4 = Sequence(id='CAM_0231669729', seq=3.14)
 ```
 
-很抱歉告诉你，Python本身会忽略类型信息。你可以看到我希望是`str`的`seq`字段实际上是一个`float`：
+很抱歉告诉你，Python 本身会忽略类型信息。你可以看到我希望是`str`的`seq`字段实际上是一个`float`：
 
 ```py
 >>> seq4
@@ -540,7 +540,7 @@ Sequence(id='CAM_0231669729', seq=3.14)
 <class 'float'>
 ```
 
-那么这对我们有什么帮助呢？它在REPL中对我没有帮助，但是在我的源代码中添加类型将允许像`mypy`这样的类型检查工具找到这些错误。
+那么这对我们有什么帮助呢？它在 REPL 中对我没有帮助，但是在我的源代码中添加类型将允许像`mypy`这样的类型检查工具找到这些错误。
 
 ## 使用命名元组表示参数
 
@@ -553,14 +553,14 @@ Sequence(id='CAM_0231669729', seq=3.14)
 """Tetranucleotide frequency"""
 
 import argparse
-from typing import NamedTuple ![1](assets/1.png)
+from typing import NamedTuple ![1](img/1.png)
 
-class Args(NamedTuple): ![2](assets/2.png)
+class Args(NamedTuple): ![2](img/2.png)
     """ Command-line arguments """
-    dna: str ![3](assets/3.png)
+    dna: str ![3](img/3.png)
 
 # --------------------------------------------------
-def get_args() -> Args: ![4](assets/4.png)
+def get_args() -> Args: ![4](img/4.png)
     """ Get command-line arguments """
 
     parser = argparse.ArgumentParser(
@@ -569,55 +569,55 @@ def get_args() -> Args: ![4](assets/4.png)
 
     parser.add_argument('dna', metavar='DNA', help='Input DNA sequence')
 
-    args = parser.parse_args() ![5](assets/5.png)
+    args = parser.parse_args() ![5](img/5.png)
 
-    return Args(args.dna) ![6](assets/6.png)
+    return Args(args.dna) ![6](img/6.png)
 
 # --------------------------------------------------
-def main() -> None: ![7](assets/7.png)
+def main() -> None: ![7](img/7.png)
     """ Make a jazz noise here """
 
     args = get_args()
-    print(args.dna / 2) ![8](assets/8.png)
+    print(args.dna / 2) ![8](img/8.png)
 
 # --------------------------------------------------
 if __name__ == '__main__':
     main()
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-1)
 
 从`typing`模块导入`NamedTuple`类。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-2)
 
 为参数定义一个基于`NamedTuple`类的`class`。请参阅以下注释。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-3)
 
 类中有一个名为`dna`的单一字段，类型为`str`。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-4)
 
 `get_args()`函数的类型注解显示它返回一个`Args`类型的对象。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-5)
 
 像以前一样解析参数。
 
-[![6](assets/6.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-6)
+![6](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-6)
 
 返回一个包含`args.dna`单一值的新`Args`对象。
 
-[![7](assets/7.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-7)
+![7](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-7)
 
 `main()`函数没有`return`语句，因此返回默认的`None`值。
 
-[![8](assets/8.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-8)
+![8](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO4-8)
 
 这是早期程序的类型错误。
 
-如果你在这个程序上运行`pylint`，可能会遇到错误“继承*NamedTuple*，这不是一个类（inherit-non-class）”和“太少的公共方法（0/2）（too-few-public-methods）”。你可以通过将“inherit-non-class”和“too-few-public-methods”添加到你的*pylintrc*文件的“disable”部分来禁用这些警告，或者使用GitHub仓库根目录中包含的*pylintrc*文件。
+如果你在这个程序上运行`pylint`，可能会遇到错误“继承*NamedTuple*，这不是一个类（inherit-non-class）”和“太少的公共方法（0/2）（too-few-public-methods）”。你可以通过将“inherit-non-class”和“too-few-public-methods”添加到你的*pylintrc*文件的“disable”部分来禁用这些警告，或者使用 GitHub 仓库根目录中包含的*pylintrc*文件。
 
 如果你运行这个程序，你会看到它仍然会创建相同的未捕获异常。`flake8`和`pylint`都会继续报告程序看起来很好，但现在看看`mypy`告诉我的是什么：
 
@@ -640,10 +640,10 @@ Found 1 error in 1 file (checked 1 source file)
 ```py
 def main() -> None:
     args = get_args()
-    print(args.dna) ![1](assets/1.png)
+    print(args.dna) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO5-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO5-1)
 
 修复除法类型错误。
 
@@ -668,17 +668,17 @@ def get_args() -> Args:
 
     args = parser.parse_args()
 
-    if os.path.isfile(args.dna):  ![1](assets/1.png)
-        args.dna = open(args.dna).read().rstrip()   ![2](assets/2.png)
+    if os.path.isfile(args.dna):  ![1](img/1.png)
+        args.dna = open(args.dna).read().rstrip()   ![2](img/2.png)
 
     return Args(args.dna)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO6-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO6-1)
 
 检查 `dna` 值是否是一个文件。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO6-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO6-2)
 
 调用 `open()` 打开文件句柄，然后链式调用 `fh.read()` 方法返回一个字符串，接着链式调用 `str.rstrip()` 方法删除尾部空白。
 
@@ -704,68 +704,68 @@ AGCTTTTCATTCTGACTGCAACGGGCAATATGTCTCTGTGTGGATTAAAAAAAGAGTGTCTGATAGCAGC
 
 你从罗莎琳描述中了解到，给定输入`ACGT`，程序应该打印`1 1 1 1`，因为这是*A*、*C*、*G*和*T*各自的数量。在*01_dna/tests*目录中，有一个名为*dna_test.py*的文件，其中包含对`dna.py`程序的测试。我为你编写了这些测试，这样你就可以看到使用一种方法开发程序，并能相当确信地告诉你程序是否正确的情况。这些测试非常基础——给定一个输入字符串，程序应该打印四种核苷酸的正确计数。当程序报告正确的数字时，它就正常工作了。
 
-在*01_dna*目录中，我想让你运行**`pytest`**（或在Windows上运行**`python3 -m pytest`**或**`pytest.exe`**）。程序将递归搜索所有以*test_*开头或以*_test.py*结尾的文件，然后运行这些文件中以*test_*开头命名的函数。
+在*01_dna*目录中，我想让你运行**`pytest`**（或在 Windows 上运行**`python3 -m pytest`**或**`pytest.exe`**）。程序将递归搜索所有以*test_*开头或以*_test.py*结尾的文件，然后运行这些文件中以*test_*开头命名的函数。
 
 当你运行**`pytest`**时，会看到大量输出，其中大多数是失败的测试。要理解为什么这些测试失败，让我们看一下*tests/dna_test.py*模块：
 
 ```py
-""" Tests for dna.py """ ![1](assets/1.png)
+""" Tests for dna.py """ ![1](img/1.png)
 
-import os ![2](assets/2.png)
-import platform ![3](assets/3.png)
-from subprocess import getstatusoutput ![4](assets/4.png)
+import os ![2](img/2.png)
+import platform ![3](img/3.png)
+from subprocess import getstatusoutput ![4](img/4.png)
 
-PRG = './dna.py' ![5](assets/5.png)
-RUN = f'python {PRG}' if platform.system() == 'Windows' else PRG ![6](assets/6.png)
-TEST1 = ('./tests/inputs/input1.txt', '1 2 3 4') ![7](assets/7.png)
+PRG = './dna.py' ![5](img/5.png)
+RUN = f'python {PRG}' if platform.system() == 'Windows' else PRG ![6](img/6.png)
+TEST1 = ('./tests/inputs/input1.txt', '1 2 3 4') ![7](img/7.png)
 TEST2 = ('./tests/inputs/input2.txt', '20 12 17 21')
 TEST3 = ('./tests/inputs/input3.txt', '196 231 237 246')
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-1)
 
 这是该模块的文档字符串。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-2)
 
 标准的`os`模块将与操作系统进行交互。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-3)
 
-使用`platform`模块来确定是否在Windows上运行。
+使用`platform`模块来确定是否在 Windows 上运行。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-4)
 
 我从`subprocess`模块导入一个函数，用于运行`dna.py`程序并捕获输出和状态。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-5)
 
 这些是程序的全局变量。我倾向于在我的测试中避免使用全局变量。在这里，我想定义一些将在函数中使用的值。我喜欢使用大写名称来突出显示全局可见性。
 
-[![6](assets/6.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-6)
+![6](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-6)
 
-`RUN`变量确定如何运行`dna.py`程序。在Windows上，必须使用`python`命令来运行Python程序，但在Unix平台上，可以直接执行`dna.py`程序。
+`RUN`变量确定如何运行`dna.py`程序。在 Windows 上，必须使用`python`命令来运行 Python 程序，但在 Unix 平台上，可以直接执行`dna.py`程序。
 
-[![7](assets/7.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-7)
+![7](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO7-7)
 
-`TEST*`变量是元组，定义了包含DNA字符串的文件以及该字符串的预期输出。
+`TEST*`变量是元组，定义了包含 DNA 字符串的文件以及该字符串的预期输出。
 
 `pytest`模块将按照测试文件中定义的顺序运行测试函数。我经常这样组织我的测试，从最简单的情况逐步进行，因此在失败后通常没有继续进行的必要。例如，第一个测试始终是检查要测试的程序是否存在。如果不存在，则没有继续运行更多测试的意义。我建议您在运行`pytest`时使用`-x`标志以在第一个失败的测试处停止，并使用`-v`标志以获取详细输出。
 
-让我们看看第一个测试。函数名为`test_exists()`，这样`pytest`就能找到它。在函数体中，我使用一个或多个`assert`语句来检查某个条件是否*真实*。^([1](ch01.html#idm45963636356152)) 这里我断言程序`dna.py`存在。这就是为什么您的程序必须存在于此目录中——否则测试将找不到它的原因：
+让我们看看第一个测试。函数名为`test_exists()`，这样`pytest`就能找到它。在函数体中，我使用一个或多个`assert`语句来检查某个条件是否*真实*。^(1) 这里我断言程序`dna.py`存在。这就是为什么您的程序必须存在于此目录中——否则测试将找不到它的原因：
 
 ```py
-def test_exists(): ![1](assets/1.png)
+def test_exists(): ![1](img/1.png)
     """ Program exists """
 
-    assert os.path.exists(PRG) ![2](assets/2.png)
+    assert os.path.exists(PRG) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO8-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO8-1)
 
 函数名必须以`test_`开头，以便`pytest`能够找到它。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO8-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO8-2)
 
 `os.path.exists()`函数如果给定的参数是文件则返回`True`。如果返回`False`，则断言失败，此测试将失败。
 
@@ -775,25 +775,25 @@ def test_exists(): ![1](assets/1.png)
 def test_usage() -> None:
     """ Prints usage """
 
-    for arg in ['-h', '--help']: ![1](assets/1.png)
-        rv, out = getstatusoutput(f'{RUN} {arg}') ![2](assets/2.png)
-        assert rv == 0 ![3](assets/3.png)
-        assert out.lower().startswith('usage:') ![4](assets/4.png)
+    for arg in ['-h', '--help']: ![1](img/1.png)
+        rv, out = getstatusoutput(f'{RUN} {arg}') ![2](img/2.png)
+        assert rv == 0 ![3](img/3.png)
+        assert out.lower().startswith('usage:') ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-1)
 
 迭代短和长帮助标志。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-2)
 
 使用参数运行程序并捕获返回值和输出。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-3)
 
-验证程序报告的成功退出值为0。
+验证程序报告的成功退出值为 0。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO9-4)
 
 断言程序输出的小写结果以*usage:*开头。
 
@@ -805,20 +805,20 @@ def test_usage() -> None:
 def test_dies_no_args() -> None:
     """ Dies with no arguments """
 
-    rv, out = getstatusoutput(RUN) ![1](assets/1.png)
-    assert rv != 0 ![2](assets/2.png)
-    assert out.lower().startswith('usage:') ![3](assets/3.png)
+    rv, out = getstatusoutput(RUN) ![1](img/1.png)
+    assert rv != 0 ![2](img/2.png)
+    assert out.lower().startswith('usage:') ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO10-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO10-1)
 
 捕获运行程序时没有参数时的返回值和输出。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO10-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO10-2)
 
 验证返回值为非零的失败代码。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO10-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO10-3)
 
 检查输出是否像一个用法说明。
 
@@ -828,56 +828,56 @@ def test_dies_no_args() -> None:
 
 现在我需要看看程序是否按预期运行。测试程序有许多方法，我喜欢使用称为*inside-out*和*outside-in*的两种基本方法。*Inside-out*方法从测试程序内部的各个函数开始。这通常被称为*单元*测试，因为函数可以被认为是计算的基本单位，我将在解决方案部分详细介绍。我将从*outside-in*方法开始。这意味着我将像用户一样从命令行运行程序。这是一种整体方法，用来检查代码片段是否能够协同工作以创建正确的输出，因此有时被称为*集成*测试。
 
-第一个这样的测试将DNA字符串作为命令行参数传递，并检查程序是否产生正确格式的计数：
+第一个这样的测试将 DNA 字符串作为命令行参数传递，并检查程序是否产生正确格式的计数：
 
 ```py
 def test_arg():
     """ Uses command-line arg """
 
-    for file, expected in [TEST1, TEST2, TEST3]: ![1](assets/1.png)
-        dna = open(file).read() ![2](assets/2.png)
-        retval, out = getstatusoutput(f'{RUN} {dna}') ![3](assets/3.png)
-        assert retval == 0 ![4](assets/4.png)
-        assert out == expected ![5](assets/5.png)
+    for file, expected in [TEST1, TEST2, TEST3]: ![1](img/1.png)
+        dna = open(file).read() ![2](img/2.png)
+        retval, out = getstatusoutput(f'{RUN} {dna}') ![3](img/3.png)
+        assert retval == 0 ![4](img/4.png)
+        assert out == expected ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-1)
 
-解压元组到包含DNA字符串和程序运行时此输入的`expected`值的`file`中。
+解压元组到包含 DNA 字符串和程序运行时此输入的`expected`值的`file`中。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-2)
 
 打开文件并从内容中读取`dna`。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-3)
 
-使用函数`subprocess.getstatusoutput()`运行给定的DNA字符串的程序，该函数给出程序的返回值和文本输出（也称为`STDOUT`，发音为*standard out*）。
+使用函数`subprocess.getstatusoutput()`运行给定的 DNA 字符串的程序，该函数给出程序的返回值和文本输出（也称为`STDOUT`，发音为*standard out*）。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-4)
 
-断言返回值为`0`，这表示成功（或0个错误）。
+断言返回值为`0`，这表示成功（或 0 个错误）。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO11-5)
 
 断言程序的输出是预期的数字字符串。
 
-下一个测试几乎相同，但这次我将文件名作为程序的参数传递，以验证它是否正确地从文件中读取DNA：
+下一个测试几乎相同，但这次我将文件名作为程序的参数传递，以验证它是否正确地从文件中读取 DNA：
 
 ```py
 def test_file():
     """ Uses file arg """
 
     for file, expected in [TEST1, TEST2, TEST3]:
-        retval, out = getstatusoutput(f'{RUN} {file}') ![1](assets/1.png)
+        retval, out = getstatusoutput(f'{RUN} {file}') ![1](img/1.png)
         assert retval == 0
         assert out == expected
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO12-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO12-1)
 
 与第一个测试的唯一区别是，我传递的是文件名而不是文件的内容。
 
-现在你已经查看了测试，请返回并再次运行测试。这次使用**`pytest -xv`**，其中`-v`标志用于详细输出。由于`-x`和`-v`都是短标志，你可以像`-xv`或`-vx`一样组合它们。仔细阅读输出并注意它试图告诉你程序正在打印DNA序列，但测试期望一个数字序列：
+现在你已经查看了测试，请返回并再次运行测试。这次使用**`pytest -xv`**，其中`-v`标志用于详细输出。由于`-x`和`-v`都是短标志，你可以像`-xv`或`-vx`一样组合它们。仔细阅读输出并注意它试图告诉你程序正在打印 DNA 序列，但测试期望一个数字序列：
 
 ```py
 $ pytest -xv
@@ -898,8 +898,8 @@ ___________________________________ test_arg ___________________________________
             dna = open(file).read()
             retval, out = getstatusoutput(f'{RUN} {dna}')
             assert retval == 0
->           assert out == expected  ![1](assets/1.png)
-E           AssertionError: assert 'ACCGGGTTTT' == '1 2 3 4'  ![2](assets/2.png)
+>           assert out == expected  ![1](img/1.png)
+E           AssertionError: assert 'ACCGGGTTTT' == '1 2 3 4'  ![2](img/2.png)
 E             - 1 2 3 4
 E             + ACCGGGTTTT
 
@@ -910,11 +910,11 @@ FAILED tests/dna_test.py::test_arg - AssertionError: assert 'ACCGGGTTTT' == '...
 ========================= 1 failed, 2 passed in 0.35s ==========================
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO13-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO13-1)
 
 此行开头的`>`显示这是错误的来源。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO13-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO13-2)
 
 程序的输出是字符串`ACCGGGTTTT`，但期望值是`1 2 3 4`。由于它们不相等，引发了一个`AssertionError`异常。
 
@@ -936,28 +936,28 @@ $ ./dna.py C
 
 完成一份可用版本后，请考虑尝试尽可能多地寻找得到相同答案的不同方法。这被称为*重构*程序。你需要从能够正确工作的东西开始，然后尝试改进它。改进可以通过多种方式衡量。也许你找到了用更少的代码写相同想法的方法，或者也许你找到了运行更快的解决方案。无论你使用什么标准，都要继续运行**`pytest`**来确保程序是正确的。
 
-# 解决方案1：迭代并计算字符串中的字符数
+# 解决方案 1：迭代并计算字符串中的字符数
 
-如果你不知道从哪里开始，我将与你一起解决第一个解决方案。目标是遍历DNA字符串中的所有碱基。因此，首先我需要通过在REPL中分配一些值来创建一个名为`dna`的变量：
+如果你不知道从哪里开始，我将与你一起解决第一个解决方案。目标是遍历 DNA 字符串中的所有碱基。因此，首先我需要通过在 REPL 中分配一些值来创建一个名为`dna`的变量：
 
 ```py
 >>> dna = 'ACGT'
 ```
 
-注意，任何用引号括起来的值，无论是单引号还是双引号，都是字符串。在Python中，即使是单个字符也被视为字符串。我经常使用`type()`函数来验证变量的类型，这里我看到`dna`是`str`类（字符串类）：
+注意，任何用引号括起来的值，无论是单引号还是双引号，都是字符串。在 Python 中，即使是单个字符也被视为字符串。我经常使用`type()`函数来验证变量的类型，这里我看到`dna`是`str`类（字符串类）：
 
 ```py
 >>> type(dna)
 <class 'str'>
 ```
 
-在REPL中键入`help(str)`以查看你可以在字符串上执行的所有精彩操作。在基因组学中，字符串作为数据的重要组成部分，这一数据类型尤为重要。
+在 REPL 中键入`help(str)`以查看你可以在字符串上执行的所有精彩操作。在基因组学中，字符串作为数据的重要组成部分，这一数据类型尤为重要。
 
-在Python术语中，我想*迭代*字符串的字符，这些字符在这种情况下是DNA的核苷酸。使用`for`循环可以做到这一点。Python将字符串视为有序的字符序列，`for`循环将从头到尾访问每个字符：
+在 Python 术语中，我想*迭代*字符串的字符，这些字符在这种情况下是 DNA 的核苷酸。使用`for`循环可以做到这一点。Python 将字符串视为有序的字符序列，`for`循环将从头到尾访问每个字符：
 
 ```py
->>> for base in dna: ![1](assets/1.png)
-...     print(base)  ![2](assets/2.png)
+>>> for base in dna: ![1](img/1.png)
+...     print(base)  ![2](img/2.png)
 ...
 A
 C
@@ -965,11 +965,11 @@ G
 T
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO14-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO14-1)
 
 `dna`字符串中的每个字符都将复制到`base`变量中。你可以称其为`char`，或者`c`表示*character*，或者其他你喜欢的名字。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO14-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO14-2)
 
 每次调用`print()`都会以换行符结束，因此你会看到每个碱基占据一行。
 
@@ -992,31 +992,31 @@ T
 >>> count_a, count_c, count_g, count_t = 0, 0, 0, 0
 ```
 
-我需要查看每个碱基并确定要*增加*的变量，使其值增加1。例如，如果当前的`base`是*C*，那么我应该增加`count_c`变量。我可以这样写：
+我需要查看每个碱基并确定要*增加*的变量，使其值增加 1。例如，如果当前的`base`是*C*，那么我应该增加`count_c`变量。我可以这样写：
 
 ```py
 for base in dna:
-    if base == 'C': ![1](assets/1.png)
-        count_c = count_c + 1 ![2](assets/2.png)
+    if base == 'C': ![1](img/1.png)
+        count_c = count_c + 1 ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO15-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO15-1)
 
 `==`运算符用于比较两个值是否相等。这里我想知道当前的`base`是否等于字符串`C`。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO15-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO15-2)
 
-将`count_c`设置为当前值加1。
+将`count_c`设置为当前值加 1。
 
 `==`运算符用于比较两个值是否相等。它用于比较两个字符串或两个数字。前面我展示了，如果混合字符串和数字，使用`/`会引发异常。如果你混合类型使用这个运算符会发生什么，例如 `'3' == 3`？在未比较类型的情况下，这是一个安全的运算符吗？
 
-如图1-3所示，使用`+=`运算符来增加变量的值是一种更短的方式，它将右侧的值（通常标记为RHS）添加到表达式的左侧（或LHS）的内容中。
+如图 1-3 所示，使用`+=`运算符来增加变量的值是一种更短的方式，它将右侧的值（通常标记为 RHS）添加到表达式的左侧（或 LHS）的内容中。
 
-![mpfb 0103](assets/mpfb_0103.png)
+![mpfb 0103](img/mpfb_0103.png)
 
-###### 图1-3\. `+=`运算符将在左侧的变量上加上右侧的值
+###### 图 1-3\. `+=`运算符将在左侧的变量上加上右侧的值
 
-由于我有四个核苷酸要检查，我需要一种方法来结合另外三个`if`表达式。Python中的语法是使用`elif`来表示*else if*，`else`表示最后的或默认情况。以下是一个可以输入到程序或REPL中的代码块，实现了一个简单的决策树：
+由于我有四个核苷酸要检查，我需要一种方法来结合另外三个`if`表达式。Python 中的语法是使用`elif`来表示*else if*，`else`表示最后的或默认情况。以下是一个可以输入到程序或 REPL 中的代码块，实现了一个简单的决策树：
 
 ```py
 dna = 'ACCGGGTTTT'
@@ -1032,7 +1032,7 @@ for base in dna:
         count_t += 1
 ```
 
-我应该得到每个排序后的碱基的计数，分别为1、2、3和4：
+我应该得到每个排序后的碱基的计数，分别为 1、2、3 和 4：
 
 ```py
 >>> count_a, count_c, count_g, count_t
@@ -1046,7 +1046,7 @@ for base in dna:
 1 2 3 4
 ```
 
-这就是程序期望的确切输出。注意，`print()`函数接受多个值作为参数并在每个值之间插入一个空格。如果在REPL中阅读`help(print)`，你会发现可以使用`sep`参数来改变这个行为：
+这就是程序期望的确切输出。注意，`print()`函数接受多个值作为参数并在每个值之间插入一个空格。如果在 REPL 中阅读`help(print)`，你会发现可以使用`sep`参数来改变这个行为：
 
 ```py
 >>> print(count_a, count_c, count_g, count_t, sep='::')
@@ -1069,13 +1069,13 @@ for base in dna:
 $ python3 -m pip install pytest-pylint pytest-flake8 pytest-mypy
 ```
 
-或者，我已经将*requirements.txt*文件放在GitHub仓库的根目录中，列出了我在整本书中将要使用的各种依赖项。你可以使用以下命令安装所有这些模块：
+或者，我已经将*requirements.txt*文件放在 GitHub 仓库的根目录中，列出了我在整本书中将要使用的各种依赖项。你可以使用以下命令安装所有这些模块：
 
 ```py
 $ python3 -m pip install -r requirements.txt
 ```
 
-有了这些扩展，你可以运行以下命令来执行不仅在*tests/dna_test.py*文件中定义的测试，还包括使用这些工具进行linting和类型检查的测试：
+有了这些扩展，你可以运行以下命令来执行不仅在*tests/dna_test.py*文件中定义的测试，还包括使用这些工具进行 linting 和类型检查的测试：
 
 ```py
 $ pytest -xv --pylint --flake8 --mypy tests/dna_test.py
@@ -1097,7 +1097,7 @@ Success: no issues found in 1 source file
 ====================== 7 passed, 1 skipped in 0.58s ======================
 ```
 
-当缓存版本表明自上次测试以来没有任何更改时，某些测试将被跳过。使用`--cache-clear`选项强制运行测试。此外，如果代码格式不正确或缩进不正确，您可能会发现无法通过linting测试。您可以使用`yapf`或`black`自动格式化代码。大多数IDE和编辑器都会提供自动格式化选项。
+当缓存版本表明自上次测试以来没有任何更改时，某些测试将被跳过。使用`--cache-clear`选项强制运行测试。此外，如果代码格式不正确或缩进不正确，您可能会发现无法通过 linting 测试。您可以使用`yapf`或`black`自动格式化代码。大多数 IDE 和编辑器都会提供自动格式化选项。
 
 这么多要打字，所以我在该目录中创建了一个*Makefile*的快捷方式供你使用：
 
@@ -1113,7 +1113,7 @@ all:
 	../bin/all_test.py dna.py
 ```
 
-你可以通过阅读[附录 A](app01.html#app1_makefiles)来了解这些文件的更多信息。现在，了解到如果你的系统安装了`make`，你可以使用命令**`make test`**来运行*Makefile*中的`test`目标。如果你没有安装`make`或者不想使用它，也没关系，但我建议你探索一下*Makefile*如何用于文档化和自动化流程。
+你可以通过阅读附录 A 来了解这些文件的更多信息。现在，了解到如果你的系统安装了`make`，你可以使用命令**`make test`**来运行*Makefile*中的`test`目标。如果你没有安装`make`或者不想使用它，也没关系，但我建议你探索一下*Makefile*如何用于文档化和自动化流程。
 
 有许多方法可以编写`dna.py`的通过版本，我想鼓励你在阅读解决方案之前继续探索。最重要的是，我希望你习惯于修改你的程序然后运行测试来验证其工作。这就是*测试驱动开发*的循环，我首先创建某些度量标准来判断程序何时正确工作。在这种情况下，就是由`pytest`运行的*dna_test.py*程序。
 
@@ -1123,19 +1123,19 @@ all:
 
 # 其他解决方案
 
-我在本章早些时候写过的程序是GitHub仓库中的*solution1_iter.py*版本，所以我不会再复习那个版本了。我想向你展示几个替代方案，从简单到复杂的想法。请不要误以为它们从差到好递进。所有版本都通过了测试，所以它们都同样有效。重点是探索Python在解决常见问题时的各种可能性。请注意，我将省略它们共有的代码，例如`get_args()`函数。
+我在本章早些时候写过的程序是 GitHub 仓库中的*solution1_iter.py*版本，所以我不会再复习那个版本了。我想向你展示几个替代方案，从简单到复杂的想法。请不要误以为它们从差到好递进。所有版本都通过了测试，所以它们都同样有效。重点是探索 Python 在解决常见问题时的各种可能性。请注意，我将省略它们共有的代码，例如`get_args()`函数。
 
-## 解决方案2：创建一个`count()`函数并添加一个单元测试。
+## 解决方案 2：创建一个`count()`函数并添加一个单元测试。
 
 我想展示的第一个变体将把所有计数代码从`main()`函数中移到一个`count()`函数中。你可以在程序的任何地方定义这个函数，但我通常喜欢先写`get_args()`，然后是`main()`，然后是其他函数，最后是调用`main()`的最后一对语句之前。
 
 对于以下函数，您还需要导入`typing.Tuple`值：
 
 ```py
-def count(dna: str) -> Tuple[int, int, int, int]: ![1](assets/1.png)
+def count(dna: str) -> Tuple[int, int, int, int]: ![1](img/1.png)
     """ Count bases in DNA """
 
-    count_a, count_c, count_g, count_t = 0, 0, 0, 0 ![2](assets/2.png)
+    count_a, count_c, count_g, count_t = 0, 0, 0, 0 ![2](img/2.png)
     for base in dna:
         if base == 'A':
             count_a += 1
@@ -1146,45 +1146,45 @@ def count(dna: str) -> Tuple[int, int, int, int]: ![1](assets/1.png)
         elif base == 'T':
             count_t += 1
 
-    return (count_a, count_c, count_g, count_t) ![3](assets/3.png)
+    return (count_a, count_c, count_g, count_t) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO16-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO16-1)
 
 类型显示该函数接受一个字符串，并返回一个包含四个整数值的元组。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO16-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO16-2)
 
 这是从`main()`中进行计数的代码。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO16-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO16-3)
 
 返回一个包含四个计数的元组。
 
-有许多理由将此代码移入函数中。首先，这是一个*计算单元*——给定一个DNA字符串，返回四核苷酸频率——因此封装它是有意义的。这将使`main()`更短更易读，并允许我为函数编写单元测试。由于函数名为`count()`，我喜欢将单元测试命名为`test_count()`。我将此函数放在了`dna.py`程序中，正好在`count()`函数后面，而不是放在`dna_test.py`程序中，这只是为了方便起见。对于简短的程序，我倾向于将函数和单元测试放在源代码中的一起，但随着项目变大，我会将单元测试分离到单独的模块中。以下是测试函数：
+有许多理由将此代码移入函数中。首先，这是一个*计算单元*——给定一个 DNA 字符串，返回四核苷酸频率——因此封装它是有意义的。这将使`main()`更短更易读，并允许我为函数编写单元测试。由于函数名为`count()`，我喜欢将单元测试命名为`test_count()`。我将此函数放在了`dna.py`程序中，正好在`count()`函数后面，而不是放在`dna_test.py`程序中，这只是为了方便起见。对于简短的程序，我倾向于将函数和单元测试放在源代码中的一起，但随着项目变大，我会将单元测试分离到单独的模块中。以下是测试函数：
 
 ```py
-def test_count() -> None: ![1](assets/1.png)
+def test_count() -> None: ![1](img/1.png)
     """ Test count """
 
-    assert count('') == (0, 0, 0, 0) ![2](assets/2.png)
+    assert count('') == (0, 0, 0, 0) ![2](img/2.png)
     assert count('123XYZ') == (0, 0, 0, 0)
-    assert count('A') == (1, 0, 0, 0) ![3](assets/3.png)
+    assert count('A') == (1, 0, 0, 0) ![3](img/3.png)
     assert count('C') == (0, 1, 0, 0)
     assert count('G') == (0, 0, 1, 0)
     assert count('T') == (0, 0, 0, 1)
     assert count('ACCGGGTTTT') == (1, 2, 3, 4)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO17-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO17-1)
 
 函数名必须以 `test_` 开头，以便被 `pytest` 找到。这里的类型显示该测试不接受参数，并且因为没有 `return` 语句，返回默认值 `None`。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO17-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO17-2)
 
 我喜欢用预期和意外的值来测试函数，以确保它们返回合理的结果。空字符串应该返回全部零值。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO17-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO17-3)
 
 其余的测试确保每个碱基在正确的位置上报告。
 
@@ -1244,40 +1244,40 @@ dna.py::test_count PASSED                                              [100%]
 ```py
 def main() -> None:
     args = get_args()
-    count_a, count_c, count_g, count_t = count(args.dna) ![1](assets/1.png)
-    print('{} {} {} {}'.format(count_a, count_c, count_g, count_t)) ![2](assets/2.png)
+    count_a, count_c, count_g, count_t = count(args.dna) ![1](img/1.png)
+    print('{} {} {} {}'.format(count_a, count_c, count_g, count_t)) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO18-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO18-1)
 
 将从 `count()` 返回的四个值解包到单独的变量中。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO18-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO18-2)
 
 使用 `str.format()` 创建输出字符串。
 
-让我们稍微关注一下Python的`str.format()`。如图[1-4](#fig_1.4)所示，字符串`'{} {} {} {}'`是我想要生成的输出的模板，并且我直接在字符串字面值上调用`str.format()`函数。这是Python中的一个常见习惯用法，您还将在`str.join()`函数中看到。重要的是要记住，在Python中，即使是字面字符串（在引号中直接存在于您的源代码中的字符串），也是您可以调用方法的*对象*。
+让我们稍微关注一下 Python 的`str.format()`。如图 1-4 所示，字符串`'{} {} {} {}'`是我想要生成的输出的模板，并且我直接在字符串字面值上调用`str.format()`函数。这是 Python 中的一个常见习惯用法，您还将在`str.join()`函数中看到。重要的是要记住，在 Python 中，即使是字面字符串（在引号中直接存在于您的源代码中的字符串），也是您可以调用方法的*对象*。
 
-![mpfb 0104](assets/mpfb_0104.png)
+![mpfb 0104](img/mpfb_0104.png)
 
-###### 图1-4\. `str.format()`函数使用花括号定义占位符，这些占位符将用参数的值填充。
+###### 图 1-4\. `str.format()`函数使用花括号定义占位符，这些占位符将用参数的值填充。
 
 每个字符串模板中的`{}`都是函数参数提供的某个值的占位符。使用这个函数时，您需要确保占位符的数量与参数的数量相同。参数按照它们提供的顺序插入。稍后我会详细介绍`str.format()`函数。
 
-我不必展开`count()`函数返回的元组。如果我在元组前面加上一个星号(`*`)来*splat*它，我可以将整个元组作为参数传递给`str.format()`函数。这告诉Python将元组扩展为其值：
+我不必展开`count()`函数返回的元组。如果我在元组前面加上一个星号(`*`)来*splat*它，我可以将整个元组作为参数传递给`str.format()`函数。这告诉 Python 将元组扩展为其值：
 
 ```py
 def main() -> None:
     args = get_args()
-    counts = count(args.dna) ![1](assets/1.png)
-    print('{} {} {} {}'.format(*counts)) ![2](assets/2.png)
+    counts = count(args.dna) ![1](img/1.png)
+    print('{} {} {} {}'.format(*counts)) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO20-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO20-1)
 
-`counts`变量是包含整数基数计数的4元组。
+`counts`变量是包含整数基数计数的 4 元组。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO19-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO19-2)
 
 `*counts`语法将元组扩展为格式字符串所需的四个值；否则，元组将被解释为单个值。
 
@@ -1286,16 +1286,16 @@ def main() -> None:
 ```py
 def main() -> None:
     args = get_args()
-    print('{} {} {} {}'.format(*count(args.dna))) ![1](assets/1.png)
+    print('{} {} {} {}'.format(*count(args.dna))) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO20-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO20-1)
 
 将`count()`函数的返回值直接传递给`str.format()`方法。
 
 第一种解决方案可能更易于阅读和理解，并且像`flake8`这样的工具将能够发现`{}`占位符数量与变量数量不匹配的情况。简单、冗长、明显的代码通常比紧凑、聪明的代码更好。尽管如此，了解元组解包和扩展变量的技术是很有用的，我将在后续程序中使用这些技术。
 
-## 解决方案3：使用`str.count()`
+## 解决方案 3：使用`str.count()`
 
 前面的`count()`函数结果相当冗长。我可以使用`str.count()`方法将这个函数写成单行代码。此函数将计算一个字符串在另一个字符串中出现的次数。让我在 REPL 中演示给你看：
 
@@ -1317,17 +1317,17 @@ def main() -> None:
 这是使用这个思想的`count()`函数的新版本：
 
 ```py
-def count(dna: str) -> Tuple[int, int, int, int]: ![1](assets/1.png)
+def count(dna: str) -> Tuple[int, int, int, int]: ![1](img/1.png)
     """ Count bases in DNA """
 
-    return (dna.count('A'), dna.count('C'), dna.count('G'), dna.count('T')) ![2](assets/2.png)
+    return (dna.count('A'), dna.count('C'), dna.count('G'), dna.count('T')) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO21-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO21-1)
 
 签名与之前相同。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO21-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO21-2)
 
 对每个四个碱基调用 `dna.count()` 方法。
 
@@ -1338,19 +1338,19 @@ def count(dna: str) -> Tuple[int, int, int, int]: ![1](assets/1.png)
 ```py
 def main() -> None:
     args = get_args()
-    count_a, count_c, count_g, count_t = count(args.dna) ![1](assets/1.png)
-    print(f'{count_a} {count_c} {count_g} {count_t}') ![2](assets/2.png)
+    count_a, count_c, count_g, count_t = count(args.dna) ![1](img/1.png)
+    print(f'{count_a} {count_c} {count_g} {count_t}') ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO22-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO22-1)
 
 将元组解包为四个计数。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO22-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO22-2)
 
 使用 f-string 执行变量插值。
 
-它被称为 *f-string*，因为在引号之前有一个 `f`。我使用 *format* 这个助记符来提醒自己这是用来格式化字符串的。Python 还有一个 *raw* 字符串，以 `r` 开头，稍后我会讨论它。Python 中的所有字符串——裸字符串、f-字符串或r-字符串——都可以用单引号或双引号括起来。这没有区别。
+它被称为 *f-string*，因为在引号之前有一个 `f`。我使用 *format* 这个助记符来提醒自己这是用来格式化字符串的。Python 还有一个 *raw* 字符串，以 `r` 开头，稍后我会讨论它。Python 中的所有字符串——裸字符串、f-字符串或 r-字符串——都可以用单引号或双引号括起来。这没有区别。
 
 使用 f-string，`{}` 占位符可以执行 *变量插值*，这是一个术语，意味着将变量转换为其内容。这些大括号甚至可以执行代码。例如，`len()` 函数将返回字符串的长度，并且可以在大括号内执行：
 
@@ -1367,50 +1367,50 @@ def main() -> None:
 到目前为止，我讨论了 Python 的字符串、列表和元组。下一个解决方案介绍了 *字典*，它们是键/值存储。我想展示一个内部使用字典的 `count()` 函数版本，这样我可以强调一些重要的理解点：
 
 ```py
-def count(dna: str) -> Tuple[int, int, int, int]: ![1](assets/1.png)
+def count(dna: str) -> Tuple[int, int, int, int]: ![1](img/1.png)
     """ Count bases in DNA """
 
-    counts = {} ![2](assets/2.png)
-    for base in dna: ![3](assets/3.png)
-        if base not in counts: ![4](assets/4.png)
-            counts[base] = 0 ![5](assets/5.png)
-        counts[base] += 1 ![6](assets/6.png)
+    counts = {} ![2](img/2.png)
+    for base in dna: ![3](img/3.png)
+        if base not in counts: ![4](img/4.png)
+            counts[base] = 0 ![5](img/5.png)
+        counts[base] += 1 ![6](img/6.png)
 
-    return (counts.get('A', 0), ![7](assets/7.png)
+    return (counts.get('A', 0), ![7](img/7.png)
             counts.get('C', 0),
             counts.get('G', 0),
             counts.get('T', 0))
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-1)
 
 在内部，我会使用一个字典，但函数签名不会改变。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-2)
 
 初始化一个空字典来存储`counts`。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-3)
 
 使用`for`循环遍历序列。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-4)
 
 检查字典中是否尚不存在这个碱基。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-5)
 
 将这个碱基的值初始化为`0`。
 
-[![6](assets/6.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-6)
+![6](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-6)
 
-增加这个碱基的计数1。
+增加这个碱基的计数 1。
 
-[![7](assets/7.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-7)
+![7](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO23-7)
 
 使用`dict.get()`方法获取每个碱基的计数或默认值`0`。
 
-再次强调，这个函数的契约——类型签名——没有改变。输入仍然是字符串，输出仍然是4个整数的元组。在函数内部，我将使用一个我将使用空花括号初始化的字典：
+再次强调，这个函数的契约——类型签名——没有改变。输入仍然是字符串，输出仍然是 4 个整数的元组。在函数内部，我将使用一个我将使用空花括号初始化的字典：
 
 ```py
 >>> counts = {}
@@ -1450,7 +1450,7 @@ True
 3
 ```
 
-如果尝试访问一个不存在的字典键，Python将引发`KeyError`异常：
+如果尝试访问一个不存在的字典键，Python 将引发`KeyError`异常：
 
 ```py
 >>> counts['N']
@@ -1468,7 +1468,7 @@ False
 True
 ```
 
-当我遍历序列中的每个碱基时，我需要查看`counts`字典中是否存在该碱基。如果不存在，我需要将其初始化为`0`。然后，我可以安全地使用`+=`操作符将碱基的计数增加1：
+当我遍历序列中的每个碱基时，我需要查看`counts`字典中是否存在该碱基。如果不存在，我需要将其初始化为`0`。然后，我可以安全地使用`+=`操作符将碱基的计数增加 1：
 
 ```py
 >>> seq = 'ACCGGGTTTT'
@@ -1482,7 +1482,7 @@ True
 {'A': 1, 'C': 2, 'G': 3, 'T': 4}
 ```
 
-最后，我想返回每个碱基的4元组计数。你可能会认为这会起作用：
+最后，我想返回每个碱基的 4 元组计数。你可能会认为这会起作用：
 
 ```py
 >>> counts['A'], counts['C'], counts['G'], counts['T']
@@ -1497,7 +1497,7 @@ True
 >>> counts.get('N')
 ```
 
-`dict.get()`方法接受一个可选的第二个参数，即在键不存在时返回的默认值，因此这是返回4个碱基计数的最安全方法：
+`dict.get()`方法接受一个可选的第二个参数，即在键不存在时返回的默认值，因此这是返回 4 个碱基计数的最安全方法：
 
 ```py
 >>> counts.get('A', 0), counts.get('C', 0), counts.get('G', 0),
@@ -1507,43 +1507,43 @@ True
 
 无论你在`count()`函数内写什么，确保它能通过`test_count()`单元测试。
 
-## 解决方案5：仅计算所需的碱基
+## 解决方案 5：仅计算所需的碱基
 
 前面的解决方案将计算输入序列中的每个字符，但如果我只想计算四个核苷酸呢？在这个解决方案中，我将初始化一个只包含所需碱基且值为`0`的字典。我还需要引入`typing.Dict`来运行这段代码：
 
 ```py
-def count(dna: str) -> Dict[str, int]: ![1](assets/1.png)
+def count(dna: str) -> Dict[str, int]: ![1](img/1.png)
     """ Count bases in DNA """
 
-    counts = {'A': 0, 'C': 0, 'G': 0, 'T': 0} ![2](assets/2.png)
-    for base in dna: ![3](assets/3.png)
-        if base in counts: ![4](assets/4.png)
-            counts[base] += 1 ![5](assets/5.png)
+    counts = {'A': 0, 'C': 0, 'G': 0, 'T': 0} ![2](img/2.png)
+    for base in dna: ![3](img/3.png)
+        if base in counts: ![4](img/4.png)
+            counts[base] += 1 ![5](img/5.png)
 
-    return counts ![6](assets/6.png)
+    return counts ![6](img/6.png)
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-1)
 
 现在的签名表明我将返回一个具有字符串键和整数值的字典。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-2)
 
 使用四个碱基作为键和值为 `0` 的方式初始化 `counts` 字典。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-3)
 
 遍历碱基。
 
-[![4](assets/4.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-4)
+![4](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-4)
 
 检查碱基是否作为键存在于 `counts` 字典中。
 
-[![5](assets/5.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-5)
+![5](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-5)
 
 如果是这样，则将此碱基的 `counts` 增加 1。
 
-[![6](assets/6.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-6)
+![6](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO24-6)
 
 返回 `counts` 字典。
 
@@ -1553,8 +1553,8 @@ def count(dna: str) -> Dict[str, int]: ![1](assets/1.png)
 def test_count() -> None:
     """ Test count """
 
-    assert count('') == {'A': 0, 'C': 0, 'G': 0, 'T': 0} ![1](assets/1.png)
-    assert count('123XYZ') == {'A': 0, 'C': 0, 'G': 0, 'T': 0} ![2](assets/2.png)
+    assert count('') == {'A': 0, 'C': 0, 'G': 0, 'T': 0} ![1](img/1.png)
+    assert count('123XYZ') == {'A': 0, 'C': 0, 'G': 0, 'T': 0} ![2](img/2.png)
     assert count('A') == {'A': 1, 'C': 0, 'G': 0, 'T': 0}
     assert count('C') == {'A': 0, 'C': 1, 'G': 0, 'T': 0}
     assert count('G') == {'A': 0, 'C': 0, 'G': 1, 'T': 0}
@@ -1562,11 +1562,11 @@ def test_count() -> None:
     assert count('ACCGGGTTTT') == {'A': 1, 'C': 2, 'G': 3, 'T': 4}
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO25-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO25-1)
 
 返回的字典将始终具有键 `A`、`C`、`G` 和 `T`。即使对于空字符串，这些键也会存在并设置为 `0`。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO25-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO25-2)
 
 所有其他测试具有相同的输入，但现在我检查答案作为一个字典返回。
 
@@ -1586,16 +1586,16 @@ True
 ```py
 def main() -> None:
     args = get_args()
-    counts = count(args.dna) ![1](assets/1.png)
-    print('{} {} {} {}'.format(counts['A'], counts['C'], counts['G'], ![2](assets/2.png)
+    counts = count(args.dna) ![1](img/1.png)
+    print('{} {} {} {}'.format(counts['A'], counts['C'], counts['G'], ![2](img/2.png)
                                counts['T']))
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO26-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO26-1)
 
 `counts` 现在是一个字典。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO26-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO26-2)
 
 使用 `str.format()` 方法使用字典中的值创建输出。
 
@@ -1634,19 +1634,19 @@ defaultdict(<class 'int'>, {'A': 0, 'C': 1})
 def count(dna: str) -> Dict[str, int]:
     """ Count bases in DNA """
 
-    counts: Dict[str, int] = defaultdict(int) ![1](assets/1.png)
+    counts: Dict[str, int] = defaultdict(int) ![1](img/1.png)
 
     for base in dna:
-        counts[base] += 1 ![2](assets/2.png)
+        counts[base] += 1 ![2](img/2.png)
 
     return counts
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO27-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO27-1)
 
 `counts`将是一个带有整数值的`defaultdict`。这里的类型注释是`mypy`所需的，以确保返回的值是正确的。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO27-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO27-2)
 
 我可以安全地增加这个碱基的`counts`。
 
@@ -1656,46 +1656,46 @@ def count(dna: str) -> Dict[str, int]:
 def test_count() -> None:
     """ Test count """
 
-    assert count('') == {} ![1](assets/1.png)
-    assert count('123XYZ') == {'1': 1, '2': 1, '3': 1, 'X': 1, 'Y': 1, 'Z': 1} ![2](assets/2.png)
-    assert count('A') == {'A': 1} ![3](assets/3.png)
+    assert count('') == {} ![1](img/1.png)
+    assert count('123XYZ') == {'1': 1, '2': 1, '3': 1, 'X': 1, 'Y': 1, 'Z': 1} ![2](img/2.png)
+    assert count('A') == {'A': 1} ![3](img/3.png)
     assert count('C') == {'C': 1}
     assert count('G') == {'G': 1}
     assert count('T') == {'T': 1}
     assert count('ACCGGGTTTT') == {'A': 1, 'C': 2, 'G': 3, 'T': 4}
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO28-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO28-1)
 
 给定一个空字符串，将返回一个空字典。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO28-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO28-2)
 
 注意字符串中的每个字符都是字典中的一个键。
 
-[![3](assets/3.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO28-3)
+![3](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO28-3)
 
-只有`A`存在，计数为1。
+只有`A`存在，计数为 1。
 
 鉴于返回的字典可能不包含所有碱基，`main()`中的代码需要使用`count.get()`方法来检索每个碱基的频率：
 
 ```py
 def main() -> None:
     args = get_args()
-    counts = count(args.dna) ![1](assets/1.png)
-    print(counts.get('A', 0), counts.get('C', 0), counts.get('G', 0), ![2](assets/2.png)
+    counts = count(args.dna) ![1](img/1.png)
+    print(counts.get('A', 0), counts.get('C', 0), counts.get('G', 0), ![2](img/2.png)
           counts.get('T', 0))
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO29-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO29-1)
 
 `counts`将是一个可能不包含所有核苷酸的字典。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO29-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO29-2)
 
 使用`dict.get()`方法并设置默认值为`0`是最安全的。
 
-## 解决方案7：使用`collections.Counter()`
+## 解决方案 7：使用`collections.Counter()`
 
 > 完美是在无需添加任何内容时实现的，而是在无需再去除任何内容时实现的。
 > 
@@ -1716,16 +1716,16 @@ Counter({'G': 3, 'T': 3, 'C': 2, 'A': 1})
 ```py
 def main() -> None:
     args = get_args()
-    counts = Counter(args.dna) ![1](assets/1.png)
-    print(counts.get('A', 0), counts.get('C', 0), counts.get('G', 0), ![2](assets/2.png)
+    counts = Counter(args.dna) ![1](img/1.png)
+    print(counts.get('A', 0), counts.get('C', 0), counts.get('G', 0), ![2](img/2.png)
           counts.get('T', 0))
 ```
 
-[![1](assets/1.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO30-1)
+![1](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO30-1)
 
 `counts` 将是一个包含 `args.dna` 中字符频率的字典。
 
-[![2](assets/2.png)](#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO30-2)
+![2](img/#co_tetranucleotide_frequency___span_class__keep_together__counting_things__span__CO30-2)
 
 使用 `dict.get()` 仍然是最安全的，因为我不能确定所有碱基都存在。
 
@@ -1765,14 +1765,14 @@ def main() -> None:
 
 +   你可以用类型注释变量和函数，并使用`mypy`来确保类型的正确使用。
 
-+   Python REPL是一个交互式工具，用于执行代码示例和阅读文档。
++   Python REPL 是一个交互式工具，用于执行代码示例和阅读文档。
 
-+   Python社区通常遵循诸如PEP8之类的风格指南。像`yapf`和`black`这样的工具可以根据这些建议自动格式化代码，而`pylint`和`flake8`等工具将报告与指南不符的偏差。
++   Python 社区通常遵循诸如 PEP8 之类的风格指南。像`yapf`和`black`这样的工具可以根据这些建议自动格式化代码，而`pylint`和`flake8`等工具将报告与指南不符的偏差。
 
-+   Python的字符串、列表、元组和字典是非常强大的数据结构，每种都有有用的方法和丰富的文档。
++   Python 的字符串、列表、元组和字典是非常强大的数据结构，每种都有有用的方法和丰富的文档。
 
 +   你可以创建一个自定义的、不可变的、基于命名元组的有类型`class`。
 
-也许你正在想哪一个是七种解决方案中最好的。像生活中的许多事情一样，这取决于情况。有些程序写起来更短，更容易理解，但当面对大数据集时可能表现不佳。在[第2章](ch02.html#ch02)中，我将向你展示如何对比程序，使用大输入进行多次运行以确定哪一个性能最佳。
+也许你正在想哪一个是七种解决方案中最好的。像生活中的许多事情一样，这取决于情况。有些程序写起来更短，更容易理解，但当面对大数据集时可能表现不佳。在第二章中，我将向你展示如何对比程序，使用大输入进行多次运行以确定哪一个性能最佳。
 
-^([1](ch01.html#idm45963636356152-marker)) 布尔类型是`True`或`False`，但许多其他数据类型是*truthy*或反之*falsey*。空的`str`(`""`)是falsey，所以任何非空字符串是truthy。数字`0`是falsey，所以任何非零值是truthy。空的`list`、`set`或`dict`是falsey，所以任何非空的这些都是truthy。
+^(1) 布尔类型是`True`或`False`，但许多其他数据类型是*truthy*或反之*falsey*。空的`str`(`""`)是 falsey，所以任何非空字符串是 truthy。数字`0`是 falsey，所以任何非零值是 truthy。空的`list`、`set`或`dict`是 falsey，所以任何非空的这些都是 truthy。

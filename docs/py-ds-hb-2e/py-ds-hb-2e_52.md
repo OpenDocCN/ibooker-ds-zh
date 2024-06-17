@@ -1,4 +1,4 @@
-# 第 47 章：深入理解 k-Means 聚类
+# 第四十七章：深入理解 k-Means 聚类
 
 在之前的章节中，我们探索了用于降维的无监督机器学习模型。现在我们将转向另一类无监督机器学习模型：聚类算法。聚类算法试图从数据的属性中学习出最优的分割或离散标记的群组点。
 
@@ -23,7 +23,7 @@ In [1]: %matplotlib inline
 
 这两个假设是 *k*-means 模型的基础。我们很快将深入了解算法如何达到这个解决方案，但现在让我们看一看一个简单数据集，并查看 *k*-means 的结果。
 
-首先，让我们生成一个包含四个不同斑点的二维数据集。为了突出这是一个无监督算法，我们将在可视化中省略标签（见[图 47-1](#fig_0511-k-means_files_in_output_5_0)）。
+首先，让我们生成一个包含四个不同斑点的二维数据集。为了突出这是一个无监督算法，我们将在可视化中省略标签（见图 47-1）。
 
 ```py
 In [2]: from sklearn.datasets import make_blobs
@@ -32,7 +32,7 @@ In [2]: from sklearn.datasets import make_blobs
         plt.scatter(X[:, 0], X[:, 1], s=50);
 ```
 
-![output 5 0](assets/output_5_0.png)
+![output 5 0](img/output_5_0.png)
 
 ###### 图 47-1：用于演示聚类的数据
 
@@ -45,7 +45,7 @@ In [3]: from sklearn.cluster import KMeans
         y_kmeans = kmeans.predict(X)
 ```
 
-让我们通过按照这些标签对数据进行着色来可视化结果（[图 47-2](#fig_0511-k-means_files_in_output_9_0)）。我们还将绘制由 *k*-means 估计器确定的簇中心：
+让我们通过按照这些标签对数据进行着色来可视化结果（图 47-2）。我们还将绘制由 *k*-means 估计器确定的簇中心：
 
 ```py
 In [4]: plt.scatter(X[:, 0], X[:, 1], c=y_kmeans, s=50, cmap='viridis')
@@ -56,7 +56,7 @@ In [4]: plt.scatter(X[:, 0], X[:, 1], c=y_kmeans, s=50, cmap='viridis')
 
 令人高兴的是，*k*-means 算法（至少在这个简单案例中）将点分配到簇中的方式与我们通过肉眼观察的方式非常相似。但你可能会想知道这个算法是如何如此快速地找到这些簇的：毕竟，簇分配的可能组合数随数据点数量呈指数增长——全面搜索将非常、非常昂贵。对我们来说幸运的是，这样的全面搜索并不是必需的：相反，*k*-means 的典型方法涉及一种直观的迭代方法，称为期望最大化。
 
-![output 9 0](assets/output_9_0.png)
+![output 9 0](img/output_9_0.png)
 
 ###### 图 47-2：带有颜色指示簇的 k-means 簇中心
 
@@ -76,13 +76,13 @@ In [4]: plt.scatter(X[:, 0], X[:, 1], c=y_kmeans, s=50, cmap='viridis')
 
 关于这一算法的文献非常丰富，但可以总结如下：在典型情况下，每次 E 步和 M 步的重复都会导致对聚类特征的更好估计。
 
-我们可以将算法可视化如图 [Figure 47-3](#fig_images_in_0511-expectation-maximization) 所示。对于此处显示的特定初始化，聚类在仅三次迭代中收敛。（有关此图的交互版本，请参阅在线 [附录](https://oreil.ly/wFnok) 中的代码。）
+我们可以将算法可视化如图 Figure 47-3 所示。对于此处显示的特定初始化，聚类在仅三次迭代中收敛。（有关此图的交互版本，请参阅在线 [附录](https://oreil.ly/wFnok) 中的代码。）
 
-![05.11 expectation maximization](assets/05.11-expectation-maximization.png)
+![05.11 expectation maximization](img/05.11-expectation-maximization.png)
 
-###### 图 47-3\. k-means 的 E-M 算法可视化^([1](ch47.xhtml#idm45858724046864))
+###### 图 47-3\. k-means 的 E-M 算法可视化^(1)
 
-*k*-means 算法简单到我们可以用几行代码来编写它。以下是一个非常基本的实现（参见图 [Figure 47-4](#fig_0511-k-means_files_in_output_15_0)）。
+*k*-means 算法简单到我们可以用几行代码来编写它。以下是一个非常基本的实现（参见图 Figure 47-4）。
 
 ```py
 In [5]: from sklearn.metrics import pairwise_distances_argmin
@@ -113,7 +113,7 @@ In [5]: from sklearn.metrics import pairwise_distances_argmin
                     s=50, cmap='viridis');
 ```
 
-![output 15 0](assets/output_15_0.png)
+![output 15 0](img/output_15_0.png)
 
 ###### 图 47-4\. 使用 k-means 标记的数据
 
@@ -121,7 +121,7 @@ In [5]: from sklearn.metrics import pairwise_distances_argmin
 
 可能无法达到全局最优结果
 
-首先，尽管 E-M 过程保证在每个步骤中改善结果，但不能保证它会导致 *全局* 最佳解。例如，如果在我们的简单过程中使用不同的随机种子，特定的起始猜测会导致糟糕的结果（参见图 [Figure 47-5](#fig_0511-k-means_files_in_output_19_0)）。
+首先，尽管 E-M 过程保证在每个步骤中改善结果，但不能保证它会导致 *全局* 最佳解。例如，如果在我们的简单过程中使用不同的随机种子，特定的起始猜测会导致糟糕的结果（参见图 Figure 47-5）。
 
 ```py
 In [6]: centers, labels = find_clusters(X, 4, rseed=0)
@@ -129,7 +129,7 @@ In [6]: centers, labels = find_clusters(X, 4, rseed=0)
                     s=50, cmap='viridis');
 ```
 
-![output 19 0](assets/output_19_0.png)
+![output 19 0](img/output_19_0.png)
 
 ###### 图 47-5\. k-means 算法收敛不良的示例
 
@@ -137,7 +137,7 @@ In [6]: centers, labels = find_clusters(X, 4, rseed=0)
 
 必须事先选择聚类数
 
-*k*-means 的另一个常见挑战是您必须告诉它您期望的聚类数：它无法从数据中学习到聚类数。例如，如果我们要求算法识别六个聚类，它将愉快地继续并找到最佳的六个聚类，如图 [Figure 40-1](ch40.xhtml#fig_0504-feature-engineering_files_in_output_24_0) 所示：
+*k*-means 的另一个常见挑战是您必须告诉它您期望的聚类数：它无法从数据中学习到聚类数。例如，如果我们要求算法识别六个聚类，它将愉快地继续并找到最佳的六个聚类，如图 Figure 40-1 所示：
 
 ```py
 In [7]: labels = KMeans(6, random_state=0).fit_predict(X)
@@ -145,19 +145,19 @@ In [7]: labels = KMeans(6, random_state=0).fit_predict(X)
                     s=50, cmap='viridis');
 ```
 
-![output 22 0](assets/output_22_0.png)
+![output 22 0](img/output_22_0.png)
 
-###### 图47-6\. 簇数量选择不当的示例
+###### 图 47-6\. 簇数量选择不当的示例
 
 结果是否有意义是一个很难明确回答的问题；一个相当直观的方法是使用[轮廓分析](https://oreil.ly/xybmq)，但我们这里不再进一步讨论。
 
-或者，您可以使用更复杂的聚类算法，该算法对于每个簇的适应度有更好的定量衡量（例如，高斯混合模型；参见[第48章](ch48.xhtml#section-0512-gaussian-mixtures)），或者可以选择合适的簇数量（例如，DBSCAN、均值漂移或亲和力传播，这些都在`sklearn.cluster`子模块中提供）。
+或者，您可以使用更复杂的聚类算法，该算法对于每个簇的适应度有更好的定量衡量（例如，高斯混合模型；参见第四十八章），或者可以选择合适的簇数量（例如，DBSCAN、均值漂移或亲和力传播，这些都在`sklearn.cluster`子模块中提供）。
 
-k-means仅限于线性簇边界
+k-means 仅限于线性簇边界
 
-*k*-means的基本模型假设（点会更靠近自己的簇中心而不是其他簇）意味着如果簇具有复杂的几何结构，则该算法通常会失效。
+*k*-means 的基本模型假设（点会更靠近自己的簇中心而不是其他簇）意味着如果簇具有复杂的几何结构，则该算法通常会失效。
 
-特别地，*k*-means簇之间的边界始终是线性的，这意味着对于更复杂的边界，它将失败。 考虑以下数据，以及典型*k*-means方法找到的簇标签（见[图47-7](#fig_0511-k-means_files_in_output_26_0)）。
+特别地，*k*-means 簇之间的边界始终是线性的，这意味着对于更复杂的边界，它将失败。 考虑以下数据，以及典型*k*-means 方法找到的簇标签（见图 47-7）。
 
 ```py
 In [8]: from sklearn.datasets import make_moons
@@ -170,13 +170,13 @@ In [9]: labels = KMeans(2, random_state=0).fit_predict(X)
                     s=50, cmap='viridis');
 ```
 
-![output 26 0](assets/output_26_0.png)
+![output 26 0](img/output_26_0.png)
 
-###### 图47-7\. k-means在非线性边界下的失败
+###### 图 47-7\. k-means 在非线性边界下的失败
 
-这种情况让人想起了[第43章](ch43.xhtml#section-0507-support-vector-machines)中的讨论，在那里我们使用核变换将数据投影到更高的维度，从而可能实现线性分离。 我们可以想象使用相同的技巧来允许*k*-means发现非线性边界。
+这种情况让人想起了第四十三章中的讨论，在那里我们使用核变换将数据投影到更高的维度，从而可能实现线性分离。 我们可以想象使用相同的技巧来允许*k*-means 发现非线性边界。
 
-这种基于核的*k*-means的一个版本在Scikit-Learn中通过`SpectralClustering`估计器实现。 它使用最近邻图来计算数据的更高维表示，然后使用*k*-means算法分配标签（参见[图47-8](#fig_0511-k-means_files_in_output_28_0)）。
+这种基于核的*k*-means 的一个版本在 Scikit-Learn 中通过`SpectralClustering`估计器实现。 它使用最近邻图来计算数据的更高维表示，然后使用*k*-means 算法分配标签（参见图 47-8）。
 
 ```py
 In [10]: from sklearn.cluster import SpectralClustering
@@ -188,15 +188,15 @@ In [10]: from sklearn.cluster import SpectralClustering
                      s=50, cmap='viridis');
 ```
 
-![output 28 0](assets/output_28_0.png)
+![output 28 0](img/output_28_0.png)
 
-###### 图47-8\. SpectralClustering学习的非线性边界
+###### 图 47-8\. SpectralClustering 学习的非线性边界
 
-我们看到，通过这种核变换方法，基于核的*k*-means能够找到更复杂的簇之间的非线性边界。
+我们看到，通过这种核变换方法，基于核的*k*-means 能够找到更复杂的簇之间的非线性边界。
 
-对于大量样本，k-means可能会运行缓慢。
+对于大量样本，k-means 可能会运行缓慢。
 
-因为*k*-means的每次迭代都必须访问数据集中的每个点，所以随着样本数量的增长，该算法可能相对缓慢。 您可能会想知道是否可以放宽每次迭代使用所有数据的要求；例如，您可能只使用数据的子集来更新每个步骤的簇中心。 这就是批量式*k*-means算法背后的思想，其中一种形式在`sklearn.cluster.MiniBatchKMeans`中实现。 其接口与标准的`KMeans`相同；我们将在继续讨论时看到其使用示例。
+因为*k*-means 的每次迭代都必须访问数据集中的每个点，所以随着样本数量的增长，该算法可能相对缓慢。 您可能会想知道是否可以放宽每次迭代使用所有数据的要求；例如，您可能只使用数据的子集来更新每个步骤的簇中心。 这就是批量式*k*-means 算法背后的思想，其中一种形式在`sklearn.cluster.MiniBatchKMeans`中实现。 其接口与标准的`KMeans`相同；我们将在继续讨论时看到其使用示例。
 
 # 例子
 
@@ -204,7 +204,7 @@ In [10]: from sklearn.cluster import SpectralClustering
 
 ## 示例 1：数字上的*k*-均值
 
-首先，让我们看看在我们在第 [44 章](ch44.xhtml#section-0508-random-forests) 和第 [45 章](ch45.xhtml#section-0509-principal-component-analysis) 中看到的相同简单数字数据上应用*k*-均值。在这里，我们将尝试使用*k*-均值来尝试识别类似的数字，*而不使用原始标签信息*；这可能类似于从一个没有任何先验标签信息的新数据集中提取含义的第一步。
+首先，让我们看看在我们在第四十四章 和第四十五章 中看到的相同简单数字数据上应用*k*-均值。在这里，我们将尝试使用*k*-均值来尝试识别类似的数字，*而不使用原始标签信息*；这可能类似于从一个没有任何先验标签信息的新数据集中提取含义的第一步。
 
 我们将从加载数据集开始，然后找到聚类。回想一下，数字数据集包含 1,797 个样本，每个样本有 64 个特征，其中每个特征是 8 × 8 图像中一个像素的亮度。
 
@@ -224,7 +224,7 @@ In [12]: kmeans = KMeans(n_clusters=10, random_state=0)
 Out[12]: (10, 64)
 ```
 
-结果是 64 维空间中的 10 个聚类。请注意，聚类中心本身是 64 维点，可以解释为聚类内“典型”的数字。让我们看看这些聚类中心是什么样子的（见 [图 47-9](#fig_0511-k-means_files_in_output_37_0)）。
+结果是 64 维空间中的 10 个聚类。请注意，聚类中心本身是 64 维点，可以解释为聚类内“典型”的数字。让我们看看这些聚类中心是什么样子的（见 图 47-9）。
 
 ```py
 In [13]: fig, ax = plt.subplots(2, 5, figsize=(8, 3))
@@ -234,7 +234,7 @@ In [13]: fig, ax = plt.subplots(2, 5, figsize=(8, 3))
              axi.imshow(center, interpolation='nearest', cmap=plt.cm.binary)
 ```
 
-![output 37 0](assets/output_37_0.png)
+![output 37 0](img/output_37_0.png)
 
 ###### 图 47-9\. *k*-均值学习到的聚类中心
 
@@ -259,7 +259,7 @@ In [15]: from sklearn.metrics import accuracy_score
 Out[15]: 0.7935447968836951
 ```
 
-仅仅使用简单的*k*-均值算法，我们就为80%的输入数字找到了正确的分组！让我们来查看这个混淆矩阵，它在 [图 47-10](#fig_0511-k-means_files_in_output_43_0) 中可视化。
+仅仅使用简单的*k*-均值算法，我们就为 80%的输入数字找到了正确的分组！让我们来查看这个混淆矩阵，它在 图 47-10 中可视化。
 
 ```py
 In [16]: from sklearn.metrics import confusion_matrix
@@ -273,13 +273,13 @@ In [16]: from sklearn.metrics import confusion_matrix
          plt.ylabel('predicted label');
 ```
 
-![output 43 0](assets/output_43_0.png)
+![output 43 0](img/output_43_0.png)
 
 ###### 图 47-10\. *k*-均值分类器的混淆矩阵
 
 正如我们之前可视化的聚类中心所示，混淆的主要点在于数字“8”和“1”。但这仍然表明，使用*k*-均值，我们基本上可以建立一个数字分类器，*无需参考任何已知标签*！
 
-仅仅是为了好玩，让我们尝试推动这个进展更远。我们可以在执行*k*-均值之前使用 t-分布随机邻居嵌入算法（在[第 46 章](ch46.xhtml#section-0510-manifold-learning)中提到）对数据进行预处理。t-SNE 是一种非线性嵌入算法，特别擅长保留簇内的点。我们来看看它的表现：
+仅仅是为了好玩，让我们尝试推动这个进展更远。我们可以在执行*k*-均值之前使用 t-分布随机邻居嵌入算法（在第四十六章中提到）对数据进行预处理。t-SNE 是一种非线性嵌入算法，特别擅长保留簇内的点。我们来看看它的表现：
 
 ```py
 In [17]: from sklearn.manifold import TSNE
@@ -308,9 +308,9 @@ Out[17]: 0.9415692821368948
 
 ## 示例 2：颜色压缩的*k*-均值
 
-聚类的一个有趣应用是图像内的颜色压缩（此示例改编自Scikit-Learn的[“使用K-Means进行颜色量化”](https://oreil.ly/TwsxU)）。例如，想象一下你有一幅包含数百万种颜色的图像。在大多数图像中，许多颜色将未被使用，并且图像中的许多像素将具有相似或甚至相同的颜色。
+聚类的一个有趣应用是图像内的颜色压缩（此示例改编自 Scikit-Learn 的[“使用 K-Means 进行颜色量化”](https://oreil.ly/TwsxU)）。例如，想象一下你有一幅包含数百万种颜色的图像。在大多数图像中，许多颜色将未被使用，并且图像中的许多像素将具有相似或甚至相同的颜色。
 
-例如，考虑图像显示在[图47-11](#fig_0511-k-means_files_in_output_48_0)中，这是来自Scikit-Learn `datasets`模块的（为了使其工作，您必须安装`PIL` Python包）：
+例如，考虑图像显示在图 47-11 中，这是来自 Scikit-Learn `datasets`模块的（为了使其工作，您必须安装`PIL` Python 包）：
 
 ```py
 In [18]: # Note: this requires the PIL package to be installed
@@ -320,18 +320,18 @@ In [18]: # Note: this requires the PIL package to be installed
          ax.imshow(china);
 ```
 
-![output 48 0](assets/output_48_0.png)
+![output 48 0](img/output_48_0.png)
 
-###### 图47-11\. 输入图像
+###### 图 47-11\. 输入图像
 
-图像本身存储在一个大小为`(height, width, RGB)`的三维数组中，包含从0到255的整数表示的红/蓝/绿分量：
+图像本身存储在一个大小为`(height, width, RGB)`的三维数组中，包含从 0 到 255 的整数表示的红/蓝/绿分量：
 
 ```py
 In [19]: china.shape
 Out[19]: (427, 640, 3)
 ```
 
-我们可以将这组像素视为三维色彩空间中的一组点云。我们将重新调整数据为`[n_samples, n_features]`的形状，并重新缩放颜色，使其介于0到1之间：
+我们可以将这组像素视为三维色彩空间中的一组点云。我们将重新调整数据为`[n_samples, n_features]`的形状，并重新缩放颜色，使其介于 0 到 1 之间：
 
 ```py
 In [20]: data = china / 255.0  # use 0...1 scale
@@ -340,7 +340,7 @@ In [20]: data = china / 255.0  # use 0...1 scale
 Out[20]: (273280, 3)
 ```
 
-我们可以使用10000个像素的子集在此色彩空间中可视化这些像素（见[图47-12](#fig_0511-k-means_files_in_output_55_0)）。
+我们可以使用 10000 个像素的子集在此色彩空间中可视化这些像素（见图 47-12）。
 
 ```py
 In [21]: def plot_pixels(data, title, colors=None, N=10000):
@@ -367,11 +367,11 @@ In [21]: def plot_pixels(data, title, colors=None, N=10000):
 In [22]: plot_pixels(data, title='Input color space: 16 million possible colors')
 ```
 
-![output 55 0](assets/output_55_0.png)
+![output 55 0](img/output_55_0.png)
 
-###### 图47-12\. 在RGB色彩空间中的像素分布^([3](ch47.xhtml#idm45858722326976))
+###### 图 47-12\. 在 RGB 色彩空间中的像素分布^(3)
 
-现在让我们将这1600万种颜色减少到只有16种颜色，使用像素空间的* k *-means聚类。由于我们正在处理一个非常大的数据集，我们将使用小批量* k *-means，它在数据子集上计算结果（显示在[图47-13](#fig_0511-k-means_files_in_output_57_0)中）比标准* k *-means算法更快：
+现在让我们将这 1600 万种颜色减少到只有 16 种颜色，使用像素空间的* k *-means 聚类。由于我们正在处理一个非常大的数据集，我们将使用小批量* k *-means，它在数据子集上计算结果（显示在图 47-13 中）比标准* k *-means 算法更快：
 
 ```py
 In [23]: from sklearn.cluster import MiniBatchKMeans
@@ -383,11 +383,11 @@ In [23]: from sklearn.cluster import MiniBatchKMeans
                      title="Reduced color space: 16 colors")
 ```
 
-![output 57 0](assets/output_57_0.png)
+![output 57 0](img/output_57_0.png)
 
-###### 图47-13\. RGB色彩空间中的16个聚类^([4](ch47.xhtml#idm45858722264912))
+###### 图 47-13\. RGB 色彩空间中的 16 个聚类^(4)
 
-结果是原始像素的重新着色，其中每个像素分配到最接近的聚类中心的颜色。将这些新颜色在图像空间而不是像素空间中绘制，显示了这种效果（见[图47-14](#fig_0511-k-means_files_in_output_59_0)）。
+结果是原始像素的重新着色，其中每个像素分配到最接近的聚类中心的颜色。将这些新颜色在图像空间而不是像素空间中绘制，显示了这种效果（见图 47-14）。
 
 ```py
 In [24]: china_recolored = new_colors.reshape(china.shape)
@@ -401,16 +401,16 @@ In [24]: china_recolored = new_colors.reshape(china.shape)
          ax[1].set_title('16-color Image', size=16);
 ```
 
-![output 59 0](assets/output_59_0.png)
+![output 59 0](img/output_59_0.png)
 
-###### 图47-14\. 全彩图像（左）和16色图像（右）的比较
+###### 图 47-14\. 全彩图像（左）和 16 色图像（右）的比较
 
-右侧面板中确实丢失了一些细节，但整体图像仍然很容易识别。在存储原始数据所需的字节方面，右侧的图像实现了约100万的压缩比！现在，这种方法不会与像JPEG这样的专用图像压缩方案匹敌，但这个例子展示了通过* k *-means等无监督方法进行创新思维的威力。
+右侧面板中确实丢失了一些细节，但整体图像仍然很容易识别。在存储原始数据所需的字节方面，右侧的图像实现了约 100 万的压缩比！现在，这种方法不会与像 JPEG 这样的专用图像压缩方案匹敌，但这个例子展示了通过* k *-means 等无监督方法进行创新思维的威力。
 
-^([1](ch47.xhtml#idm45858724046864-marker)) 生成此图的代码可以在[在线附录](https://oreil.ly/yo6GV)中找到。
+^(1) 生成此图的代码可以在[在线附录](https://oreil.ly/yo6GV)中找到。
 
-^([2](ch47.xhtml#idm45858722773584-marker)) 欲查看彩色版本以及后续图像，请参阅[本书的在线版本](https://oreil.ly/PDSH_GitHub)。
+^(2) 欲查看彩色版本以及后续图像，请参阅[本书的在线版本](https://oreil.ly/PDSH_GitHub)。
 
-^([3](ch47.xhtml#idm45858722326976-marker)) 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+^(3) 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^([4](ch47.xhtml#idm45858722264912-marker)) 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+^(4) 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。

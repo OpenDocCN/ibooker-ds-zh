@@ -1,4 +1,6 @@
-第 10 章 Python 驱动的 Excel 工具
+# 第十四章
+
+第十章 Python 驱动的 Excel 工具
 
 在上一章中，我们学习了如何编写 Python 脚本来自动化 Microsoft Excel。虽然这非常强大，但用户必须习惯使用 Anaconda Prompt 或像 VS Code 这样的编辑器来运行脚本。如果您的工具是由业务用户使用，情况可能不会如此。对于他们，您希望隐藏 Python 部分，使 Excel 工具再次感觉像一个普通的启用宏的工作簿。如何通过 xlwings 实现这一点是本章的主题。在查看 xlwings 工具部署的挑战之前，我将首先向您展示从 Excel 运行 Python 代码的最短路径——这也将使我们更详细地了解 xlwings 提供的可用设置。与上一章类似，本章要求您在 Windows 或 macOS 上安装 Microsoft Excel。
 
@@ -8,7 +10,7 @@
 
 Excel 插件
 
-由于 xlwings 包含在 Anaconda 发行版中，在上一章中，我们可以直接在 Python 中运行 xlwings 命令。然而，如果您希望从 Excel 调用 Python 脚本，则需要安装 Excel 插件或在独立模式下设置工作簿。虽然我将在 [“部署”](#filepos1471908) 中介绍独立模式，但本节向您展示如何使用插件。要安装插件，请在 Anaconda Prompt 上运行以下命令：
+由于 xlwings 包含在 Anaconda 发行版中，在上一章中，我们可以直接在 Python 中运行 xlwings 命令。然而，如果您希望从 Excel 调用 Python 脚本，则需要安装 Excel 插件或在独立模式下设置工作簿。虽然我将在 “部署” 中介绍独立模式，但本节向您展示如何使用插件。要安装插件，请在 Anaconda Prompt 上运行以下命令：
 
 > `(base)>` `xlwings addin install`
 
@@ -34,11 +36,11 @@ pip（与任何其他 Python 发行版一起使用）
 
 配置
 
-> > 当你首次安装插件时，它也会配置使用你运行`install`命令的 Python 解释器或 Conda 环境：就像你在[图 10-1](#filepos1447147)中看到的那样，`Conda Path` 和 `Conda Env` 的值会被 xlwings CLI 自动填入。[1](#filepos1486934) 这些值会存储在一个名为 xlwings.conf 的文件中，该文件位于你的主目录中的 .xlwings 文件夹中。在 Windows 上，这通常是 C:\Users\<用户名>\.xlwings\xlwings.conf，在 macOS 上是 /Users/<用户名>/.xlwings/xlwings.conf。在 macOS 上，以点开头的文件和文件夹默认是隐藏的。当你在 Finder 中时，按下键盘快捷键 Command-Shift-. 即可切换它们的可见性。
+> > 当你首次安装插件时，它也会配置使用你运行`install`命令的 Python 解释器或 Conda 环境：就像你在图 10-1 中看到的那样，`Conda Path` 和 `Conda Env` 的值会被 xlwings CLI 自动填入。1 这些值会存储在一个名为 xlwings.conf 的文件中，该文件位于你的主目录中的 .xlwings 文件夹中。在 Windows 上，这通常是 C:\Users\<用户名>\.xlwings\xlwings.conf，在 macOS 上是 /Users/<用户名>/.xlwings/xlwings.conf。在 macOS 上，以点开头的文件和文件夹默认是隐藏的。当你在 Finder 中时，按下键盘快捷键 Command-Shift-. 即可切换它们的可见性。
 
-运行安装命令后，你需要重新启动 Excel 才能看到功能区中的 xlwings 选项卡，如[图 10-1](#filepos1447147)所示。
+运行安装命令后，你需要重新启动 Excel 才能看到功能区中的 xlwings 选项卡，如图 10-1 所示。
 
-![](images/00040.jpg)
+![](img/00040.jpg)
 
 图 10-1\. 运行安装命令后的 xlwings 功能区插件
 
@@ -54,61 +56,61 @@ pip（与任何其他 Python 发行版一起使用）
 
 > `(base)>` `xlwings quickstart first_project`
 
-项目名称必须是有效的 Python 模块名称：可以包含字符、数字和下划线，但不能包含空格或破折号，并且不能以数字开头。我将在[“RunPython Function”](#filepos1459239)中向你展示如何将 Excel 文件的名称更改为不必遵循这些规则的内容。运行`quickstart`命令将在当前目录下创建名为`first_project`的文件夹。在 Windows 的文件资源管理器或 macOS 的 Finder 中打开该文件夹，你将看到两个文件：first_project.xlsm 和 first_project.py。在 Excel 中打开 Excel 文件，在 VS Code 中打开 Python 文件。通过使用附加组件中的“Run main”按钮，你可以最简单地从 Excel 运行 Python 代码——我们来看看它是如何工作的！
+项目名称必须是有效的 Python 模块名称：可以包含字符、数字和下划线，但不能包含空格或破折号，并且不能以数字开头。我将在“RunPython Function”中向你展示如何将 Excel 文件的名称更改为不必遵循这些规则的内容。运行`quickstart`命令将在当前目录下创建名为`first_project`的文件夹。在 Windows 的文件资源管理器或 macOS 的 Finder 中打开该文件夹，你将看到两个文件：first_project.xlsm 和 first_project.py。在 Excel 中打开 Excel 文件，在 VS Code 中打开 Python 文件。通过使用附加组件中的“Run main”按钮，你可以最简单地从 Excel 运行 Python 代码——我们来看看它是如何工作的！
 
 运行主程序
 
-在更详细查看 first_project.py 之前，请继续点击 xlwings 附加组件最左侧的“Run main”按钮，确保 first_project.xlsm 是你的活动文件；它会将“Hello xlwings!”写入第一个工作表的单元格`A1`。再次点击该按钮，它将更改为“Bye xlwings!”恭喜你，你刚刚从 Excel 运行了你的第一个 Python 函数！毕竟，这与编写 VBA 宏并没有太大的区别，对吧？现在让我们在 [Example 10-1](#filepos1450512) 中看看 first_project.py。
+在更详细查看 first_project.py 之前，请继续点击 xlwings 附加组件最左侧的“Run main”按钮，确保 first_project.xlsm 是你的活动文件；它会将“Hello xlwings!”写入第一个工作表的单元格`A1`。再次点击该按钮，它将更改为“Bye xlwings!”恭喜你，你刚刚从 Excel 运行了你的第一个 Python 函数！毕竟，这与编写 VBA 宏并没有太大的区别，对吧？现在让我们在 Example 10-1 中看看 first_project.py。
 
 示例 10-1\. first_project.py
 
-`import``xlwings``as``xw``def``main``():``wb``=``xw``.``Book``.``caller``()`![](images/00031.jpg)`sheet``=``wb``.``sheets``[``0``]``if``sheet``[``"A1"``]``.``value``==``"Hello xlwings!"``:``sheet``[``"A1"``]``.``value``=``"Bye xlwings!"``else``:``sheet``[``"A1"``]``.``value``=``"Hello xlwings!"``@xw.func`![](images/00039.jpg)`def``hello``(``name``):``return``f``"Hello {name}!"`
+`import``xlwings``as``xw``def``main``():``wb``=``xw``.``Book``.``caller``()`![](img/00031.jpg)`sheet``=``wb``.``sheets``[``0``]``if``sheet``[``"A1"``]``.``value``==``"Hello xlwings!"``:``sheet``[``"A1"``]``.``value``=``"Bye xlwings!"``else``:``sheet``[``"A1"``]``.``value``=``"Hello xlwings!"``@xw.func`![](img/00039.jpg)`def``hello``(``name``):``return``f``"Hello {name}!"`
 
-`if` `__name__` `==``"__main__"``:`![](images/00050.jpg)`xw``.``Book``(``"first_project.xlsm"``)``.``set_mock_caller``()``main``()`
+`if` `__name__` `==``"__main__"``:`![](img/00050.jpg)`xw``.``Book``(``"first_project.xlsm"``)``.``set_mock_caller``()``main``()`
 
-![](images/00031.jpg)
+![](img/00031.jpg)
 
 > > `xw.Book.caller()` 是一个 xlwings `book` 对象，它引用的是在点击“Run main”按钮时处于活动状态的 Excel 工作簿。在我们的情况下，它对应于`xw.Book("first_project.xlsm")`。使用`xw.Book.caller()`允许你重命名和移动 Excel 文件到文件系统中的其他位置而不会破坏引用。它还确保你在多个 Excel 实例中打开时操作的是正确的工作簿。
 
-![](images/00039.jpg)
+![](img/00039.jpg)
 
-> > 在本章中，我们将忽略`hello`函数，因为这将是[Chapter 12](index_split_028.html#filepos1653100)的主题。如果在 macOS 上运行`quickstart`命令，你将无法看到`hello`函数，因为仅在 Windows 上支持用户定义的函数。
+> > 在本章中，我们将忽略`hello`函数，因为这将是 Chapter 12 的主题。如果在 macOS 上运行`quickstart`命令，你将无法看到`hello`函数，因为仅在 Windows 上支持用户定义的函数。
 
-![](images/00050.jpg)
+![](img/00050.jpg)
 
 > > 在下一章讨论调试时，我将解释最后三行内容。在本章的目的上，忽略甚至删除第一个函数以下的所有内容。
 
-Excel加载项中的Run主按钮是一个便利功能：它允许你调用Python模块中与Excel文件同名的`main`函数，而无需首先向工作簿添加按钮。即使你将工作簿保存为无宏的xlsx格式，它也能正常工作。但是，如果你想调用一个或多个不叫`main`且不属于与工作簿同名模块的Python函数，你必须使用VBA中的`RunPython`函数。接下来的部分详细介绍了相关内容！
+Excel 加载项中的 Run 主按钮是一个便利功能：它允许你调用 Python 模块中与 Excel 文件同名的`main`函数，而无需首先向工作簿添加按钮。即使你将工作簿保存为无宏的 xlsx 格式，它也能正常工作。但是，如果你想调用一个或多个不叫`main`且不属于与工作簿同名模块的 Python 函数，你必须使用 VBA 中的`RunPython`函数。接下来的部分详细介绍了相关内容！
 
-RunPython函数
+RunPython 函数
 
-如果你需要更多控制如何调用你的Python代码，可以使用VBA函数`RunPython`。因此，`RunPython`要求你的工作簿保存为启用宏的工作簿。
+如果你需要更多控制如何调用你的 Python 代码，可以使用 VBA 函数`RunPython`。因此，`RunPython`要求你的工作簿保存为启用宏的工作簿。
 
 > 启用宏
 > 
-> 当你打开一个启用宏的工作簿（xlsm扩展名）时（例如通过`quickstart`命令生成的工作簿），你需要点击“启用内容”（Windows）或“启用宏”（macOS）。在Windows上，当你使用伴随库中的xlsm文件时，你还必须点击“启用编辑”，否则Excel无法正确打开从互联网下载的文件。
+> 当你打开一个启用宏的工作簿（xlsm 扩展名）时（例如通过`quickstart`命令生成的工作簿），你需要点击“启用内容”（Windows）或“启用宏”（macOS）。在 Windows 上，当你使用伴随库中的 xlsm 文件时，你还必须点击“启用编辑”，否则 Excel 无法正确打开从互联网下载的文件。
 
-`RunPython`接受一个包含Python代码的字符串：通常情况下，你会导入一个Python模块并运行其中的一个函数。当你通过Alt+F11（Windows）或Option-F11（macOS）打开VBA编辑器时，你会看到`quickstart`命令在名为“Module1”的VBA模块中添加了一个名为`SampleCall`的宏（参见[Figure 10-2](#filepos1460941)）。如果你看不到`SampleCall`，请在左侧的VBA项目树中双击Module1。
+`RunPython`接受一个包含 Python 代码的字符串：通常情况下，你会导入一个 Python 模块并运行其中的一个函数。当你通过 Alt+F11（Windows）或 Option-F11（macOS）打开 VBA 编辑器时，你会看到`quickstart`命令在名为“Module1”的 VBA 模块中添加了一个名为`SampleCall`的宏（参见 Figure 10-2）。如果你看不到`SampleCall`，请在左侧的 VBA 项目树中双击 Module1。
 
-![](images/00032.jpg)
+![](img/00032.jpg)
 
-图10-2\. VBA编辑器显示Module1
+图 10-2\. VBA 编辑器显示 Module1
 
-代码看起来有些复杂，但这仅是为了使其能动态工作，无论你在运行`quickstart`命令时选择了什么项目名称。由于我们的Python模块名为`first_project`，你可以用以下易于理解的等效代码替换它：
+代码看起来有些复杂，但这仅是为了使其能动态工作，无论你在运行`quickstart`命令时选择了什么项目名称。由于我们的 Python 模块名为`first_project`，你可以用以下易于理解的等效代码替换它：
 
 > `Sub``SampleCall``()``RunPython``"import first_project; first_project.main()"``End``Sub`
 
-由于在VBA中写多行字符串并不好玩，我们使用了Python接受的分号而不是换行符。你可以有几种方式运行这段代码：例如，在VBA编辑器中时，将光标放在`SampleCall`宏的任一行上，然后按F5。通常情况下，你会从Excel工作表而不是VBA编辑器运行代码。因此，关闭VBA编辑器并切换回工作簿。在Windows上，键入Alt+F8或macOS上的Option-F8将显示宏菜单：选择`SampleCall`并点击运行按钮。或者，为了使其更加用户友好，在你的Excel工作簿中添加一个按钮并将其与`SampleCall`连接起来：首先确保在功能区中显示了开发人员选项卡。如果没有显示，请转到`文件` > `选项` > `自定义功能区`并激活开发人员旁边的复选框（在macOS上，你可以在Excel > `首选项` > `功能区和工具栏`下找到它）。要插入按钮，请转到开发人员选项卡，在控件组中点击`插入` > `按钮`（在表单控件下）。在macOS上，你将直接看到按钮，无需先进入插入选项。当你点击按钮图标时，你的光标会变成一个小十字：使用它通过按住左键并绘制一个矩形形状在你的工作表上绘制一个按钮。一旦释放鼠标按钮，你将看到分配宏菜单——选择`SampleCall`并点击确定。点击你刚刚创建的按钮（在我的情况下是“Button 1”），它将再次运行我们的`main`函数，就像在[图10-3](#filepos1464065)中一样。
+由于在 VBA 中写多行字符串并不好玩，我们使用了 Python 接受的分号而不是换行符。你可以有几种方式运行这段代码：例如，在 VBA 编辑器中时，将光标放在`SampleCall`宏的任一行上，然后按 F5。通常情况下，你会从 Excel 工作表而不是 VBA 编辑器运行代码。因此，关闭 VBA 编辑器并切换回工作簿。在 Windows 上，键入 Alt+F8 或 macOS 上的 Option-F8 将显示宏菜单：选择`SampleCall`并点击运行按钮。或者，为了使其更加用户友好，在你的 Excel 工作簿中添加一个按钮并将其与`SampleCall`连接起来：首先确保在功能区中显示了开发人员选项卡。如果没有显示，请转到`文件` > `选项` > `自定义功能区`并激活开发人员旁边的复选框（在 macOS 上，你可以在 Excel > `首选项` > `功能区和工具栏`下找到它）。要插入按钮，请转到开发人员选项卡，在控件组中点击`插入` > `按钮`（在表单控件下）。在 macOS 上，你将直接看到按钮，无需先进入插入选项。当你点击按钮图标时，你的光标会变成一个小十字：使用它通过按住左键并绘制一个矩形形状在你的工作表上绘制一个按钮。一旦释放鼠标按钮，你将看到分配宏菜单——选择`SampleCall`并点击确定。点击你刚刚创建的按钮（在我的情况下是“Button 1”），它将再次运行我们的`main`函数，就像在图 10-3 中一样。
 
-![](images/00060.jpg)
+![](img/00060.jpg)
 
-图10-3。在工作表上绘制按钮
+图 10-3。在工作表上绘制按钮
 
 > FORM CONTROLS VS. ACTIVEX CONTROLS
 > 
-> 在Windows上，你有两种类型的控件：表单控件和ActiveX控件。虽然你可以从任一组中使用按钮连接到你的`SampleCall`宏，但只有来自表单控件的按钮在macOS上也能正常工作。在下一章中，我们将使用矩形作为按钮，使其看起来更现代化。
+> 在 Windows 上，你有两种类型的控件：表单控件和 ActiveX 控件。虽然你可以从任一组中使用按钮连接到你的`SampleCall`宏，但只有来自表单控件的按钮在 macOS 上也能正常工作。在下一章中，我们将使用矩形作为按钮，使其看起来更现代化。
 
-现在让我们看看如何更改由`quickstart`命令分配的默认名称：返回到你的Python文件，并将其从`first_project.py`重命名为`hello.py`。同时，将你的`main`函数改名为`hello_world`。确保保存文件，然后再次通过Alt+F11（Windows）或Option-F11（macOS）打开VBA编辑器，并编辑`SampleCall`如下以反映这些更改：
+现在让我们看看如何更改由`quickstart`命令分配的默认名称：返回到你的 Python 文件，并将其从`first_project.py`重命名为`hello.py`。同时，将你的`main`函数改名为`hello_world`。确保保存文件，然后再次通过 Alt+F11（Windows）或 Option-F11（macOS）打开 VBA 编辑器，并编辑`SampleCall`如下以反映这些更改：
 
 > `Sub``SampleCall``()``RunPython``"import hello; hello.hello_world()"``End``Sub`
 
@@ -116,9 +118,9 @@ RunPython函数
 
 > `Traceback (most recent call last):   File "<string>", line 1, in <module> ModuleNotFoundError: No module named 'first_project'`
 
-要解决此问题，只需在 xlwings 标签中的`PYTHONPATH`设置中添加 pyscripts 目录的路径，如[图 10-4](#filepos1467883)所示。现在再次单击按钮时，它将再次正常工作。
+要解决此问题，只需在 xlwings 标签中的`PYTHONPATH`设置中添加 pyscripts 目录的路径，如图 10-4 所示。现在再次单击按钮时，它将再次正常工作。
 
-![](images/00033.jpg)
+![](img/00033.jpg)
 
 图 10-4\. PYTHONPATH 设置
 
@@ -132,39 +134,39 @@ RunPython函数
 
 1.  > > > > 首先确保将工作簿另存为带有 xlsm 或 xlsb 扩展名的宏启用工作簿。
 1.  > > > > 
-1.  > > > > 添加 VBA 模块；要添加 VBA 模块，请通过 Alt+F11（Windows）或 Option-F11（macOS）打开 VBA 编辑器，并确保在左侧树视图中选择工作簿的 VBAProject，然后右键单击它，选择“插入” > “模块”，如[图 10-5](#filepos1470658)所示。这将插入一个空的 VBA 模块，您可以在其中编写带有`RunPython`调用的 VBA 宏。
+1.  > > > > 添加 VBA 模块；要添加 VBA 模块，请通过 Alt+F11（Windows）或 Option-F11（macOS）打开 VBA 编辑器，并确保在左侧树视图中选择工作簿的 VBAProject，然后右键单击它，选择“插入” > “模块”，如图 10-5 所示。这将插入一个空的 VBA 模块，您可以在其中编写带有`RunPython`调用的 VBA 宏。
 1.  > > > > 
-    > > > > ![](images/00075.jpg)
+    > > > > ![](img/00075.jpg)
     > > > > 
     > > > > 图 10-5\. 添加一个 VBA 模块
     > > > > 
-1.  > > > > 添加对xlwings的引用：`RunPython` 是xlwings插件的一部分。要使用它，您需要确保在您的VBA项目中设置了对`xlwings`的引用。同样，首先在VBA编辑器左侧的树视图中选择正确的工作簿，然后转到工具 > 引用，并激活xlwings的复选框，如图[10-6](#filepos1471674)所示。
+1.  > > > > 添加对 xlwings 的引用：`RunPython` 是 xlwings 插件的一部分。要使用它，您需要确保在您的 VBA 项目中设置了对`xlwings`的引用。同样，首先在 VBA 编辑器左侧的树视图中选择正确的工作簿，然后转到工具 > 引用，并激活 xlwings 的复选框，如图 10-6 所示。
 
 现在您的工作簿已准备好再次使用`RunPython`调用。一旦一切在您的机器上正常运行，下一步通常是让它在您同事的机器上工作 — 让我们来看看几种使这部分更容易的选项！
 
-![](images/00047.jpg)
+![](img/00047.jpg)
 
-图10-6\. RunPython 需要引用xlwings。
+图 10-6\. RunPython 需要引用 xlwings。
 
 部署
 
-在软件开发中，部署一词指的是分发和安装软件，以便最终用户能够使用它。在xlwings工具的情况下，了解所需的依赖项和可以简化部署的设置非常重要。我将从最重要的依赖项Python开始讲起，然后看看已经设置为独立模式的工作簿，以摆脱xlwings Excel插件。我将通过更详细地查看xlwings配置如何工作来结束本节。
+在软件开发中，部署一词指的是分发和安装软件，以便最终用户能够使用它。在 xlwings 工具的情况下，了解所需的依赖项和可以简化部署的设置非常重要。我将从最重要的依赖项 Python 开始讲起，然后看看已经设置为独立模式的工作簿，以摆脱 xlwings Excel 插件。我将通过更详细地查看 xlwings 配置如何工作来结束本节。
 
-Python依赖
+Python 依赖
 
-要能够运行xlwings工具，您的最终用户必须安装Python。但仅因为他们还没有安装Python并不意味着没有简化安装过程的方法。以下是几种选择：
+要能够运行 xlwings 工具，您的最终用户必须安装 Python。但仅因为他们还没有安装 Python 并不意味着没有简化安装过程的方法。以下是几种选择：
 
 Anaconda 或 WinPython
 
-> > 指导用户下载并安装Anaconda发行版。为了安全起见，您可能需要同意特定版本的Anaconda，以确保他们使用的是与您相同的包含包的版本。如果您只使用Anaconda中包含的软件包，这是一个不错的选择。[WinPython](https://oreil.ly/A66KN) 是Anaconda的一个有趣的替代品，它在MIT开源许可下发布，并且也预装了xlwings。顾名思义，它只适用于Windows系统。
+> > 指导用户下载并安装 Anaconda 发行版。为了安全起见，您可能需要同意特定版本的 Anaconda，以确保他们使用的是与您相同的包含包的版本。如果您只使用 Anaconda 中包含的软件包，这是一个不错的选择。[WinPython](https://oreil.ly/A66KN) 是 Anaconda 的一个有趣的替代品，它在 MIT 开源许可下发布，并且也预装了 xlwings。顾名思义，它只适用于 Windows 系统。
 
 共享驱动器
 
-> > 如果您可以访问一个相对快速的共享驱动器，您可能能够直接在那里安装Python，这将允许每个人在没有本地Python安装的情况下使用工具。
+> > 如果您可以访问一个相对快速的共享驱动器，您可能能够直接在那里安装 Python，这将允许每个人在没有本地 Python 安装的情况下使用工具。
 
 冻结的可执行文件
 
-> > 在 Windows 上，xlwings 允许你使用冻结的可执行文件，这些文件具有 .exe 扩展名，包含 Python 和所有依赖项。生产冻结可执行文件的流行包是 [PyInstaller](https://oreil.ly/AnYlV)。冻结可执行文件的优点是它们只打包你的程序所需的内容，并可以生成单个文件，这可以使分发更加容易。有关如何使用冻结可执行文件的详细信息，请查看 [xlwings 文档](https://oreil.ly/QWz7i)。请注意，当你使用 xlwings 用于用户定义函数时，冻结可执行文件将无法使用，这是我将在 [第 12 章](index_split_028.html#filepos1653100) 中介绍的功能。
+> > 在 Windows 上，xlwings 允许你使用冻结的可执行文件，这些文件具有 .exe 扩展名，包含 Python 和所有依赖项。生产冻结可执行文件的流行包是 [PyInstaller](https://oreil.ly/AnYlV)。冻结可执行文件的优点是它们只打包你的程序所需的内容，并可以生成单个文件，这可以使分发更加容易。有关如何使用冻结可执行文件的详细信息，请查看 [xlwings 文档](https://oreil.ly/QWz7i)。请注意，当你使用 xlwings 用于用户定义函数时，冻结可执行文件将无法使用，这是我将在 第十二章 中介绍的功能。
 
 虽然 Python 是硬性要求，但不需要安装 xlwings 插件，接下来我会解释原因。
 
@@ -216,11 +218,11 @@ PYTHONPATH
 
 RunPython: 使用 UDF 服务器（仅限 Windows）
 
-> > 您可能已经注意到，`RunPython` 调用可能会相当慢。这是因为 xlwings 启动一个 Python 解释器，运行 Python 代码，然后再次关闭解释器。这在开发过程中可能不算太糟糕，因为它确保每次调用 `RunPython` 命令时都会从头开始加载所有模块。不过，一旦您的代码稳定下来，您可能希望激活“RunPython: Use UDF Server”复选框（仅在 Windows 上可用）。这将使用与用户定义函数使用的相同 Python 服务器（第 12 章的主题，参见 [Chapter 12](index_split_028.html#filepos1653100)）并在调用之间保持 Python 会话运行，速度将会快得多。但请注意，您需要在代码更改后单击功能区中的“重新启动 UDF 服务器”按钮。
+> > 您可能已经注意到，`RunPython` 调用可能会相当慢。这是因为 xlwings 启动一个 Python 解释器，运行 Python 代码，然后再次关闭解释器。这在开发过程中可能不算太糟糕，因为它确保每次调用 `RunPython` 命令时都会从头开始加载所有模块。不过，一旦您的代码稳定下来，您可能希望激活“RunPython: Use UDF Server”复选框（仅在 Windows 上可用）。这将使用与用户定义函数使用的相同 Python 服务器（第十二章的主题，参见 Chapter 12）并在调用之间保持 Python 会话运行，速度将会快得多。但请注意，您需要在代码更改后单击功能区中的“重新启动 UDF 服务器”按钮。
 > > 
 > XLWINGS PRO
 > 
-> 尽管本书仅使用免费和开源版本的**xlwings**，但也提供了商业版PRO，用于支持持续的开源版本维护和开发。xlwings PRO 提供的一些额外功能包括：
+> 尽管本书仅使用免费和开源版本的**xlwings**，但也提供了商业版 PRO，用于支持持续的开源版本维护和开发。xlwings PRO 提供的一些额外功能包括：
 > 
 +   > > > > Python 代码可以嵌入到 Excel 中，从而摆脱外部源文件。
 +   > > > > 
@@ -236,4 +238,4 @@ RunPython: 使用 UDF 服务器（仅限 Windows）
 
 在本章中，我们仅使用了 Hello World 示例来学习一切是如何工作的。下一章将利用这些基础知识构建 Python 包跟踪器，一个完整的商业应用程序。
 
-> [1  ](#filepos1446851) 如果您使用的是 macOS 或者使用的是 Anaconda 之外的 Python 发行版，它会配置解释器而不是 Conda 设置。
+> 1   如果您使用的是 macOS 或者使用的是 Anaconda 之外的 Python 发行版，它会配置解释器而不是 Conda 设置。

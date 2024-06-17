@@ -1,4 +1,4 @@
-# 第7章 聚合：最小值、最大值以及其他
+# 第七章 聚合：最小值、最大值以及其他
 
 探索任何数据集的第一步通常是计算各种摘要统计信息。也许最常见的摘要统计信息是均值和标准差，它们帮助你总结数据集中的“典型”值，但其他聚合也很有用（总和、乘积、中位数、最小值和最大值、分位数等）。
 
@@ -109,13 +109,13 @@ Out[12]: array([3, 9, 8])
 
 ## 其他聚合函数
 
-NumPy提供了几个其他具有类似API的聚合函数，此外大多数函数还有一个`NaN`安全的对应版本，用于在计算结果时忽略缺失值，这些值由特殊的IEEE浮点`NaN`值标记（参见[第16章](ch16.xhtml#section-0304-missing-values)）。
+NumPy 提供了几个其他具有类似 API 的聚合函数，此外大多数函数还有一个`NaN`安全的对应版本，用于在计算结果时忽略缺失值，这些值由特殊的 IEEE 浮点`NaN`值标记（参见第十六章）。
 
-[表7-1](#table-7-1)提供了NumPy中可用的一些有用的聚合函数列表。
+表 7-1 提供了 NumPy 中可用的一些有用的聚合函数列表。
 
-表7-1\. NumPy中可用的聚合函数
+表 7-1\. NumPy 中可用的聚合函数
 
-| 函数名 | NaN安全版本 | 描述 |
+| 函数名 | NaN 安全版本 | 描述 |
 | --- | --- | --- |
 | `np.sum` | `np.nansum` | 计算元素的总和 |
 | `np.prod` | `np.nanprod` | 计算元素的乘积 |
@@ -135,7 +135,7 @@ NumPy提供了几个其他具有类似API的聚合函数，此外大多数函数
 
 # 示例：美国总统的平均身高是多少？
 
-NumPy中可用的聚合函数可以作为一组值的汇总统计信息。作为一个小例子，让我们考虑所有美国总统的身高。这些数据包含在文件*president_heights.csv*中，这是一个标签和值的逗号分隔列表：
+NumPy 中可用的聚合函数可以作为一组值的汇总统计信息。作为一个小例子，让我们考虑所有美国总统的身高。这些数据包含在文件*president_heights.csv*中，这是一个标签和值的逗号分隔列表：
 
 ```py
 In [13]: !head -4 data/president_heights.csv
@@ -145,7 +145,7 @@ Out[13]: order,name,height(cm)
          3,Thomas Jefferson,189
 ```
 
-我们将使用Pandas包，在[第III部分](part03.xhtml#section-0300-introduction-to-pandas)中更全面地探讨，读取文件并提取这些信息（注意，身高以厘米为单位）：
+我们将使用 Pandas 包，在第 III 部分中更全面地探讨，读取文件并提取这些信息（注意，身高以厘米为单位）：
 
 ```py
 In [14]: import pandas as pd
@@ -181,9 +181,9 @@ Out[16]: 25th percentile:    174.75
          75th percentile:    183.5
 ```
 
-我们看到美国总统的中位身高为182厘米，几乎等于六英尺。
+我们看到美国总统的中位身高为 182 厘米，几乎等于六英尺。
 
-当然，有时更有用的是查看这些数据的视觉表示，我们可以使用Matplotlib工具来实现这一目标（我们将在[第IV部分](part04.xhtml#section-0400-introduction-to-matplotlib)中更全面地讨论Matplotlib）。例如，以下代码生成[图7-1](#fig_0204-computation-on-arrays-aggregates_files_in_output_39_0)：
+当然，有时更有用的是查看这些数据的视觉表示，我们可以使用 Matplotlib 工具来实现这一目标（我们将在第 IV 部分中更全面地讨论 Matplotlib）。例如，以下代码生成图 7-1：
 
 ```py
 In [17]: %matplotlib inline
@@ -198,6 +198,6 @@ In [18]: plt.hist(heights)
          plt.ylabel('number');
 ```
 
-![output 39 0](assets/output_39_0.png)
+![output 39 0](img/output_39_0.png)
 
-###### 图7-1\. 美国总统身高的直方图
+###### 图 7-1\. 美国总统身高的直方图

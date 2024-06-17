@@ -24,23 +24,23 @@
 
 本书旨在作为实践指南，因此我鼓励您在阅读每一章节时跟着代码操作。本书的一个关键设计原则是使用实际的开源数据展示挑战和解决方案。如果您按照本书操作，由于源数据集自出版日期以来可能会更新，因此您的结果可能会略有不同。请查看 [GitHub 页面](https://github.com/mshearer0/HandsOnEntityResolution) 获取最新更新和访问伴随本书的代码。
 
-+   [第 1 章](ch01.html#chapter_1) 提供了实体解析的基本介绍，说明了其必要性以及实施过程中的逻辑步骤。
++   第一章 提供了实体解析的基本介绍，说明了其必要性以及实施过程中的逻辑步骤。
 
-+   [第 2 章](ch02.html#chapter_2) 阐明了在尝试匹配记录之前标准化和清洗数据的重要性。
++   第二章 阐明了在尝试匹配记录之前标准化和清洗数据的重要性。
 
-+   第 [3](ch03.html#chapter_3) 到第 [6](ch06.html#chapter_6) 章展示了如何使用近似比较和概率匹配技术比较数据记录以解决实体。
++   第 3 到第六章展示了如何使用近似比较和概率匹配技术比较数据记录以解决实体。
 
-+   [第 7 章](ch07.html#chapter_7) 描述了将描述同一实体的记录分组成唯一可识别的集群的过程。
++   第七章 描述了将描述同一实体的记录分组成唯一可识别的集群的过程。
 
-+   第 [8](ch08.html#chapter_8) 和 [9](ch09.html#chapter_9) 章说明了如何使用云计算服务扩展实体解析过程。
++   第 8 和 9 章说明了如何使用云计算服务扩展实体解析过程。
 
-+   [第 10 章](ch10.html#chapter_10) 展示了如何在保护数据所有者隐私的同时链接记录。
++   第十章 展示了如何在保护数据所有者隐私的同时链接记录。
 
-+   最后，[第 11 章](ch11.html#chapter_11) 描述了在设计实体解析过程时需要考虑的一些进一步问题，并对可能的未来发展提出了一些结论性的思考。
++   最后，第十一章 描述了在设计实体解析过程时需要考虑的一些进一步问题，并对可能的未来发展提出了一些结论性的思考。
 
-我建议按顺序阅读第 [2](ch02.html#chapter_2) 到第 [9](ch09.html#chapter_9) 章，因为它们逐步使用共享的问题数据集构建实体解析解决方案。
+我建议按顺序阅读第 2 到第九章，因为它们逐步使用共享的问题数据集构建实体解析解决方案。
 
-本书假设读者具备基本的Python理解。您可以通过[*http://learnpython.org*](http://learnpython.org)开始交互式教程，或者我推荐阅读 Wes McKinney 的 *Python 数据分析*（O’Reilly）进一步学习。更进一步的读者可能会从掌握pandas、Spark和Google Cloud Platform中获益。
+本书假设读者具备基本的 Python 理解。您可以通过[*http://learnpython.org*](http://learnpython.org)开始交互式教程，或者我推荐阅读 Wes McKinney 的 *Python 数据分析*（O’Reilly）进一步学习。更进一步的读者可能会从掌握 pandas、Spark 和 Google Cloud Platform 中获益。
 
 # 本书中使用的约定
 
@@ -74,21 +74,21 @@
 
 补充材料（代码示例、练习等）可在[*https://github.com/mshearer0/HandsOnEntityResolution*](https://github.com/mshearer0/HandsOnEntityResolution)下载。
 
-如果您有技术问题或在使用代码示例时遇到问题，请发送电子邮件至[*support@oreilly.com*](mailto:support@oreilly.com)。
+如果您有技术问题或在使用代码示例时遇到问题，请发送电子邮件至*support@oreilly.com*。
 
-本书旨在帮助您完成工作。通常情况下，如果本书提供示例代码，您可以在程序和文档中使用它。除非您复制了代码的大部分内容，否则无需联系我们以获得许可。例如，编写一个使用本书多个代码块的程序不需要许可。销售或分发O’Reilly图书示例需要许可。通过引用本书并引用示例代码来回答问题不需要许可。将本书大量示例代码整合到产品文档中需要许可。
+本书旨在帮助您完成工作。通常情况下，如果本书提供示例代码，您可以在程序和文档中使用它。除非您复制了代码的大部分内容，否则无需联系我们以获得许可。例如，编写一个使用本书多个代码块的程序不需要许可。销售或分发 O’Reilly 图书示例需要许可。通过引用本书并引用示例代码来回答问题不需要许可。将本书大量示例代码整合到产品文档中需要许可。
 
-我们感谢，但通常不要求署名。署名通常包括标题、作者、出版商和ISBN。例如：“*Hands-On Entity Resolution* by Michael Shearer (O’Reilly)。2024年版权所有 Michael Shearer, 978-1-098-14848-5。”
+我们感谢，但通常不要求署名。署名通常包括标题、作者、出版商和 ISBN。例如：“*Hands-On Entity Resolution* by Michael Shearer (O’Reilly)。2024 年版权所有 Michael Shearer, 978-1-098-14848-5。”
 
-如果您认为您使用的代码示例超出了公平使用范围或上述许可，请随时与我们联系：[*permissions@oreilly.com*](mailto:permissions@oreilly.com)。
+如果您认为您使用的代码示例超出了公平使用范围或上述许可，请随时与我们联系：*permissions@oreilly.com*。
 
-# O’Reilly在线学习
+# O’Reilly 在线学习
 
 ###### 注意
 
-40多年来，[*O’Reilly Media*](https://oreilly.com)一直致力于为公司提供技术和商业培训、知识和见解，帮助其取得成功。
+40 多年来，[*O’Reilly Media*](https://oreilly.com)一直致力于为公司提供技术和商业培训、知识和见解，帮助其取得成功。
 
-我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、交互式编码环境以及来自O’Reilly和其他200多家出版商的大量文本和视频。有关更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
+我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。O’Reilly 的在线学习平台为您提供按需访问的现场培训课程、深入学习路径、交互式编码环境以及来自 O’Reilly 和其他 200 多家出版商的大量文本和视频。有关更多信息，请访问[*https://oreilly.com*](https://oreilly.com)。
 
 # 如何联系我们
 
@@ -106,7 +106,7 @@
 
 +   707-829-0104 (传真)
 
-+   [*support@oreilly.com*](mailto:support@oreilly.com)
++   *support@oreilly.com*
 
 +   [*https://www.oreilly.com/about/contact.html*](https://www.oreilly.com/about/contact.html)
 

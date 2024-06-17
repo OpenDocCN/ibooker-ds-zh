@@ -20,25 +20,25 @@
 
 +   当数据集非常庞大，而我们的模型恰好是一个分层神经网络时，我们需要一种高效的方法来计算这个导数。*反向传播算法*就是在这一点上发挥作用。我们将在下一章中讨论梯度下降和反向传播。
 
-+   如果我们的学习函数对给定数据拟合得太好，那么它在新数据上表现不佳。原因是对数据拟合得太好的函数意味着它既捕捉到了数据中的噪音，也捕捉到了信号（例如，[图3-1](#Fig_noise_fit_regular_fit)左侧的函数）。我们不希望捕捉到噪音。这就是*正则化*发挥作用的地方。有多种数学方法可以使函数正则化，这意味着使其更加平滑和不那么振荡和不规则。一般来说，跟随数据中的噪音的函数振荡太多。我们希望更规则的函数。我们将在下一章中介绍正则化技术。
++   如果我们的学习函数对给定数据拟合得太好，那么它在新数据上表现不佳。原因是对数据拟合得太好的函数意味着它既捕捉到了数据中的噪音，也捕捉到了信号（例如，图 3-1 左侧的函数）。我们不希望捕捉到噪音。这就是*正则化*发挥作用的地方。有多种数学方法可以使函数正则化，这意味着使其更加平滑和不那么振荡和不规则。一般来说，跟随数据中的噪音的函数振荡太多。我们希望更规则的函数。我们将在下一章中介绍正则化技术。
 
-![280](assets/emai_0301.png)
+![280](img/emai_0301.png)
 
-###### 图3-1。左：拟合函数完美地拟合了数据，但它不是一个很好的预测函数，因为它拟合了数据中的噪音而不是主要信号。右：一个更规则的函数拟合了相同的数据集。使用这个函数将比左侧子图中的函数给出更好的预测，即使左侧子图中的函数更好地匹配了数据点。
+###### 图 3-1。左：拟合函数完美地拟合了数据，但它不是一个很好的预测函数，因为它拟合了数据中的噪音而不是主要信号。右：一个更规则的函数拟合了相同的数据集。使用这个函数将比左侧子图中的函数给出更好的预测，即使左侧子图中的函数更好地匹配了数据点。
 
-在接下来的章节中，我们将用真实但简单的数据集探索AI问题的上述结构。我们将在接下来的章节中看到相同的概念如何推广到更复杂的任务。
+在接下来的章节中，我们将用真实但简单的数据集探索 AI 问题的上述结构。我们将在接下来的章节中看到相同的概念如何推广到更复杂的任务。
 
 # 传统且非常有用的机器学习模型
 
 本章中使用的所有数据都带有地面真相标签，我们模型的目标是*预测*新的（未见过的）和未标记的数据的标签。这是*监督*学习。
 
-在接下来的几节中，我们将使用以下流行的机器学习模型将训练函数拟合到我们的标记数据中。虽然您可能会听到关于AI最新和最伟大发展的许多消息，但在典型的商业环境中，您可能最好从这些更传统的模型开始：
+在接下来的几节中，我们将使用以下流行的机器学习模型将训练函数拟合到我们的标记数据中。虽然您可能会听到关于 AI 最新和最伟大发展的许多消息，但在典型的商业环境中，您可能最好从这些更传统的模型开始：
 
 1.  **线性回归**：预测数值。
 
 1.  **逻辑回归**：分类到两个类别（二元分类）。
 
-1.  **Softmax回归**：分类到多个类别。
+1.  **Softmax 回归**：分类到多个类别。
 
 1.  **支持向量机**：分类到两个类别，或回归（预测数值）。
 
@@ -48,7 +48,7 @@
 
 1.  **模型集成**：通过平均预测值、投票最受欢迎的类别或其他捆绑机制来捆绑许多模型的结果。
 
-我们在相同的数据集上尝试多个模型以进行性能比较。在现实世界中，很少有任何模型在没有与许多其他模型进行比较的情况下部署。这是计算密集型AI行业的特性，这也是为什么我们需要并行计算的原因，它使我们能够同时训练多个模型（除了那些构建和改进其他模型结果的模型，比如*堆叠*的情况，我们不能使用并行计算）。
+我们在相同的数据集上尝试多个模型以进行性能比较。在现实世界中，很少有任何模型在没有与许多其他模型进行比较的情况下部署。这是计算密集型 AI 行业的特性，这也是为什么我们需要并行计算的原因，它使我们能够同时训练多个模型（除了那些构建和改进其他模型结果的模型，比如*堆叠*的情况，我们不能使用并行计算）。
 
 在我们深入研究任何机器学习模型之前，非常重要的一点是，一再有报道称，数据科学家和/或人工智能研究人员只有大约百分之五的时间用于训练机器学习模型。大部分时间都用于获取数据、清理数据、组织数据、为数据创建适当的管道，*等等*，*在*将数据输入机器学习模型之前。因此，机器学习只是生产过程中的一步，一旦数据准备好训练模型就变得很容易。我们将发现这些机器学习模型是如何工作的：我们需要的大部分数学知识都存在于这些模型中。人工智能研究人员一直在努力改进机器学习模型，并将它们自动适应到生产管道中。因此，对我们来说，最终学习整个流程，从原始数据（包括其存储、硬件、查询协议，*等等*）到部署和监控，是非常重要的。学习机器学习只是更大更有趣故事的一部分。
 
@@ -88,11 +88,11 @@
 
 # 回归：预测一个数值
 
-在[Kaggle网站](https://www.kaggle.com)上快速搜索回归数据集会返回许多优秀的数据集和相关笔记本。我随机选择了一个简单的[Fish Market](https://www.kaggle.com/aungpyaeap/fish-market)数据集，我们将用它来解释我们即将介绍的数学。我们的目标是构建一个模型，根据鱼的五种不同长度测量或特征来预测鱼的重量，这些特征在数据集中标记为：Length1、Length2、Length3、Height和Width（见[图3-2](#Fig_fish_data)）。为简单起见，我们选择不将分类特征Species纳入此模型，尽管我们可以（这样会给我们更好的预测，因为鱼的类型是其重量的良好预测因子）。如果我们选择包括Species特征，那么我们将不得不将其值转换为数值值，使用*one hot coding*，这意味着确切地说：根据其类别（类型）为每条鱼分配由一和零组成的代码。我们的Species特征有七个类别：鲈鱼、鲷鱼、鲫鱼、梭子鱼、胖鱼、Parkki和白鱼。因此，如果我们的鱼是梭子鱼，那么我们将把它的种类编码为（0,0,0,1,0,0,0），如果它是鲷鱼，我们将把它的种类编码为（0,1,0,0,0,0,0）。当然，这会给我们的特征空间增加七个维度，并增加七个权重来训练。
+在[Kaggle 网站](https://www.kaggle.com)上快速搜索回归数据集会返回许多优秀的数据集和相关笔记本。我随机选择了一个简单的[Fish Market](https://www.kaggle.com/aungpyaeap/fish-market)数据集，我们将用它来解释我们即将介绍的数学。我们的目标是构建一个模型，根据鱼的五种不同长度测量或特征来预测鱼的重量，这些特征在数据集中标记为：Length1、Length2、Length3、Height 和 Width（见图 3-2）。为简单起见，我们选择不将分类特征 Species 纳入此模型，尽管我们可以（这样会给我们更好的预测，因为鱼的类型是其重量的良好预测因子）。如果我们选择包括 Species 特征，那么我们将不得不将其值转换为数值值，使用*one hot coding*，这意味着确切地说：根据其类别（类型）为每条鱼分配由一和零组成的代码。我们的 Species 特征有七个类别：鲈鱼、鲷鱼、鲫鱼、梭子鱼、胖鱼、Parkki 和白鱼。因此，如果我们的鱼是梭子鱼，那么我们将把它的种类编码为（0,0,0,1,0,0,0），如果它是鲷鱼，我们将把它的种类编码为（0,1,0,0,0,0,0）。当然，这会给我们的特征空间增加七个维度，并增加七个权重来训练。
 
-![280](assets/emai_0302.png)
+![280](img/emai_0302.png)
 
-###### 图3-2. 从Kaggle的[Fish Market](https://www.kaggle.com/aungpyaeap/fish-market)下载的鱼数据集的前五行。重量列是目标特征，我们的目标是构建一个模型，根据鱼的长度测量来预测新鱼的重量。
+###### 图 3-2. 从 Kaggle 的[Fish Market](https://www.kaggle.com/aungpyaeap/fish-market)下载的鱼数据集的前五行。重量列是目标特征，我们的目标是构建一个模型，根据鱼的长度测量来预测新鱼的重量。
 
 让我们节省墨水空间，并将我们的五个特征重新标记为：<math alttext="x 1"><msub><mi>x</mi> <mn>1</mn></msub></math> , <math alttext="x 2"><msub><mi>x</mi> <mn>2</mn></msub></math> , <math alttext="x 3"><msub><mi>x</mi> <mn>3</mn></msub></math> , <math alttext="x 4"><msub><mi>x</mi> <mn>4</mn></msub></math> , 和 <math alttext="x 5"><msub><mi>x</mi> <mn>5</mn></msub></math> , 然后将鱼的重量写成这五个特征的函数 <math alttext="y equals f left-parenthesis x 1 comma x 2 comma x 3 comma x 4 comma x 5 right-parenthesis"><mrow><mi>y</mi> <mo>=</mo> <mi>f</mi> <mo>(</mo> <msub><mi>x</mi> <mn>1</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>2</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>3</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>4</mn></msub> <mo>,</mo> <msub><mi>x</mi> <mn>5</mn></msub> <mo>)</mo></mrow></math> . 这样，一旦我们确定了这个函数的一个可接受的公式，我们只需要输入某条鱼的特征值，我们的函数就会输出该鱼的预测重量。
 
@@ -138,19 +138,19 @@
 
 ## 训练函数
 
-对数据的快速探索，例如绘制重量与各种长度特征的关系，使我们可以假设一个线性模型（即使在这种情况下非线性模型可能更好）。也就是说，我们假设重量线性地依赖于长度特征（参见[图3-3](#Fig_weight_lengths_scatterplots)）。
+对数据的快速探索，例如绘制重量与各种长度特征的关系，使我们可以假设一个线性模型（即使在这种情况下非线性模型可能更好）。也就是说，我们假设重量线性地依赖于长度特征（参见图 3-3）。
 
-![280](assets/emai_0303.png)
+![280](img/emai_0303.png)
 
-###### 图3-3\. 鱼市场数值特征的散点图。有关更多详细信息，请查看附加的Jupyter笔记本，或者与此数据集相关的一些公开的[Kaggle笔记本](https://www.kaggle.com/aungpyaeap/fish-market/code)。
+###### 图 3-3\. 鱼市场数值特征的散点图。有关更多详细信息，请查看附加的 Jupyter 笔记本，或者与此数据集相关的一些公开的[Kaggle 笔记本](https://www.kaggle.com/aungpyaeap/fish-market/code)。
 
-这意味着鱼的重量y可以使用其五个不同长度测量的*线性组合*来计算，再加上一个偏置项 <math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math> ，得到以下*训练函数*：
+这意味着鱼的重量 y 可以使用其五个不同长度测量的*线性组合*来计算，再加上一个偏置项 <math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math> ，得到以下*训练函数*：
 
 <math alttext="dollar-sign y equals omega 0 plus omega 1 x 1 plus omega 2 x 2 plus omega 3 x 3 plus omega 4 x 4 plus omega 5 x 5 dollar-sign"><mrow><mi>y</mi> <mo>=</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>1</mn></msub> <msub><mi>x</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>2</mn></msub> <msub><mi>x</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>3</mn></msub> <msub><mi>x</mi> <mn>3</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>4</mn></msub> <msub><mi>x</mi> <mn>4</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>5</mn></msub> <msub><mi>x</mi> <mn>5</mn></msub></mrow></math>
 
-在我们在建模过程中做出的主要决定是使用线性训练函数f(x1, x2, x3, x4, x5)，我们所要做的就是找到参数ω0，ω1，ω2，ω3，ω4和ω5的适当值。我们将从数据中*学习*出ω的最佳值。利用数据找到适当的ω的过程称为*训练*模型。*训练*好的模型是指ω的值已经确定的模型。
+在我们在建模过程中做出的主要决定是使用线性训练函数 f(x1, x2, x3, x4, x5)，我们所要做的就是找到参数ω0，ω1，ω2，ω3，ω4 和ω5 的适当值。我们将从数据中*学习*出ω的最佳值。利用数据找到适当的ω的过程称为*训练*模型。*训练*好的模型是指ω的值已经确定的模型。
 
-一般来说，无论是线性还是非线性的训练函数，包括表示神经网络的函数，都有我们需要从给定数据中学习的未知参数ω。对于线性模型，每个参数在预测过程中给每个特征赋予一定的权重。因此，如果ω2的值大于ω5的值，那么第二个特征在我们的预测中起到比第五个特征更重要的作用，假设第二个和第五个特征具有可比较的规模。这是在训练模型之前对数据进行缩放或归一化的好处之一。另一方面，如果与第三个特征相关联的ω3值消失，即变为零或可以忽略，那么第三个特征可以从数据集中省略，因为它在我们的预测中没有作用。因此，从数据中学习我们的ω允许我们在数学上计算每个特征对我们的预测的贡献（或者在数据准备阶段合并一些特征时，特征组合的重要性）。换句话说，模型学习数据特征如何相互作用以及这些相互作用的强度。结论是，通过训练学习函数，我们可以量化特征如何相互作用以产生已观察到的和尚未观察到的结果。
+一般来说，无论是线性还是非线性的训练函数，包括表示神经网络的函数，都有我们需要从给定数据中学习的未知参数ω。对于线性模型，每个参数在预测过程中给每个特征赋予一定的权重。因此，如果ω2 的值大于ω5 的值，那么第二个特征在我们的预测中起到比第五个特征更重要的作用，假设第二个和第五个特征具有可比较的规模。这是在训练模型之前对数据进行缩放或归一化的好处之一。另一方面，如果与第三个特征相关联的ω3 值消失，即变为零或可以忽略，那么第三个特征可以从数据集中省略，因为它在我们的预测中没有作用。因此，从数据中学习我们的ω允许我们在数学上计算每个特征对我们的预测的贡献（或者在数据准备阶段合并一些特征时，特征组合的重要性）。换句话说，模型学习数据特征如何相互作用以及这些相互作用的强度。结论是，通过训练学习函数，我们可以量化特征如何相互作用以产生已观察到的和尚未观察到的结果。
 
 # 注意：参数模型与非参数模型
 
@@ -170,7 +170,7 @@
 
 ### 预测值与真实值
 
-假设我们为我们每个未知的<math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math>，<math alttext="omega 1"><msub><mi>ω</mi> <mn>1</mn></msub></math>，<math alttext="omega 2"><msub><mi>ω</mi> <mn>2</mn></msub></math>，<math alttext="omega 3"><msub><mi>ω</mi> <mn>3</mn></msub></math>，<math alttext="omega 4"><msub><mi>ω</mi> <mn>4</mn></msub></math>和<math alttext="omega 5"><msub><mi>ω</mi> <mn>5</mn></msub></math>分配一些随机数值，例如<math alttext="omega 0等于负3"><mrow><msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mo>-</mo> <mn>3</mn></mrow></math>，<math alttext="omega 1等于4"><mrow><msub><mi>ω</mi> <mn>1</mn></msub> <mo>=</mo> <mn>4</mn></mrow></math>，<math alttext="omega 2等于0.2"><mrow><msub><mi>ω</mi> <mn>2</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>2</mn></mrow></math>，<math alttext="omega 3等于0.03"><mrow><msub><mi>ω</mi> <mn>3</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>03</mn></mrow></math>，<math alttext="omega 4等于0.4"><mrow><msub><mi>ω</mi> <mn>4</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>4</mn></mrow></math>，和<math alttext="omega 5等于0.5"><mrow><msub><mi>ω</mi> <mn>5</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn></mrow></math>。然后线性训练函数的公式<math alttext="y等于omega 0加omega 1 x 1加omega 2 x 2加omega 3 x 3加omega 4 x 4加omega 5 x 5"><mrow><mi>y</mi> <mo>=</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>1</mn></msub> <msub><mi>x</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>2</mn></msub> <msub><mi>x</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>3</mn></msub> <msub><mi>x</mi> <mn>3</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>4</mn></msub> <msub><mi>x</mi> <mn>4</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>5</mn></msub> <msub><mi>x</mi> <mn>5</mn></msub></mrow></math>变为：
+假设我们为我们每个未知的<math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math>，<math alttext="omega 1"><msub><mi>ω</mi> <mn>1</mn></msub></math>，<math alttext="omega 2"><msub><mi>ω</mi> <mn>2</mn></msub></math>，<math alttext="omega 3"><msub><mi>ω</mi> <mn>3</mn></msub></math>，<math alttext="omega 4"><msub><mi>ω</mi> <mn>4</mn></msub></math>和<math alttext="omega 5"><msub><mi>ω</mi> <mn>5</mn></msub></math>分配一些随机数值，例如<math alttext="omega 0 等于负 3"><mrow><msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mo>-</mo> <mn>3</mn></mrow></math>，<math alttext="omega 1 等于 4"><mrow><msub><mi>ω</mi> <mn>1</mn></msub> <mo>=</mo> <mn>4</mn></mrow></math>，<math alttext="omega 2 等于 0.2"><mrow><msub><mi>ω</mi> <mn>2</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>2</mn></mrow></math>，<math alttext="omega 3 等于 0.03"><mrow><msub><mi>ω</mi> <mn>3</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>03</mn></mrow></math>，<math alttext="omega 4 等于 0.4"><mrow><msub><mi>ω</mi> <mn>4</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>4</mn></mrow></math>，和<math alttext="omega 5 等于 0.5"><mrow><msub><mi>ω</mi> <mn>5</mn></msub> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn></mrow></math>。然后线性训练函数的公式<math alttext="y 等于 omega 0 加 omega 1 x 1 加 omega 2 x 2 加 omega 3 x 3 加 omega 4 x 4 加 omega 5 x 5"><mrow><mi>y</mi> <mo>=</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>1</mn></msub> <msub><mi>x</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>2</mn></msub> <msub><mi>x</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>3</mn></msub> <msub><mi>x</mi> <mn>3</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>4</mn></msub> <msub><mi>x</mi> <mn>4</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>5</mn></msub> <msub><mi>x</mi> <mn>5</mn></msub></mrow></math>变为：
 
 <math alttext="dollar-sign y equals negative 3 plus 4 x 1 plus 0.2 x 2 plus 0.03 x 3 plus 0.4 x 4 plus 0.5 x 5 dollar-sign"><mrow><mi>y</mi> <mo>=</mo> <mo>-</mo> <mn>3</mn> <mo>+</mo> <mn>4</mn> <msub><mi>x</mi> <mn>1</mn></msub> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>2</mn> <msub><mi>x</mi> <mn>2</mn></msub> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>03</mn> <msub><mi>x</mi> <mn>3</mn></msub> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>4</mn> <msub><mi>x</mi> <mn>4</mn></msub> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <msub><mi>x</mi> <mn>5</mn></msub></mrow></math>
 
@@ -178,15 +178,15 @@
 
 <math alttext="dollar-sign StartLayout 1st Row 1st Column y Subscript p r e d i c t Superscript 1 2nd Column equals omega 0 plus omega 1 x 1 Superscript 1 Baseline plus omega 2 x 2 Superscript 1 Baseline plus omega 3 x 3 Superscript 1 Baseline plus omega 4 x 4 Superscript 1 Baseline plus omega 5 x 5 Superscript 1 Baseline 2nd Row 1st Column Blank 2nd Column equals negative 3 plus 4 left-parenthesis 23.2 right-parenthesis plus 0.2 left-parenthesis 25.4 right-parenthesis plus 0.03 left-parenthesis 30 right-parenthesis plus 0.4 left-parenthesis 11.52 right-parenthesis plus 0.5 left-parenthesis 4.02 right-parenthesis 3rd Row 1st Column Blank 2nd Column equals 102.398 grams period EndLayout dollar-sign"><mtable displaystyle="true"><mtr><mtd columnalign="right"><msubsup><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow> <mn>1</mn></msubsup></mtd> <mtd columnalign="left"><mrow><mo>=</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>1</mn></msub> <msubsup><mi>x</mi> <mn>1</mn> <mn>1</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>2</mn></msub> <msubsup><mi>x</mi> <mn>2</mn> <mn>1</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>3</mn></msub> <msubsup><mi>x</mi> <mn>3</mn> <mn>1</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>4</mn></msub> <msubsup><mi>x</mi> <mn>4</mn> <mn>1</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>5</mn></msub> <msubsup><mi>x</mi> <mn>5</mn> <mn>1</mn></msubsup></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <mo>-</mo> <mn>3</mn> <mo>+</mo> <mn>4</mn> <mo>(</mo> <mn>23</mn> <mo>.</mo> <mn>2</mn> <mo>)</mo> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>2</mn> <mo>(</mo> <mn>25</mn> <mo>.</mo> <mn>4</mn> <mo>)</mo> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>03</mn> <mo>(</mo> <mn>30</mn> <mo>)</mo> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>4</mn> <mo>(</mo> <mn>11</mn> <mo>.</mo> <mn>52</mn> <mo>)</mo> <mo>+</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <mo>(</mo> <mn>4</mn> <mo>.</mo> <mn>02</mn> <mo>)</mo></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>=</mo> <mn>102</mn> <mo>.</mo> <mn>398</mn> <mtext>grams.</mtext></mrow></mtd></mtr></mtable></math>
 
-通常，对于第i条鱼，我们有：
+通常，对于第 i 条鱼，我们有：
 
 <math alttext="dollar-sign y Subscript p r e d i c t Superscript i Baseline equals omega 0 plus omega 1 x 1 Superscript i Baseline plus omega 2 x 2 Superscript i Baseline plus omega 3 x 3 Superscript i Baseline plus omega 4 x 4 Superscript i Baseline plus omega 5 x 5 Superscript i dollar-sign"><mrow><msubsup><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow> <mi>i</mi></msubsup> <mo>=</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>1</mn></msub> <msubsup><mi>x</mi> <mn>1</mn> <mi>i</mi></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>2</mn></msub> <msubsup><mi>x</mi> <mn>2</mn> <mi>i</mi></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>3</mn></msub> <msubsup><mi>x</mi> <mn>3</mn> <mi>i</mi></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>4</mn></msub> <msubsup><mi>x</mi> <mn>4</mn> <mi>i</mi></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>5</mn></msub> <msubsup><mi>x</mi> <mn>5</mn> <mi>i</mi></msubsup></mrow></math>
 
-然而，考虑的鱼有一个*真实*重量，<math alttext="y Subscript t r u e Superscript i"><msubsup><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow> <mi>i</mi></msubsup></math>，如果它属于标记数据集，则为其标签。对于我们数据集中的第一条鱼，真实重量是<math alttext="y Subscript t r u e Superscript 1 Baseline equals 242"><mrow><msubsup><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow> <mn>1</mn></msubsup> <mo>=</mo> <mn>242</mn></mrow></math> *克*。我们随机选择的线性模型预测了102.398 *克*。这当然相差甚远，因为我们根本没有校准<math alttext="omega"><mi>ω</mi></math>值。无论如何，我们可以测量我们的模型预测的重量与真实重量之间的*误差*，然后找到更好的方法来选择<math alttext="omega"><mi>ω</mi></math>。
+然而，考虑的鱼有一个*真实*重量，<math alttext="y Subscript t r u e Superscript i"><msubsup><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow> <mi>i</mi></msubsup></math>，如果它属于标记数据集，则为其标签。对于我们数据集中的第一条鱼，真实重量是<math alttext="y Subscript t r u e Superscript 1 Baseline equals 242"><mrow><msubsup><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow> <mn>1</mn></msubsup> <mo>=</mo> <mn>242</mn></mrow></math> *克*。我们随机选择的线性模型预测了 102.398 *克*。这当然相差甚远，因为我们根本没有校准<math alttext="omega"><mi>ω</mi></math>值。无论如何，我们可以测量我们的模型预测的重量与真实重量之间的*误差*，然后找到更好的方法来选择<math alttext="omega"><mi>ω</mi></math>。
 
 ### 绝对值距离*vs*平方距离
 
-数学的一大优点是它有多种方法来衡量事物之间的差距，使用不同的距离度量。例如，我们可以天真地将两个量之间的距离测量为如果它们不同则为1，如果它们相同则为0，编码为：不同-1，相似-0。当然，使用这样一个天真的度量，我们会失去大量信息，因为两和十之间的距离将等于两和一百万之间的距离，即1。
+数学的一大优点是它有多种方法来衡量事物之间的差距，使用不同的距离度量。例如，我们可以天真地将两个量之间的距离测量为如果它们不同则为 1，如果它们相同则为 0，编码为：不同-1，相似-0。当然，使用这样一个天真的度量，我们会失去大量信息，因为两和十之间的距离将等于两和一百万之间的距离，即 1。
 
 在机器学习中有一些流行的距离度量。我们首先介绍两种最常用的：
 
@@ -194,41 +194,41 @@
 
 +   平方距离：<math alttext="StartAbsoluteValue y Subscript p r e d i c t Baseline minus y Subscript t r u e Baseline EndAbsoluteValue squared"><mrow><mrow><mo>|</mo></mrow> <msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>-</mo> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <msup><mrow><mo>|</mo></mrow> <mn>2</mn></msup></mrow></math>，源自微积分函数<math alttext="StartAbsoluteValue x EndAbsoluteValue squared"><msup><mrow><mo>|</mo><mi>x</mi><mo>|</mo></mrow> <mn>2</mn></msup></math>（对于标量量来说，这与<math alttext="x squared"><msup><mi>x</mi> <mn>2</mn></msup></math>是相同的）。当然，这也会平方单位。
 
-检查函数图像<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>和<math alttext="x squared"><msup><mi>x</mi> <mn>2</mn></msup></math>在[图3-4](#Fig_abs_x_square_x)中，我们注意到在点(0,0)处函数的平滑度有很大的差异。函数<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>在该点有一个拐角，使得它在x=0处不可微。这种在x=0处的<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>的*奇点*使得许多从业者（包括数学家！）不愿将这个函数或具有类似奇点的函数纳入他们的模型中。然而，让我们铭记以下事实：
+检查函数图像<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>和<math alttext="x squared"><msup><mi>x</mi> <mn>2</mn></msup></math>在图 3-4 中，我们注意到在点(0,0)处函数的平滑度有很大的差异。函数<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>在该点有一个拐角，使得它在 x=0 处不可微。这种在 x=0 处的<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>的*奇点*使得许多从业者（包括数学家！）不愿将这个函数或具有类似奇点的函数纳入他们的模型中。然而，让我们铭记以下事实：
 
 *数学模型是灵活的*。当我们遇到障碍时，我们会深入挖掘，了解发生了什么，然后我们会克服障碍。
 
-![275](assets/emai_0304.png)
+![275](img/emai_0304.png)
 
-###### 图3-4。左：图形<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>在<math alttext="x等于0"><mrow><mi>x</mi> <mo>=</mo> <mn>0</mn></mrow></math>处有一个转角，使得其在该点的导数未定义。右：图形<math alttext="StartAbsoluteValue x EndAbsoluteValue squared"><msup><mrow><mo>|</mo><mi>x</mi><mo>|</mo></mrow> <mn>2</mn></msup></math>在<math alttext="x等于0"><mrow><mi>x</mi> <mo>=</mo> <mn>0</mn></mrow></math>处平滑，因此其导数在那里没有问题。
+###### 图 3-4。左：图形<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>在<math alttext="x 等于 0"><mrow><mi>x</mi> <mo>=</mo> <mn>0</mn></mrow></math>处有一个转角，使得其在该点的导数未定义。右：图形<math alttext="StartAbsoluteValue x EndAbsoluteValue squared"><msup><mrow><mo>|</mo><mi>x</mi><mo>|</mo></mrow> <mn>2</mn></msup></math>在<math alttext="x 等于 0"><mrow><mi>x</mi> <mo>=</mo> <mn>0</mn></mrow></math>处平滑，因此其导数在那里没有问题。
 
 除了函数<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>和<math alttext="StartAbsoluteValue x EndAbsoluteValue squared"><msup><mrow><mo>|</mo><mi>x</mi><mo>|</mo></mrow> <mn>2</mn></msup></math>的*规则性*之外（即它们在所有点是否都有导数），在决定是否将任一函数纳入我们的误差公式之前，我们还需要注意另一个问题：*如果一个数很大，那么它的平方就更大*。这个简单的观察意味着，如果我们决定使用真实值和预测值之间的平方距离来衡量误差，那么我们的方法将对数据中的异常值*更敏感*。一个混乱的异常值可能会使我们整个预测函数偏向它，因此远离数据中更普遍的模式。理想情况下，我们应该在数据准备步骤中处理异常值，并决定是否应该在将数据输入任何机器学习模型之前保留它们。
 
 <math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>（以及类似的分段线性函数）和<math alttext="x squared"><msup><mi>x</mi> <mn>2</mn></msup></math>（以及类似的非线性但可微函数）之间的最后一个区别是，<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>的导数非常简单：
 
-1 如果x>0，-1 如果x<0（如果x=0，则未定义）。
+1 如果 x>0，-1 如果 x<0（如果 x=0，则未定义）。
 
 在涉及数十亿次计算步骤的模型中，当使用<math alttext="StartAbsoluteValue x EndAbsoluteValue"><mrow><mo>|</mo> <mi>x</mi> <mo>|</mo></mrow></math>的导数时，*无需评估任何内容*，这一特性被证明非常有价值。通常情况下，既不是线性的也不是分段线性的函数的导数需要进行评估（因为它们的公式中不仅有常数，还有*x*），这在大数据环境中可能会很昂贵。
 
 ### 具有奇点的函数
 
-一般来说，*可微*函数的图形没有尖点、转角、角或任何尖锐的地方。如果它们有这样的*奇点*，那么这些点处的函数就没有导数。原因是在尖锐的点上，你可以画出两条不同的切线，取决于你决定是在点的左边还是右边画切线（见[图3-5](#Fig_singularity_tangents)）。回想一下，函数在某一点的导数是函数图形在该点的切线的斜率。如果有两个*不同*的斜率，那么我们就无法定义该点的导数。
+一般来说，*可微*函数的图形没有尖点、转角、角或任何尖锐的地方。如果它们有这样的*奇点*，那么这些点处的函数就没有导数。原因是在尖锐的点上，你可以画出两条不同的切线，取决于你决定是在点的左边还是右边画切线（见图 3-5）。回想一下，函数在某一点的导数是函数图形在该点的切线的斜率。如果有两个*不同*的斜率，那么我们就无法定义该点的导数。
 
-![275](assets/emai_0305.png)
+![275](img/emai_0305.png)
 
-###### 图3-5。在奇点处，导数不存在。在这些点上，切线可能有多个可能的斜率。
+###### 图 3-5。在奇点处，导数不存在。在这些点上，切线可能有多个可能的斜率。
 
 切线斜率的*不连续*在依赖于评估函数的导数的方法（如梯度下降法）中造成了问题。问题在于：
 
 1.  如果你碰巧落在一个古怪的尖点上，那么方法就不知道该怎么办，因为那里没有定义的导数。有些人会为那一点分配一个导数值（称为*次梯度*或*次微分*）然后继续前进。实际上，我们会不幸地正好落在那一个可怕的点上的几率有多大呢？除非函数的景观看起来像阿尔卑斯山的崎岖地形（实际上很多函数确实如此），数值方法可能会设法避开它们。
 
-1.  另一个问题是不稳定性。由于导数的值在函数的景观中跳跃得如此突然，使用这个导数的方法也会突然改变数值，如果你试图收敛到某个地方，就会产生不稳定性。想象一下你正在瑞士阿尔卑斯山徒步旅行[图3-6](#Fig_Swiss_Alps)（损失函数的景观），你的目的地是山谷下面那个漂亮的小镇（误差值最低的地方）。然后*突然*你被某个外星人带到了山的*另一边*，你再也看不到你的目的地了。事实上，现在你在山谷下看到的只有一些丑陋的灌木丛，还有一个非常狭窄的峡谷，如果你的方法把你带到那里，你就会被困住。你原来的目的地的收敛现在是不稳定的，甚至完全丢失了。
+1.  另一个问题是不稳定性。由于导数的值在函数的景观中跳跃得如此突然，使用这个导数的方法也会突然改变数值，如果你试图收敛到某个地方，就会产生不稳定性。想象一下你正在瑞士阿尔卑斯山徒步旅行图 3-6（损失函数的景观），你的目的地是山谷下面那个漂亮的小镇（误差值最低的地方）。然后*突然*你被某个外星人带到了山的*另一边*，你再也看不到你的目的地了。事实上，现在你在山谷下看到的只有一些丑陋的灌木丛，还有一个非常狭窄的峡谷，如果你的方法把你带到那里，你就会被困住。你原来的目的地的收敛现在是不稳定的，甚至完全丢失了。
 
-![275](assets/emai_0306.png)
+![275](img/emai_0306.png)
 
-###### 图3-6\. 瑞士阿尔卑斯山：优化类似于徒步穿越函数的景观。
+###### 图 3-6\. 瑞士阿尔卑斯山：优化类似于徒步穿越函数的景观。
 
-尽管如此，具有这种奇点的函数在机器学习中经常被使用。我们将在一些神经网络训练函数的公式（修正线性单元函数-谁起这些名字？）、一些损失函数（绝对值距离）和一些正则化项（Lasso回归-这些也是谁起的名字？）中遇到它们。
+尽管如此，具有这种奇点的函数在机器学习中经常被使用。我们将在一些神经网络训练函数的公式（修正线性单元函数-谁起这些名字？）、一些损失函数（绝对值距离）和一些正则化项（Lasso 回归-这些也是谁起的名字？）中遇到它们。
 
 ### 对于线性回归，损失函数是均方误差
 
@@ -236,29 +236,29 @@
 
 对于线性回归，我们使用*均方误差函数*。该函数对*m*个数据点的预测与真实值之间的平方距离误差进行平均（我们很快会提到包括哪些数据点）：
 
-均方误差等于1/m（|y^predict^1 - y^true^1|^2 + |y^predict^2 - y^true^2|^2 + ... + |y^predict^m - y^true^m|^2）
+均方误差等于 1/m（|y^predict¹ - y^true¹|² + |y^predict² - y^true²|² + ... + |y^predict^m - y^true^m|²）
 
 让我们使用求和符号更紧凑地写出上面的表达式：
 
-均方误差等于1/m的sigma-求和（从i=1到m）|y^predict^i - y^true^i|^2
+均方误差等于 1/m 的 sigma-求和（从 i=1 到 m）|y^predict^i - y^true^i|²
 
 现在我们养成了使用更紧凑的线性代数符号的好习惯。这种习惯在这个领域非常方便，因为我们不想在试图跟踪索引的同时淹没。索引可能潜入我们对理解一切的美好梦想中，并迅速将它们转变成非常可怕的噩梦。使用紧凑的线性代数符号的另一个非常重要的原因是，为机器学习模型构建的软件和硬件都针对矩阵和*张量*（想象一个由分层矩阵组成的对象，就像一个三维盒子而不是一个平面正方形）计算进行了优化。此外，美丽的数值线性代数领域已经解决了许多潜在问题，并为我们提供了快速执行各种矩阵计算的方法。
 
 使用线性代数符号，我们可以将均方误差写成：
 
-均方误差是预测基准减去真实值的修改后的y箭头预测基准减去修改后的y箭头真实基准的t次方左括号修改后的y箭头预测基准减去修改后的y箭头真实基准右括号等于1除以m平行于修改后的y箭头预测基准减去修改后的y箭头真实基准平行于句号
+均方误差是预测基准减去真实值的修改后的 y 箭头预测基准减去修改后的 y 箭头真实基准的 t 次方左括号修改后的 y 箭头预测基准减去修改后的 y 箭头真实基准右括号等于 1 除以 m 平行于修改后的 y 箭头预测基准减去修改后的 y 箭头真实基准平行于句号
 
-最后一个等式引入了向量的l平方范数，根据定义，这只是其分量的平方和的平方根。
+最后一个等式引入了向量的 l 平方范数，根据定义，这只是其分量的平方和的平方根。
 
-主要观点：*我们构建的损失函数编码了训练过程中涉及的数据点的预测和地面真相之间的差异，用某种范数来衡量：作为距离的数学实体*。我们可以使用许多其他范数，但l平方范数非常受欢迎。
+主要观点：*我们构建的损失函数编码了训练过程中涉及的数据点的预测和地面真相之间的差异，用某种范数来衡量：作为距离的数学实体*。我们可以使用许多其他范数，但 l 平方范数非常受欢迎。
 
 ### 符号：本书中的向量始终是列向量
 
-为了在整本书中符号一致，*所有*向量都是列向量。因此，如果一个向量修改后的v箭头有四个分量，符号修改后的v箭头代表的是修改后的v箭头代表的是4乘1矩阵第一行v1第二行v2第三行v3第四行v4。
+为了在整本书中符号一致，*所有*向量都是列向量。因此，如果一个向量修改后的 v 箭头有四个分量，符号修改后的 v 箭头代表的是修改后的 v 箭头代表的是 4 乘 1 矩阵第一行 v1 第二行 v2 第三行 v3 第四行 v4。
 
 向量<math alttext="ModifyingAbove v With right-arrow"><mover accent="true"><mi>v</mi> <mo>→</mo></mover></math>的转置始终是一个行向量。具有四个分量的上述向量的转置是<math alttext="ModifyingAbove v With right-arrow Superscript t Baseline equals Start 1 By 4 Matrix 1st Row 1st Column v 1 2nd Column v 2 3rd Column v 3 4th Column v 4 EndMatrix"><mrow><msup><mover accent="true"><mi>v</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><msub><mi>v</mi> <mn>1</mn></msub></mtd> <mtd><msub><mi>v</mi> <mn>2</mn></msub></mtd> <mtd><msub><mi>v</mi> <mn>3</mn></msub></mtd> <mtd><msub><mi>v</mi> <mn>4</mn></msub></mtd></mtr></mtable></mfenced></mrow></math>。
 
-我们永远不会使用点积符号（也称为数量积，因为我们*乘以*两个向量，但我们的答案是一个标量）。而不是写两个向量的点积<math alttext="ModifyingAbove a With right-arrow period ModifyingAbove b With right-arrow"><mrow><mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mo>.</mo> <mover accent="true"><mi>b</mi> <mo>→</mo></mover></mrow></math>，我们将写成<math alttext="ModifyingAbove a With right-arrow Superscript t Baseline ModifyingAbove b With right-arrow"><mrow><msup><mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>b</mi> <mo>→</mo></mover></mrow></math>，这是一样的，但本质上将列向量视为形状为：*向量的长度乘以1*的矩阵，其转置为形状为：*1乘以向量的长度*的矩阵。
+我们永远不会使用点积符号（也称为数量积，因为我们*乘以*两个向量，但我们的答案是一个标量）。而不是写两个向量的点积<math alttext="ModifyingAbove a With right-arrow period ModifyingAbove b With right-arrow"><mrow><mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mo>.</mo> <mover accent="true"><mi>b</mi> <mo>→</mo></mover></mrow></math>，我们将写成<math alttext="ModifyingAbove a With right-arrow Superscript t Baseline ModifyingAbove b With right-arrow"><mrow><msup><mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>b</mi> <mo>→</mo></mover></mrow></math>，这是一样的，但本质上将列向量视为形状为：*向量的长度乘以 1*的矩阵，其转置为形状为：*1 乘以向量的长度*的矩阵。
 
 假设现在<math alttext="ModifyingAbove a With right-arrow"><mover accent="true"><mi>a</mi> <mo>→</mo></mover></math>和<math alttext="ModifyingAbove b With right-arrow"><mover accent="true"><mi>b</mi> <mo>→</mo></mover></math>有四个分量，那么
 
@@ -284,7 +284,7 @@
 
 1.  验证子集：这个子集中的数据点被多种方式使用：
 
-    +   常见的描述是，我们使用这个子集来*调整机器学习模型的超参数*。 超参数是机器学习模型中*不是*我们试图解决的训练函数的<math alttext="omega"><mi>ω</mi></math>的任何参数。 在机器学习中，有许多这样的参数，它们的值会影响模型的结果和性能。 超参数的示例包括（您现在不必知道这些是什么）：出现在梯度下降方法中的学习率，决定支持向量机方法中边缘宽度的超参数，原始数据分成训练、验证和测试子集的百分比，随机批量梯度下降时的批量大小，权重衰减超参数，例如Ridge、LASSO和Elastic Net回归中使用的超参数，带有动量方法的超参数，例如带有动量的梯度下降和ADAM（这些方法加速了方法向最小值的收敛，这些项乘以需要在测试和部署之前进行调整的超参数），神经网络的架构，例如层数、每层的宽度，*等*，以及优化过程中的*epochs*的数量（优化器已经看到整个训练子集的传递次数）。
+    +   常见的描述是，我们使用这个子集来*调整机器学习模型的超参数*。 超参数是机器学习模型中*不是*我们试图解决的训练函数的<math alttext="omega"><mi>ω</mi></math>的任何参数。 在机器学习中，有许多这样的参数，它们的值会影响模型的结果和性能。 超参数的示例包括（您现在不必知道这些是什么）：出现在梯度下降方法中的学习率，决定支持向量机方法中边缘宽度的超参数，原始数据分成训练、验证和测试子集的百分比，随机批量梯度下降时的批量大小，权重衰减超参数，例如 Ridge、LASSO 和 Elastic Net 回归中使用的超参数，带有动量方法的超参数，例如带有动量的梯度下降和 ADAM（这些方法加速了方法向最小值的收敛，这些项乘以需要在测试和部署之前进行调整的超参数），神经网络的架构，例如层数、每层的宽度，*等*，以及优化过程中的*epochs*的数量（优化器已经看到整个训练子集的传递次数）。
 
     +   验证子集还帮助我们知道何时*停止*优化*之前*过度拟合我们的训练子集。
 
@@ -308,7 +308,7 @@
 
 <math alttext="dollar-sign y Subscript p r e d i c t Superscript 10 Baseline equals omega 0 plus omega 1 x 1 Superscript 10 Baseline plus omega 2 x 2 Superscript 10 Baseline plus omega 3 x 3 Superscript 10 Baseline plus omega 4 x 4 Superscript 10 Baseline plus omega 5 x 5 Superscript 10 Baseline period dollar-sign"><mrow><msubsup><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow> <mn>10</mn></msubsup> <mo>=</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>+</mo> <msub><mi>ω</mi> <mn>1</mn></msub> <msubsup><mi>x</mi> <mn>1</mn> <mn>10</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>2</mn></msub> <msubsup><mi>x</mi> <mn>2</mn> <mn>10</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>3</mn></msub> <msubsup><mi>x</mi> <mn>3</mn> <mn>10</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>4</mn></msub> <msubsup><mi>x</mi> <mn>4</mn> <mn>10</mn></msubsup> <mo>+</mo> <msub><mi>ω</mi> <mn>5</mn></msub> <msubsup><mi>x</mi> <mn>5</mn> <mn>10</mn></msubsup> <mo>.</mo></mrow></math>
 
-上标10表示这些值对应于第十个数据点。
+上标 10 表示这些值对应于第十个数据点。
 
 +   我们的损失函数是带有以下公式的均方误差函数：
 
@@ -328,9 +328,9 @@
 
 或者更好：
 
-美元符号开始4乘1矩阵第一行y下标predict上标1第二行y下标predict上标2第三行省略号第四行y下标predict上标m等于4乘6矩阵第一行第一列1第二列x1上标1第三列x2上标1第四列x3上标1第五列x4上标1第六列x5上标1第二行第一列1第二列x1平方第三列x2平方第四列x3平方第五列x4平方第六列x5平方第三行第一列省略号第四行第一列1第二列x1上标m第三列x2上标m第四列x3上标m第五列x4上标m第六列x5上标m结束矩阵开始6乘1矩阵第一行omega0第二行omega1第三行omega2第四行omega3第五行omega4第六行omega5结束矩阵。
+美元符号开始 4 乘 1 矩阵第一行 y 下标 predict 上标 1 第二行 y 下标 predict 上标 2 第三行省略号第四行 y 下标 predict 上标 m 等于 4 乘 6 矩阵第一行第一列 1 第二列 x1 上标 1 第三列 x2 上标 1 第四列 x3 上标 1 第五列 x4 上标 1 第六列 x5 上标 1 第二行第一列 1 第二列 x1 平方第三列 x2 平方第四列 x3 平方第五列 x4 平方第六列 x5 平方第三行第一列省略号第四行第一列 1 第二列 x1 上标 m 第三列 x2 上标 m 第四列 x3 上标 m 第五列 x4 上标 m 第六列 x5 上标 m 结束矩阵开始 6 乘 1 矩阵第一行 omega0 第二行 omega1 第三行 omega2 第四行 omega3 第五行 omega4 第六行 omega5 结束矩阵。
 
-上述方程左侧的向量是<math alttext="ModifyingAbove y With right-arrow Subscript p r e d i c t"><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub></math>，右侧的矩阵是训练子集*X*与包含1的向量增广，右侧的最后一个向量包含了所有未知的权重。将这个向量称为<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>，然后用训练子集和<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>简洁地写成<math alttext="ModifyingAbove y With right-arrow Subscript p r e d i c t"><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub></math>：
+上述方程左侧的向量是<math alttext="ModifyingAbove y With right-arrow Subscript p r e d i c t"><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub></math>，右侧的矩阵是训练子集*X*与包含 1 的向量增广，右侧的最后一个向量包含了所有未知的权重。将这个向量称为<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>，然后用训练子集和<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>简洁地写成<math alttext="ModifyingAbove y With right-arrow Subscript p r e d i c t"><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub></math>：
 
 <math alttext="dollar-sign ModifyingAbove y With right-arrow Subscript p r e d i c t Baseline equals upper X ModifyingAbove omega With right-arrow period dollar-sign"><mrow><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mi>X</mi> <mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>.</mo></mrow></math>
 
@@ -346,7 +346,7 @@
 
 ### 当训练数据具有高度相关的特征时
 
-检查训练矩阵（附加了一个包含1的向量）
+检查训练矩阵（附加了一个包含 1 的向量）
 
 <math alttext="dollar-sign upper X equals Start 4 By 6 Matrix 1st Row 1st Column 1 2nd Column x 1 Superscript 1 Baseline 3rd Column x 2 Superscript 1 Baseline 4th Column x 3 Superscript 1 Baseline 5th Column x 4 Superscript 1 Baseline 6th Column x 5 Superscript 1 Baseline 2nd Row 1st Column 1 2nd Column x 1 squared 3rd Column x 2 squared 4th Column x 3 squared 5th Column x 4 squared 6th Column x 5 squared 3rd Row 1st Column  ellipsis 4th Row 1st Column 1 2nd Column x 1 Superscript m Baseline 3rd Column x 2 Superscript m Baseline 4th Column x 3 Superscript m Baseline 5th Column x 4 Superscript m Baseline 6th Column x 5 Superscript m EndMatrix dollar-sign"><mrow><mi>X</mi> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><mn>1</mn></mtd> <mtd><msubsup><mi>x</mi> <mn>1</mn> <mn>1</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>2</mn> <mn>1</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>3</mn> <mn>1</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>4</mn> <mn>1</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>5</mn> <mn>1</mn></msubsup></mtd></mtr> <mtr><mtd><mn>1</mn></mtd> <mtd><msubsup><mi>x</mi> <mn>1</mn> <mn>2</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>2</mn> <mn>2</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>3</mn> <mn>2</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>4</mn> <mn>2</mn></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>5</mn> <mn>2</mn></msubsup></mtd></mtr> <mtr><mtd><mo>⋮</mo></mtd></mtr> <mtr><mtd><mn>1</mn></mtd> <mtd><msubsup><mi>x</mi> <mn>1</mn> <mi>m</mi></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>2</mn> <mi>m</mi></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>3</mn> <mi>m</mi></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>4</mn> <mi>m</mi></msubsup></mtd> <mtd><msubsup><mi>x</mi> <mn>5</mn> <mi>m</mi></msubsup></mtd></mtr></mtable></mfenced></mrow></math>
 
@@ -356,7 +356,7 @@
 
 我们可以看到，如果数据的两个或更多特征（*x*列）高度相关，我们的模型可能会出现问题：这意味着特征之间存在强烈的线性关系，因此其中一个特征可以通过其他特征的线性组合来确定（或几乎确定）。因此，相应的特征列是*不线性独立*的（或接近不是线性独立的）。对于矩阵来说，这是一个问题，因为它表明矩阵要么不能被反转，要么*病态*。病态的矩阵在计算中产生大的不稳定性，因为训练数据的轻微变化（必须假设）会导致模型参数的大变化，从而使其预测不可靠。
 
-我们在计算中希望得到条件良好的矩阵，因此必须消除病态条件的来源。当我们有高度相关的特征时，一个可能的途径是只在我们的模型中包含其中一个，因为其他特征并不添加太多信息。另一个解决方案是应用主成分分析等降维技术，我们将在[第11章](ch11.xhtml#ch11)中遇到。鱼市数据集具有高度相关的特征，附带的Jupyter Notebook解决了这些问题。
+我们在计算中希望得到条件良好的矩阵，因此必须消除病态条件的来源。当我们有高度相关的特征时，一个可能的途径是只在我们的模型中包含其中一个，因为其他特征并不添加太多信息。另一个解决方案是应用主成分分析等降维技术，我们将在第十一章中遇到。鱼市数据集具有高度相关的特征，附带的 Jupyter Notebook 解决了这些问题。
 
 也就是说，重要的是要注意，一些机器学习模型，如决策树和随机森林（下文讨论），不受相关特征的影响，而其他一些模型，如当前的线性回归模型，以及接下来的逻辑回归和支持向量机模型受到了负面影响。至于神经网络模型，即使它们可以在训练过程中*学习*数据特征中的相关性，但当这些冗余在时间之前得到处理时，它们的表现更好，除了节省计算成本和时间。
 
@@ -370,11 +370,11 @@
 
 我们留下了它的六个参数<math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math>，<math alttext="omega 1"><msub><mi>ω</mi> <mn>1</mn></msub></math>，<math alttext="omega 2"><msub><mi>ω</mi> <mn>2</mn></msub></math>，<math alttext="omega 3"><msub><mi>ω</mi> <mn>3</mn></msub></math>，<math alttext="omega 4"><msub><mi>ω</mi> <mn>4</mn></msub></math>和<math alttext="omega 5"><msub><mi>ω</mi> <mn>5</mn></msub></math>的值未知。目标是找到使我们的训练函数*最适合训练数据子集*的值，其中*最适合*一词是使用损失函数量化的。该函数提供了模型训练函数所做预测与真实情况的偏差程度的度量。我们希望这个损失函数很小，因此我们解决了一个最小化问题。
 
-我们不会坐在那里尝试每个可能的<math alttext="omega"><mi>ω</mi></math>值，直到找到使损失最小的组合。即使我们这样做了，我们也不会知道何时停止，因为我们不知道是否还有其他*更好*的值。我们必须对损失函数的地形有先验知识，并利用其数学特性。类比是盲目徒步穿越瑞士阿尔卑斯山*vs.*带着详细地图徒步穿越（[图3-7](#Fig_Swiss_Alps2)显示了瑞士阿尔卑斯山的崎岖地形）。我们不是盲目地搜索损失函数的地形以寻找最小值，而是利用*优化*领域。优化是数学的一个美丽分支，提供了各种方法来高效地搜索函数的最优解及其对应的最优值。
+我们不会坐在那里尝试每个可能的<math alttext="omega"><mi>ω</mi></math>值，直到找到使损失最小的组合。即使我们这样做了，我们也不会知道何时停止，因为我们不知道是否还有其他*更好*的值。我们必须对损失函数的地形有先验知识，并利用其数学特性。类比是盲目徒步穿越瑞士阿尔卑斯山*vs.*带着详细地图徒步穿越（图 3-7 显示了瑞士阿尔卑斯山的崎岖地形）。我们不是盲目地搜索损失函数的地形以寻找最小值，而是利用*优化*领域。优化是数学的一个美丽分支，提供了各种方法来高效地搜索函数的最优解及其对应的最优值。
 
-![275](assets/emai_0307.png)
+![275](img/emai_0307.png)
 
-###### 图3-7. 瑞士阿尔卑斯山：优化类似于徒步穿越函数的地形。目的地是最低谷的底部（最小化）或最高峰的顶部（最大化）。我们需要两样东西：最小化或最大化点的坐标，以及这些点的地形高度。
+###### 图 3-7. 瑞士阿尔卑斯山：优化类似于徒步穿越函数的地形。目的地是最低谷的底部（最小化）或最高峰的顶部（最大化）。我们需要两样东西：最小化或最大化点的坐标，以及这些点的地形高度。
 
 本章和接下来几章的优化问题如下：
 
@@ -388,7 +388,7 @@
 
 +   *m*（训练子集中的实例数），
 
-+   *X*（训练子集增加了一个全为1的向量），
++   *X*（训练子集增加了一个全为 1 的向量），
 
 +   在训练子集对应的标签向量中的最小损失函数值。
 
@@ -408,25 +408,25 @@
 
 在机器学习中要记住的一个重要类型的函数是两个或多个凸函数的最大值。这些函数总是凸的。线性函数是平的，因此它们同时是凸的和凹的。这很有用，因为有些函数被定义为线性函数的最大值：这些函数不一定是线性的（它们是分段线性的），但是保证是凸的。也就是说，即使我们在取线性函数的最大值时失去了线性性，但我们得到了凸性的补偿。
 
-在神经网络中作为非线性激活函数使用的修正线性单元函数（ReLU）是一个被定义为两个线性函数的最大值的例子：<math alttext="upper R e upper L upper U left-parenthesis x right-parenthesis equals m a x left-parenthesis 0 comma x right-parenthesis"><mrow><mi>R</mi> <mi>e</mi> <mi>L</mi> <mi>U</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>m</mi> <mi>a</mi> <mi>x</mi> <mo>(</mo> <mn>0</mn> <mo>,</mo> <mi>x</mi> <mo>)</mo></mrow></math>。另一个例子是支持向量机中使用的铰链损失函数：<math alttext="upper H left-parenthesis x right-parenthesis equals m a x left-parenthesis 0 comma 1 minus t x right-parenthesis"><mrow><mi>H</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>m</mi> <mi>a</mi> <mi>x</mi> <mo>(</mo> <mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>-</mo> <mi>t</mi> <mi>x</mi> <mo>)</mo></mrow></math>，其中*t*是1或-1。
+在神经网络中作为非线性激活函数使用的修正线性单元函数（ReLU）是一个被定义为两个线性函数的最大值的例子：<math alttext="upper R e upper L upper U left-parenthesis x right-parenthesis equals m a x left-parenthesis 0 comma x right-parenthesis"><mrow><mi>R</mi> <mi>e</mi> <mi>L</mi> <mi>U</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>m</mi> <mi>a</mi> <mi>x</mi> <mo>(</mo> <mn>0</mn> <mo>,</mo> <mi>x</mi> <mo>)</mo></mrow></math>。另一个例子是支持向量机中使用的铰链损失函数：<math alttext="upper H left-parenthesis x right-parenthesis equals m a x left-parenthesis 0 comma 1 minus t x right-parenthesis"><mrow><mi>H</mi> <mo>(</mo> <mi>x</mi> <mo>)</mo> <mo>=</mo> <mi>m</mi> <mi>a</mi> <mi>x</mi> <mo>(</mo> <mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>-</mo> <mi>t</mi> <mi>x</mi> <mo>)</mo></mrow></math>，其中*t*是 1 或-1。
 
 请注意，一组凸函数的最小值不能保证是凸的，它可能有双井。然而，它们的最大值肯定是凸的。
 
-线性和凸性之间还有另一个关系：如果我们有一个凸函数（非线性，因为线性将是平凡的），那么所有保持在函数下方的线性函数的最大值恰好等于它。换句话说，凸性取代了线性性，意思是当线性性不可用时，但凸性可用时，我们可以用所有图形位于函数图形下方的线性函数的最大值来替换我们的凸函数（见[图3-8](#Fig_convex_above_tangents)）。请记住，凸函数的图形位于任意点的切线图形上方，而切线是线性的。这为我们提供了一条直接利用线性函数简单性的路径，当我们有凸函数时。当我们考虑*所有*切线的最大值时，我们有相等，当我们考虑少数点的切线的最大值时，我们只有近似。
+线性和凸性之间还有另一个关系：如果我们有一个凸函数（非线性，因为线性将是平凡的），那么所有保持在函数下方的线性函数的最大值恰好等于它。换句话说，凸性取代了线性性，意思是当线性性不可用时，但凸性可用时，我们可以用所有图形位于函数图形下方的线性函数的最大值来替换我们的凸函数（见图 3-8）。请记住，凸函数的图形位于任意点的切线图形上方，而切线是线性的。这为我们提供了一条直接利用线性函数简单性的路径，当我们有凸函数时。当我们考虑*所有*切线的最大值时，我们有相等，当我们考虑少数点的切线的最大值时，我们只有近似。
 
-![300](assets/emai_0308.png)
+![300](img/emai_0308.png)
 
-###### 图3-8。凸函数等于其所有切线的最大值。
+###### 图 3-8。凸函数等于其所有切线的最大值。
 
-[图3-9](#Fig_convex_landscape)和[图3-10](#Fig_nonconvex_landscape)分别展示了非线性凸函数和非凸函数的一般景观。总的来说，凸函数的景观对于最小化问题是有利的。我们不必担心被困在局部最小值，因为对于凸函数来说，任何局部最小值也是全局最小值。非凸函数的景观有峰值、谷底和鞍点。在这样的景观上进行最小化问题会有被困在局部最小值而无法找到全局最小值的风险。
+图 3-9 和图 3-10 分别展示了非线性凸函数和非凸函数的一般景观。总的来说，凸函数的景观对于最小化问题是有利的。我们不必担心被困在局部最小值，因为对于凸函数来说，任何局部最小值也是全局最小值。非凸函数的景观有峰值、谷底和鞍点。在这样的景观上进行最小化问题会有被困在局部最小值而无法找到全局最小值的风险。
 
-![280](assets/emai_0309.png)
+![280](img/emai_0309.png)
 
-###### 图3-9。凸函数的景观对于最小化问题是有利的。我们不必担心被困在局部最小值，因为对于凸函数来说，任何局部最小值也是全局最小值。
+###### 图 3-9。凸函数的景观对于最小化问题是有利的。我们不必担心被困在局部最小值，因为对于凸函数来说，任何局部最小值也是全局最小值。
 
-![280](assets/emai_0310.png)
+![280](img/emai_0310.png)
 
-###### 图3-10。非凸函数的景观有峰值、谷底和鞍点。在这样的景观上进行最小化问题会有被困在局部最小值而无法找到全局最小值的风险。
+###### 图 3-10。非凸函数的景观有峰值、谷底和鞍点。在这样的景观上进行最小化问题会有被困在局部最小值而无法找到全局最小值的风险。
 
 最后，请确保你知道凸函数、凸集和凸优化问题之间的区别，凸优化问题是在凸集上优化凸函数。
 
@@ -436,7 +436,7 @@
 
 1.  只计算一个导数并缓慢收敛到最小值（尽管有加速方法可以加快收敛速度）。这些被称为*梯度*方法。梯度是多个变量的函数的一个导数。例如，我们的损失函数是多个<math alttext="omega"><mi>ω</mi></math>的函数（或一个向量<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>）。
 
-1.  计算两个导数（在计算上更昂贵，尤其是当我们有成千上万个参数时，这是一个大的缺点），并更快地收敛到最小值。可以通过近似第二导数来节省一些计算成本，而不是精确计算它。第二导数方法被称为*牛顿*方法。*Hessian*（二阶导数的矩阵）或Hessian的近似出现在这些方法中。
+1.  计算两个导数（在计算上更昂贵，尤其是当我们有成千上万个参数时，这是一个大的缺点），并更快地收敛到最小值。可以通过近似第二导数来节省一些计算成本，而不是精确计算它。第二导数方法被称为*牛顿*方法。*Hessian*（二阶导数的矩阵）或 Hessian 的近似出现在这些方法中。
 
 我们从不需要计算超过两个导数。
 
@@ -446,7 +446,7 @@
 
 我们如何找到搜索空间内部的临界点？
 
-方法1
+方法 1
 
 我们按照这些步骤进行。
 
@@ -464,21 +464,21 @@
 
 找到<math alttext="omega"><mi>ω</mi></math>，使得<math alttext="0.002 omega minus 5 equals 0"><mrow><mn>0</mn> <mo>.</mo> <mn>002</mn> <mi>ω</mi> <mo>-</mo> <mn>5</mn> <mo>=</mo> <mn>0</mn></mrow></math>。
 
-*解决方案*：将5移到另一边，然后除以0.002，我们得到<math alttext="omega equals 5 slash 0.002 equals 2500"><mrow><mi>ω</mi> <mo>=</mo> <mn>5</mn> <mo>/</mo> <mn>0</mn> <mo>.</mo> <mn>002</mn> <mo>=</mo> <mn>2500</mn></mrow></math>。完成。
+*解决方案*：将 5 移到另一边，然后除以 0.002，我们得到<math alttext="omega equals 5 slash 0.002 equals 2500"><mrow><mi>ω</mi> <mo>=</mo> <mn>5</mn> <mo>/</mo> <mn>0</mn> <mo>.</mo> <mn>002</mn> <mo>=</mo> <mn>2500</mn></mrow></math>。完成。
 
 解非线性方程
 
 找到<math alttext="omega"><mi>ω</mi></math>，使得<math alttext="0.002 sine left-parenthesis omega right-parenthesis minus 5 omega squared plus e Superscript omega Baseline equals 0"><mrow><mn>0</mn> <mo>.</mo> <mn>002</mn> <mo form="prefix">sin</mo> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>-</mo> <mn>5</mn> <msup><mi>ω</mi> <mn>2</mn></msup> <mo>+</mo> <msup><mi>e</mi> <mi>ω</mi></msup> <mo>=</mo> <mn>0</mn></mrow></math>。
 
-*解决方案*：是的，我要离开了。我们需要一个数值方法！（见[图3-11](#Fig_roots_f_nonlinear)以图形逼近解这个非线性方程的解）。
+*解决方案*：是的，我要离开了。我们需要一个数值方法！（见图 3-11 以图形逼近解这个非线性方程的解）。
 
-![275](assets/emai_0311.png)
+![275](img/emai_0311.png)
 
-###### 图3-11。解非线性方程很困难。在这里，我们绘制<math alttext="f left-parenthesis omega right-parenthesis equals 0.002 sine left-parenthesis omega right-parenthesis minus 5 omega squared plus e Superscript omega"><mrow><mi>f</mi> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>002</mn> <mo form="prefix">sin</mo> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>-</mo> <mn>5</mn> <msup><mi>ω</mi> <mn>2</mn></msup> <mo>+</mo> <msup><mi>e</mi> <mi>ω</mi></msup></mrow></math>并在图上近似其三个根（使<math alttext="f left-parenthesis omega right-parenthesis equals 0"><mrow><mi>f</mi> <mo>(</mo> <mi>ω</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn></mrow></math>的点）。
+###### 图 3-11。解非线性方程很困难。在这里，我们绘制<math alttext="f left-parenthesis omega right-parenthesis equals 0.002 sine left-parenthesis omega right-parenthesis minus 5 omega squared plus e Superscript omega"><mrow><mi>f</mi> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>002</mn> <mo form="prefix">sin</mo> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>-</mo> <mn>5</mn> <msup><mi>ω</mi> <mn>2</mn></msup> <mo>+</mo> <msup><mi>e</mi> <mi>ω</mi></msup></mrow></math>并在图上近似其三个根（使<math alttext="f left-parenthesis omega right-parenthesis equals 0"><mrow><mi>f</mi> <mo>(</mo> <mi>ω</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn></mrow></math>的点）。
 
 有许多数值技术专门用于求解非线性方程的解（以及专门用于数值求解非线性常微分方程和偏微分方程的整个领域）。这些方法找到近似解，然后提供数值解与精确解相差多远的界限。它们通常构造一个在某些条件下收敛到解析解的序列。有些方法收敛速度比其他方法快，并且更适合某些问题而不适合其他问题。
 
-方法2
+方法 2
 
 另一个选择是沿着梯度方向前进，以便向最小值下降或向最大值上升。
 
@@ -488,15 +488,15 @@
 
 凸函数和下界有界的函数的形状像沙拉碗，因此我们不必担心被困在局部最小值处，远离全局最小值。凸函数可能存在另一个令人担忧的问题：当函数的碗形太窄时，我们的方法可能变得非常缓慢。我们将在下一章中详细讨论这一点。
 
-方法1和方法2都很有用且受欢迎。有时，我们别无选择，只能使用其中一种，这取决于每种方法在特定设置下收敛的速度有多快，我们试图优化的函数有多“规则”（它有多少良好的导数），等等。有时，这只是品味的问题。对于线性回归的均方误差损失函数，两种方法都适用，所以我们将使用方法1，只是因为我们将在本书中对*所有*其他损失函数使用梯度下降方法。
+方法 1 和方法 2 都很有用且受欢迎。有时，我们别无选择，只能使用其中一种，这取决于每种方法在特定设置下收敛的速度有多快，我们试图优化的函数有多“规则”（它有多少良好的导数），等等。有时，这只是品味的问题。对于线性回归的均方误差损失函数，两种方法都适用，所以我们将使用方法 1，只是因为我们将在本书中对*所有*其他损失函数使用梯度下降方法。
 
-我们必须提到，对于下降方法的登山下山类比是很好的，但有点误导。当我们人类下山时，我们在物理上属于与我们的山脉景观存在的相同三维空间，这意味着我们处于某个海拔高度，我们能够下降到更低海拔的位置，即使我们被蒙住眼睛，即使天气雾蒙蒙，我们只能一步一步地下降。我们感知海拔然后向下移动。另一方面，数值下降方法并不在与函数景观嵌入的相同空间维度中搜索最小值。相反，它们在地面上搜索，即函数景观的一维*下方*（参见[图3-12](#Fig_ground_level_search)）。这使得朝向最小值的下降变得更加困难，因为在地面上，我们可以从任意一点移动到任何其他点，而不知道我们上方存在什么高度水平，直到我们在该点评估函数本身并找到高度。因此，我们的方法可能会意外地将我们从一个具有某个海拔高度的地面点移动到另一个具有*更高*海拔高度的地面点，因此离最小值更远。这就是为什么在地面上定位一个快速*减小*函数高度的方向以及我们在地面上可以移动多远（步长）而*仍然减小*我们上方函数高度的重要性。步长也称为*学习率超参数*，每当我们使用下降方法时都会遇到。
+我们必须提到，对于下降方法的登山下山类比是很好的，但有点误导。当我们人类下山时，我们在物理上属于与我们的山脉景观存在的相同三维空间，这意味着我们处于某个海拔高度，我们能够下降到更低海拔的位置，即使我们被蒙住眼睛，即使天气雾蒙蒙，我们只能一步一步地下降。我们感知海拔然后向下移动。另一方面，数值下降方法并不在与函数景观嵌入的相同空间维度中搜索最小值。相反，它们在地面上搜索，即函数景观的一维*下方*（参见图 3-12）。这使得朝向最小值的下降变得更加困难，因为在地面上，我们可以从任意一点移动到任何其他点，而不知道我们上方存在什么高度水平，直到我们在该点评估函数本身并找到高度。因此，我们的方法可能会意外地将我们从一个具有某个海拔高度的地面点移动到另一个具有*更高*海拔高度的地面点，因此离最小值更远。这就是为什么在地面上定位一个快速*减小*函数高度的方向以及我们在地面上可以移动多远（步长）而*仍然减小*我们上方函数高度的重要性。步长也称为*学习率超参数*，每当我们使用下降方法时都会遇到。
 
-![250](assets/emai_0312.png)
+![250](img/emai_0312.png)
 
-###### 图3-12。搜索最小值发生在地面上，而不是直接在函数的景观上。
+###### 图 3-12。搜索最小值发生在地面上，而不是直接在函数的景观上。
 
-回到我们的主要目标：我们想要找到最佳的<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>，以便为我们的训练函数最小化均方误差损失函数，方法1：对损失函数进行一阶导数，并将其设置为零，然后解出向量<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>。为此，我们需要掌握*对线性代数表达式进行微积分*。让我们首先回顾一下我们的微积分课程。
+回到我们的主要目标：我们想要找到最佳的<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>，以便为我们的训练函数最小化均方误差损失函数，方法 1：对损失函数进行一阶导数，并将其设置为零，然后解出向量<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>。为此，我们需要掌握*对线性代数表达式进行微积分*。让我们首先回顾一下我们的微积分课程。
 
 ### 微积分简介
 
@@ -506,7 +506,7 @@
 
 在深度学习中，未知的权重是以矩阵而不是向量的形式组织的，因此我们需要对变量矩阵*W*的函数<math alttext="f left-parenthesis upper W right-parenthesis"><mrow><mi>f</mi> <mo>(</mo> <mi>W</mi> <mo>)</mo></mrow></math>进行导数。
 
-对于我们在AI中的目的，我们需要计算导数的函数是损失函数，其中包含了训练函数。根据导数的链式法则，我们还需要计算对于<math alttext="omega"><mi>ω</mi></math>的训练函数的导数。
+对于我们在 AI 中的目的，我们需要计算导数的函数是损失函数，其中包含了训练函数。根据导数的链式法则，我们还需要计算对于<math alttext="omega"><mi>ω</mi></math>的训练函数的导数。
 
 让我们使用单变量微积分的一个简单例子来演示，然后立即过渡到对线性代数表达式进行导数运算。
 
@@ -514,11 +514,11 @@
 
 *找到函数<math alttext="f left-parenthesis omega right-parenthesis equals 3 plus left-parenthesis 0.5 omega minus 2 right-parenthesis squared"><mrow><mi>f</mi> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>3</mn> <mo>+</mo> <msup><mrow><mo>(</mo><mn>0</mn><mo>.</mo><mn>5</mn><mi>ω</mi><mo>-</mo><mn>2</mn><mo>)</mo></mrow> <mn>2</mn></msup></mrow></math>在区间[-1,6]上的最小值（如果有的话）和最小值。*
 
-一个不可能的长方法是尝试在-1和6之间尝试*无限多*个<math alttext="omega"><mi>ω</mi></math>的值，并选择给出最低*f*值的<math alttext="omega"><mi>ω</mi></math>。另一种方法是使用我们的微积分知识，即优化器（最小化器和/或最大化器）发生在临界点（导数不存在或为零）或边界点。有关参考，请参阅[图3-13](#Fig_minimize_f)。
+一个不可能的长方法是尝试在-1 和 6 之间尝试*无限多*个<math alttext="omega"><mi>ω</mi></math>的值，并选择给出最低*f*值的<math alttext="omega"><mi>ω</mi></math>。另一种方法是使用我们的微积分知识，即优化器（最小化器和/或最大化器）发生在临界点（导数不存在或为零）或边界点。有关参考，请参阅图 3-13。
 
-![275](assets/emai_0313.png)
+![275](img/emai_0313.png)
 
-###### 图3-13。函数的最小值<math alttext="f left-parenthesis omega right-parenthesis equals 3 plus left-parenthesis 0.5 omega minus 2 right-parenthesis squared"><mrow><mi>f</mi> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>3</mn> <mo>+</mo> <msup><mrow><mo>(</mo><mn>0</mn><mo>.</mo><mn>5</mn><mi>ω</mi><mo>-</mo><mn>2</mn><mo>)</mo></mrow> <mn>2</mn></msup></mrow></math>在区间[-1,6]上是3，并且发生在临界点<math alttext="omega equals 4"><mrow><mi>ω</mi> <mo>=</mo> <mn>4</mn></mrow></math>。在这个临界点，函数的导数为零，这意味着如果我们画一条切线，它将是水平的。
+###### 图 3-13。函数的最小值<math alttext="f left-parenthesis omega right-parenthesis equals 3 plus left-parenthesis 0.5 omega minus 2 right-parenthesis squared"><mrow><mi>f</mi> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>3</mn> <mo>+</mo> <msup><mrow><mo>(</mo><mn>0</mn><mo>.</mo><mn>5</mn><mi>ω</mi><mo>-</mo><mn>2</mn><mo>)</mo></mrow> <mn>2</mn></msup></mrow></math>在区间[-1,6]上是 3，并且发生在临界点<math alttext="omega equals 4"><mrow><mi>ω</mi> <mo>=</mo> <mn>4</mn></mrow></math>。在这个临界点，函数的导数为零，这意味着如果我们画一条切线，它将是水平的。
 
 我们的边界点是*-1*和*6*，所以我们首先在这些点上评估我们的函数：<math alttext="f left-parenthesis negative 1 right-parenthesis equals 3 plus left-parenthesis 0.5 left-parenthesis negative 1 right-parenthesis minus 2 right-parenthesis squared equals 9.25"><mrow><mi>f</mi> <mrow><mo>(</mo> <mo>-</mo> <mn>1</mn> <mo>)</mo></mrow> <mo>=</mo> <mn>3</mn> <mo>+</mo> <msup><mrow><mo>(</mo><mn>0</mn><mo>.</mo><mn>5</mn><mrow><mo>(</mo><mo>-</mo><mn>1</mn><mo>)</mo></mrow><mo>-</mo><mn>2</mn><mo>)</mo></mrow> <mn>2</mn></msup> <mo>=</mo> <mn>9</mn> <mo>.</mo> <mn>25</mn></mrow></math> 和 <math alttext="f left-parenthesis 6 right-parenthesis equals 3 plus left-parenthesis 0.5 left-parenthesis 6 right-parenthesis minus 2 right-parenthesis squared equals 4"><mrow><mi>f</mi> <mrow><mo>(</mo> <mn>6</mn> <mo>)</mo></mrow> <mo>=</mo> <mn>3</mn> <mo>+</mo> <msup><mrow><mo>(</mo><mn>0</mn><mo>.</mo><mn>5</mn><mrow><mo>(</mo><mn>6</mn><mo>)</mo></mrow><mo>-</mo><mn>2</mn><mo>)</mo></mrow> <mn>2</mn></msup> <mo>=</mo> <mn>4</mn></mrow></math> 。显然，*-1*不是一个最小化器，因为*f(6)<f(-1)*，所以这个边界点退出了竞争，现在只有边界点*6*与内部临界点竞争。为了找到我们的临界点，我们检查区间*[-1,6]*内函数的导数：<math alttext="f prime left-parenthesis omega right-parenthesis equals 0 plus 2 left-parenthesis 0.5 omega minus 2 right-parenthesis asterisk 0.5 equals 0.25 left-parenthesis 0.5 omega minus 2 right-parenthesis"><mrow><msup><mi>f</mi> <mo>'</mo></msup> <mrow><mo>(</mo> <mi>ω</mi> <mo>)</mo></mrow> <mo>=</mo> <mn>0</mn> <mo>+</mo> <mn>2</mn> <mrow><mo>(</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <mi>ω</mi> <mo>-</mo> <mn>2</mn> <mo>)</mo></mrow> <mo>*</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <mo>=</mo> <mn>0</mn> <mo>.</mo> <mn>25</mn> <mrow><mo>(</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <mi>ω</mi> <mo>-</mo> <mn>2</mn> <mo>)</mo></mrow></mrow></math> 。将这个导数设为零，我们有<math alttext="0.25 left-parenthesis 0.5 omega minus 2 right-parenthesis equals 0"><mrow><mn>0</mn> <mo>.</mo> <mn>25</mn> <mo>(</mo> <mn>0</mn> <mo>.</mo> <mn>5</mn> <mi>ω</mi> <mo>-</mo> <mn>2</mn> <mo>)</mo> <mo>=</mo> <mn>0</mn></mrow></math> 意味着<math alttext="omega equals 4"><mrow><mi>ω</mi> <mo>=</mo> <mn>4</mn></mrow></math> 。因此，我们只在区间*[-1,6]*的内部找到了一个临界点<math alttext="omega equals 4"><mrow><mi>ω</mi> <mo>=</mo> <mn>4</mn></mrow></math>。在这个特殊点，函数的值是<math alttext="f left-parenthesis 4 right-parenthesis equals 3 plus left-parenthesis 0.5 left-parenthesis 4 right-parenthesis minus 2 right-parenthesis squared equals 3"><mrow><mi>f</mi> <mrow><mo>(</mo> <mn>4</mn> <mo>)</mo></mrow> <mo>=</mo> <mn>3</mn> <mo>+</mo> <msup><mrow><mo>(</mo><mn>0</mn><mo>.</mo><mn>5</mn><mrow><mo>(</mo><mn>4</mn><mo>)</mo></mrow><mo>-</mo><mn>2</mn><mo>)</mo></mrow> <mn>2</mn></msup> <mo>=</mo> <mn>3</mn></mrow></math> 。由于*f*的值在这里是最低的，显然我们已经找到了我们最小化竞赛的赢家，即<math alttext="omega equals 4"><mrow><mi>ω</mi> <mo>=</mo> <mn>4</mn></mrow></math>，最小的*f*值等于*3*。
 
@@ -538,7 +538,7 @@
 
 让我们在将其梯度展开并将其设置为零之前打开上述表达式：
 
-数学符号开始布局第一行第一列上方L左括号修改上方omega箭头右括号第二列等于分数1/m左括号左括号上方X修改上方omega箭头右括号上标t减去上方y箭头下标true上标t右括号左括号上方X修改上方omega箭头减去上方y箭头下标true右括号第二行第一列空第二列等于分数1/m左括号上方omega箭头上标t上方X上标t减去上方y箭头下标true上标t右括号左括号上方X修改上方omega箭头减去上方y箭头下标true右括号第三行第一列空第二列等于分数1/m左括号上方omega箭头上标t上方X上标t上方X修改上方omega箭头减去上方omega箭头上标t上方X上标t上方y箭头下标true减去上方y箭头下标true上标t上方X修改上方omega箭头加上上方y箭头下标true上标t上方y箭头下标true右括号第四行第一列空第二列等于分数1/m左括号上方omega箭头上标S上方omega箭头减去上方omega箭头上标t上方a箭头减去上方a箭头上标t上方omega箭头加上上方y箭头下标true上标t上方y箭头下标true右括号，结束布局。
+数学符号开始布局第一行第一列上方 L 左括号修改上方 omega 箭头右括号第二列等于分数 1/m 左括号左括号上方 X 修改上方 omega 箭头右括号上标 t 减去上方 y 箭头下标 true 上标 t 右括号左括号上方 X 修改上方 omega 箭头减去上方 y 箭头下标 true 右括号第二行第一列空第二列等于分数 1/m 左括号上方 omega 箭头上标 t 上方 X 上标 t 减去上方 y 箭头下标 true 上标 t 右括号左括号上方 X 修改上方 omega 箭头减去上方 y 箭头下标 true 右括号第三行第一列空第二列等于分数 1/m 左括号上方 omega 箭头上标 t 上方 X 上标 t 上方 X 修改上方 omega 箭头减去上方 omega 箭头上标 t 上方 X 上标 t 上方 y 箭头下标 true 减去上方 y 箭头下标 true 上标 t 上方 X 修改上方 omega 箭头加上上方 y 箭头下标 true 上标 t 上方 y 箭头下标 true 右括号第四行第一列空第二列等于分数 1/m 左括号上方 omega 箭头上标 S 上方 omega 箭头减去上方 omega 箭头上标 t 上方 a 箭头减去上方 a 箭头上标 t 上方 omega 箭头加上上方 y 箭头下标 true 上标 t 上方 y 箭头下标 true 右括号，结束布局。
 
 在最后一步中，我们设置了<math alttext="upper X Superscript t Baseline upper X equals upper S"><mrow><msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi> <mo>=</mo> <mi>S</mi></mrow></math>和<math alttext="upper X Superscript t Baseline ModifyingAbove y With right-arrow Subscript t r u e Baseline equals ModifyingAbove a With right-arrow"><mrow><msup><mi>X</mi> <mi>t</mi></msup> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mover accent="true"><mi>a</mi> <mo>→</mo></mover></mrow></math>。接下来，对上述表达式关于<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>的梯度进行计算，并将其设置为零。在计算梯度时，我们使用了上面小节中学到的关于线性代数表达式的微分知识：
 
@@ -556,17 +556,17 @@
 
 <math alttext="dollar-sign ModifyingAbove omega With right-arrow equals upper S Superscript negative 1 Baseline ModifyingAbove a With right-arrow dollar-sign"><mrow><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <msup><mi>S</mi> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <mover accent="true"><mi>a</mi> <mo>→</mo></mover></mrow></math>
 
-现在回想一下，我们设置了<math alttext="upper S equals upper X Superscript t Baseline upper X"><mrow><mi>S</mi> <mo>=</mo> <msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi></mrow></math>和<math alttext="ModifyingAbove a With right-arrow equals upper X Superscript t Baseline y Subscript t r u e"><mrow><mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mo>=</mo> <msup><mi>X</mi> <mi>t</mi></msup> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>，所以让我们用训练集*X*（增加了1）和相应的标签向量<math alttext="ModifyingAbove y With right-arrow Subscript t r u e"><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>来重新写我们的最小化<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>：
+现在回想一下，我们设置了<math alttext="upper S equals upper X Superscript t Baseline upper X"><mrow><mi>S</mi> <mo>=</mo> <msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi></mrow></math>和<math alttext="ModifyingAbove a With right-arrow equals upper X Superscript t Baseline y Subscript t r u e"><mrow><mover accent="true"><mi>a</mi> <mo>→</mo></mover> <mo>=</mo> <msup><mi>X</mi> <mi>t</mi></msup> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>，所以让我们用训练集*X*（增加了 1）和相应的标签向量<math alttext="ModifyingAbove y With right-arrow Subscript t r u e"><msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>来重新写我们的最小化<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>：
 
 <math alttext="dollar-sign ModifyingAbove omega With right-arrow equals left-parenthesis upper X Superscript t Baseline upper X right-parenthesis Superscript negative 1 Baseline upper X Superscript t Baseline ModifyingAbove y With right-arrow Subscript t r u e Baseline period dollar-sign"><mrow><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <msup><mrow><mo>(</mo><msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <msup><mi>X</mi> <mi>t</mi></msup> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>.</mo></mrow></math>
 
-对于Fish Market数据集，这将是（请参阅附带的Jupyter笔记本）：
+对于 Fish Market 数据集，这将是（请参阅附带的 Jupyter 笔记本）：
 
 <math alttext="dollar-sign ModifyingAbove omega With right-arrow equals Start 6 By 1 Matrix 1st Row  omega 0 2nd Row  omega 1 3rd Row  omega 2 4th Row  omega 3 5th Row  omega 4 6th Row  omega 5 EndMatrix equals Start 6 By 1 Matrix 1st Row  negative 475.19929130109716 2nd Row  82.84970118 3rd Row  negative 28.85952426 4th Row  negative 28.50769512 5th Row  29.82981435 6th Row  30.97250278 EndMatrix dollar-sign"><mrow><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><msub><mi>ω</mi> <mn>0</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>ω</mi> <mn>1</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>ω</mi> <mn>2</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>ω</mi> <mn>3</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>ω</mi> <mn>4</mn></msub></mtd></mtr> <mtr><mtd><msub><mi>ω</mi> <mn>5</mn></msub></mtd></mtr></mtable></mfenced> <mo>=</mo> <mfenced close=")" open="("><mtable><mtr><mtd><mrow><mo>-</mo> <mn>475</mn> <mo>.</mo> <mn>19929130109716</mn></mrow></mtd></mtr> <mtr><mtd><mrow><mn>82</mn> <mo>.</mo> <mn>84970118</mn></mrow></mtd></mtr> <mtr><mtd><mrow><mo>-</mo> <mn>28</mn> <mo>.</mo> <mn>85952426</mn></mrow></mtd></mtr> <mtr><mtd><mrow><mo>-</mo> <mn>28</mn> <mo>.</mo> <mn>50769512</mn></mrow></mtd></mtr> <mtr><mtd><mrow><mn>29</mn> <mo>.</mo> <mn>82981435</mn></mrow></mtd></mtr> <mtr><mtd><mrow><mn>30</mn> <mo>.</mo> <mn>97250278</mn></mrow></mtd></mtr></mtable></mfenced></mrow></math>
 
 # 注意：将大矩阵相乘非常昂贵。请改为将矩阵乘以向量。
 
-尽量避免相乘矩阵，而是用*向量*相乘。例如，在正规方程<math alttext="ModifyingAbove omega With right-arrow equals left-parenthesis upper X Superscript t Baseline upper X right-parenthesis Superscript negative 1 Baseline upper X Superscript t Baseline ModifyingAbove y With right-arrow Subscript t r u e"><mrow><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <msup><mrow><mo>(</mo><msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <msup><mi>X</mi> <mi>t</mi></msup> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>，首先计算<math alttext="upper X Superscript t Baseline ModifyingAbove y With right-arrow Subscript t r u e"><mrow><msup><mi>X</mi> <mi>t</mi></msup> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>，避免计算<math alttext="left-parenthesis upper X Superscript t Baseline upper X right-parenthesis Superscript negative 1"><msup><mrow><mo>(</mo><msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup></math>。解决这个问题的方法是使用*X*的*伪逆*来解决线性系统<math alttext="upper X ModifyingAbove omega With right-arrow equals ModifyingAbove y With right-arrow Subscript t r u e"><mrow><mi>X</mi> <mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>（查看附带的Jupyter笔记本）。我们将在[第11章](ch11.xhtml#ch11)中讨论*伪逆*，但现在，它允许我们求解（相当于除以）没有逆的矩阵。
+尽量避免相乘矩阵，而是用*向量*相乘。例如，在正规方程<math alttext="ModifyingAbove omega With right-arrow equals left-parenthesis upper X Superscript t Baseline upper X right-parenthesis Superscript negative 1 Baseline upper X Superscript t Baseline ModifyingAbove y With right-arrow Subscript t r u e"><mrow><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <msup><mrow><mo>(</mo><msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup> <msup><mi>X</mi> <mi>t</mi></msup> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>，首先计算<math alttext="upper X Superscript t Baseline ModifyingAbove y With right-arrow Subscript t r u e"><mrow><msup><mi>X</mi> <mi>t</mi></msup> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>，避免计算<math alttext="left-parenthesis upper X Superscript t Baseline upper X right-parenthesis Superscript negative 1"><msup><mrow><mo>(</mo><msup><mi>X</mi> <mi>t</mi></msup> <mi>X</mi><mo>)</mo></mrow> <mrow><mo>-</mo><mn>1</mn></mrow></msup></math>。解决这个问题的方法是使用*X*的*伪逆*来解决线性系统<math alttext="upper X ModifyingAbove omega With right-arrow equals ModifyingAbove y With right-arrow Subscript t r u e"><mrow><mi>X</mi> <mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>=</mo> <msub><mover accent="true"><mi>y</mi> <mo>→</mo></mover> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></mrow></math>（查看附带的 Jupyter 笔记本）。我们将在第十一章中讨论*伪逆*，但现在，它允许我们求解（相当于除以）没有逆的矩阵。
 
 我们只是找到了权重向量<math alttext="ModifyingAbove omega With right-arrow"><mover accent="true"><mi>ω</mi> <mo>→</mo></mover></math>，它能够在我们的训练数据和线性回归训练函数之间提供最佳拟合：
 
@@ -582,7 +582,7 @@
 
 # 逻辑回归：分类为两类
 
-逻辑回归主要用于分类任务。我们首先解释如何将这个模型用于二元分类任务（将数据分类为两类，例如癌症/非癌症；适合儿童/不适合儿童；可能偿还贷款/不太可能等）。然后我们将模型推广到将数据分类为多个类别（例如，将手写数字图像分类为0、1、2、3、4、5、6、7、8或9）。同样，我们有相同的数学设置：
+逻辑回归主要用于分类任务。我们首先解释如何将这个模型用于二元分类任务（将数据分类为两类，例如癌症/非癌症；适合儿童/不适合儿童；可能偿还贷款/不太可能等）。然后我们将模型推广到将数据分类为多个类别（例如，将手写数字图像分类为 0、1、2、3、4、5、6、7、8 或 9）。同样，我们有相同的数学设置：
 
 1.  训练函数
 
@@ -592,11 +592,11 @@
 
 ## 训练函数
 
-与线性回归类似，逻辑回归的训练函数计算特征的线性组合并添加一个常数偏差项，但是不是直接输出结果，而是通过*逻辑函数*，其图在[图3-14](#Fig_logistic)中绘制，其公式为：
+与线性回归类似，逻辑回归的训练函数计算特征的线性组合并添加一个常数偏差项，但是不是直接输出结果，而是通过*逻辑函数*，其图在图 3-14 中绘制，其公式为：
 
-<math alttext="dollar-sign sigma left-parenthesis s right-parenthesis equals StartFraction 1 Over 1 plus e Superscript negative s Baseline EndFraction dollar-sign"><mrow><mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><msup><mi>e</mi> <mrow><mo>-</mo><mi>s</mi></mrow></msup></mrow></mfrac></mrow></math>![275](assets/emai_0314.png)
+<math alttext="dollar-sign sigma left-parenthesis s right-parenthesis equals StartFraction 1 Over 1 plus e Superscript negative s Baseline EndFraction dollar-sign"><mrow><mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><msup><mi>e</mi> <mrow><mo>-</mo><mi>s</mi></mrow></msup></mrow></mfrac></mrow></math>![275](img/emai_0314.png)
 
-###### 图3-14. 逻辑函数的图形 <math alttext="sigma left-parenthesis s right-parenthesis equals StartFraction 1 Over 1 plus e Superscript negative s Baseline EndFraction"><mrow><mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><msup><mi>e</mi> <mrow><mo>-</mo><mi>s</mi></mrow></msup></mrow></mfrac></mrow></math>。注意，这个函数可以在任何*s*处进行评估，并始终输出介于*0*和*1*之间的数字，因此其输出可以被解释为概率。
+###### 图 3-14. 逻辑函数的图形 <math alttext="sigma left-parenthesis s right-parenthesis equals StartFraction 1 Over 1 plus e Superscript negative s Baseline EndFraction"><mrow><mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mrow><mn>1</mn><mo>+</mo><msup><mi>e</mi> <mrow><mo>-</mo><mi>s</mi></mrow></msup></mrow></mfrac></mrow></math>。注意，这个函数可以在任何*s*处进行评估，并始终输出介于*0*和*1*之间的数字，因此其输出可以被解释为概率。
 
 这是一个只接受值在*0*和*1*之间的函数，因此它的输出可以被解释为数据点属于某一类的概率：如果输出小于*0.5*，则将数据点分类为属于第一类，如果输出大于*0.5*，则将数据点分类为另一类。数字*0.5*是做出分类数据点决定的*阈值*。
 
@@ -610,25 +610,25 @@
 
 让我们为分类设计一个良好的*损失函数*。我们是工程师，我们希望惩罚错误分类的训练数据点。在我们的标记数据集中，如果一个实例属于一个类，那么它的<math alttext="y Subscript t r u e Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>，如果不属于，则<math alttext="y Subscript t r u e Baseline equals 0"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>。
 
-我们希望我们的训练函数输出<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>，对于属于正类的训练实例（其<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>也为1）。成功的<math alttext="omega"><mi>ω</mi></math>值应该给出一个较高的*t*值（线性组合步骤的结果），以进入逻辑函数，从而为正实例分配高概率，并通过0.5阈值获得<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>。因此，如果线性组合加偏差步骤给出一个较低的*t*值，而<math alttext="y Subscript t r u e Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>，则对其进行惩罚。
+我们希望我们的训练函数输出<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>，对于属于正类的训练实例（其<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>也为 1）。成功的<math alttext="omega"><mi>ω</mi></math>值应该给出一个较高的*t*值（线性组合步骤的结果），以进入逻辑函数，从而为正实例分配高概率，并通过 0.5 阈值获得<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>。因此，如果线性组合加偏差步骤给出一个较低的*t*值，而<math alttext="y Subscript t r u e Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>，则对其进行惩罚。
 
 类似地，成功的权重值应该给出一个较低的*t*值，以进入逻辑函数，用于不属于该类的训练实例（它们真实的<math alttext="y Subscript t r u e Baseline equals 0"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>）。因此，如果线性组合加偏差步骤给出一个较高的*t*值，而<math alttext="y Subscript t r u e Baseline equals 0"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>，则对其进行惩罚。
 
 那么我们如何找到一个惩罚错误分类的训练数据点的损失函数呢？假阳性和假阴性都应该受到惩罚。回想一下，这个分类模型的输出要么是*1*，要么是*0*：
 
-+   想象一下奖励*1*并惩罚*0*的微积分函数：<math alttext="minus log left-parenthesis s right-parenthesis"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>（见[图3-15](#Fig_log_s_log_1_s)）。
++   想象一下奖励*1*并惩罚*0*的微积分函数：<math alttext="minus log left-parenthesis s right-parenthesis"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>（见图 3-15）。
 
-+   考虑一个对*1*进行惩罚并对*0*进行奖励的微积分函数：<math alttext="减去对数左括号1减s右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>s</mi> <mo>)</mo></mrow></math>（见[图3-15](#Fig_log_s_log_1_s)）。
++   考虑一个对*1*进行惩罚并对*0*进行奖励的微积分函数：<math alttext="减去对数左括号 1 减 s 右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>s</mi> <mo>)</mo></mrow></math>（见图 3-15）。
 
-![275](assets/emai_0315.png)
+![275](img/emai_0315.png)
 
-###### 图3-15\. 左：函数<math alttext="f左括号s右括号等于减l o g左括号s右括号"><mrow><mi>f</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>=</mo> <mo>-</mo> <mi>l</mi> <mi>o</mi> <mi>g</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>的图。该函数为接近*0*的数字分配高值，并为接近*1*的数字分配低值。右：函数<math alttext="f左括号s右括号等于减l o g左括号1减s右括号"><mrow><mi>f</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>=</mo> <mo>-</mo> <mi>l</mi> <mi>o</mi> <mi>g</mi> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>s</mi> <mo>)</mo></mrow></math>的图。该函数为接近*1*的数字分配高值，并为接近*0*的数字分配低值。
+###### 图 3-15\. 左：函数<math alttext="f 左括号 s 右括号等于减 l o g 左括号 s 右括号"><mrow><mi>f</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>=</mo> <mo>-</mo> <mi>l</mi> <mi>o</mi> <mi>g</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>的图。该函数为接近*0*的数字分配高值，并为接近*1*的数字分配低值。右：函数<math alttext="f 左括号 s 右括号等于减 l o g 左括号 1 减 s 右括号"><mrow><mi>f</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>=</mo> <mo>-</mo> <mi>l</mi> <mi>o</mi> <mi>g</mi> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>s</mi> <mo>)</mo></mrow></math>的图。该函数为接近*1*的数字分配高值，并为接近*0*的数字分配低值。
 
-现在关注当前选择的<math alttext="omega"><mi>ω</mi></math>的逻辑函数<math alttext="sigma左括号s右括号"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>的输出：
+现在关注当前选择的<math alttext="omega"><mi>ω</mi></math>的逻辑函数<math alttext="sigma 左括号 s 右括号"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>的输出：
 
-+   如果<math alttext="sigma左括号s右括号"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>小于*0.5*（模型预测为<math alttext="y下标predictBaseline等于0"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>），但真实值<math alttext="y下标trueBaseline等于1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>（假阴性），则通过惩罚<math alttext="减去对数左括号sigma左括号s右括号右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>)</mo></mrow></math>让模型付出代价。如果相反地<math alttext="sigma左括号s右括号大于0.5"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>></mo> <mn>0</mn> <mo>.</mo> <mn>5</mn></mrow></math>，即模型预测为<math alttext="y下标predictBaseline等于1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>（真阳性），<math alttext="减去对数左括号sigma左括号s右括号右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>)</mo></mrow></math>很小，因此不需要付出高惩罚。
++   如果<math alttext="sigma 左括号 s 右括号"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>小于*0.5*（模型预测为<math alttext="y 下标 predictBaseline 等于 0"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>），但真实值<math alttext="y 下标 trueBaseline 等于 1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>（假阴性），则通过惩罚<math alttext="减去对数左括号 sigma 左括号 s 右括号右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>)</mo></mrow></math>让模型付出代价。如果相反地<math alttext="sigma 左括号 s 右括号大于 0.5"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>></mo> <mn>0</mn> <mo>.</mo> <mn>5</mn></mrow></math>，即模型预测为<math alttext="y 下标 predictBaseline 等于 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>（真阳性），<math alttext="减去对数左括号 sigma 左括号 s 右括号右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>)</mo></mrow></math>很小，因此不需要付出高惩罚。
 
-+   同样，如果<math alttext="sigma左括号s右括号"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>大于*0.5*，但真实值<math alttext="y下标trueBaseline等于0"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>（假阳性），则通过惩罚<math alttext="减去对数左括号1减sigma左括号s右括号右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>)</mo></mrow></math>让模型付出代价。同样，对于真阴性也不需要付出高惩罚。
++   同样，如果<math alttext="sigma 左括号 s 右括号"><mrow><mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo></mrow></math>大于*0.5*，但真实值<math alttext="y 下标 trueBaseline 等于 0"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></math>（假阳性），则通过惩罚<math alttext="减去对数左括号 1 减 sigma 左括号 s 右括号右括号"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>σ</mi> <mo>(</mo> <mi>s</mi> <mo>)</mo> <mo>)</mo></mrow></math>让模型付出代价。同样，对于真阴性也不需要付出高惩罚。
 
 因此，我们可以将误分类一个训练实例的成本写成：
 
@@ -642,25 +642,25 @@
 
 与线性回归情况不同，如果我们决定通过设置<math alttext="normal nabla upper L left-parenthesis omega right-parenthesis equals 0"><mrow><mi>∇</mi> <mi>L</mi> <mo>(</mo> <mi>ω</mi> <mo>)</mo> <mo>=</mo> <mn>0</mn></mrow></math>来最小化损失函数，那么<math alttext="omega"><mi>ω</mi></math>没有封闭形式的解析解。好消息是这个函数是凸函数，所以下一章的梯度下降（或随机或小批量梯度下降）保证能找到最小值（如果*学习率*不是太大，并且等待足够长的时间）。
 
-# Softmax回归：多类分类
+# Softmax 回归：多类分类
 
-我们可以很容易地将逻辑回归的思想推广到多类分类。一个著名的非二进制分类任务的例子是使用[MNIST数据集](http://yann.lecun.com/exdb/mnist/)对手写数字0、1、2、3、4、5、6、7、8和9进行分类。这个数据集包含了70,000张手写数字的图像（见[图3-16](#Fig_MNIST)中这些图像的样本），分为60,000张训练子集和10,000张测试子集。每个图像都标有它所属的类别，即这十个数字中的一个。
+我们可以很容易地将逻辑回归的思想推广到多类分类。一个著名的非二进制分类任务的例子是使用[MNIST 数据集](http://yann.lecun.com/exdb/mnist/)对手写数字 0、1、2、3、4、5、6、7、8 和 9 进行分类。这个数据集包含了 70,000 张手写数字的图像（见图 3-16 中这些图像的样本），分为 60,000 张训练子集和 10,000 张测试子集。每个图像都标有它所属的类别，即这十个数字中的一个。
 
-![275](assets/emai_0316.png)
+![275](img/emai_0316.png)
 
-###### 图3-16。MNIST数据集的样本图像。([图片来源：维基百科](https://en.wikipedia.org/wiki/MNIST_database))
+###### 图 3-16。MNIST 数据集的样本图像。([图片来源：维基百科](https://en.wikipedia.org/wiki/MNIST_database))
 
-[此数据集的链接](http://yann.lecun.com/exdb/mnist/)还包含许多分类模型的结果，包括线性分类器、*k最近邻*、*决策树*、带有各种*核*的*支持向量机*，以及具有各种架构的神经网络，以及相应论文的参考文献和发表年份。看到随着年份的推移和方法的演变，性能的进展是很有趣的。
+[此数据集的链接](http://yann.lecun.com/exdb/mnist/)还包含许多分类模型的结果，包括线性分类器、*k 最近邻*、*决策树*、带有各种*核*的*支持向量机*，以及具有各种架构的神经网络，以及相应论文的参考文献和发表年份。看到随着年份的推移和方法的演变，性能的进展是很有趣的。
 
 # 注意：不要将多类别分类与多输出模型混淆
 
-Softmax回归一次预测一个类别，所以我们不能用它来分类，例如，在同一张图像中的五个人。相反，我们可以用它来检查给定的Facebook图像是否是我的照片，我的妹妹的照片，我的哥哥的照片，我的丈夫的照片，或者我的女儿的照片。传入softmax回归模型的图像只能有我们五个人中的一个，否则模型的分类就不太明显。这意味着我们的类别必须是相互排斥的。所以当Facebook自动在同一张图像中标记五个人时，它们使用的是一个多输出模型，而不是softmax回归模型。
+Softmax 回归一次预测一个类别，所以我们不能用它来分类，例如，在同一张图像中的五个人。相反，我们可以用它来检查给定的 Facebook 图像是否是我的照片，我的妹妹的照片，我的哥哥的照片，我的丈夫的照片，或者我的女儿的照片。传入 softmax 回归模型的图像只能有我们五个人中的一个，否则模型的分类就不太明显。这意味着我们的类别必须是相互排斥的。所以当 Facebook 自动在同一张图像中标记五个人时，它们使用的是一个多输出模型，而不是 softmax 回归模型。
 
 假设我们有数据点的特征，并且我们想要利用这些信息来将数据点分类到*k*个可能的类别中。以下的训练函数、损失函数和优化过程现在应该是清楚的。
 
 # 关于图像数据的特征
 
-对于灰度图像，每个像素强度都是一个特征，所以图像通常有成千上万个特征。灰度图像通常表示为数字的二维矩阵，像素强度作为矩阵的条目。彩色图像有三个通道，红色、绿色和蓝色，每个通道再次表示为数字的二维矩阵，并且通道叠加在彼此之上，形成三层二维矩阵。这种结构称为张量。查看这个[链接的Jupyter笔记本]，它说明了我们如何在Python中处理灰度和彩色图像。
+对于灰度图像，每个像素强度都是一个特征，所以图像通常有成千上万个特征。灰度图像通常表示为数字的二维矩阵，像素强度作为矩阵的条目。彩色图像有三个通道，红色、绿色和蓝色，每个通道再次表示为数字的二维矩阵，并且通道叠加在彼此之上，形成三层二维矩阵。这种结构称为张量。查看这个[链接的 Jupyter 笔记本]，它说明了我们如何在 Python 中处理灰度和彩色图像。
 
 ## 训练函数
 
@@ -676,9 +676,9 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 # 养成良好习惯
 
-你想养成一个良好的习惯，即跟踪你的训练函数中有多少未知的ω出现在公式中。记住，这些是我们通过最小化损失函数找到的ω。另一个良好的习惯是以高效和一致的方式组织它们在模型中（在向量、矩阵等中）。在softmax情况下，当我们有k个类别和每个数据点的n个特征时，我们最终得到k×n个ω用于线性组合，然后k个偏差，总共有k×n加k个未知的ω。例如，如果我们使用softmax回归模型来对手写数字的[MNIST数据集](https://en.wikipedia.org/wiki/MNIST_database)中的图像进行分类，每个图像有28×28个像素，即784个特征，我们想将它们分类为10个类别，因此我们最终需要优化7850个ω。对于线性和逻辑回归模型，我们只需要优化n加1个未知的ω。
+你想养成一个良好的习惯，即跟踪你的训练函数中有多少未知的ω出现在公式中。记住，这些是我们通过最小化损失函数找到的ω。另一个良好的习惯是以高效和一致的方式组织它们在模型中（在向量、矩阵等中）。在 softmax 情况下，当我们有 k 个类别和每个数据点的 n 个特征时，我们最终得到 k×n 个ω用于线性组合，然后 k 个偏差，总共有 k×n 加 k 个未知的ω。例如，如果我们使用 softmax 回归模型来对手写数字的[MNIST 数据集](https://en.wikipedia.org/wiki/MNIST_database)中的图像进行分类，每个图像有 28×28 个像素，即 784 个特征，我们想将它们分类为 10 个类别，因此我们最终需要优化 7850 个ω。对于线性和逻辑回归模型，我们只需要优化 n 加 1 个未知的ω。
 
-接下来，我们将这*k*个结果传递到一个称为*softmax函数*的函数中，该函数将逻辑函数从两个类推广到多个类，并且我们也将其解释为概率。Softmax函数的公式如下：
+接下来，我们将这*k*个结果传递到一个称为*softmax 函数*的函数中，该函数将逻辑函数从两个类推广到多个类，并且我们也将其解释为概率。Softmax 函数的公式如下：
 
 <math alttext="dollar-sign sigma left-parenthesis s Superscript j Baseline right-parenthesis equals StartFraction e Superscript s Super Superscript j Superscript Baseline Over e Superscript s Super Superscript 1 Superscript Baseline plus e Superscript s squared Baseline plus ellipsis plus e Superscript s Super Superscript k Superscript Baseline EndFraction dollar-sign"><mrow><mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mi>j</mi></msup> <mo>)</mo></mrow> <mo>=</mo> <mfrac><msup><mi>e</mi> <msup><mi>s</mi> <mi>j</mi></msup></msup> <mrow><msup><mi>e</mi> <msup><mi>s</mi> <mn>1</mn></msup></msup> <mo>+</mo><msup><mi>e</mi> <msup><mi>s</mi> <mn>2</mn></sup></msup> <mo>+</mo><mo>⋯</mo><mo>+</mo><msup><mi>e</mi> <msup><mi>s</mi> <mi>k</mi></msup></msup></mrow></mfrac></mrow></math>
 
@@ -700,7 +700,7 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 <math alttext="dollar-sign c o s t equals Start 2 By 2 Matrix 1st Row 1st Column Blank 2nd Column minus log left-parenthesis sigma left-parenthesis s right-parenthesis right-parenthesis if y Subscript t r u e Baseline equals 1 2nd Row 1st Column Blank 2nd Column minus log left-parenthesis 1 minus sigma left-parenthesis s right-parenthesis right-parenthesis if y Subscript t r u e Baseline equals 0 EndMatrix equals minus y Subscript t r u e Baseline log left-parenthesis sigma left-parenthesis s right-parenthesis right-parenthesis minus left-parenthesis 1 minus y Subscript t r u e Baseline right-parenthesis log left-parenthesis 1 minus sigma left-parenthesis s right-parenthesis right-parenthesis dollar-sign"><mrow><mi>c</mi> <mi>o</mi> <mi>s</mi> <mi>t</mi> <mo>=</mo> <mfenced close="}" open="{" separators=""><mtable displaystyle="true"><mtr><mtd columnalign="left"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>)</mo></mrow> <mtext>if</mtext> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>)</mo></mrow> <mtext>if</mtext> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>=</mo> <mn>0</mn></mrow></mtd></mtr></mtable></mfenced> <mo>=</mo> <mo>-</mo> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>-</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>-</mo> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mo>)</mo></mrow> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>-</mo> <mi>σ</mi> <mrow><mo>(</mo> <mi>s</mi> <mo>)</mo></mrow> <mo>)</mo></mrow></mrow></math>
 
-现在我们将相同的逻辑推广到多个类别。让我们使用符号 <math alttext="y Subscript t r u e comma i Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mi>i</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math> 来表示，如果某个数据点属于第i类，则为1，否则为零。然后我们有与将某个数据点误分类相关的成本：
+现在我们将相同的逻辑推广到多个类别。让我们使用符号 <math alttext="y Subscript t r u e comma i Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mi>i</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math> 来表示，如果某个数据点属于第 i 类，则为 1，否则为零。然后我们有与将某个数据点误分类相关的成本：
 
 <math alttext="dollar-sign c o s t equals Start 5 By 2 Matrix 1st Row 1st Column Blank 2nd Column minus log left-parenthesis sigma left-parenthesis s Superscript 1 Baseline right-parenthesis right-parenthesis if y Subscript t r u e comma 1 Baseline equals 1 2nd Row 1st Column Blank 2nd Column minus log left-parenthesis sigma left-parenthesis s squared right-parenthesis right-parenthesis if y Subscript t r u e comma 2 Baseline equals 1 3rd Row 1st Column Blank 2nd Column minus log left-parenthesis sigma left-parenthesis s cubed right-parenthesis right-parenthesis if y Subscript t r u e comma 3 Baseline equals 1 4th Row 1st Column  ellipsis 5th Row 1st Column Blank 2nd Column minus log left-parenthesis sigma left-parenthesis s Superscript k Baseline right-parenthesis right-parenthesis if y Subscript t r u e comma k Baseline equals 1 EndMatrix equals minus y Subscript t r u e comma 1 Baseline log left-parenthesis sigma left-parenthesis s Superscript 1 Baseline right-parenthesis right-parenthesis minus ellipsis minus y Subscript t r u e comma k Baseline log left-parenthesis sigma left-parenthesis s Superscript k Baseline right-parenthesis right-parenthesis period dollar-sign"><mrow><mi>c</mi> <mi>o</mi> <mi>s</mi> <mi>t</mi> <mo>=</mo> <mfenced close="}" open="{" separators=""><mtable displaystyle="true"><mtr><mtd columnalign="left"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mn>1</mn></msup> <mo>)</mo></mrow> <mo>)</mo></mrow> <mtext>if</mtext> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mn>1</mn></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mn>2</mn></msup> <mo>)</mo></mrow> <mo>)</mo></mrow> <mtext>if</mtext> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mn>2</mn></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mn>3</mn></msup> <mo>)</mo></mrow> <mo>)</mo></mrow> <mtext>if</mtext> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mn>3</mn></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></mtd></mtr> <mtr><mtd columnalign="right"><mo>⋮</mo></mtd></mtr> <mtr><mtd columnalign="left"><mrow><mo>-</mo> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mi>k</mi></msup> <mo>)</mo></mrow> <mo>)</mo></mrow> <mtext>if</mtext> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mi>k</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></mtd></mtr></mtable></mfenced> <mo>=</mo> <mo>-</mo> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mn>1</mn></mrow></msub> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mn>1</mn></msup> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>-</mo> <mo>⋯</mo> <mo>-</mo> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi><mo>,</mo><mi>k</mi></mrow></msub> <mo form="prefix">log</mo> <mrow><mo>(</mo> <mi>σ</mi> <mrow><mo>(</mo> <msup><mi>s</mi> <mi>k</mi></msup> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>.</mo></mrow></math>
 
@@ -720,13 +720,13 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 当*p*较小时，上述数量较大，因此，它量化了*不太可能*事件的更大*惊喜*。
 
-# 关于逻辑函数和softmax函数以及统计力学的说明
+# 关于逻辑函数和 softmax 函数以及统计力学的说明
 
-如果您熟悉统计力学，您可能已经注意到逻辑函数和softmax函数以与统计力学领域的*配分函数*相同的方式计算概率，计算系统处于某种状态的概率。
+如果您熟悉统计力学，您可能已经注意到逻辑函数和 softmax 函数以与统计力学领域的*配分函数*相同的方式计算概率，计算系统处于某种状态的概率。
 
 # 将上述模型纳入神经网络的最后一层
 
-线性回归模型通过适当地线性组合数据特征进行预测，然后加入偏差。逻辑回归和softmax回归模型通过适当地线性组合数据特征，加入偏差，然后将结果传递到概率评分函数中进行分类。在这些简单模型中，数据的特征仅被线性组合，因此，这些模型在捕捉数据特征之间潜在重要的非线性交互方面较弱。神经网络模型将非线性的*激活函数*纳入其训练函数中，并在多个层次上进行，因此更适合检测非线性和更复杂的关系。神经网络的最后一层是其输出层。倒数第二层将一些高阶特征输出并输入到最后一层。如果我们希望网络将数据分类为多个类别，那么我们可以将最后一层设为softmax层；如果我们希望将其分类为两个类别，那么我们的最后一层可以是逻辑回归层；如果我们希望网络预测数值，那么我们可以将其最后一层设为回归层。我们将在[第5章](ch05.xhtml#ch05)中看到这些示例。
+线性回归模型通过适当地线性组合数据特征进行预测，然后加入偏差。逻辑回归和 softmax 回归模型通过适当地线性组合数据特征，加入偏差，然后将结果传递到概率评分函数中进行分类。在这些简单模型中，数据的特征仅被线性组合，因此，这些模型在捕捉数据特征之间潜在重要的非线性交互方面较弱。神经网络模型将非线性的*激活函数*纳入其训练函数中，并在多个层次上进行，因此更适合检测非线性和更复杂的关系。神经网络的最后一层是其输出层。倒数第二层将一些高阶特征输出并输入到最后一层。如果我们希望网络将数据分类为多个类别，那么我们可以将最后一层设为 softmax 层；如果我们希望将其分类为两个类别，那么我们的最后一层可以是逻辑回归层；如果我们希望网络预测数值，那么我们可以将其最后一层设为回归层。我们将在第五章中看到这些示例。
 
 # 其他流行的机器学习技术和技术集成
 
@@ -736,7 +736,7 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 一个集成的例子是随机森林：它是一组决策树的集成。
 
-当我们基于集成进行预测时，行业术语如*bagging*（或*bootstrap aggregating*）、*pasting*、*boosting*（比如*ADA boost*和*Gradient boosting*）、*stacking*和*random patches*会出现。Bagging和pasting在训练集的不同随机子集上训练*相同*的机器学习模型。Bagging使用替换从训练集中抽取实例，而pasting则不使用替换。*Random patches*也从特征空间中抽样，每次在随机特征子集上训练机器学习模型。当数据集具有许多特征时，比如图像（其中每个像素都是一个特征），这是非常有帮助的。*Stacking*学习集成的预测机制，而不是简单的投票或平均值。
+当我们基于集成进行预测时，行业术语如*bagging*（或*bootstrap aggregating*）、*pasting*、*boosting*（比如*ADA boost*和*Gradient boosting*）、*stacking*和*random patches*会出现。Bagging 和 pasting 在训练集的不同随机子集上训练*相同*的机器学习模型。Bagging 使用替换从训练集中抽取实例，而 pasting 则不使用替换。*Random patches*也从特征空间中抽样，每次在随机特征子集上训练机器学习模型。当数据集具有许多特征时，比如图像（其中每个像素都是一个特征），这是非常有帮助的。*Stacking*学习集成的预测机制，而不是简单的投票或平均值。
 
 ## 支持向量机
 
@@ -746,7 +746,7 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 训练函数
 
-我们再次使用未知权重<math alttext="omega"><mi>ω</mi></math>的数据点的特征进行线性组合，并添加偏差<math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math>。然后通过*sign*函数得到答案：如果特征的线性组合加上偏差是一个正数，返回1（或分类为第一类），如果是负数，返回-1（或分类为另一类）。因此，训练函数的公式变为：
+我们再次使用未知权重<math alttext="omega"><mi>ω</mi></math>的数据点的特征进行线性组合，并添加偏差<math alttext="omega 0"><msub><mi>ω</mi> <mn>0</mn></msub></math>。然后通过*sign*函数得到答案：如果特征的线性组合加上偏差是一个正数，返回 1（或分类为第一类），如果是负数，返回-1（或分类为另一类）。因此，训练函数的公式变为：
 
 <math alttext="dollar-sign f left-parenthesis ModifyingAbove omega With right-arrow semicolon ModifyingAbove x With right-arrow right-parenthesis equals s i g n left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 right-parenthesis dollar-sign"><mrow><mi>f</mi> <mrow><mo>(</mo> <mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>;</mo> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>=</mo> <mi>s</mi> <mi>i</mi> <mi>g</mi> <mi>n</mi> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow></mrow></math>
 
@@ -756,19 +756,19 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 <math alttext="dollar-sign max left-parenthesis 0 comma 1 minus y Subscript t r u e Baseline left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 right-parenthesis right-parenthesis period dollar-sign"><mrow><mo form="prefix" movablelimits="true">max</mo> <mo>(</mo> <mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>-</mo> <msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow> <mo>)</mo> <mo>.</mo></mrow></math>
 
-让我们看看铰链损失函数如何惩罚分类错误。首先，回想一下<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>是1或-1，取决于数据点是属于正类还是负类。
+让我们看看铰链损失函数如何惩罚分类错误。首先，回想一下<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>是 1 或-1，取决于数据点是属于正类还是负类。
 
-+   如果对于某个数据点<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为1，但<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 0"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>0</mn></mrow></math>，训练函数将错误分类，并给出<math alttext="y Subscript p r e d i c t Baseline equals negative 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mo>-</mo> <mn>1</mn></mrow></math>，而铰链损失函数的值将为<math alttext="1 minus left-parenthesis 1 right-parenthesis left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 right-parenthesis greater-than 1"><mrow><mn>1</mn> <mo>-</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>)</mo></mrow> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow> <mo>></mo> <mn>1</mn></mrow></math>，这是一个高惩罚，当你的目标是最小化时。
++   如果对于某个数据点<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为 1，但<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 0"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>0</mn></mrow></math>，训练函数将错误分类，并给出<math alttext="y Subscript p r e d i c t Baseline equals negative 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mo>-</mo> <mn>1</mn></mrow></math>，而铰链损失函数的值将为<math alttext="1 minus left-parenthesis 1 right-parenthesis left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 right-parenthesis greater-than 1"><mrow><mn>1</mn> <mo>-</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>)</mo></mrow> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow> <mo>></mo> <mn>1</mn></mrow></math>，这是一个高惩罚，当你的目标是最小化时。
 
-+   另一方面，如果<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为1且<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 0"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>0</mn></mrow></math>，训练函数将正确分类它并给出<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>。然而，铰链损失函数设计成这样，即使<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>1</mn></mrow></math>，它仍会对我们进行惩罚，其值将为<math alttext="1 minus left-parenthesis 1 right-parenthesis left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 right-parenthesis"><mrow><mn>1</mn> <mo>-</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>)</mo></mrow> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow></mrow></math>，现在小于1但仍大于零。
++   另一方面，如果<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为 1 且<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 0"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>0</mn></mrow></math>，训练函数将正确分类它并给出<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>。然而，铰链损失函数设计成这样，即使<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>1</mn></mrow></math>，它仍会对我们进行惩罚，其值将为<math alttext="1 minus left-parenthesis 1 right-parenthesis left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 right-parenthesis"><mrow><mn>1</mn> <mo>-</mo> <mrow><mo>(</mo> <mn>1</mn> <mo>)</mo></mrow> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow></mrow></math>，现在小于 1 但仍大于零。
 
-+   只有当<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为1且<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>1</mn></mrow></math>（训练函数仍然会正确分类这一点，并给出<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>），则铰链损失函数值将为零，因为它将是零和负量之间的最大值。
++   只有当<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为 1 且<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 less-than 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo><</mo> <mn>1</mn></mrow></math>（训练函数仍然会正确分类这一点，并给出<math alttext="y Subscript p r e d i c t Baseline equals 1"><mrow><msub><mi>y</mi> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>d</mi><mi>i</mi><mi>c</mi><mi>t</mi></mrow></msub> <mo>=</mo> <mn>1</mn></mrow></math>），则铰链损失函数值将为零，因为它将是零和负量之间的最大值。
 
-+   当<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为-1时，相同的逻辑适用：铰链损失函数会对错误的预测进行严厉惩罚，对正确的预测进行轻微惩罚，但如果它与“零除数”（大于1的边距）的距离不够远，它将进行惩罚，并且仅当预测正确且该点距离“零除数”大于1时才返回零。
++   当<math alttext="y Subscript t r u e"><msub><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow></msub></math>为-1 时，相同的逻辑适用：铰链损失函数会对错误的预测进行严厉惩罚，对正确的预测进行轻微惩罚，但如果它与“零除数”（大于 1 的边距）的距离不够远，它将进行惩罚，并且仅当预测正确且该点距离“零除数”大于 1 时才返回零。
 
-+   请注意，零分隔器的方程式为<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 equals 0"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mn>0</mn></mrow></math>，边缘边缘的方程式为<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 equals negative 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mo>-</mo> <mn>1</mn></mrow></math>和<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 equals 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mn>1</mn></mrow></math>。边缘边缘之间的距离很容易计算为<math alttext="StartFraction 2 Over parallel-to omega parallel-to EndFraction"><mfrac><mn>2</mn> <msub><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn></msub></mfrac></math>。因此，如果我们想要增加这个边缘宽度，我们必须减少<math alttext="parallel-to omega parallel-to"><msub><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn></msub></math>，因此，这个术语必须进入损失函数，以及hingle损失函数，惩罚误分类的点和边缘边界内的点。
++   请注意，零分隔器的方程式为<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 equals 0"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mn>0</mn></mrow></math>，边缘边缘的方程式为<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 equals negative 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mo>-</mo> <mn>1</mn></mrow></math>和<math alttext="ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow plus omega 0 equals 1"><mrow><msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>=</mo> <mn>1</mn></mrow></math>。边缘边缘之间的距离很容易计算为<math alttext="StartFraction 2 Over parallel-to omega parallel-to EndFraction"><mfrac><mn>2</mn> <msub><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn></msub></mfrac></math>。因此，如果我们想要增加这个边缘宽度，我们必须减少<math alttext="parallel-to omega parallel-to"><msub><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn></msub></math>，因此，这个术语必须进入损失函数，以及 hingle 损失函数，惩罚误分类的点和边缘边界内的点。
 
-现在，如果我们将所有m个数据点在训练集中的hinge损失平均，并添加<math alttext="parallel-to omega parallel-to"><msubsup><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn> <mn>2</mn></msubsup></math>，我们就得到了支持向量机常用的损失函数公式：
+现在，如果我们将所有 m 个数据点在训练集中的 hinge 损失平均，并添加<math alttext="parallel-to omega parallel-to"><msubsup><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn> <mn>2</mn></msubsup></math>，我们就得到了支持向量机常用的损失函数公式：
 
 <math alttext="dollar-sign upper L left-parenthesis ModifyingAbove omega With right-arrow right-parenthesis equals StartFraction 1 Over m EndFraction sigma-summation Underscript i equals 1 Overscript m Endscripts max left-parenthesis 0 comma 1 minus y Subscript t r u e Superscript i Baseline left-parenthesis ModifyingAbove omega With right-arrow Superscript t Baseline ModifyingAbove x With right-arrow Superscript i Baseline plus omega 0 right-parenthesis right-parenthesis plus lamda parallel-to omega parallel-to dollar-sign"><mrow><mi>L</mi> <mrow><mo>(</mo> <mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mo>)</mo></mrow> <mo>=</mo> <mfrac><mn>1</mn> <mi>m</mi></mfrac> <msubsup><mo>∑</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow> <mi>m</mi></msubsup> <mo form="prefix" movablelimits="true">max</mo> <mrow><mo>(</mo> <mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>-</mo> <msubsup><mi>y</mi> <mrow><mi>t</mi><mi>r</mi><mi>u</mi><mi>e</mi></mrow> <mi>i</mi></msubsup> <mrow><mo>(</mo> <msup><mover accent="true"><mi>ω</mi> <mo>→</mo></mover> <mi>t</mi></msup> <msup><mover accent="true"><mi>x</mi> <mo>→</mo></mover> <mi>i</mi></msup> <mo>+</mo> <msub><mi>ω</mi> <mn>0</mn></msub> <mo>)</mo></mrow> <mo>)</mo></mrow> <mo>+</mo> <mi>λ</mi> <msubsup><mrow><mo>∥</mo><mi>ω</mi><mo>∥</mo></mrow> <mn>2</mn> <mn>2</mn></msubsup></mrow></math>
 
@@ -818,9 +818,9 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 ## 决策树
 
-本章的驱动主题是一切都是一个函数，决策树本质上是一个以布尔变量作为输入的函数（这些变量只能假定为*true*（或1）或*false*（或0）值），例如：特征>5，特征=晴天，特征=男性，*等*，并输出*决策*，例如：批准贷款，分类为covid19，返回25，*等*。我们使用逻辑*或*、*和*和*非*运算符，而不是添加或乘以布尔变量。
+本章的驱动主题是一切都是一个函数，决策树本质上是一个以布尔变量作为输入的函数（这些变量只能假定为*true*（或 1）或*false*（或 0）值），例如：特征>5，特征=晴天，特征=男性，*等*，并输出*决策*，例如：批准贷款，分类为 covid19，返回 25，*等*。我们使用逻辑*或*、*和*和*非*运算符，而不是添加或乘以布尔变量。
 
-但是，如果我们的特征在原始数据集中不是布尔变量怎么办？那么我们必须在将它们馈送到模型进行预测之前将它们转换为布尔变量。例如，[图3-17](#Fig_regression_tree)中的决策树是在Fish Market数据集上训练的。它是一个回归树。该树采用原始数据，但表示树的函数实际上是在新变量上操作的，这些新变量是原始数据特征转换为布尔变量：
+但是，如果我们的特征在原始数据集中不是布尔变量怎么办？那么我们必须在将它们馈送到模型进行预测之前将它们转换为布尔变量。例如，图 3-17 中的决策树是在 Fish Market 数据集上训练的。它是一个回归树。该树采用原始数据，但表示树的函数实际上是在新变量上操作的，这些新变量是原始数据特征转换为布尔变量：
 
 1.  a1=(Width <math alttext="小于或等于"><mo>≤</mo></math> 5.117)
 
@@ -834,27 +834,27 @@ Softmax回归一次预测一个类别，所以我们不能用它来分类，例�
 
 1.  a6=(Length3 <math alttext="小于或等于"><mo>≤</mo></math> 21.25)
 
-![400](assets/emai_0317.png)
+![400](img/emai_0317.png)
 
-###### 图3-17\. 基于Fish Market数据集构建的回归决策树。有关详细信息，请参阅附带的Jupyter笔记本。
+###### 图 3-17\. 基于 Fish Market 数据集构建的回归决策树。有关详细信息，请参阅附带的 Jupyter 笔记本。
 
-现在，表示[图3-17](#Fig_regression_tree)中决策树的函数是：
+现在，表示图 3-17 中决策树的函数是：
 
 $f(a Baseline 1, a Baseline 2, a Baseline 3, a Baseline 4, a Baseline 5, a Baseline 6) = (a Baseline 1 and a Baseline 5 and a Baseline 6) times 39.584 plus (a Baseline 1 and a Baseline 5 and not a Baseline 6) times 139.968 plus (a Baseline 1 and not a Baseline 5 and a Baseline 4) times 287.278 plus (a Baseline 1 and not a Baseline 5 and not a Baseline 4) times 422.769 plus (not a Baseline 1 and a Baseline 2 and a Baseline 3) times 639.737 plus (not a Baseline 1 and a Baseline 2 and not a Baseline 3) times 824.211 plus (not a Baseline 1 and not a Baseline 2) times 1600 dollar-sign$
 
 请注意，与我们迄今在本章中遇到的训练函数不同，上述函数没有我们需要解决的参数ω。这被称为*非参数模型*，它不会提前固定函数的*形状*。这使得它具有与数据*一起增长*或者说适应数据的灵活性。当然，这种对数据的高适应性也带来了过拟合数据的高风险。幸运的是，有办法解决这个问题，我们在这里列出了一些方法，但没有详细说明：在生长后修剪树，限制层数，设置每个节点的最小数据实例数，或者使用一组树而不是一棵树，称为*随机森林*，下面会讨论。
 
-一个非常重要的观察：决策树决定只在原始数据集的两个特征上进行分割，即宽度和长度3特征。决策树的设计方式使得更重要的特征（那些对我们的预测提供最多信息的特征）更接近根部。因此，决策树可以帮助进行特征选择，我们选择最重要的特征来对我们最终模型的预测做出贡献。
+一个非常重要的观察：决策树决定只在原始数据集的两个特征上进行分割，即宽度和长度 3 特征。决策树的设计方式使得更重要的特征（那些对我们的预测提供最多信息的特征）更接近根部。因此，决策树可以帮助进行特征选择，我们选择最重要的特征来对我们最终模型的预测做出贡献。
 
-难怪宽度和长度3特征最终成为预测鱼重量最重要的特征。[图3-18](#Fig_fish_corr_matrix)中的相关矩阵和[图3-3](#Fig_weight_lengths_scatterplots)中的散点图显示所有长度特征之间存在极强的相关性。这意味着它们提供的信息是冗余的，并且在我们的预测模型中包含所有这些特征将增加计算成本并降低性能。
+难怪宽度和长度 3 特征最终成为预测鱼重量最重要的特征。图 3-18 中的相关矩阵和图 3-3 中的散点图显示所有长度特征之间存在极强的相关性。这意味着它们提供的信息是冗余的，并且在我们的预测模型中包含所有这些特征将增加计算成本并降低性能。
 
-![280](assets/emai_0318.png)
+![280](img/emai_0318.png)
 
-###### 图3-18. 鱼市场数据集的相关矩阵。所有长度特征之间存在极强的相关性。
+###### 图 3-18. 鱼市场数据集的相关矩阵。所有长度特征之间存在极强的相关性。
 
 # 注：特征选择
 
-我们刚刚介绍了非常重要的特征选择主题。现实世界的数据集包含许多特征，其中一些可能提供冗余信息，其他一些对于预测我们的目标标签来说根本不重要。在机器学习模型中包含无关或冗余的特征会增加计算成本并降低性能。我们刚刚看到决策树是帮助选择重要特征的一种方法。另一种方法是一种称为Lasso回归的正则化技术，我们将在[第4章](ch04.xhtml#ch04)中介绍。还有一些统计测试可以测试特征之间的依赖关系。*F-测试*测试线性依赖关系（这会为相关特征给出更高的分数，但仅仅依靠相关性是具有误导性的），*互信息*测试非线性依赖关系。这些提供了一个*度量*，衡量特征对确定目标标签的贡献程度，并因此有助于特征选择，保留最有前途的特征。我们还可以测试特征之间的依赖关系，以及它们的相关性和散点图。*方差*阈值移除方差很小或没有方差的特征，因为如果一个特征在自身内部变化不大，它的预测能力就很小。
+我们刚刚介绍了非常重要的特征选择主题。现实世界的数据集包含许多特征，其中一些可能提供冗余信息，其他一些对于预测我们的目标标签来说根本不重要。在机器学习模型中包含无关或冗余的特征会增加计算成本并降低性能。我们刚刚看到决策树是帮助选择重要特征的一种方法。另一种方法是一种称为 Lasso 回归的正则化技术，我们将在第四章中介绍。还有一些统计测试可以测试特征之间的依赖关系。*F-测试*测试线性依赖关系（这会为相关特征给出更高的分数，但仅仅依靠相关性是具有误导性的），*互信息*测试非线性依赖关系。这些提供了一个*度量*，衡量特征对确定目标标签的贡献程度，并因此有助于特征选择，保留最有前途的特征。我们还可以测试特征之间的依赖关系，以及它们的相关性和散点图。*方差*阈值移除方差很小或没有方差的特征，因为如果一个特征在自身内部变化不大，它的预测能力就很小。
 
 我们如何在数据集上训练决策树？我们优化哪个函数？通常在*生成*决策树时优化两个函数：*熵*和*基尼不纯度*。使用其中一个与另一个并没有太大区别。我们接下来会详细介绍这两个函数。
 
@@ -890,7 +890,7 @@ $f(a Baseline 1, a Baseline 2, a Baseline 3, a Baseline 4, a Baseline 5, a Basel
 
 假设我们选择特征*A*来分割我们决策树上的一个节点。假设特征*A*有四个值，并且有<math alttext="k 1"><msub><mi>k</mi> <mn>1</mn></msub></math>个实例具有<math alttext="v a l u e 1"><mrow><mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>1</mn></msub></mrow></math>，其中<math alttext="p 1"><msub><mi>p</mi> <mn>1</mn></msub></math>个标记为正，<math alttext="n 1"><msub><mi>n</mi> <mn>1</mn></msub></math>个标记为负，所以<math alttext="p 1 plus n 1 equals k 1"><mrow><msub><mi>p</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>n</mi> <mn>1</mn></msub> <mo>=</mo> <msub><mi>k</mi> <mn>1</mn></msub></mrow></math>。同样，特征*A*有<math alttext="k 2"><msub><mi>k</mi> <mn>2</mn></msub></math>个实例具有<math alttext="v a l u e 2"><mrow><mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>2</mn></msub></mrow></math>，其中<math alttext="p 2"><msub><mi>p</mi> <mn>2</mn></msub></math>个标记为正，<math alttext="n 2"><msub><mi>n</mi> <mn>2</mn></msub></math>个标记为负，所以<math alttext="p 2 plus n 2 equals k 2"><mrow><msub><mi>p</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>n</mi> <mn>2</mn></msub> <mo>=</mo> <msub><mi>k</mi> <mn>2</mn></msub></mrow></math>。对于特征*A*的<math alttext="v a l u e 3"><mrow><mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>3</mn></msub></mrow></math>和<math alttext="v a l u e 4"><mrow><mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>4</mn></msub></mrow></math>也是一样的。注意<math alttext="k 1 plus k 2 plus k 3 plus k 4 equals m"><mrow><msub><mi>k</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>k</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>k</mi> <mn>3</mn></msub> <mo>+</mo> <msub><mi>k</mi> <mn>4</mn></msub> <mo>=</mo> <mi>m</mi></mrow></math>，即数据集训练子集中的实例总数。现在，特征*A*的每个值<math alttext="v a l u e Subscript k"><mrow><mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mi>k</mi></msub></mrow></math>可以被视为一个随机变量，具有<math alttext="p Subscript k"><msub><mi>p</mi> <mi>k</mi></msub></math>个正结果和<math alttext="n Subscript k"><msub><mi>n</mi> <mi>k</mi></msub></math>个负结果，因此我们可以计算它的熵（期望的惊喜）。
 
-数学符号开始布局第一行第一列熵左括号v a l u e 1右括号第二列等于负开始分数p 1除以p 1加n 1结束分数对数左括号开始分数p 1除以p 1加n 1结束分数右括号减开始分数n 1除以p 1加n 1结束分数对数左括号开始分数n 1除以p 1加n 1结束分数右括号第二行第一列熵左括号v a l u e 2右括号第二列等于负开始分数p 2除以p 2加n 2结束分数对数左括号开始分数p 2除以p 2加n 2结束分数右括号减开始分数n 2除以p 2加n 2结束分数对数左括号开始分数n 2除以p 2加n 2结束分数右括号第三行第一列熵左括号v a l u e 3右括号第二列等于负开始分数p 3除以p 3加n 3结束分数对数左括号开始分数p 3除以p 3加n 3结束分数右括号减开始分数n 3除以p 3加n 3结束分数对数左括号开始分数n 3除以p 3加n 3结束分数右括号第四行第一列熵左括号v a l u e 4右括号第二列等于负开始分数p 4除以p 4加n 4结束分数对数左括号开始分数p 4除以p 4加n 4结束分数右括号减开始分数n 4除以p 4加n 4结束分数对数左括号开始分数n 4除以p 4加n 4结束分数右括号结束布局。
+数学符号开始布局第一行第一列熵左括号 v a l u e 1 右括号第二列等于负开始分数 p 1 除以 p 1 加 n 1 结束分数对数左括号开始分数 p 1 除以 p 1 加 n 1 结束分数右括号减开始分数 n 1 除以 p 1 加 n 1 结束分数对数左括号开始分数 n 1 除以 p 1 加 n 1 结束分数右括号第二行第一列熵左括号 v a l u e 2 右括号第二列等于负开始分数 p 2 除以 p 2 加 n 2 结束分数对数左括号开始分数 p 2 除以 p 2 加 n 2 结束分数右括号减开始分数 n 2 除以 p 2 加 n 2 结束分数对数左括号开始分数 n 2 除以 p 2 加 n 2 结束分数右括号第三行第一列熵左括号 v a l u e 3 右括号第二列等于负开始分数 p 3 除以 p 3 加 n 3 结束分数对数左括号开始分数 p 3 除以 p 3 加 n 3 结束分数右括号减开始分数 n 3 除以 p 3 加 n 3 结束分数对数左括号开始分数 n 3 除以 p 3 加 n 3 结束分数右括号第四行第一列熵左括号 v a l u e 4 右括号第二列等于负开始分数 p 4 除以 p 4 加 n 4 结束分数对数左括号开始分数 p 4 除以 p 4 加 n 4 结束分数右括号减开始分数 n 4 除以 p 4 加 n 4 结束分数对数左括号开始分数 n 4 除以 p 4 加 n 4 结束分数右括号结束布局。
 
 既然我们有了这些信息，我们可以计算在特征*A*上分割后的*预期熵*，因此我们将上述四个熵分别乘以其相应的概率相加。请注意，<math alttext="p left-parenthesis v a l u e 1 right-parenthesis equals StartFraction k 1 Over m EndFraction"><mrow><mi>p</mi> <mrow><mo>(</mo> <mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>1</mn></msub> <mo>)</mo></mrow> <mo>=</mo> <mfrac><msub><mi>k</mi> <mn>1</mn></msub> <mi>m</mi></mfrac></mrow></math>，<math alttext="p left-parenthesis v a l u e 2 right-parenthesis equals StartFraction k 2 Over m EndFraction"><mrow><mi>p</mi> <mrow><mo>(</mo> <mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>2</mn></msub> <mo>)</mo></mrow> <mo>=</mo> <mfrac><msub><mi>k</mi> <mn>2</mn></msub> <mi>m</mi></mfrac></mrow></math>，<math alttext="p left-parenthesis v a l u e 3 right-parenthesis equals StartFraction k 3 Over m EndFraction"><mrow><mi>p</mi> <mrow><mo>(</mo> <mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>3</mn></msub> <mo>)</mo></mrow> <mo>=</mo> <mfrac><msub><mi>k</mi> <mn>3</mn></msub> <mi>m</mi></mfrac></mrow></math>，以及<math alttext="p left-parenthesis v a l u e 4 right-parenthesis equals StartFraction k 4 Over m EndFraction"><mrow><mi>p</mi> <mrow><mo>(</mo> <mi>v</mi> <mi>a</mi> <mi>l</mi> <mi>u</mi> <msub><mi>e</mi> <mn>4</mn></msub> <mo>)</mo></mrow> <mo>=</mo> <mfrac><msub><mi>k</mi> <mn>4</mn></msub> <mi>m</mi></mfrac></mrow></math>。因此，在特征*A*上分割后的预期熵将是：
 
@@ -904,17 +904,17 @@ $f(a Baseline 1, a Baseline 2, a Baseline 3, a Baseline 4, a Baseline 5, a Basel
 
 现在很容易浏览训练数据子集的每个特征，并计算使用该特征进行拆分后产生的信息增益。最终，决策树算法决定在具有最高信息增益的特征上进行拆分。该算法对每个节点和树的每一层递归执行此操作，直到没有要拆分的特征或数据实例。因此，我们得到了基于熵的决策树。
 
-将上述逻辑推广到具有多类输出的情况并不太困难，例如，具有三个或更多目标标签的分类问题。经典的[Iris数据集](https://archive.ics.uci.edu/ml/datasets/iris)来自[UCI机器学习库](https://archive.ics.uci.edu/ml/index.php)是一个具有三个目标标签的绝佳示例。该数据集为给定的鸢尾花具有四个特征：其萼片长度和宽度，以及其花瓣长度和宽度。请注意，每个特征都是连续随机变量，而不是离散的。因此，我们必须设计一个测试来拆分每个特征的值，*在*应用上述逻辑之前。这是数据科学项目的特征工程阶段的一部分。这里的工程步骤是：将连续值特征转换为布尔特征，例如，*花瓣长度>2.45*？我们不会详细介绍如何选择数字2.45，但是现在你可能可以猜到这里也应该进行优化过程。
+将上述逻辑推广到具有多类输出的情况并不太困难，例如，具有三个或更多目标标签的分类问题。经典的[Iris 数据集](https://archive.ics.uci.edu/ml/datasets/iris)来自[UCI 机器学习库](https://archive.ics.uci.edu/ml/index.php)是一个具有三个目标标签的绝佳示例。该数据集为给定的鸢尾花具有四个特征：其萼片长度和宽度，以及其花瓣长度和宽度。请注意，每个特征都是连续随机变量，而不是离散的。因此，我们必须设计一个测试来拆分每个特征的值，*在*应用上述逻辑之前。这是数据科学项目的特征工程阶段的一部分。这里的工程步骤是：将连续值特征转换为布尔特征，例如，*花瓣长度>2.45*？我们不会详细介绍如何选择数字 2.45，但是现在你可能可以猜到这里也应该进行优化过程。
 
 #### 基尼不纯度
 
 每个决策树都由其节点，分支和叶子特征。如果一个节点只包含来自训练数据子集的具有相同目标标签的数据实例（这意味着它们属于同一类），则认为该节点是*纯*的。请注意，纯节点是期望的节点，因为我们知道它的类别。因此，算法希望以最小化节点的*不纯度*的方式来生长树：如果节点中的数据实例不都属于同一类，则该节点是*不纯*的。*基尼不纯度*以以下方式量化这种不纯度：
 
-假设我们的分类问题有三个类别，就像[Iris数据集](https://archive.ics.uci.edu/ml/datasets/iris)一样。假设决策树中的某个节点是为了适应这个数据集而生长的，有*n*个训练实例，其中<math alttext="n 1"><msub><mi>n</mi> <mn>1</mn></msub></math>个属于第一类，<math alttext="n 2"><msub><mi>n</mi> <mn>2</mn></msub></math>个属于第二类，<math alttext="n 3"><msub><mi>n</mi> <mn>3</mn></msub></math>个属于第三类（所以<math alttext="n 1 plus n 2 plus n 3 equals n"><mrow><msub><mi>n</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>n</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>n</mi> <mn>3</mn></msub> <mo>=</mo> <mi>n</mi></mrow></math>）。那么这个节点的基尼不纯度由以下公式给出：
+假设我们的分类问题有三个类别，就像[Iris 数据集](https://archive.ics.uci.edu/ml/datasets/iris)一样。假设决策树中的某个节点是为了适应这个数据集而生长的，有*n*个训练实例，其中<math alttext="n 1"><msub><mi>n</mi> <mn>1</mn></msub></math>个属于第一类，<math alttext="n 2"><msub><mi>n</mi> <mn>2</mn></msub></math>个属于第二类，<math alttext="n 3"><msub><mi>n</mi> <mn>3</mn></msub></math>个属于第三类（所以<math alttext="n 1 plus n 2 plus n 3 equals n"><mrow><msub><mi>n</mi> <mn>1</mn></msub> <mo>+</mo> <msub><mi>n</mi> <mn>2</mn></msub> <mo>+</mo> <msub><mi>n</mi> <mn>3</mn></msub> <mo>=</mo> <mi>n</mi></mrow></math>）。那么这个节点的基尼不纯度由以下公式给出：
 
 <math alttext="dollar-sign Gini impurity equals 1 minus left-parenthesis StartFraction n 1 Over n EndFraction right-parenthesis squared minus left-parenthesis StartFraction n 2 Over n EndFraction right-parenthesis squared minus left-parenthesis StartFraction n 3 Over n EndFraction right-parenthesis squared dollar-sign"><mrow><mtext>Gini</mtext> <mtext>impurity</mtext> <mo>=</mo> <mn>1</mn> <mo>-</mo> <msup><mrow><mo>(</mo><mfrac><msub><mi>n</mi> <mn>1</mn></msub> <mi>n</mi></mfrac><mo>)</mo></mrow> <mn>2</mn></msup> <mo>-</mo> <msup><mrow><mo>(</mo><mfrac><msub><mi>n</mi> <mn>2</mn></msub> <mi>n</mi></mfrac><mo>)</mo></mrow> <mn>2</mn></msup> <mo>-</mo> <msup><mrow><mo>(</mo><mfrac><msub><mi>n</mi> <mn>3</mn></msub> <mi>n</mi></mfrac><mo>)</mo></mrow> <mn>2</mn></msup></mrow></math>
 
-因此，对于每个节点，计算属于每个类别的数据实例的比例，然后求平方，然后从1中减去这些的总和。请注意，如果节点的所有数据实例都属于同一类，则上述公式给出的基尼不纯度等于零。
+因此，对于每个节点，计算属于每个类别的数据实例的比例，然后求平方，然后从 1 中减去这些的总和。请注意，如果节点的所有数据实例都属于同一类，则上述公式给出的基尼不纯度等于零。
 
 决策树生长算法现在寻找每个特征和特征中的分割点，以产生平均基尼不纯度最低的子节点。这意味着节点的子节点平均上必须比父节点更纯。因此，该算法试图最小化两个子节点（二叉树）的基尼不纯度的加权平均值。每个子节点的基尼不纯度由其相对大小加权，其相对大小是其实例数与该树层中的总实例数（与其父节点的实例数相同）之比。因此，我们最终需要搜索解决以下最小化问题的特征和分割点（对于每个特征）组合：
 
@@ -926,7 +926,7 @@ $f(a Baseline 1, a Baseline 2, a Baseline 3, a Baseline 4, a Baseline 5, a Basel
 
 需要指出的是，决策树既可以用于回归也可以用于分类。回归决策树返回的是预测值而不是类别，但与分类树类似的过程适用。
 
-与选择最大化信息增益或最小化基尼不纯度的特征和特征值（例如，身高>3英尺吗？）来分割节点不同，我们选择最小化真实标签与左右子节点中所有实例标签的平均值之间的均方距离的特征和特征值。也就是说，算法选择要分割的特征和特征值，然后查看由该分割产生的左右子节点，并计算：
+与选择最大化信息增益或最小化基尼不纯度的特征和特征值（例如，身高>3 英尺吗？）来分割节点不同，我们选择最小化真实标签与左右子节点中所有实例标签的平均值之间的均方距离的特征和特征值。也就是说，算法选择要分割的特征和特征值，然后查看由该分割产生的左右子节点，并计算：
 
 +   左节点中所有训练数据实例标签的平均值。这个平均值将成为左节点值<math alttext="y Subscript l e f t"><msub><mi>y</mi> <mrow><mi>l</mi><mi>e</mi><mi>f</mi><mi>t</mi></mrow></msub></math>，如果该节点最终成为叶节点，这就是决策树预测的值。
 
@@ -942,11 +942,11 @@ $f(a Baseline 1, a Baseline 2, a Baseline 3, a Baseline 4, a Baseline 5, a Basel
 
 上述算法是*贪婪*和计算密集的，因为它必须对*每个特征和每个可能的特征拆分值*进行操作，然后选择提供左右子节点之间加权平方误差平均值最小的特征和特征拆分。
 
-CART（分类和回归树）算法是一种著名的算法，被软件包使用，包括Python的Scikit Learn，我们在Jupyter笔记本中使用这本书的补充。该算法生成的树的节点只有两个子节点（二叉树），每个节点上的测试只有是或否的答案。其他算法，如ID3，可以生成具有两个或多个子节点的树。
+CART（分类和回归树）算法是一种著名的算法，被软件包使用，包括 Python 的 Scikit Learn，我们在 Jupyter 笔记本中使用这本书的补充。该算法生成的树的节点只有两个子节点（二叉树），每个节点上的测试只有是或否的答案。其他算法，如 ID3，可以生成具有两个或多个子节点的树。
 
 ### 决策树的缺点
 
-决策树非常容易解释，因为有很多很好的原因而受欢迎：它们适应大数据集，不同的数据类型（离散和连续特征，不需要数据缩放），并且可以执行回归和分类任务。然而，它们可能不稳定，因为向数据集添加一个实例就可以改变树的根，从而导致非常不同的决策树。它们也对数据中的旋转敏感，因为它们的决策边界通常是水平和垂直的（不像支持向量机那样倾斜）。这是因为拆分通常发生在特定的特征值，因此决策边界最终与特征轴平行。解决这个问题的一个方法是转换数据集以匹配其*主轴*，使用稍后在[第11章](ch11.xhtml#ch11)中介绍的*奇异值分解方法*。决策树往往会过度拟合数据，因此需要修剪。这通常使用统计测试来完成。构建树涉及的贪婪算法，其中搜索发生在所有特征及其值上，使它们在计算上昂贵且不太准确。接下来讨论的随机森林解决了其中一些缺点。
+决策树非常容易解释，因为有很多很好的原因而受欢迎：它们适应大数据集，不同的数据类型（离散和连续特征，不需要数据缩放），并且可以执行回归和分类任务。然而，它们可能不稳定，因为向数据集添加一个实例就可以改变树的根，从而导致非常不同的决策树。它们也对数据中的旋转敏感，因为它们的决策边界通常是水平和垂直的（不像支持向量机那样倾斜）。这是因为拆分通常发生在特定的特征值，因此决策边界最终与特征轴平行。解决这个问题的一个方法是转换数据集以匹配其*主轴*，使用稍后在第十一章中介绍的*奇异值分解方法*。决策树往往会过度拟合数据，因此需要修剪。这通常使用统计测试来完成。构建树涉及的贪婪算法，其中搜索发生在所有特征及其值上，使它们在计算上昂贵且不太准确。接下来讨论的随机森林解决了其中一些缺点。
 
 ## 随机森林
 
@@ -966,11 +966,11 @@ CART（分类和回归树）算法是一种著名的算法，被软件包使用�
 
 随机森林的另一个非常有用的特性是它们提供了*特征重要性*的度量，帮助我们找出哪些特征对我们的预测有显著影响，并且也有助于特征选择。
 
-## k均值聚类
+## k 均值聚类
 
-数据分析师的一个常见目标是将数据分成*簇*，每个簇突出显示某些共同特征。*k均值聚类*是一种常见的机器学习方法，它将*n*个数据点（向量）分成*k*个簇，其中每个数据点被分配到与其最近均值的簇。每个簇的均值，或者它的质心，作为簇的原型。总的来说，k均值聚类最小化了每个簇内的方差（到均值的平方欧氏距离）。
+数据分析师的一个常见目标是将数据分成*簇*，每个簇突出显示某些共同特征。*k 均值聚类*是一种常见的机器学习方法，它将*n*个数据点（向量）分成*k*个簇，其中每个数据点被分配到与其最近均值的簇。每个簇的均值，或者它的质心，作为簇的原型。总的来说，k 均值聚类最小化了每个簇内的方差（到均值的平方欧氏距离）。
 
-k均值聚类最常见的算法是迭代的：
+k 均值聚类最常见的算法是迭代的：
 
 +   从初始的一组*k*均值开始。这意味着我们提前指定了簇的数量，这就引出了一个问题：如何初始化？如何选择第一个*k*质心的位置？有相关的文献。
 
@@ -984,7 +984,7 @@ k均值聚类最常见的算法是迭代的：
 
 开发计算事物并产生输出的数学模型相对容易。但是，开发能够很好地执行我们期望的任务的模型则完全不同。此外，根据某些指标表现良好的模型在其他一些指标下表现不佳。我们需要额外小心地开发性能指标，并根据我们特定的用例决定依赖于哪些指标。
 
-衡量预测数值的模型的性能，例如回归模型，比分类模型更容易，因为我们有许多方法来计算数字之间的距离（好的预测和坏的预测）。另一方面，当我们的任务是分类（我们可以使用逻辑回归、softmax回归、支持向量机、决策树、随机森林或神经网络等模型），我们必须对评估性能进行一些额外的思考。此外，通常存在权衡。例如，如果我们的任务是将YouTube视频分类为适合儿童观看（正面）或不适合儿童观看（负面），我们是否调整我们的模型以减少假阳性或假阴性的数量？显然，如果一个视频被分类为安全，而实际上是不安全的（假阳性），那么问题就更加棘手，因此我们的性能指标需要反映这一点。
+衡量预测数值的模型的性能，例如回归模型，比分类模型更容易，因为我们有许多方法来计算数字之间的距离（好的预测和坏的预测）。另一方面，当我们的任务是分类（我们可以使用逻辑回归、softmax 回归、支持向量机、决策树、随机森林或神经网络等模型），我们必须对评估性能进行一些额外的思考。此外，通常存在权衡。例如，如果我们的任务是将 YouTube 视频分类为适合儿童观看（正面）或不适合儿童观看（负面），我们是否调整我们的模型以减少假阳性或假阴性的数量？显然，如果一个视频被分类为安全，而实际上是不安全的（假阳性），那么问题就更加棘手，因此我们的性能指标需要反映这一点。
 
 以下是常用于分类模型的性能测量。不要担心记住它们的名称，因为它们的命名方式并不合乎逻辑。相反，花时间理解它们的含义。
 
@@ -1014,13 +1014,13 @@ k均值聚类最常见的算法是迭代的：
 
 <math alttext="dollar-sign upper F 1 equals StartStartFraction 2 OverOver StartFraction 1 Over p r e c i s i o n EndFraction plus StartFraction 1 Over r e c a l l EndFraction EndEndFraction dollar-sign"><mrow><msub><mi>F</mi> <mn>1</mn></msub> <mo>=</mo> <mfrac><mn>2</mn> <mrow><mfrac><mn>1</mn> <mrow><mi>p</mi><mi>r</mi><mi>e</mi><mi>c</mi><mi>i</mi><mi>s</mi><mi>i</mi><mi>o</mi><mi>n</mi></mrow></mfrac><mo>+</mo><mfrac><mn>1</mn> <mrow><mi>r</mi><mi>e</mi><mi>c</mi><mi>a</mi><mi>l</mi><mi>l</mi></mrow></mfrac></mrow></mfrac></mrow></math>
 
-+   AUC（曲线下面积）和ROC（接收器操作特性）曲线：这些曲线提供了分类模型在各种阈值下的性能度量。我们可以使用这些曲线来衡量某个变量预测某个结果的能力，例如，GRE学科考试成绩如何预测在第一年通过研究生院的资格考试？
++   AUC（曲线下面积）和 ROC（接收器操作特性）曲线：这些曲线提供了分类模型在各种阈值下的性能度量。我们可以使用这些曲线来衡量某个变量预测某个结果的能力，例如，GRE 学科考试成绩如何预测在第一年通过研究生院的资格考试？
 
-Andrew Ng的百页书《机器学习渴望》提供了性能指标最佳实践的出色指南。在真正的人工智能应用之前，请仔细阅读，因为该书的方法基于许多试验、成功和失败。
+Andrew Ng 的百页书《机器学习渴望》提供了性能指标最佳实践的出色指南。在真正的人工智能应用之前，请仔细阅读，因为该书的方法基于许多试验、成功和失败。
 
 # 总结和展望
 
-在本章中，我们调查了一些最流行的机器学习模型，强调了本书中出现的特定数学结构：训练函数、损失函数和优化。我们讨论了线性、逻辑和softmax回归，然后迅速地浏览了支持向量机、决策树、集成和随机森林。
+在本章中，我们调查了一些最流行的机器学习模型，强调了本书中出现的特定数学结构：训练函数、损失函数和优化。我们讨论了线性、逻辑和 softmax 回归，然后迅速地浏览了支持向量机、决策树、集成和随机森林。
 
 此外，我们提出了研究以下数学主题的理由：
 
@@ -1056,7 +1056,7 @@ Andrew Ng的百页书《机器学习渴望》提供了性能指标最佳实践�
 
 +   相关矩阵和散点图。
 
-+   特征选择的F检验和互信息。
++   特征选择的 F 检验和互信息。
 
 +   标准化数据特征（减去平均值并除以标准差）。
 
@@ -1064,7 +1064,7 @@ Andrew Ng的百页书《机器学习渴望》提供了性能指标最佳实践�
 
 +   验证我们的模型-调整权重值和超参数，以避免过拟合。
 
-+   在测试数据的测试子集上测试训练模型，这是我们的模型在训练和验证步骤中没有使用（或看到）的（我们在附带的Jupyter笔记本中进行此操作）。
++   在测试数据的测试子集上测试训练模型，这是我们的模型在训练和验证步骤中没有使用（或看到）的（我们在附带的 Jupyter 笔记本中进行此操作）。
 
 +   部署和监控最终模型。
 

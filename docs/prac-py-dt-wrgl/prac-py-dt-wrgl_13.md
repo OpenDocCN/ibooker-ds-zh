@@ -12,29 +12,29 @@
 git commit *filename*
 ```
 
-你很可能会发现你的终端窗口被接管，显示类似于 [图 B-1](#terminal_commit_editing) 中所示的文本。
+你很可能会发现你的终端窗口被接管，显示类似于 图 B-1 中所示的文本。
 
-![基于终端的提交消息编辑](assets/ppdw_ab01.png)
+![基于终端的提交消息编辑](img/ppdw_ab01.png)
 
 ###### 图 B-1\. 基于终端的提交消息编辑
 
 这可能相当令人不安，特别是第一次发生时。但因为它*会*发生，所以这里是如何快速解决的方法：
 
-1.  从键入字母 **`i`** 开始。虽然并不是所有编辑器实际上都要求你键入 `i` 进入 `INSERT` 模式，但其中大多数会吞掉你键入的第一个字符，所以你最好从这个字符开始。你可以在 [图 B-2](#terminal_insert_mode) 中看到这个视图的样子。
+1.  从键入字母 **`i`** 开始。虽然并不是所有编辑器实际上都要求你键入 `i` 进入 `INSERT` 模式，但其中大多数会吞掉你键入的第一个字符，所以你最好从这个字符开始。你可以在 图 B-2 中看到这个视图的样子。
 
-1.  要退出 `INSERT` 模式，按下 Esc 键或 Escape 键。然后像 [图 B-3](#terminal_commit_save) 中所示输入 **`:x`**，然后按 Enter 键或 Return 键。这将按照要求保存你的提交消息，*并且*让你退出那个文本编辑器，回到你熟悉和喜爱的终端窗口。
+1.  要退出 `INSERT` 模式，按下 Esc 键或 Escape 键。然后像 图 B-3 中所示输入 **`:x`**，然后按 Enter 键或 Return 键。这将按照要求保存你的提交消息，*并且*让你退出那个文本编辑器，回到你熟悉和喜爱的终端窗口。
 
-请注意，你发现自己处于的编辑器可能看起来与 [图 B-2](#terminal_insert_mode) 和 [图 B-3](#terminal_commit_save) 所示的不同；如果不同，不要惊慌。现在是搜索在线编辑、保存和退出的时间，无论你被弹到了什么程序中。不管具体情况如何，目标都是一样的。
+请注意，你发现自己处于的编辑器可能看起来与 图 B-2 和 图 B-3 所示的不同；如果不同，不要惊慌。现在是搜索在线编辑、保存和退出的时间，无论你被弹到了什么程序中。不管具体情况如何，目标都是一样的。
 
-![`INSERT` 模式下的终端编辑器](assets/ppdw_ab02.png)
+![`INSERT` 模式下的终端编辑器](img/ppdw_ab02.png)
 
 ###### 图 B-2\. `INSERT` 模式下的终端编辑器
 
-![带有“保存并退出”命令的终端编辑器](assets/ppdw_ab03.png)
+![带有“保存并退出”命令的终端编辑器](img/ppdw_ab03.png)
 
 ###### 图 B-3\. 带有“保存并退出”命令的终端编辑器
 
-# 您的git push/pull命令被拒绝了。
+# 您的 git push/pull 命令被拒绝了。
 
 这种情况每个人都会遇到。你以为自己每次工作结束时都很勤奋地提交了代码，甚至为每个文件的更改编写了单独的提交消息，而不只是运行`git commit -a`。即便如此，有时你运行`git push`命令时会被拒绝。那么接下来该怎么办呢？
 
@@ -50,11 +50,11 @@ hint: 'git pull ...') before pushing again.
 hint: See the 'Note about fast-forwards' in 'git push --help' for details.
 ```
 
-通常情况下，这种情况发生在您本地存储库中的至少一个文件自上次提交以来已更改，但*远程存储库中的版本也已更改*，因此Git不知道哪一个应该优先。不用担心！
+通常情况下，这种情况发生在您本地存储库中的至少一个文件自上次提交以来已更改，但*远程存储库中的版本也已更改*，因此 Git 不知道哪一个应该优先。不用担心！
 
-## 运行git pull
+## 运行 git pull
 
-如果文件的更改可以自动合并，Git将执行此操作。这将解决您的文件冲突，但可能会导致您进入命令行的内置文本编辑器，这本身可能会相当令人困惑。如果您运行`git pull`，突然看到像[图 B-1](#terminal_commit_editing)中显示的文本，参见[“您运行git push/pull并进入了一个奇怪的文本编辑器”](#editing_commits_in_vim)。
+如果文件的更改可以自动合并，Git 将执行此操作。这将解决您的文件冲突，但可能会导致您进入命令行的内置文本编辑器，这本身可能会相当令人困惑。如果您运行`git pull`，突然看到像图 B-1 中显示的文本，参见“您运行 git push/pull 并进入了一个奇怪的文本编辑器”。
 
 如果文件的更改*不能*自动合并，您将收到类似以下消息的提示（如果您只运行`git pull`而没有先运行`git push`，也会看到此消息）：
 
@@ -69,9 +69,9 @@ Automatic merge failed; fix conflicts and then commit the result.
 
 ### 手动解决冲突
 
-假设您有一个包含*README.md*文件的存储库，在GitHub.com和您的设备上都对其进行了更改。您试图`git push`但遇到了错误，因此您尝试了`git pull`，但自动合并失败了。要手动解决冲突，请先在您首选的文本编辑器中打开*本地*文件副本。Markdown文件的冲突示例如[示例 B-1](#markdown_file_conflict)所示。
+假设您有一个包含*README.md*文件的存储库，在 GitHub.com 和您的设备上都对其进行了更改。您试图`git push`但遇到了错误，因此您尝试了`git pull`，但自动合并失败了。要手动解决冲突，请先在您首选的文本编辑器中打开*本地*文件副本。Markdown 文件的冲突示例如示例 B-1 所示。
 
-##### 示例 B-1\. Markdown文件中的一个冲突示例
+##### 示例 B-1\. Markdown 文件中的一个冲突示例
 
 ```py
 # This header is the same in both files
@@ -102,7 +102,7 @@ git add *filename*
 git commit -m "How I fixed the conflict."
 ```
 
-注意，在`git commit`命令中*不能*指定文件名，否则Git会抱怨你在合并过程中要求进行部分提交。
+注意，在`git commit`命令中*不能*指定文件名，否则 Git 会抱怨你在合并过程中要求进行部分提交。
 
 最后，运行：
 
@@ -124,17 +124,17 @@ git push --force
 
 # Git 快速参考
 
-[表 B-1](#common_git_commands_table) 提供了最常用和有用的`git`命令的简要概述。更详细的列表可以在[GitHub网站](https://training.github.com/downloads/github-git-cheat-sheet)上找到。
+表 B-1 提供了最常用和有用的`git`命令的简要概述。更详细的列表可以在[GitHub 网站](https://training.github.com/downloads/github-git-cheat-sheet)上找到。
 
 表 B-1\. 最常用的`git`终端命令
 
 | 命令文本 | 命令结果 |
 | --- | --- |
-| `git status` | 显示*仓库*的当前状态；不执行任何修改。列出仓库中所有文件^([a](app02.html#idm45143393092848))，按照它们是*新文件*、*未跟踪*还是*已修改*进行分组。 |
+| `git status` | 显示*仓库*的当前状态；不执行任何修改。列出仓库中所有文件^(a)，按照它们是*新文件*、*未跟踪*还是*已修改*进行分组。 |
 | `git add` *`filename`* | *将*当前*未跟踪*的特定文件*加入*到*暂存区*。必须通过`git add`命令*将文件暂存*后才能*提交到*仓库。之后，`git status`会将*已暂存*的文件标记为*新文件*。 |
 | `git add -A` | 一次性*将*所有当前*未跟踪*的文件*加入*到*暂存区*。之后，`git status`会将*已暂存*的文件标记为*新文件*。 |
 | `` git commit -m "Commit message here."` `` *`filename`* | 提交特定的已暂存文件，并附上双引号之间的消息。 |
 | `git commit -a -m "Commit message here."` | 提交*所有*当前*已暂存*的文件，并附上相同的提交消息。 |
 | `git push` | 将所有本地提交*推送*到远程仓库。添加`--force`命令将使用本地提交的文件*覆盖*远程仓库中的任何冲突提交。 |
 | `git pull` | 将所有远程文件*拉取*到本地仓库。添加`--force`命令将使用远程提交的文件*覆盖*本地仓库中的任何冲突提交。 |
-| ^([a](app02.html#idm45143393092848-marker)) 如果你的仓库中有一个活动的*.gitignore*文件，那么被忽略的文件将*不会*被`git status`列出。 |
+| ^(a) 如果你的仓库中有一个活动的*.gitignore*文件，那么被忽略的文件将*不会*被`git status`列出。 |

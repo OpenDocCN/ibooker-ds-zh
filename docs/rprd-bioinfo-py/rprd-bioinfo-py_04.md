@@ -1,12 +1,12 @@
-# 第3章\. DNA的反向互补：字符串操作
+# 第三章\. DNA 的反向互补：字符串操作
 
-[Rosalind REVC挑战](https://oreil.ly/ot4z6)解释DNA的碱基形成*A-T*和*G-C*的配对。此外，DNA具有方向性，通常从5'-端（*五端*）向3'-端（*三端*）读取。如图[Figure 3-1](#fig_3.1)所示，DNA字符串*AAAACCCGGT*的互补是*TTTTGGGCCA*。然后我反转这个字符串（从3'-端读取）以获得*ACCGGGTTTT*作为反向互补。
+[Rosalind REVC 挑战](https://oreil.ly/ot4z6)解释 DNA 的碱基形成*A-T*和*G-C*的配对。此外，DNA 具有方向性，通常从 5'-端（*五端*）向 3'-端（*三端*）读取。如图 Figure 3-1 所示，DNA 字符串*AAAACCCGGT*的互补是*TTTTGGGCCA*。然后我反转这个字符串（从 3'-端读取）以获得*ACCGGGTTTT*作为反向互补。
 
-![mpfb 0301](assets/mpfb_0301.png)
+![mpfb 0301](img/mpfb_0301.png)
 
-###### 图3-1\. DNA的反向互补是从相反方向读取的互补序列
+###### 图 3-1\. DNA 的反向互补是从相反方向读取的互补序列
 
-虽然你可以找到许多现有工具来生成DNA的反向互补序列——我将透露最终解决方案将使用Biopython库中的一个函数——但编写我们自己的算法的目的是探索Python。在本章中，您将学习：
+虽然你可以找到许多现有工具来生成 DNA 的反向互补序列——我将透露最终解决方案将使用 Biopython 库中的一个函数——但编写我们自己的算法的目的是探索 Python。在本章中，您将学习：
 
 +   如何使用字典实现决策树作为查找表
 
@@ -14,13 +14,13 @@
 
 +   如何使用`reversed()`函数，这是迭代器的一个示例
 
-+   Python如何类似地处理字符串和列表
++   Python 如何类似地处理字符串和列表
 
 +   如何使用列表推导生成列表
 
 +   如何使用`str.maketrans()`和`str.translate()`来转换一个字符串
 
-+   如何使用Biopython的`Bio.Seq`模块
++   如何使用 Biopython 的`Bio.Seq`模块
 
 +   真正的宝藏是你沿途结交的朋友
 
@@ -124,11 +124,11 @@ FAILED tests/revc_test.py::test_uppercase - AssertionError: assert 'AAAACCCGG...
 ========================= 1 failed, 3 passed in 0.33s ==========================
 ```
 
-程序正在传递输入字符串`AAAACCCGGT`，并且测试期望它打印`ACCGGGTTTT`。由于程序正在回显输入，这个测试失败了。如果您认为自己能写一个满足这些测试的程序，就去做吧。否则，我将向您展示如何创建DNA的反向互补序列，从简单的方法开始，逐步发展到更优雅的解决方案。
+程序正在传递输入字符串`AAAACCCGGT`，并且测试期望它打印`ACCGGGTTTT`。由于程序正在回显输入，这个测试失败了。如果您认为自己能写一个满足这些测试的程序，就去做吧。否则，我将向您展示如何创建 DNA 的反向互补序列，从简单的方法开始，逐步发展到更优雅的解决方案。
 
 ## 遍历反向字符串
 
-在创建DNA的反向互补物时，首先反转序列再补充，或者反之，都没有关系。 无论哪种方式，您都会得到相同的答案，所以我将从如何反转字符串开始。 在[第2章](ch02.html#ch02)中，我展示了如何使用字符串切片获取字符串的一部分。 如果省略起始位置，它将从开头开始：
+在创建 DNA 的反向互补物时，首先反转序列再补充，或者反之，都没有关系。 无论哪种方式，您都会得到相同的答案，所以我将从如何反转字符串开始。 在第二章中，我展示了如何使用字符串切片获取字符串的一部分。 如果省略起始位置，它将从开头开始：
 
 ```py
 >>> dna = 'AAAACCCGGT'
@@ -157,27 +157,27 @@ FAILED tests/revc_test.py::test_uppercase - AssertionError: assert 'AAAACCCGG...
 'TGGCCCAAAA'
 ```
 
-Python还有一个内置的`reversed()`函数，所以我会尝试一下：
+Python 还有一个内置的`reversed()`函数，所以我会尝试一下：
 
 ```py
 >>> reversed(dna)
 <reversed object at 0x7ffc4c9013a0>
 ```
 
-惊喜！ 您可能希望看到字符串`TGGCCCAAAA`。 但是，如果您在REPL中阅读`help(reversed)`，您会发现该函数将“返回给定序列的值的反向迭代器。”
+惊喜！ 您可能希望看到字符串`TGGCCCAAAA`。 但是，如果您在 REPL 中阅读`help(reversed)`，您会发现该函数将“返回给定序列的值的反向迭代器。”
 
-什么是*迭代器*？Python的[函数式编程指南](https://oreil.ly/dIzn3)将迭代器描述为“代表数据流的对象。” 我提到过*可迭代*是Python可以单独访问的一些项目的集合；例如，字符串的字符或列表中的元素。 迭代器是一种在耗尽之前将生成值的东西。 就像我可以从字符串的第一个字符（或列表的第一个元素或文件的第一行）开始阅读直到字符串的结尾（或列表或文件）一样，迭代器可以从它产生的第一个值迭代到它完成的位置。
+什么是*迭代器*？Python 的[函数式编程指南](https://oreil.ly/dIzn3)将迭代器描述为“代表数据流的对象。” 我提到过*可迭代*是 Python 可以单独访问的一些项目的集合；例如，字符串的字符或列表中的元素。 迭代器是一种在耗尽之前将生成值的东西。 就像我可以从字符串的第一个字符（或列表的第一个元素或文件的第一行）开始阅读直到字符串的结尾（或列表或文件）一样，迭代器可以从它产生的第一个值迭代到它完成的位置。
 
 在这种情况下，`reversed()`函数返回一个承诺，即在出现需要时立即产生反转的值。 这是一个*惰性*函数的示例，因为它等待被迫执行任何工作。 强制从`reversed()`中获取值的一种方法是使用将消耗值的函数。 例如，如果唯一的目标是反转字符串，那么我可以使用`str.join()`函数。 我总觉得这个函数的语法是反向的，但您经常会在用于连接序列的字符串文字上调用`str.join()`方法：
 
 ```py
->>> ''.join(reversed(dna)) ![1](assets/1.png)
+>>> ''.join(reversed(dna)) ![1](img/1.png)
 'TGGCCCAAAA'
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO1-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO1-1)
 
-使用空字符串连接DNA字符串的反转字符。
+使用空字符串连接 DNA 字符串的反转字符。
 
 另一种方法使用`list()`函数强制`reversed()`生成值：
 
@@ -186,7 +186,7 @@ Python还有一个内置的`reversed()`函数，所以我会尝试一下：
 ['T', 'G', 'G', 'C', 'C', 'C', 'A', 'A', 'A', 'A']
 ```
 
-等等，发生了什么？ `dna`变量是一个字符串，但我得到了一个列表——不仅仅是因为我使用了`list()`函数。 `reversed()`的文档显示该函数接受一个*序列*，这意味着任何返回一个东西然后另一个东西的数据结构或函数。 在列表或迭代器上下文中，Python将字符串视为字符列表：
+等等，发生了什么？ `dna`变量是一个字符串，但我得到了一个列表——不仅仅是因为我使用了`list()`函数。 `reversed()`的文档显示该函数接受一个*序列*，这意味着任何返回一个东西然后另一个东西的数据结构或函数。 在列表或迭代器上下文中，Python 将字符串视为字符列表：
 
 ```py
 >>> list(dna)
@@ -196,23 +196,23 @@ Python还有一个内置的`reversed()`函数，所以我会尝试一下：
 一个更长的构建反向 DNA 序列的方法是使用`for`循环来迭代逆转的碱基，并将它们附加到一个字符串中。首先我将声明一个`rev`变量，然后使用`+=`运算符以逆序附加每个碱基：
 
 ```py
->>> rev = '' ![1](assets/1.png)
->>> for base in reversed(dna): ![2](assets/2.png)
-...     rev += base ![3](assets/3.png)
+>>> rev = '' ![1](img/1.png)
+>>> for base in reversed(dna): ![2](img/2.png)
+...     rev += base ![3](img/3.png)
 ...
 >>> rev
 'TGGCCCAAAA'
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO2-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO2-1)
 
 用空字符串初始化`rev`变量。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO2-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO2-2)
 
 逆转 DNA 的碱基。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO2-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO2-3)
 
 将当前碱基附加到`rev`变量。
 
@@ -223,10 +223,10 @@ Python还有一个内置的`reversed()`函数，所以我会尝试一下：
 一共有八种互补：*A* 到 *T* 和 *G* 到 *C*，包括大小写，然后反过来。我还需要处理字符不是 *A*、*C*、*G* 或 *T* 的情况。我可以使用`if`/`elif`语句创建一个决策树。我将变量更改为`revc`，因为现在它是反向互补，我将找出每个碱基的正确互补。
 
 ```py
-revc = '' ![1](assets/1.png)
-for base in reversed(dna): ![2](assets/2.png)
-    if base == 'A': ![3](assets/3.png)
-        revc += 'T' ![4](assets/4.png)
+revc = '' ![1](img/1.png)
+for base in reversed(dna): ![2](img/2.png)
+    if base == 'A': ![3](img/3.png)
+        revc += 'T' ![4](img/4.png)
     elif base == 'T':
         revc += 'A'
     elif base == 'G':
@@ -241,27 +241,27 @@ for base in reversed(dna): ![2](assets/2.png)
         revc += 'c'
     elif base == 'c':
         revc += 'g'
-    else: ![5](assets/5.png)
+    else: ![5](img/5.png)
         revc += base
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-1)
 
 初始化一个变量来保存反向互补字符串。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-2)
 
 逆转 DNA 字符串中的碱基。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-3)
 
 测试每个大写和小写碱基。
 
-[![4](assets/4.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-4)
+![4](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-4)
 
 将补充的碱基附加到变量中。
 
-[![5](assets/5.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-5)
+![5](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO3-5)
 
 如果碱基与这些测试中的任何一个不匹配，则使用原始碱基。
 
@@ -278,20 +278,20 @@ for base in reversed(dna): ![2](assets/2.png)
 def test_lowercase():
     """ Runs on lowercase input """
 
-    rv, out = getstatusoutput(f'{RUN} aaaaCCCGGT') ![1](assets/1.png)
-    assert rv == 0 ![2](assets/2.png)
-    assert out == 'ACCGGGtttt' ![3](assets/3.png)
+    rv, out = getstatusoutput(f'{RUN} aaaaCCCGGT') ![1](img/1.png)
+    assert rv == 0 ![2](img/2.png)
+    assert out == 'ACCGGGtttt' ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO4-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO4-1)
 
 使用小写和大写 DNA 字符串运行程序。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO4-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO4-2)
 
 退出值应为`0`。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO4-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO4-3)
 
 程序的输出应该是指定的字符串。
 
@@ -301,25 +301,25 @@ def test_lowercase():
 def test_input1():
     """ Runs on file input """
 
-    file, expected = TEST1 ![1](assets/1.png)
-    rv, out = getstatusoutput(f'{RUN} {file}') ![2](assets/2.png)
-    assert rv == 0 ![3](assets/3.png)
-    assert out == open(expected).read().rstrip() ![4](assets/4.png)
+    file, expected = TEST1 ![1](img/1.png)
+    rv, out = getstatusoutput(f'{RUN} {file}') ![2](img/2.png)
+    assert rv == 0 ![3](img/3.png)
+    assert out == open(expected).read().rstrip() ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-1)
 
 `TEST1` 元组是一个输入文件和一个期望输出文件。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-2)
 
 使用文件名运行程序。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-3)
 
 确保退出值为`0`。
 
-[![4](assets/4.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-4)
+![4](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO5-4)
 
 打开并读取预期文件，然后将其与输出进行比较。
 
@@ -358,7 +358,7 @@ def test_input1():
 所有解决方案都共享相同的`get_args()`函数，如下所示：
 
 ```py
-class Args(NamedTuple): ![1](assets/1.png)
+class Args(NamedTuple): ![1](img/1.png)
     """ Command-line arguments """
     dna: str
 
@@ -374,35 +374,35 @@ def get_args() -> Args:
 
     args = parser.parse_args()
 
-    if os.path.isfile(args.dna): ![2](assets/2.png)
+    if os.path.isfile(args.dna): ![2](img/2.png)
         args.dna = open(args.dna).read().rstrip()
 
-    return Args(args.dna) ![3](assets/3.png)
+    return Args(args.dna) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO6-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO6-1)
 
-该程序的唯一参数是一个DNA字符串。
+该程序的唯一参数是一个 DNA 字符串。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO6-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO6-2)
 
 处理读取文件输入的情况。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO6-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO6-3)
 
 返回一个`Args`对象，以符合函数签名。
 
-## 解决方案1：使用for循环和决策树
+## 解决方案 1：使用 for 循环和决策树
 
 这是我的第一个解决方案，使用`if`/`else`决策树：
 
 ```py
 def main() -> None:
     args = get_args()
-    revc = '' ![1](assets/1.png)
+    revc = '' ![1](img/1.png)
 
-    for base in reversed(args.dna): ![2](assets/2.png)
-        if base == 'A': ![3](assets/3.png)
+    for base in reversed(args.dna): ![2](img/2.png)
+        if base == 'A': ![3](img/3.png)
             revc += 'T'
         elif base == 'T':
             revc += 'A'
@@ -421,28 +421,28 @@ def main() -> None:
         else:
             revc += base
 
-    print(revc) ![4](assets/4.png)
+    print(revc) ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-1)
 
 初始化一个变量来保存反向互补序列。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-2)
 
-遍历DNA参数的反向碱基。
+遍历 DNA 参数的反向碱基。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-3)
 
 创建一个`if`/`elif`决策树来确定每个碱基的互补碱基。
 
-[![4](assets/4.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-4)
+![4](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO7-4)
 
 打印结果。
 
-## 解决方案2：使用字典查找
+## 解决方案 2：使用字典查找
 
-我提到过，`if`/`else`链是应该尽量替换的。这是18行代码（LOC），可以更轻松地使用字典查找表示：
+我提到过，`if`/`else`链是应该尽量替换的。这是 18 行代码（LOC），可以更轻松地使用字典查找表示：
 
 ```py
 >>> trans = {
@@ -451,7 +451,7 @@ def main() -> None:
 ... }
 ```
 
-如果我使用`for`循环遍历DNA字符串，我可以使用`dict.get()`方法安全地请求DNA字符串中的每个碱基来创建互补序列（见[图 3-1](#fig_3.1)）。请注意，我将使用`base`作为`dict.get()`的可选第二个参数。如果碱基不存在于查找表中，则将默认使用碱基本身，就像第一个解决方案中的`else`情况一样：
+如果我使用`for`循环遍历 DNA 字符串，我可以使用`dict.get()`方法安全地请求 DNA 字符串中的每个碱基来创建互补序列（见图 3-1）。请注意，我将使用`base`作为`dict.get()`的可选第二个参数。如果碱基不存在于查找表中，则将默认使用碱基本身，就像第一个解决方案中的`else`情况一样：
 
 ```py
 >>> for base in 'AAAACCCGGT':
@@ -499,39 +499,39 @@ T A
 ```py
 def main() -> None:
     args = get_args()
-    trans = { ![1](assets/1.png)
+    trans = { ![1](img/1.png)
         'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A',
         'a': 't', 'c': 'g', 'g': 'c', 't': 'a'
     }
 
-    complement = '' ![2](assets/2.png)
-    for base in args.dna: ![3](assets/3.png)
-        complement += trans.get(base, base) ![4](assets/4.png)
+    complement = '' ![2](img/2.png)
+    for base in args.dna: ![3](img/3.png)
+        complement += trans.get(base, base) ![4](img/4.png)
 
-    print(''.join(reversed(complement))) ![5](assets/5.png)
+    print(''.join(reversed(complement))) ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-1)
 
 这是一个字典，展示了如何将一个碱基翻译成其互补碱基。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-2)
 
-初始化一个变量来保存DNA互补序列。
+初始化一个变量来保存 DNA 互补序列。
 
-[![3](assets/3.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-3)
+![3](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-3)
 
-遍历DNA字符串中的每个碱基。
+遍历 DNA 字符串中的每个碱基。
 
-[![4](assets/4.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-4)
+![4](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-4)
 
 将碱基的翻译或碱基本身附加到互补序列中。
 
-[![5](assets/5.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-5)
+![5](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO8-5)
 
 反转互补序列并在空字符串上连接结果。
 
-Python字符串和列表在某种程度上是可互换的。我可以将`complement`变量更改为列表，程序中的其他内容都不会改变：
+Python 字符串和列表在某种程度上是可互换的。我可以将`complement`变量更改为列表，程序中的其他内容都不会改变：
 
 ```py
 def main() -> None:
@@ -541,14 +541,14 @@ def main() -> None:
         'a': 't', 'c': 'g', 'g': 'c', 't': 'a'
     }
 
-    complement = [] ![1](assets/1.png)
+    complement = [] ![1](img/1.png)
     for base in args.dna:
         complement += trans.get(base, base)
 
     print(''.join(reversed(complement)))
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO9-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO9-1)
 
 将互补序列初始化为空列表而不是字符串。
 
@@ -563,9 +563,9 @@ for base in args.dna:
 
 ## 解决方案 3：使用列表推导式
 
-我建议你使用列表推导式，而没有告诉你它是什么。如果你以前从未使用过，它本质上是在用于创建新列表的方括号（`[]`）内部写一个 `for` 循环的方式（见[图 3-2](#fig_3.2)）。当 `for` 循环的目标是构建一个新的字符串或列表时，使用列表推导式要明智得多。
+我建议你使用列表推导式，而没有告诉你它是什么。如果你以前从未使用过，它本质上是在用于创建新列表的方括号（`[]`）内部写一个 `for` 循环的方式（见图 3-2）。当 `for` 循环的目标是构建一个新的字符串或列表时，使用列表推导式要明智得多。
 
-![mpfb 0302](assets/mpfb_0302.png)
+![mpfb 0302](img/mpfb_0302.png)
 
 ###### 图 3-2\. 列表推导式使用 `for` 循环生成一个新列表
 
@@ -579,11 +579,11 @@ def main() -> None:
         'a': 't', 'c': 'g', 'g': 'c', 't': 'a'
     }
 
-    complement = [trans.get(base, base) for base in args.dna] ![1](assets/1.png)
+    complement = [trans.get(base, base) for base in args.dna] ![1](img/1.png)
     print(''.join(reversed(complement)))
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO10-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO10-1)
 
 用列表推导式替换 `for` 循环。
 
@@ -597,7 +597,7 @@ print(''.join(reversed([trans.get(base, base) for base in args.dna])))
 
 ## 解决方案 4：使用 str.translate()
 
-在[第二章](ch02.html#ch02)中，我使用 `str.replace()` 方法将所有的 *T* 替换为 *U*，当将 DNA 转录为 RNA 时。我能在这里使用吗？让我们试试。我将从初始化 DNA 字符串并将 *A* 替换为 *T* 开始。请记住，字符串是 *不可变* 的，这意味着我不能直接更改一个字符串，而是必须用新值覆盖字符串：
+在第二章中，我使用 `str.replace()` 方法将所有的 *T* 替换为 *U*，当将 DNA 转录为 RNA 时。我能在这里使用吗？让我们试试。我将从初始化 DNA 字符串并将 *A* 替换为 *T* 开始。请记住，字符串是 *不可变* 的，这意味着我不能直接更改一个字符串，而是必须用新值覆盖字符串：
 
 ```py
 >>> dna = 'AAAACCCGGT'
@@ -619,9 +619,9 @@ print(''.join(reversed([trans.get(base, base) for base in args.dna])))
 'AAAACCCGGA'
 ```
 
-正如[图 3-3](#fig_3.3)所示，第一步中转变为 *T* 的所有 *A* 刚刚又变回了 *A*。哦，这会让人发疯的。
+正如图 3-3 所示，第一步中转变为 *T* 的所有 *A* 刚刚又变回了 *A*。哦，这会让人发疯的。
 
-![mpfb 0303](assets/mpfb_0303.png)
+![mpfb 0303](img/mpfb_0303.png)
 
 ###### 图 3-3\. 迭代使用 `str.replace()` 导致值的双重替换和错误的答案
 
@@ -643,7 +643,7 @@ print(''.join(reversed([trans.get(base, base) for base in args.dna])))
 65
 ```
 
-这个值表示ASCII（美国标准信息交换码表，发音为as-key）表中字符*A*的序数位置。也就是说，*A*是表中的第65个字符。`chr()`函数将颠倒此过程，提供由序数值表示的字符：
+这个值表示 ASCII（美国标准信息交换码表，发音为 as-key）表中字符*A*的序数位置。也就是说，*A*是表中的第 65 个字符。`chr()`函数将颠倒此过程，提供由序数值表示的字符：
 
 ```py
 >>> chr(65)
@@ -663,47 +663,47 @@ print(''.join(reversed([trans.get(base, base) for base in args.dna])))
 def main() -> None:
     args = get_args()
 
-    trans = str.maketrans({ ![1](assets/1.png)
+    trans = str.maketrans({ ![1](img/1.png)
         'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A',
         'a': 't', 'c': 'g', 'g': 'c', 't': 'a'
     })
-    print(''.join(reversed(args.dna.translate(trans)))) ![2](assets/2.png)
+    print(''.join(reversed(args.dna.translate(trans)))) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO11-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO11-1)
 
 创建用于`str.translate()`函数的翻译表。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO11-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO11-2)
 
-使用`trans`表互补DNA。反转并连接成新字符串。
+使用`trans`表互补 DNA。反转并连接成新字符串。
 
 不过，等等——还有更多！还有另一种更简短的写法。根据`help(str.translate)`文档：
 
-> 如果只有一个参数，它必须是将Unicode序数（整数）或字符映射到Unicode序数、字符串或`None`的字典。字符键将被转换为序数。*如果有两个参数，它们必须是长度相等的字符串，且在生成的字典中，`x`中的每个字符将映射到`y`中相同位置的字符。*
+> 如果只有一个参数，它必须是将 Unicode 序数（整数）或字符映射到 Unicode 序数、字符串或`None`的字典。字符键将被转换为序数。*如果有两个参数，它们必须是长度相等的字符串，且在生成的字典中，`x`中的每个字符将映射到`y`中相同位置的字符。*
 
 因此，我可以删除`trans`字典，并像这样编写整个解决方案：
 
 ```py
 def main() -> None:
     args = get_args()
-    trans = str.maketrans('ACGTacgt', 'TGCAtgca') ![1](assets/1.png)
-    print(''.join(reversed(args.seq.translate(trans)))) ![2](assets/2.png)
+    trans = str.maketrans('ACGTacgt', 'TGCAtgca') ![1](img/1.png)
+    print(''.join(reversed(args.seq.translate(trans)))) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO12-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO12-1)
 
 使用长度相等的两个字符串制作翻译表。
 
-[![2](assets/2.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO12-2)
+![2](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO12-2)
 
 创建反向互补。
 
 如果你想毁掉某人的一天——很可能那个人会是未来的你——你甚至可以将其压缩成一行代码。
 
-## 解决方案5：使用Bio.Seq
+## 解决方案 5：使用 Bio.Seq
 
-在本章开头我告诉过你，最终的解决方案将涉及一个现有的函数。^([1](ch03.html#idm45963636070440)) 许多从事生物信息学的Python程序员共同贡献了一套名为[Biopython](https://biopython.org)的模块。他们编写并测试了许多非常有用的算法，当你可以使用他人的代码时，自己编写代码很少有意义。
+在本章开头我告诉过你，最终的解决方案将涉及一个现有的函数。^(1) 许多从事生物信息学的 Python 程序员共同贡献了一套名为[Biopython](https://biopython.org)的模块。他们编写并测试了许多非常有用的算法，当你可以使用他人的代码时，自己编写代码很少有意义。
 
 确保你已经先通过运行以下命令安装了`biopython`：
 
@@ -724,15 +724,15 @@ $ python3 -m pip install biopython
 'ACCGGGTTTT'
 ```
 
-这个最终的解决方案是我推荐的版本，因为它是最短的，而且使用了现有的、经过充分测试和文档化的模块，在Python生物信息学中几乎无处不在：
+这个最终的解决方案是我推荐的版本，因为它是最短的，而且使用了现有的、经过充分测试和文档化的模块，在 Python 生物信息学中几乎无处不在：
 
 ```py
 def main() -> None:
     args = get_args()
-    print(Seq.reverse_complement(args.dna)) ![1](assets/1.png)
+    print(Seq.reverse_complement(args.dna)) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO13-1)
+![1](img/#co_reverse_complement_of_dna___span_class__keep_together__string_manipulation__span__CO13-1)
 
 使用 `Bio.Seq.reverse_complement()` 函数。
 
@@ -767,7 +767,7 @@ ignore_missing_imports = True
 
 # 复习
 
-手动创建DNA的反向互补序列是一种入门仪式。这是我展示的内容：
+手动创建 DNA 的反向互补序列是一种入门仪式。这是我展示的内容：
 
 +   您可以使用一系列 `if`/`else` 语句或使用字典作为查找表来编写决策树。
 
@@ -783,6 +783,6 @@ ignore_missing_imports = True
 
 +   `ord()` 函数返回字符的序数值，而 `chr()` 函数则根据给定的序数值返回字符。
 
-+   Biopython 是专门用于生物信息学的模块和函数集合。创建DNA的反向互补序列的首选方法是使用 `Bio.Seq.reverse_complement()` 函数。
++   Biopython 是专门用于生物信息学的模块和函数集合。创建 DNA 的反向互补序列的首选方法是使用 `Bio.Seq.reverse_complement()` 函数。
 
-^([1](ch03.html#idm45963636070440-marker)) 这有点像我的高中微积分老师花了一周时间教我们如何进行手动导数，然后展示了如何在20秒内通过拉下指数等方式完成。
+^(1) 这有点像我的高中微积分老师花了一周时间教我们如何进行手动导数，然后展示了如何在 20 秒内通过拉下指数等方式完成。

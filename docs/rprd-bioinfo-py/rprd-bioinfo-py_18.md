@@ -1,20 +1,20 @@
-# 第16章。FASTX grep：创建一个选择序列的实用程序
+# 第十六章。FASTX grep：创建一个选择序列的实用程序
 
-有一次，一个同事让我找出FASTQ文件中所有具有包含字符串*LSU*（表示*长亚单位*RNA）的描述或名称的RNA序列。虽然可以通过使用`grep`程序在FASTQ文件中找到与某些模式匹配的所有行来解决此问题^([1](ch16.html#idm45963628251688))，但是使用Python编写解决方案可以创建一个可以扩展到处理其他格式（如FASTA）的程序，并且可以根据其他标准（如长度或GC含量）选择记录。此外，您还可以添加选项以更改输出序列格式，并为用户提供方便，例如根据文件扩展名猜测输入文件的格式。
+有一次，一个同事让我找出 FASTQ 文件中所有具有包含字符串*LSU*（表示*长亚单位*RNA）的描述或名称的 RNA 序列。虽然可以通过使用`grep`程序在 FASTQ 文件中找到与某些模式匹配的所有行来解决此问题^(1)，但是使用 Python 编写解决方案可以创建一个可以扩展到处理其他格式（如 FASTA）的程序，并且可以根据其他标准（如长度或 GC 含量）选择记录。此外，您还可以添加选项以更改输出序列格式，并为用户提供方便，例如根据文件扩展名猜测输入文件的格式。
 
 在本章中，你将学到：
 
-+   关于FASTQ文件的结构
++   关于 FASTQ 文件的结构
 
 +   如何执行不区分大小写的正则表达式匹配
 
-+   有关在代码中实现DWIM（做我想要的）和DRY（不要重复自己）思想
++   有关在代码中实现 DWIM（做我想要的）和 DRY（不要重复自己）思想
 
 +   如何使用`and`和`or`操作来减少布尔值和位
 
-# 使用grep在文件中查找行
+# 使用 grep 在文件中查找行
 
-`grep`程序可以找到文件中与给定模式匹配的所有行。如果我在FASTQ文件中搜索*LSU*，它会找到包含此模式的两个标题行：
+`grep`程序可以找到文件中与给定模式匹配的所有行。如果我在 FASTQ 文件中搜索*LSU*，它会找到包含此模式的两个标题行：
 
 ```py
 $ grep LSU tests/inputs/lsu.fq
@@ -29,17 +29,17 @@ $ grep LSU tests/inputs/lsu.fq | wc -l
        2
 ```
 
-由于我的目标是提取头部包含子字符串*LSU*的序列记录，我必须做更多的工作。只要输入文件是FASTQ格式，我仍然可以使用`grep`，但这需要更好地理解格式。
+由于我的目标是提取头部包含子字符串*LSU*的序列记录，我必须做更多的工作。只要输入文件是 FASTQ 格式，我仍然可以使用`grep`，但这需要更好地理解格式。
 
-# FASTQ记录的结构
+# FASTQ 记录的结构
 
-FASTQ序列格式是从测序仪接收序列数据的常见方式，因为它包括每个碱基的碱基调用和质量分数。也就是说，测序仪通常报告一个碱基及其正确的测量确定性。例如，一些测序技术可能在同源聚合物串中遇到麻烦，比如许多*A*的聚(*A*)串，其中测序仪可能无法正确计数。随着读数变长，许多测序仪也会对碱基调用失去信心。质量分数是拒绝或截断低质量读数的重要手段。
+FASTQ 序列格式是从测序仪接收序列数据的常见方式，因为它包括每个碱基的碱基调用和质量分数。也就是说，测序仪通常报告一个碱基及其正确的测量确定性。例如，一些测序技术可能在同源聚合物串中遇到麻烦，比如许多*A*的聚(*A*)串，其中测序仪可能无法正确计数。随着读数变长，许多测序仪也会对碱基调用失去信心。质量分数是拒绝或截断低质量读数的重要手段。
 
-根据测序仪的不同，有些碱基可能很难区分，模糊性可能会使用我在[第1章](ch01.html#ch01)中描述的IUPAC代码来报告，例如用*R*表示*A*或*G*，或者用*N*表示任意碱基。
+根据测序仪的不同，有些碱基可能很难区分，模糊性可能会使用我在第一章中描述的 IUPAC 代码来报告，例如用*R*表示*A*或*G*，或者用*N*表示任意碱基。
 
-FASTQ格式在许多Rosalind挑战中使用的FASTA格式有些相似。作为提醒，FASTA记录以`>`符号开头，后跟标识序列并可能包含元数据的标题行。然后是序列本身，可能是一行（可能很长）文本，也可能是分成多行。相比之下，FASTQ记录必须始终是确切的四行，如[图16-1](#fig_16.1)所示。
+FASTQ 格式在许多 Rosalind 挑战中使用的 FASTA 格式有些相似。作为提醒，FASTA 记录以`>`符号开头，后跟标识序列并可能包含元数据的标题行。然后是序列本身，可能是一行（可能很长）文本，也可能是分成多行。相比之下，FASTQ 记录必须始终是确切的四行，如图 16-1 所示。
 
-![mpfb 1601](assets/mpfb_1601.png)
+![mpfb 1601](img/mpfb_1601.png)
 
 ###### 图 16-1\. FASTQ 记录的元素 —— 尽管此显示中的长行已换行，但实际记录包含四行。
 
@@ -59,7 +59,7 @@ FASTQ格式在许多Rosalind挑战中使用的FASTA格式有些相似。作为�
 
 1.  序列中的每个碱基在质量行中都有一个对应的伙伴，表示此碱基正确的置信度。
 
-FASTQ 头部具有与 FASTA 记录中头部相同的结构，唯一的区别是它以 `@` 符号而不是 `>` 符号开头。序列标识符通常是从 `@` 到第一个空格之间的所有字符。包含序列的第二行不能包含任何换行，序列中的每个碱基都有对应的质量值在第四行中。第四行上的质量分数使用字符的 ASCII 值来编码基本调用的确定性。这些分数首先使用 ASCII 表中的可打印字符，最初是在 [第 3 章](ch03.html#ch03) 中介绍的。
+FASTQ 头部具有与 FASTA 记录中头部相同的结构，唯一的区别是它以 `@` 符号而不是 `>` 符号开头。序列标识符通常是从 `@` 到第一个空格之间的所有字符。包含序列的第二行不能包含任何换行，序列中的每个碱基都有对应的质量值在第四行中。第四行上的质量分数使用字符的 ASCII 值来编码基本调用的确定性。这些分数首先使用 ASCII 表中的可打印字符，最初是在 第三章 中介绍的。
 
 ASCII 表中的前 32 个值是不可打印的控制字符和空格。可打印字符从第 33 个开始，标点符号后跟数字。第一个字母 *A* 直到 65 才出现，大写字符在小写字符之前。以下是存储库中包含的 `asciitbl.py` 程序输出的 ASCII 表中 128 个值的序号值：
 
@@ -93,7 +93,7 @@ $ ./asciitbl.py
  25 NA      51 3       77 M      103 g
 ```
 
-查看 [图 16-1](#fig_16.1) 中 FASTQ 记录的质量行，看看字符是如何从开始的大写字母到末尾的标点符号和数字进行变化的。请注意，第四行上的 `@` 和 `+` 符号表示可能的质量值，因此它们不是表示记录开头或分隔线的元字符。因此，FASTQ 记录不能使用换行符来断开序列（如 FASTA 记录）或质量行：符号 `@` 和 `+` 可能会成为行中的第一个字符，使得无法找到记录的起始位置。结合这一点与通常由一个单独的 `+` 符号组成的完全无用的第三行，有时无端地重述了所有的头部信息，你就会明白为什么不应该让生物学家定义文件格式。
+查看 图 16-1 中 FASTQ 记录的质量行，看看字符是如何从开始的大写字母到末尾的标点符号和数字进行变化的。请注意，第四行上的 `@` 和 `+` 符号表示可能的质量值，因此它们不是表示记录开头或分隔线的元字符。因此，FASTQ 记录不能使用换行符来断开序列（如 FASTA 记录）或质量行：符号 `@` 和 `+` 可能会成为行中的第一个字符，使得无法找到记录的起始位置。结合这一点与通常由一个单独的 `+` 符号组成的完全无用的第三行，有时无端地重述了所有的头部信息，你就会明白为什么不应该让生物学家定义文件格式。
 
 有多种使用不同范围表示质量分数的编码标准。
 
@@ -144,40 +144,40 @@ usage: fastx_grep.py [-h] [-f str] [-O str] [-o FILE] [-i]
 Grep through FASTX files
 
 positional arguments:
-  PATTERN               Search pattern ![1](assets/1.png)
-  FILE                  Input file(s) ![2](assets/2.png)
+  PATTERN               Search pattern ![1](img/1.png)
+  FILE                  Input file(s) ![2](img/2.png)
 
 optional arguments:
   -h, --help            show this help message and exit
-  -f str, --format str  Input file format (default: ) ![3](assets/3.png)
-  -O str, --outfmt str  Output file format (default: ) ![4](assets/4.png)
+  -f str, --format str  Input file format (default: ) ![3](img/3.png)
+  -O str, --outfmt str  Output file format (default: ) ![4](img/4.png)
   -o FILE, --outfile FILE
-                        Output file (default: <_io.TextIOWrapper ![5](assets/5.png)
+                        Output file (default: <_io.TextIOWrapper ![5](img/5.png)
                         name='<stdout>' mode='w' encoding='utf-8'>)
-  -i, --insensitive     Case-insensitive search (default: False) ![6](assets/6.png)
+  -i, --insensitive     Case-insensitive search (default: False) ![6](img/6.png)
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-1)
 
 正则表达式（模式）是第一个位置参数。
 
-[![2](assets/2.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-2)
+![2](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-2)
 
 需要第二个的一个或多个位置文件参数。
 
-[![3](assets/3.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-3)
+![3](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-3)
 
 序列的输入文件格式，可以是 *fasta* 或 *fastq*。默认情况下会从文件扩展名猜测。
 
-[![4](assets/4.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-4)
+![4](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-4)
 
 输出文件格式，可以是 *fasta*、*fastq* 或 *fasta-2line* 中的一种。默认情况下与输入文件相同。
 
-[![5](assets/5.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-5)
+![5](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-5)
 
 输出文件名；默认为 `STDOUT`。
 
-[![6](assets/6.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-6)
+![6](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO1-6)
 
 是否执行不区分大小写的匹配；默认为 `False`。
 
@@ -188,35 +188,35 @@ from typing import List, NamedTuple, TextIO
 
 class Args(NamedTuple):
     """ Command-line arguments """
-    pattern: str ![1](assets/1.png)
-    files: List[TextIO] ![2](assets/2.png)
-    input_format: str ![3](assets/3.png)
-    output_format: str ![4](assets/4.png)
-    outfile: TextIO ![5](assets/5.png)
-    insensitive: bool ![6](assets/6.png)
+    pattern: str ![1](img/1.png)
+    files: List[TextIO] ![2](img/2.png)
+    input_format: str ![3](img/3.png)
+    output_format: str ![4](img/4.png)
+    outfile: TextIO ![5](img/5.png)
+    insensitive: bool ![6](img/6.png)
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-1)
 
 要使用的正则表达式。
 
-[![2](assets/2.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-2)
+![2](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-2)
 
 一个或多个输入文件。
 
-[![3](assets/3.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-3)
+![3](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-3)
 
-输入文件的格式，例如FASTA或FASTQ。
+输入文件的格式，例如 FASTA 或 FASTQ。
 
-[![4](assets/4.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-4)
+![4](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-4)
 
 输出文件的格式。
 
-[![5](assets/5.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-5)
+![5](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-5)
 
 输出文件的名称。
 
-[![6](assets/6.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-6)
+![6](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO2-6)
 
 是否执行不区分大小写的搜索。
 
@@ -230,7 +230,7 @@ def get_args() -> Args:
         description='Grep through FASTX files',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('pattern', ![1](assets/1.png)
+    parser.add_argument('pattern', ![1](img/1.png)
                         metavar='PATTERN',
                         type=str,
                         help='Search pattern')
@@ -238,31 +238,31 @@ def get_args() -> Args:
     parser.add_argument('file',
                         metavar='FILE',
                         nargs='+',
-                        type=argparse.FileType('rt'), ![2](assets/2.png)
+                        type=argparse.FileType('rt'), ![2](img/2.png)
                         help='Input file(s)')
 
     parser.add_argument('-f',
                         '--format',
                         help='Input file format',
                         metavar='str',
-                        choices=['fasta', 'fastq'], ![3](assets/3.png)
+                        choices=['fasta', 'fastq'], ![3](img/3.png)
                         default='')
 
     parser.add_argument('-O',
                         '--outfmt',
                         help='Output file format',
                         metavar='str',
-                        choices=['fasta', 'fastq', 'fasta-2line'], ![4](assets/4.png)
+                        choices=['fasta', 'fastq', 'fasta-2line'], ![4](img/4.png)
                         default='')
 
     parser.add_argument('-o',
                         '--outfile',
                         help='Output file',
-                        type=argparse.FileType('wt'), ![5](assets/5.png)
+                        type=argparse.FileType('wt'), ![5](img/5.png)
                         metavar='FILE',
                         default=sys.stdout)
 
-    parser.add_argument('-i', ![6](assets/6.png)
+    parser.add_argument('-i', ![6](img/6.png)
                         '--insensitive',
                         help='Case-insensitive search',
                         action='store_true')
@@ -277,31 +277,31 @@ def get_args() -> Args:
                 insensitive=args.insensitive)
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-1)
 
 模式将是一个字符串。
 
-[![2](assets/2.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-2)
+![2](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-2)
 
 输入必须是可读的文本文件。
 
-[![3](assets/3.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-3)
+![3](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-3)
 
 使用`choices`来约束输入值。默认值将从输入文件扩展名中猜测。
 
-[![4](assets/4.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-4)
+![4](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-4)
 
 使用`choices`来约束值；默认使用输入格式。*fasta-2line*选项不会将长序列分割成多行，因此每条记录只使用两行。
 
-[![5](assets/5.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-5)
+![5](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-5)
 
 输出文件将是可写的文本文件。默认为`STDOUT`。
 
-[![6](assets/6.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-6)
+![6](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO3-6)
 
 一个标志来指示不区分大小写的搜索。默认值为`False`。
 
-如果您运行以下命令在*lsu.fq*测试文件中搜索*LSU*，您应该看到八行输出，表示两个FASTQ记录：
+如果您运行以下命令在*lsu.fq*测试文件中搜索*LSU*，您应该看到八行输出，表示两个 FASTQ 记录：
 
 ```py
 $ ./fastx_grep.py LSU tests/inputs/lsu.fq | wc -l
@@ -330,7 +330,7 @@ $ wc -l out.fq
        8 out.fq
 ```
 
-如果您查看*out.fq*文件，您会看到它的格式与原始输入一样是FASTQ格式。您可以使用`-O|--outfmt`选项将其更改为类似FASTA的格式，并查看输出文件以验证格式：
+如果您查看*out.fq*文件，您会看到它的格式与原始输入一样是 FASTQ 格式。您可以使用`-O|--outfmt`选项将其更改为类似 FASTA 的格式，并查看输出文件以验证格式：
 
 ```py
 $ ./fastx_grep.py -O fasta -o out.fa -i lsu tests/inputs/lsu.fq
@@ -340,7 +340,7 @@ CAAGTTACTTCCTCTAAATGACCAAGCCTAGTGTAGAACCATGTCGTCAGTGTCAGTCTG
 AGTGTAGATCTCGGTGGTCGCCGTATCATTAAAAAAAAAAATGTAATACTACTAGTAATT
 ```
 
-尝试使用*fasta-2line*输出格式，看看长序列如何不会被分割成多行。请注意，该程序也可以处理FASTA输入，无需我指示文件格式，因为它是从*.fa*文件扩展名中猜测出来的：
+尝试使用*fasta-2line*输出格式，看看长序列如何不会被分割成多行。请注意，该程序也可以处理 FASTA 输入，无需我指示文件格式，因为它是从*.fa*文件扩展名中猜测出来的：
 
 ```py
 $ ./fastx_grep.py -o out.fa -i lsu tests/inputs/lsu.fa
@@ -358,9 +358,9 @@ Done, see new script "fastx_grep.py".
 
 ## 猜测文件格式
 
-如果您查看前一节中创建的*out.fa*，您会发现它是以FASTA格式保存的，与输入格式匹配，但我从未指定过输入文件格式。程序智能地检查输入文件的文件扩展名，并根据表16-1中的假设猜测格式。类似地，如果没有指定输出格式，则假定输入文件格式为所需的输出格式。这是软件开发中*DWIM*原则的一个例子：做我所想要的。
+如果您查看前一节中创建的*out.fa*，您会发现它是以 FASTA 格式保存的，与输入格式匹配，但我从未指定过输入文件格式。程序智能地检查输入文件的文件扩展名，并根据表 16-1 中的假设猜测格式。类似地，如果没有指定输出格式，则假定输入文件格式为所需的输出格式。这是软件开发中*DWIM*原则的一个例子：做我所想要的。
 
-表16-1\. FASTA/Q文件的常见文件扩展名
+表 16-1\. FASTA/Q 文件的常见文件扩展名
 
 | Extension | Format |
 | --- | --- |
@@ -410,7 +410,7 @@ def main():
                 write the sequence to the output file in the output format
 ```
 
-例如，我可以通过使用shell glob `*.f[aq]`在三个输入文件上运行程序，以指示所有以字母*f*开头并以字母*a*或*q*结尾的文件：
+例如，我可以通过使用 shell glob `*.f[aq]`在三个输入文件上运行程序，以指示所有以字母*f*开头并以字母*a*或*q*结尾的文件：
 
 ```py
 $ ls tests/inputs/*.f[aq]
@@ -430,7 +430,7 @@ out.fa        281        301     291.00           4
 
 # 解决方案
 
-根据我的经验，这是一个真实复杂的程序，捕捉了我经常编写的许多模式。它开始验证和处理一些输入文件。我是一个真正懒惰的程序员^([2](ch16.html#idm45963628022792))，总是希望给我的程序尽可能少的信息，所以我很高兴写一点代码来猜测文件格式。
+根据我的经验，这是一个真实复杂的程序，捕捉了我经常编写的许多模式。它开始验证和处理一些输入文件。我是一个真正懒惰的程序员^(2)，总是希望给我的程序尽可能少的信息，所以我很高兴写一点代码来猜测文件格式。
 
 ## 从文件扩展名猜测文件格式
 
@@ -440,19 +440,19 @@ out.fa        281        301     291.00           4
 def guess_format(filename: str) -> str:
     """ Guess format from extension """
 
-    ext = re.sub('^[.]', '', os.path.splitext(filename)[1]) ![1](assets/1.png)
+    ext = re.sub('^[.]', '', os.path.splitext(filename)[1]) ![1](img/1.png)
 
-    return 'fasta' if re.match('f(ast|a|n)?a$', ext) else 'fastq' if re.match( ![2](assets/2.png)
+    return 'fasta' if re.match('f(ast|a|n)?a$', ext) else 'fastq' if re.match( ![2](img/2.png)
         'f(ast)?q$', ext) else ''
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO4-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO4-1)
 
 使用`os.path.splitext()`函数获取文件扩展名并去除前导点。
 
-[![2](assets/2.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO4-2)
+![2](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO4-2)
 
-如果扩展名与 [Table 16-1](#table_16.1) 中的 FASTA 文件模式之一匹配，则返回字符串 `fasta`；如果匹配 FASTQ 模式，则返回 `fastq`；否则返回空字符串。
+如果扩展名与 Table 16-1 中的 FASTA 文件模式之一匹配，则返回字符串 `fasta`；如果匹配 FASTQ 模式，则返回 `fastq`；否则返回空字符串。
 
 `os.path.splitext()` 函数将文件名的根和扩展名作为一个 2 元组返回：
 
@@ -486,20 +486,20 @@ def guess_format(filename: str) -> str:
 'fna'
 ```
 
-相反，我更喜欢使用我在 [Chapter 2](ch02.html#ch02) 中首次介绍的 `re.sub()` 函数。我要查找的模式是字符串开头的字面点。插入符号 `^` 表示字符串的开头，`.` 是一个元字符，表示任何字符。为了显示我想要一个字面点，我必须在其前面加上反斜杠，如 `^\.`，或者将其放在字符类中，如 `^[.]`：
+相反，我更喜欢使用我在 Chapter 2 中首次介绍的 `re.sub()` 函数。我要查找的模式是字符串开头的字面点。插入符号 `^` 表示字符串的开头，`.` 是一个元字符，表示任何字符。为了显示我想要一个字面点，我必须在其前面加上反斜杠，如 `^\.`，或者将其放在字符类中，如 `^[.]`：
 
 ```py
 >>> import re
->>> ext = re.sub('^[.]', '', os.path.splitext('/foo/bar.fna')[1]) ![1](assets/1.png)
+>>> ext = re.sub('^[.]', '', os.path.splitext('/foo/bar.fna')[1]) ![1](img/1.png)
 >>> ext
 'fna'
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO5-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO5-1)
 
 使用 `re.sub()` 函数去除文件扩展名开头的字面点。
 
-如 [Table 16-1](#table_16.1) 所示，有四个常见的 FASTA 文件扩展名，可以用一个紧凑的正则表达式表示。回想一下，`re` 模块中有两个用于搜索的函数：
+如 Table 16-1 所示，有四个常见的 FASTA 文件扩展名，可以用一个紧凑的正则表达式表示。回想一下，`re` 模块中有两个用于搜索的函数：
 
 +   `re.match()` 函数用于从字符串开头找到匹配项。
 
@@ -519,15 +519,15 @@ def guess_format(filename: str) -> str:
 <re.Match object; span=(0, 3), match='fna'>
 ```
 
-[Figure 16-2](#fig_16.2) 描述了正则表达式的每个部分。
+Figure 16-2 描述了正则表达式的每个部分。
 
-![mpfb 1602](assets/mpfb_1602.png)
+![mpfb 1602](img/mpfb_1602.png)
 
 ###### 图 16-2\. 用于匹配四种 FASTA 模式的正则表达式
 
-作为有限状态机图的绘制，可能会有所帮助，如 [Figure 16-3](#fig_16.3) 所示。
+作为有限状态机图的绘制，可能会有所帮助，如 Figure 16-3 所示。
 
-![mpfb 1603](assets/mpfb_1603.png)
+![mpfb 1603](img/mpfb_1603.png)
 
 ###### 图 16-3\. 用于匹配四种 FASTA 模式的有限状态机图
 
@@ -540,15 +540,15 @@ def guess_format(filename: str) -> str:
 <re.Match object; span=(0, 5), match='fastq'>
 ```
 
-[Figure 16-4](#fig_16.4) 解释了这个正则表达式。
+Figure 16-4 解释了这个正则表达式。
 
-![mpfb 1604](assets/mpfb_1604.png)
+![mpfb 1604](img/mpfb_1604.png)
 
 ###### 图 16-4\. 用于匹配两种 FASTQ 模式的正则表达式
 
-[Figure 16-5](#fig_16.5) 展示了相同的想法作为有限状态机的表示。
+Figure 16-5 展示了相同的想法作为有限状态机的表示。
 
-![mpfb 1605](assets/mpfb_1605.png)
+![mpfb 1605](img/mpfb_1605.png)
 
 ###### 图 16-5\. 用于匹配两种 FASTQ 模式的有限状态机图
 
@@ -559,50 +559,50 @@ def guess_format(filename: str) -> str:
 ```py
 def main() -> None:
     args = get_args()
-    regex = re.compile(args.pattern, re.IGNORECASE if args.insensitive else 0) ![1](assets/1.png)
+    regex = re.compile(args.pattern, re.IGNORECASE if args.insensitive else 0) ![1](img/1.png)
 
-    for fh in args.files: ![2](assets/2.png)
-        input_format = args.input_format or guess_format(fh.name) ![3](assets/3.png)
+    for fh in args.files: ![2](img/2.png)
+        input_format = args.input_format or guess_format(fh.name) ![3](img/3.png)
 
-        if not input_format: ![4](assets/4.png)
+        if not input_format: ![4](img/4.png)
             sys.exit(f'Please specify file format for "{fh.name}"')
 
-        output_format = args.output_format or input_format ![5](assets/5.png)
+        output_format = args.output_format or input_format ![5](img/5.png)
 
-        for rec in SeqIO.parse(fh, input_format): ![6](assets/6.png)
-            if any(map(regex.search, [rec.id, rec.description])): ![7](assets/7.png)
-                SeqIO.write(rec, args.outfile, output_format) ![8](assets/8.png)
+        for rec in SeqIO.parse(fh, input_format): ![6](img/6.png)
+            if any(map(regex.search, [rec.id, rec.description])): ![7](img/7.png)
+                SeqIO.write(rec, args.outfile, output_format) ![8](img/8.png)
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-1)
 
 编译正则表达式以找到给定的模式。
 
-[![2](assets/2.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-2)
+![2](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-2)
 
 遍历输入文件。
 
-[![3](assets/3.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-3)
+![3](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-3)
 
 使用输入格式或从文件名猜测它。
 
-[![4](assets/4.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-4)
+![4](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-4)
 
 如果没有输入文件格式，则报错退出。
 
-[![5](assets/5.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-5)
+![5](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-5)
 
 使用输出格式或使用输入格式。
 
-[![6](assets/6.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-6)
+![6](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-6)
 
 遍历文件中的每个序列。
 
-[![7](assets/7.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-7)
+![7](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-7)
 
-查看序列ID或描述是否与模式匹配。
+查看序列 ID 或描述是否与模式匹配。
 
-[![8](assets/8.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-8)
+![8](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO6-8)
 
 如果是这样，请将序列写入输出文件。
 
@@ -626,7 +626,7 @@ True
 False
 ```
 
-我将此与编译的正则表达式一起使用，搜索记录的ID和描述字段。该正则表达式还使用`re.IGNORECASE`标志来开启不区分大小写的匹配。为了解释这一点，我想离题讨论一下Python如何使用`and`和`or`结合布尔值，以及使用相应的位运算符`&`和`|`。
+我将此与编译的正则表达式一起使用，搜索记录的 ID 和描述字段。该正则表达式还使用`re.IGNORECASE`标志来开启不区分大小写的匹配。为了解释这一点，我想离题讨论一下 Python 如何使用`and`和`or`结合布尔值，以及使用相应的位运算符`&`和`|`。
 
 ## 合并正则表达式搜索标志
 
@@ -662,14 +662,14 @@ False
 在程序中，当我编译正则表达式时使用这个：
 
 ```py
-regex = re.compile(args.pattern, re.IGNORECASE if args.insensitive else 0) ![1](assets/1.png)
+regex = re.compile(args.pattern, re.IGNORECASE if args.insensitive else 0) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO7-1)
+![1](img/#co_fastx_grep__creating_a_utility_program__span_class__keep_together__to_select_sequences__span__CO7-1)
 
 如果`args.insensitive`为`True`，则在编译模式时使用`re.IGNORECASE`选项；否则，使用`0`，表示没有选项。
 
-我首先展示了如何在[第11章](ch11.html#ch11)中编译正则表达式。优点是Python只需解析模式一次，通常可以使代码运行更快。这里我需要决定是否使用可选标志进行不区分大小写匹配。我可以使用其他标志改变正则表达式匹配的许多方面，这些标志可以使用位或`|`运算符组合。我认为最好从`help(re)`的文档开始：
+我首先展示了如何在第十一章中编译正则表达式。优点是 Python 只需解析模式一次，通常可以使代码运行更快。这里我需要决定是否使用可选标志进行不区分大小写匹配。我可以使用其他标志改变正则表达式匹配的许多方面，这些标志可以使用位或`|`运算符组合。我认为最好从`help(re)`的文档开始：
 
 ```py
 Each function other than purge and escape can take an optional 'flags' argument
@@ -719,16 +719,16 @@ re.VERBOSE         64 0b001000000
 re.ASCII          256 0b100000000
 ```
 
-注意每个值都是2的幂，因此每个标志可以由单个唯一位表示。这使得可以使用文档中提到的`|`运算符组合标志。为了演示，我可以使用前缀`0b`表示原始字节字符串。以下是数字1和2的二进制表示。请注意，每个值仅使用一个设置为1的位：
+注意每个值都是 2 的幂，因此每个标志可以由单个唯一位表示。这使得可以使用文档中提到的`|`运算符组合标志。为了演示，我可以使用前缀`0b`表示原始字节字符串。以下是数字 1 和 2 的二进制表示。请注意，每个值仅使用一个设置为 1 的位：
 
 ```py
 >>> one = 0b001
 >>> two = 0b010
 ```
 
-如果我使用`|`来对位进行*或*操作，每个三位数都将使用[表16-2](#table_16.2)中显示的真值表进行组合。
+如果我使用`|`来对位进行*或*操作，每个三位数都将使用表 16-2 中显示的真值表进行组合。
 
-表16-2\. 或运算（`|`）的真值表
+表 16-2\. 或运算（`|`）的真值表
 
 | 第一 | 第二 | 结果 |
 | --- | --- | --- |
@@ -737,20 +737,20 @@ re.ASCII          256 0b100000000
 | F | T | T |
 | F | F | F |
 
-如图[16-6](#fig_16.6)所示，Python 将查看每个位，并且如果任一位为1，则选择1，仅当两个位都为0时，结果为0，导致`0b011`，这是数字3的二进制表示，因为位置1和2的位均已设置：
+如图 16-6 所示，Python 将查看每个位，并且如果任一位为 1，则选择 1，仅当两个位都为 0 时，结果为 0，导致`0b011`，这是数字 3 的二进制表示，因为位置 1 和 2 的位均已设置：
 
 ```py
 >>> one | two
 3
 ```
 
-![mpfb 1606](assets/mpfb_1606.png)
+![mpfb 1606](img/mpfb_1606.png)
 
-###### 图16-6\. 当对每列位进行或运算时，任何位置为1的情况都会得到1；如果所有位都为0，则结果为0。
+###### 图 16-6\. 当对每列位进行或运算时，任何位置为 1 的情况都会得到 1；如果所有位都为 0，则结果为 0。
 
-当使用`&`运算符时，Python仅当两个位都为1时才会返回1；否则，会返回0，如[表16-3](#table_16.3)所示。
+当使用`&`运算符时，Python 仅当两个位都为 1 时才会返回 1；否则，会返回 0，如表 16-3 所示。
 
-表16-3\. 与运算（`&`）的真值表
+表 16-3\. 与运算（`&`）的真值表
 
 | 第一 | 第二 | 结果 |
 | --- | --- | --- |
@@ -812,7 +812,7 @@ else:
 regex = re.compile(args.pattern, re.IGNORECASE if args.insensitive else 0)
 ```
 
-如果我想要扩展这个程序以包括文档中的任何其他搜索标志，我可以使用`|`来组合它们。第[6](ch06.html#ch06)章和第[12](ch12.html#ch12)章讨论了将多个值*减少*为单个值的思想。例如，我可以使用加法将数字列表减少到它们的和，或者使用乘法创建乘积，并使用`str.join()`函数将字符串列表减少到单个值。我可以类似地使用按位`|`来减少所有的正则表达式标志：
+如果我想要扩展这个程序以包括文档中的任何其他搜索标志，我可以使用`|`来组合它们。第六章和第十二章讨论了将多个值*减少*为单个值的思想。例如，我可以使用加法将数字列表减少到它们的和，或者使用乘法创建乘积，并使用`str.join()`函数将字符串列表减少到单个值。我可以类似地使用按位`|`来减少所有的正则表达式标志：
 
 ```py
 >>> (re.A | re.I | re.L | re.M | re.S | re.X | re.U) + 0
@@ -843,7 +843,7 @@ re.IGNORECASE
 
 ## 减少布尔值
 
-我想把这个带回我在这个程序中使用的`any()`函数。与整数值的按位组合类似，我可以类似地减少多个布尔值。也就是说，这里是与[表 16-2](#table_16.2)中相同的信息，使用`or`运算符来组合布尔值：
+我想把这个带回我在这个程序中使用的`any()`函数。与整数值的按位组合类似，我可以类似地减少多个布尔值。也就是说，这里是与表 16-2 中相同的信息，使用`or`运算符来组合布尔值：
 
 ```py
 >>> True or True
@@ -869,7 +869,7 @@ True
 False
 ```
 
-这里是与[表 16-3](#table_16.3)中相同的数据，使用`and`来组合布尔值：
+这里是与表 16-3 中相同的数据，使用`and`来组合布尔值：
 
 ```py
 >>> True and True
@@ -927,6 +927,6 @@ if any(map(regex.search, [rec.id, rec.description])):
 
 +   DRY（不要重复自己）原则意味着你永远不要在代码中重复相同的想法，而是将其隔离到一个位置或函数中。
 
-^([1](ch16.html#idm45963628251688-marker)) 有人说这是 *全局正则表达式打印* 的缩写。
+^(1) 有人说这是 *全局正则表达式打印* 的缩写。
 
-^([2](ch16.html#idm45963628022792-marker)) 根据[*Perl 编程*](https://oreil.ly/XnvaC)（Tom Christiansen 等著，O’Reilly，2012）中的描述，程序员的三大美德是懒惰、急躁和傲慢。
+^(2) 根据[*Perl 编程*](https://oreil.ly/XnvaC)（Tom Christiansen 等著，O’Reilly，2012）中的描述，程序员的三大美德是懒惰、急躁和傲慢。

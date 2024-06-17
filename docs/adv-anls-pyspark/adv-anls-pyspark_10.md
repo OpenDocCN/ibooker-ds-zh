@@ -1,28 +1,28 @@
-# 第10章。深度学习与PySpark LSH的图像相似性检测
+# 第十章。深度学习与 PySpark LSH 的图像相似性检测
 
-无论您在社交媒体还是电子商务店铺上遇到它们，图像对于我们的数字生活至关重要。事实上，正是一个图像数据集——ImageNet——引发了当前深度学习革命的关键组成部分。在ImageNet 2012挑战中，分类模型的显著表现是重要的里程碑，并引起了广泛关注。因此，作为数据科学从业者，您很可能会在某个时刻遇到图像数据。
+无论您在社交媒体还是电子商务店铺上遇到它们，图像对于我们的数字生活至关重要。事实上，正是一个图像数据集——ImageNet——引发了当前深度学习革命的关键组成部分。在 ImageNet 2012 挑战中，分类模型的显著表现是重要的里程碑，并引起了广泛关注。因此，作为数据科学从业者，您很可能会在某个时刻遇到图像数据。
 
-本章中，你将通过使用PySpark来扩展深度学习工作流程，针对视觉任务——即图像相似性检测，获得经验。识别相似图像对于人类来说是直观的，但对计算机来说是一项复杂的任务。在大规模情况下，这变得更加困难。在本章中，我们将介绍一种用于查找相似项的近似方法，称为局部敏感哈希（LSH），并将其应用于图像。我们将使用深度学习将图像数据转换为数值向量表示。PySpark的LSH算法将应用于生成的向量，这将使我们能够在给定新输入图像时找到相似图像。
+本章中，你将通过使用 PySpark 来扩展深度学习工作流程，针对视觉任务——即图像相似性检测，获得经验。识别相似图像对于人类来说是直观的，但对计算机来说是一项复杂的任务。在大规模情况下，这变得更加困难。在本章中，我们将介绍一种用于查找相似项的近似方法，称为局部敏感哈希（LSH），并将其应用于图像。我们将使用深度学习将图像数据转换为数值向量表示。PySpark 的 LSH 算法将应用于生成的向量，这将使我们能够在给定新输入图像时找到相似图像。
 
-从高层次来看，这个例子反映了像Instagram和Pinterest等照片分享应用程序用于图像相似性检测的方法之一。这有助于他们的用户理解其平台上存在的大量视觉数据。这也展示了一个深度学习工作流程如何从PySpark的可扩展性中受益。
+从高层次来看，这个例子反映了像 Instagram 和 Pinterest 等照片分享应用程序用于图像相似性检测的方法之一。这有助于他们的用户理解其平台上存在的大量视觉数据。这也展示了一个深度学习工作流程如何从 PySpark 的可扩展性中受益。
 
-首先，我们将简要介绍PyTorch，一个深度学习框架。近年来，它因其相对于其他主要低级深度学习库更易学习的曲线而备受关注。然后，我们将下载和准备我们的数据集。用于我们任务的数据集是由斯坦福人工智能实验室于2013年发布的Cars数据集。PyTorch将用于图像预处理。接下来，我们将把输入图像数据转换为向量表示（图像嵌入）。然后，我们将导入结果嵌入到PySpark中，并使用LSH算法进行转换。最后，我们将采用新图像，并使用我们的LSH转换数据集进行最近邻搜索，以找到相似的图像。
+首先，我们将简要介绍 PyTorch，一个深度学习框架。近年来，它因其相对于其他主要低级深度学习库更易学习的曲线而备受关注。然后，我们将下载和准备我们的数据集。用于我们任务的数据集是由斯坦福人工智能实验室于 2013 年发布的 Cars 数据集。PyTorch 将用于图像预处理。接下来，我们将把输入图像数据转换为向量表示（图像嵌入）。然后，我们将导入结果嵌入到 PySpark 中，并使用 LSH 算法进行转换。最后，我们将采用新图像，并使用我们的 LSH 转换数据集进行最近邻搜索，以找到相似的图像。
 
-让我们从介绍和设置PyTorch开始。
+让我们从介绍和设置 PyTorch 开始。
 
 # PyTorch
 
-PyTorch是一个用于构建深度学习项目的库。它强调灵活性，并允许使用Python来表达深度学习模型的习惯用语。它早期被研究社区早期采用。最近，由于其易用性，它已成为广泛应用的主要深度学习工具之一。与TensorFlow一起，它是目前最流行的深度学习库之一。
+PyTorch 是一个用于构建深度学习项目的库。它强调灵活性，并允许使用 Python 来表达深度学习模型的习惯用语。它早期被研究社区早期采用。最近，由于其易用性，它已成为广泛应用的主要深度学习工具之一。与 TensorFlow 一起，它是目前最流行的深度学习库之一。
 
-PyTorch的简单灵活接口支持快速实验。您可以加载数据，应用转换并用几行代码构建模型。然后，您可以灵活编写定制的训练、验证和测试循环，并轻松部署训练模型。它始终在专业环境中用于实际的关键任务。能够利用GPU（图形处理单元）训练资源密集型模型是使深度学习流行的重要因素。PyTorch提供出色的GPU支持，尽管我们不需要在我们的任务中使用它。
+PyTorch 的简单灵活接口支持快速实验。您可以加载数据，应用转换并用几行代码构建模型。然后，您可以灵活编写定制的训练、验证和测试循环，并轻松部署训练模型。它始终在专业环境中用于实际的关键任务。能够利用 GPU（图形处理单元）训练资源密集型模型是使深度学习流行的重要因素。PyTorch 提供出色的 GPU 支持，尽管我们不需要在我们的任务中使用它。
 
 ## 安装
 
-在[PyTorch网站](https://oreil.ly/CHkJo)上，您可以根据系统配置轻松获取安装说明，如[图10-1](#pytorch_installation_cpu_support)所示。
+在[PyTorch 网站](https://oreil.ly/CHkJo)上，您可以根据系统配置轻松获取安装说明，如图 10-1 所示。
 
-![PyTorch安装CPU支持](assets/aaps_1001.png)
+![PyTorch 安装 CPU 支持](img/aaps_1001.png)
 
-###### 图10-1. PyTorch安装，CPU支持
+###### 图 10-1. PyTorch 安装，CPU 支持
 
 执行提供的命令并按照您的配置说明操作：
 
@@ -30,13 +30,13 @@ PyTorch的简单灵活接口支持快速实验。您可以加载数据，应用�
 $ pip3 install torch torchvision
 ```
 
-我们不会依赖GPU，因此将选择CPU作为计算平台。如果您有要使用的GPU设置，请根据需要选择选项以获取所需的说明。我们在本章中也不需要Torchaudio，因此跳过其安装。
+我们不会依赖 GPU，因此将选择 CPU 作为计算平台。如果您有要使用的 GPU 设置，请根据需要选择选项以获取所需的说明。我们在本章中也不需要 Torchaudio，因此跳过其安装。
 
 # 准备数据
 
-我们将使用[斯坦福汽车数据集](https://oreil.ly/gxo8Q)。它是由Jonathan Krause、Michael Stark、Jia Deng和Li Fei-Fei在ICCV 2013年论文“3D对象表示用于细粒度分类”中发布的。
+我们将使用[斯坦福汽车数据集](https://oreil.ly/gxo8Q)。它是由 Jonathan Krause、Michael Stark、Jia Deng 和 Li Fei-Fei 在 ICCV 2013 年论文“3D 对象表示用于细粒度分类”中发布的。
 
-您可以从Kaggle下载图像，或使用斯坦福人工智能实验室提供的源链接下载。
+您可以从 Kaggle 下载图像，或使用斯坦福人工智能实验室提供的源链接下载。
 
 ```py
 wget http://ai.stanford.edu/~jkrause/car196/car_ims.tgz
@@ -49,7 +49,7 @@ data_directory = "cars_data"
 train_images = "cars_data/cars_train/cars_train"
 ```
 
-您可以在这里获取包含训练数据集标签的CSV文件[here](https://oreil.ly/UoHXh)。下载它，将其重命名为*cars_train_data.csv*，并将其放在数据目录中。让我们来看一下它：
+您可以在这里获取包含训练数据集标签的 CSV 文件[here](https://oreil.ly/UoHXh)。下载它，将其重命名为*cars_train_data.csv*，并将其放在数据目录中。让我们来看一下它：
 
 ```py
 import pandas as pd
@@ -69,11 +69,11 @@ train_df.head()
 
 忽略除了`Class`和`image`之外的所有列。其他列与此数据集衍生自的原始研究项目相关，不会在我们的任务中使用。
 
-## 使用PyTorch调整图像大小
+## 使用 PyTorch 调整图像大小
 
 在我们进一步之前，我们需要预处理我们的图像。在机器学习中，预处理数据非常普遍，因为深度学习模型（神经网络）希望输入满足某些要求。
 
-我们需要应用一系列预处理步骤，称为*转换*，将输入图像转换为模型所需的正确格式。在我们的案例中，我们需要它们是224 x 224像素的JPEG格式图像，因为这是我们将在下一节中使用的ResNet-18模型的要求。我们使用PyTorch的Torchvision包执行此转换的代码如下：
+我们需要应用一系列预处理步骤，称为*转换*，将输入图像转换为模型所需的正确格式。在我们的案例中，我们需要它们是 224 x 224 像素的 JPEG 格式图像，因为这是我们将在下一节中使用的 ResNet-18 模型的要求。我们使用 PyTorch 的 Torchvision 包执行此转换的代码如下：
 
 ```py
 import os
@@ -106,15 +106,15 @@ for image_name in os.listdir(train_images):
 
 卷积神经网络（CNN），在输入观察数据为图像时，是用于预测的标准神经网络架构。我们不会将其用于任何预测任务，而是用于生成图像的向量表示。具体来说，我们将使用 ResNet-18 架构。
 
-残差网络（ResNet）由Shaoqing Ren、Kaiming He、Jian Sun和Xiangyu Zhang在其2015年的论文“Deep Residual Learning for Image Recognition”中引入。ResNet-18 中的 18 表示神经网络架构中存在的层数。ResNet 的其他流行变体包括 34 和 50 层。层数越多，性能提高，但计算成本也增加。
+残差网络（ResNet）由 Shaoqing Ren、Kaiming He、Jian Sun 和 Xiangyu Zhang 在其 2015 年的论文“Deep Residual Learning for Image Recognition”中引入。ResNet-18 中的 18 表示神经网络架构中存在的层数。ResNet 的其他流行变体包括 34 和 50 层。层数越多，性能提高，但计算成本也增加。
 
 ## 图像嵌入
 
 *图像嵌入* 是图像在向量空间中的表示。基本思想是，如果给定图像接近另一图像，则它们的嵌入也会相似且在空间维度上接近。
 
-[图 10-2](#ILSVRC_2012)中的图像，[由Andrej Karpathy发布](https://oreil.ly/YRhhT)，展示了图像如何在较低维度空间中表示。例如，您可以注意到顶部附近的车辆和左下角空间中的鸟类。
+图 10-2 中的图像，[由 Andrej Karpathy 发布](https://oreil.ly/YRhhT)，展示了图像如何在较低维度空间中表示。例如，您可以注意到顶部附近的车辆和左下角空间中的鸟类。
 
-![ILSVRC 2012 图像嵌入在二维空间中的表示](assets/aaps_1002.png)
+![ILSVRC 2012 图像嵌入在二维空间中的表示](img/aaps_1002.png)
 
 ###### 图 10-2\. ILSVRC 2012 图像嵌入在二维空间中的表示
 
@@ -132,9 +132,9 @@ class Img2VecResnet18():
         self.model, self.featureLayer = self.getFeatureLayer()
         self.model = self.model.to(self.device)
         self.model.eval()
-        self.toTensor = transforms.ToTensor() ![1](assets/1.png)
+        self.toTensor = transforms.ToTensor() ![1](img/1.png)
         self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                              std=[0.229, 0.224, 0.225]) ![2](assets/2.png)
+                                              std=[0.229, 0.224, 0.225]) ![2](img/2.png)
 
     def getFeatureLayer(self):
         cnnModel = models.resnet18(pretrained=True)
@@ -153,11 +153,11 @@ class Img2VecResnet18():
         return embedding.numpy()[0, :, 0, 0]
 ```
 
-[![1](assets/1.png)](#co_image_similarity_detection_with___span_class__keep_together__deep_learning__span__and_pyspark_lsh_CO1-1)
+![1](img/#co_image_similarity_detection_with___span_class__keep_together__deep_learning__span__and_pyspark_lsh_CO1-1)
 
 将图像转换为 PyTorch 张量格式。
 
-[![2](assets/2.png)](#co_image_similarity_detection_with___span_class__keep_together__deep_learning__span__and_pyspark_lsh_CO1-2)
+![2](img/#co_image_similarity_detection_with___span_class__keep_together__deep_learning__span__and_pyspark_lsh_CO1-2)
 
 将像素值范围重新缩放到 0 到 1 之间。均值和标准差（std）的值是基于用于训练模型的数据预先计算的。对图像进行标准化可以提高分类器的准确性。
 
@@ -186,11 +186,11 @@ pd.DataFrame(allVectors).transpose().\
 
 由于我们是在本地工作，我们选择了 CSV 格式来保存向量输出。然而，Parquet 格式更适合这种类型的数据。您可以通过在前面的代码中用 `to_parquet` 替换 `to_csv` 来轻松将数据保存为 Parquet 格式。
 
-现在我们已经有了所需的图像嵌入，我们可以将它们导入到PySpark中。
+现在我们已经有了所需的图像嵌入，我们可以将它们导入到 PySpark 中。
 
-## 将图像嵌入导入到PySpark中
+## 将图像嵌入导入到 PySpark 中
 
-启动PySpark shell：
+启动 PySpark shell：
 
 ```py
 $ pyspark --driver-memory 4g
@@ -216,7 +216,7 @@ input_df.columns
  '_c512']
 ```
 
-PySpark的LSH实现需要一个向量列作为输入。我们可以通过使用`VectorAssembler`转换将数据框中的相关列组合成一个向量列：
+PySpark 的 LSH 实现需要一个向量列作为输入。我们可以通过使用`VectorAssembler`转换将数据框中的相关列组合成一个向量列：
 
 ```py
 from pyspark.ml.feature import VectorAssembler
@@ -244,17 +244,17 @@ root
  |-- features: vector (nullable = true)
 ```
 
-在下一节中，我们将使用LSH算法创建一种从数据集中查找相似图像的方法。
+在下一节中，我们将使用 LSH 算法创建一种从数据集中查找相似图像的方法。
 
-# 使用PySpark LSH进行图像相似性搜索
+# 使用 PySpark LSH 进行图像相似性搜索
 
 局部敏感哈希是一类重要的哈希技术，通常用于具有大型数据集的聚类、近似最近邻搜索和异常值检测。局部敏感函数接受两个数据点并决定它们是否应该成为候选对。
 
-LSH的一般思想是使用一组函数家族（“LSH家族”）将数据点哈希到桶中，以便彼此接近的数据点具有高概率地位于相同的桶中，而相距较远的数据点很可能位于不同的桶中。映射到相同桶的数据点被认为是候选对。
+LSH 的一般思想是使用一组函数家族（“LSH 家族”）将数据点哈希到桶中，以便彼此接近的数据点具有高概率地位于相同的桶中，而相距较远的数据点很可能位于不同的桶中。映射到相同桶的数据点被认为是候选对。
 
-在PySpark中，不同的LSH家族由不同的类实现（例如`MinHash`和`BucketedRandomProjection`），并且在每个类中提供了用于特征转换、近似相似性连接和近似最近邻的API。
+在 PySpark 中，不同的 LSH 家族由不同的类实现（例如`MinHash`和`BucketedRandomProjection`），并且在每个类中提供了用于特征转换、近似相似性连接和近似最近邻的 API。
 
-我们将使用LSH的BucketedRandomProjection实现。
+我们将使用 LSH 的 BucketedRandomProjection 实现。
 
 让我们首先创建我们的模型对象：
 
@@ -266,9 +266,9 @@ brp = BucketedRandomProjectionLSH(inputCol="features", outputCol="hashes",
 model = brp.fit(output)
 ```
 
-在BucketedRandomProjection LSH实现中，桶长度可用于控制哈希桶的平均大小（从而控制桶的数量）。较大的桶长度（即较少的桶）增加了特征被哈希到同一桶中的概率（增加真正和假正例的数量）。
+在 BucketedRandomProjection LSH 实现中，桶长度可用于控制哈希桶的平均大小（从而控制桶的数量）。较大的桶长度（即较少的桶）增加了特征被哈希到同一桶中的概率（增加真正和假正例的数量）。
 
-现在，我们使用新创建的LSH模型对象转换输入DataFrame。生成的DataFrame将包含一个`hashes`列，其中包含图像嵌入的哈希表示：
+现在，我们使用新创建的 LSH 模型对象转换输入 DataFrame。生成的 DataFrame 将包含一个`hashes`列，其中包含图像嵌入的哈希表示：
 
 ```py
 lsh_df = model.transform(output)
@@ -287,11 +287,11 @@ lsh_df.show(5)
 only showing top 5 rows
 ```
 
-准备好我们的LSH转换数据集后，在下一节中我们将测试我们的工作。
+准备好我们的 LSH 转换数据集后，在下一节中我们将测试我们的工作。
 
 ## 最近邻搜索
 
-让我们尝试使用新图像找到相似的图像。暂时，我们将从输入数据集中选择一个（[图10-3](#random-car)）：
+让我们尝试使用新图像找到相似的图像。暂时，我们将从输入数据集中选择一个（图 10-3）：
 
 ```py
 from IPython.display import display
@@ -307,9 +307,9 @@ display(Image.open(test_image))
 cars_data/images/input_images_cnn/01994.jpg
 ```
 
-![从数据集中随机选择的汽车图像](assets/aaps_1003.png)
+![从数据集中随机选择的汽车图像](img/aaps_1003.png)
 
-###### 图10-3。从我们的数据集中随机选择的汽车图像
+###### 图 10-3。从我们的数据集中随机选择的汽车图像
 
 首先，我们需要使用我们的`Img2VecResnet18`类将输入图像转换为向量格式：
 
@@ -354,30 +354,30 @@ result.show()
 +---------+--------------------+--------------------+--------------------+
 ```
 
-您可以查看图10-4到图10-8中的图像（链接：[#result-image1](#result-image1) 至 [#result-image5](#result-image5)），看看模型已经有了一些正确的结果：
+您可以查看图 10-4 到图 10-8 中的图像（链接：#result-image1 至 #result-image5），看看模型已经有了一些正确的结果：
 
 ```py
 for i in list(result.select('_c0').toPandas()['_c0']):
     display(Image.open(os.path.join(input_dir_cnn, i)))
 ```
 
-![结果图像1](assets/aaps_1003.png)
+![结果图像 1](img/aaps_1003.png)
 
-###### 图10-4。结果图像1
+###### 图 10-4。结果图像 1
 
-![结果图像2](assets/aaps_1005.png)
+![结果图像 2](img/aaps_1005.png)
 
-###### 图10-5。结果图像2
+###### 图 10-5。结果图像 2
 
-![结果图像3](assets/aaps_1006.png)
+![结果图像 3](img/aaps_1006.png)
 
-###### 图10-6。结果图像3
+###### 图 10-6。结果图像 3
 
-![结果图像4](assets/aaps_1007.png)
+![结果图像 4](img/aaps_1007.png)
 
-###### 图10-7。结果图像4
+###### 图 10-7。结果图像 4
 
-![结果图像 5](assets/aaps_1008.png)
+![结果图像 5](img/aaps_1008.png)
 
 ###### 图 10-8\. 结果图像 5
 

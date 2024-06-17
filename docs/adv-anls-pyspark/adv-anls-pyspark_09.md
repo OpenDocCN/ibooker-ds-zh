@@ -1,14 +1,14 @@
-# 第9章。分析基因组数据与BDG项目
+# 第九章。分析基因组数据与 BDG 项目
 
-下一代DNA测序（NGS）技术的出现迅速将生命科学转变为一个数据驱动的领域。然而，充分利用这些数据却遭遇到了一个传统的计算生态系统，其构建在难以使用的低级原语上，用于分布式计算，以及一大堆半结构化的基于文本的文件格式。
+下一代 DNA 测序（NGS）技术的出现迅速将生命科学转变为一个数据驱动的领域。然而，充分利用这些数据却遭遇到了一个传统的计算生态系统，其构建在难以使用的低级原语上，用于分布式计算，以及一大堆半结构化的基于文本的文件格式。
 
-本章将有两个主要目的。首先，我们介绍一套流行的序列化和文件格式（Avro和Parquet），它们简化了数据管理中的许多问题。这些序列化技术使我们能够将数据转换为紧凑的、机器友好的二进制表示形式。这有助于在网络间移动数据，并帮助不同编程语言之间的跨兼容性。虽然我们将在基因组数据中使用数据序列化技术，但这些概念在处理大量数据时也是有用的。
+本章将有两个主要目的。首先，我们介绍一套流行的序列化和文件格式（Avro 和 Parquet），它们简化了数据管理中的许多问题。这些序列化技术使我们能够将数据转换为紧凑的、机器友好的二进制表示形式。这有助于在网络间移动数据，并帮助不同编程语言之间的跨兼容性。虽然我们将在基因组数据中使用数据序列化技术，但这些概念在处理大量数据时也是有用的。
 
-其次，我们展示如何在PySpark生态系统中执行典型的基因组学任务。具体来说，我们将使用PySpark和开源的ADAM库来操作大量的基因组学数据，并处理来自多个来源的数据，创建一个用于预测转录因子（TF）结合位点的数据集。为此，我们将从[ENCODE数据集](https://oreil.ly/h0yOq)中获取基因组注释。本章将作为ADAM项目的教程，该项目包括一组面向基因组学的Avro模式、基于PySpark的API以及用于大规模基因组学分析的命令行工具。除了其他应用外，ADAM使用PySpark提供了[基因组分析工具包（GATK）](https://oreil.ly/k2YZH)的本地分布式实现。
+其次，我们展示如何在 PySpark 生态系统中执行典型的基因组学任务。具体来说，我们将使用 PySpark 和开源的 ADAM 库来操作大量的基因组学数据，并处理来自多个来源的数据，创建一个用于预测转录因子（TF）结合位点的数据集。为此，我们将从[ENCODE 数据集](https://oreil.ly/h0yOq)中获取基因组注释。本章将作为 ADAM 项目的教程，该项目包括一组面向基因组学的 Avro 模式、基于 PySpark 的 API 以及用于大规模基因组学分析的命令行工具。除了其他应用外，ADAM 使用 PySpark 提供了[基因组分析工具包（GATK）](https://oreil.ly/k2YZH)的本地分布式实现。
 
-我们将首先讨论生物信息学领域使用的各种数据格式，相关的挑战，以及序列化格式如何帮助解决问题。接着，我们将安装ADAM项目，并使用一个样本数据集探索其API。然后，我们将使用多个基因组学数据集准备一个数据集，用于预测特定类型蛋白质（CTCF转录因子）DNA序列中的结合位点。这些数据集将从公开可用的ENCODE数据集中获取。由于基因组暗示了一个一维坐标系统，许多基因组学操作具有空间性质。ADAM项目提供了一个针对基因组学的API，用于执行分布式空间连接。
+我们将首先讨论生物信息学领域使用的各种数据格式，相关的挑战，以及序列化格式如何帮助解决问题。接着，我们将安装 ADAM 项目，并使用一个样本数据集探索其 API。然后，我们将使用多个基因组学数据集准备一个数据集，用于预测特定类型蛋白质（CTCF 转录因子）DNA 序列中的结合位点。这些数据集将从公开可用的 ENCODE 数据集中获取。由于基因组暗示了一个一维坐标系统，许多基因组学操作具有空间性质。ADAM 项目提供了一个针对基因组学的 API，用于执行分布式空间连接。
 
-对于那些感兴趣的人，Eric Lander的EdX课程《[生物学简介](https://oreil.ly/WIky1)》是一个很好的入门。而对于生物信息学的介绍，可以参考亚瑟·莱斯克的《[生物信息学简介](https://www.example.org/introduction_to_bioinformatics)》（牛津大学出版社）。
+对于那些感兴趣的人，Eric Lander 的 EdX 课程《[生物学简介](https://oreil.ly/WIky1)》是一个很好的入门。而对于生物信息学的介绍，可以参考亚瑟·莱斯克的《[生物信息学简介](https://www.example.org/introduction_to_bioinformatics)》（牛津大学出版社）。
 
 # 解耦存储与建模
 
@@ -29,7 +29,7 @@ enum Strand {
 
 record SequenceFeature {
   string featureId;
-  string featureType; ![1](assets/1.png)
+  string featureType; ![1](img/1.png)
   string chromosome;
   long startCoord;
   long endCoord;
@@ -39,15 +39,15 @@ record SequenceFeature {
 }
 ```
 
-[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO1-1)
+![1](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO1-1)
 
 例如，“保守性”，“蜈蚣”，“基因”
 
-这种数据类型可以用来编码，例如，基因组中特定位置的保守水平、启动子或核糖体结合位点的存在、TF结合位点等。可以将其视为JSON的二进制版本，但更受限制且具有更高的性能。根据特定的数据模式，Avro规范确定了对象的精确二进制编码方式，以便可以在不同编程语言的进程之间轻松传输（甚至写入到不同编程语言的进程之间），通过网络或者存储到磁盘上。Avro项目包括用于处理多种语言（包括Java、C/C++、Python和Perl）中的Avro编码数据的模块；在此之后，语言可以自由地将对象存储在内存中，以最有利的方式。数据建模与存储格式的分离提供了另一种灵活性/抽象层次；Avro数据可以存储为Avro序列化的二进制对象（Avro容器文件）、用于快速查询的列式文件格式（Parquet文件）或者作为文本JSON数据以实现最大的灵活性（最小的效率）。最后，Avro支持模式演化，允许用户在需要时添加新字段，同时软件会优雅地处理新/旧版本的模式。
+这种数据类型可以用来编码，例如，基因组中特定位置的保守水平、启动子或核糖体结合位点的存在、TF 结合位点等。可以将其视为 JSON 的二进制版本，但更受限制且具有更高的性能。根据特定的数据模式，Avro 规范确定了对象的精确二进制编码方式，以便可以在不同编程语言的进程之间轻松传输（甚至写入到不同编程语言的进程之间），通过网络或者存储到磁盘上。Avro 项目包括用于处理多种语言（包括 Java、C/C++、Python 和 Perl）中的 Avro 编码数据的模块；在此之后，语言可以自由地将对象存储在内存中，以最有利的方式。数据建模与存储格式的分离提供了另一种灵活性/抽象层次；Avro 数据可以存储为 Avro 序列化的二进制对象（Avro 容器文件）、用于快速查询的列式文件格式（Parquet 文件）或者作为文本 JSON 数据以实现最大的灵活性（最小的效率）。最后，Avro 支持模式演化，允许用户在需要时添加新字段，同时软件会优雅地处理新/旧版本的模式。
 
-总体上，Avro是一种高效的二进制编码，允许您指定可适应变化的数据模式，从多种编程语言处理相同的数据，并使用多种格式存储数据。决定使用Avro模式存储数据将使您摆脱永远使用越来越多的自定义数据格式的困境，同时提高计算性能。
+总体上，Avro 是一种高效的二进制编码，允许您指定可适应变化的数据模式，从多种编程语言处理相同的数据，并使用多种格式存储数据。决定使用 Avro 模式存储数据将使您摆脱永远使用越来越多的自定义数据格式的困境，同时提高计算性能。
 
-在前面的例子中使用的特定`SequenceFeature`模型对于真实数据来说有些简单，但是Big Data Genomics（BDG）项目已经定义了Avro模式来表示以下对象以及许多其他对象：
+在前面的例子中使用的特定`SequenceFeature`模型对于真实数据来说有些简单，但是 Big Data Genomics（BDG）项目已经定义了 Avro 模式来表示以下对象以及许多其他对象：
 
 +   `AlignmentRecord` 用于读取。
 
@@ -57,23 +57,23 @@ record SequenceFeature {
 
 +   `Feature`用于序列特征（基因组片段上的注释）。
 
-实际的模式可以在[bdg-formats GitHub存储库](https://oreil.ly/gCf1f)中找到。BDG格式可以用作广泛使用的“传统”格式（如BAM和VCF）的替代，但更常用作高性能的“中间”格式。（这些BDG格式的最初目标是取代BAM和VCF的使用，但它们的固执普及性使得实现这一目标变得困难。）Avro相对于自定义ASCII格式提供了许多性能和数据建模的优势。
+实际的模式可以在[bdg-formats GitHub 存储库](https://oreil.ly/gCf1f)中找到。BDG 格式可以用作广泛使用的“传统”格式（如 BAM 和 VCF）的替代，但更常用作高性能的“中间”格式。（这些 BDG 格式的最初目标是取代 BAM 和 VCF 的使用，但它们的固执普及性使得实现这一目标变得困难。）Avro 相对于自定义 ASCII 格式提供了许多性能和数据建模的优势。
 
-在本章的其余部分，我们将使用一些BDG模式来完成一些典型的基因组学任务。在我们能够做到这一点之前，我们需要安装ADAM项目。这将是我们接下来将要做的事情。
+在本章的其余部分，我们将使用一些 BDG 模式来完成一些典型的基因组学任务。在我们能够做到这一点之前，我们需要安装 ADAM 项目。这将是我们接下来将要做的事情。
 
-# ADAM的设置
+# ADAM 的设置
 
-BDG的核心基因组工具称为ADAM。从一组映射的读取开始，该核心包括可以执行标记重复、基质质量分数重新校准、插入/缺失重对齐和变体调用等任务的工具。ADAM还包含一个命令行界面，用于简化使用。与传统的HPC工具不同，ADAM可以自动跨集群并行处理，无需手动分割文件或手动调度作业。
+BDG 的核心基因组工具称为 ADAM。从一组映射的读取开始，该核心包括可以执行标记重复、基质质量分数重新校准、插入/缺失重对齐和变体调用等任务的工具。ADAM 还包含一个命令行界面，用于简化使用。与传统的 HPC 工具不同，ADAM 可以自动跨集群并行处理，无需手动分割文件或手动调度作业。
 
-我们可以通过pip安装ADAM：
+我们可以通过 pip 安装 ADAM：
 
 ```py
 pip3 install bdgenomics.adam
 ```
 
-可以在[GitHub页面](https://oreil.ly/4eFnX)找到其他安装方法。
+可以在[GitHub 页面](https://oreil.ly/4eFnX)找到其他安装方法。
 
-ADAM还配备了一个提交脚本，可方便与Spark的`spark-submit`脚本进行交互：
+ADAM 还配备了一个提交脚本，可方便与 Spark 的`spark-submit`脚本进行交互：
 
 ```py
 adam-submit
@@ -113,13 +113,13 @@ PRIN
                 view : View certain reads from an alignment-record file.
 ```
 
-现在，您应该能够从命令行运行ADAM并获得使用消息。正如使用消息中所指出的，Spark参数在ADAM特定参数之前给出。
+现在，您应该能够从命令行运行 ADAM 并获得使用消息。正如使用消息中所指出的，Spark 参数在 ADAM 特定参数之前给出。
 
-安装好ADAM后，我们可以开始处理基因组数据。接下来，我们将通过处理一个示例数据集来探索ADAM的API。
+安装好 ADAM 后，我们可以开始处理基因组数据。接下来，我们将通过处理一个示例数据集来探索 ADAM 的 API。
 
-# 使用ADAM处理基因组数据入门
+# 使用 ADAM 处理基因组数据入门
 
-我们将从包含一些映射的NGS读取的*.bam*文件开始，将其转换为相应的BDG格式（在本例中为`AlignedRecord`），并保存到HDFS中。首先，我们找到一个合适的*.bam*文件：
+我们将从包含一些映射的 NGS 读取的*.bam*文件开始，将其转换为相应的 BDG 格式（在本例中为`AlignedRecord`），并保存到 HDFS 中。首先，我们找到一个合适的*.bam*文件：
 
 ```py
 # Note: this file is 16 GB
@@ -141,37 +141,37 @@ mv HG00103.mapped.ILLUMINA.bwa.GBR\
 .low_coverage.20120522.bam data/genomics
 ```
 
-接下来，我们将使用ADAM CLI。
+接下来，我们将使用 ADAM CLI。
 
-## 使用ADAM CLI进行文件格式转换
+## 使用 ADAM CLI 进行文件格式转换
 
-然后，我们可以使用ADAM的`transform`命令将*.bam*文件转换为Parquet格式（在[“Parquet格式和列式存储”](#parquet-format)中有描述）。这在集群和`local`模式下都可以使用：
+然后，我们可以使用 ADAM 的`transform`命令将*.bam*文件转换为 Parquet 格式（在“Parquet 格式和列式存储”中有描述）。这在集群和`local`模式下都可以使用：
 
 ```py
 adam-submit \
-  --master yarn \ ![1](assets/1.png)
+  --master yarn \ ![1](img/1.png)
   --deploy-mode client \
   --driver-memory 8G \
   --num-executors 6 \
   --executor-cores 4 \
   --executor-memory 12G \
   -- \
-  transform \ ![2](assets/2.png)
+  transform \ ![2](img/2.png)
   data/genomics/HG00103.mapped.ILLUMINA.bwa.GBR\ .low_coverage.20120522.bam \
   data/genomics/HG00103
 ```
 
-[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO2-1)
+![1](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO2-1)
 
-在YARN上运行的示例Spark参数
+在 YARN 上运行的示例 Spark 参数
 
-[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO2-2)
+![2](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO2-2)
 
-ADAM子命令本身
+ADAM 子命令本身
 
-这应该会启动相当大量的输出到控制台，包括跟踪作业进度的URL。
+这应该会启动相当大量的输出到控制台，包括跟踪作业进度的 URL。
 
-结果数据集是*data/genomics/reads/HG00103/*目录中所有文件的串联，其中每个*part-*.parquet*文件是一个PySpark任务的输出。您还会注意到，由于列式存储，数据比初始的*.bam*文件（底层为gzipped）压缩得更有效（请参见[“Parquet格式和列式存储”](#parquet-format)）。
+结果数据集是*data/genomics/reads/HG00103/*目录中所有文件的串联，其中每个*part-*.parquet*文件是一个 PySpark 任务的输出。您还会注意到，由于列式存储，数据比初始的*.bam*文件（底层为 gzipped）压缩得更有效（请参见“Parquet 格式和列式存储”）。
 
 ```py
 $ du -sh data/genomics/HG00103*bam
@@ -183,9 +183,9 @@ $ du -sh data/genomics/HG00103/
 
 让我们看看交互会话中的一个对象是什么样子。
 
-## 使用PySpark和ADAM摄取基因组数据
+## 使用 PySpark 和 ADAM 摄取基因组数据
 
-首先，我们使用ADAM助手命令启动PySpark shell。它加载所有必需的JAR文件。
+首先，我们使用 ADAM 助手命令启动 PySpark shell。它加载所有必需的 JAR 文件。
 
 ```py
 pyadam
@@ -208,9 +208,9 @@ SparkSession available as 'spark'.
 >>>
 ```
 
-在某些情况下，当尝试使用ADAM与PySpark时，您可能会遇到TypeError错误，并提到JavaPackage对象未被加载的问题。这是一个已知问题，并在[此处](https://oreil.ly/67uBd)有文档记录。
+在某些情况下，当尝试使用 ADAM 与 PySpark 时，您可能会遇到 TypeError 错误，并提到 JavaPackage 对象未被加载的问题。这是一个已知问题，并在[此处](https://oreil.ly/67uBd)有文档记录。
 
-在这种情况下，请尝试线程中建议的解决方案。可以通过运行以下命令来启动带有ADAM的PySpark shell：
+在这种情况下，请尝试线程中建议的解决方案。可以通过运行以下命令来启动带有 ADAM 的 PySpark shell：
 
 ```py
 !pyspark --conf spark.serializer=org.apache.spark.
@@ -301,34 +301,34 @@ Y
 hs37d5
 ```
 
-是的，我们观察到来自染色体1到22、X和Y的读取，以及一些其他不属于“主”染色体的染色体片段或位置未知的染色体块。让我们更仔细地分析一下代码：
+是的，我们观察到来自染色体 1 到 22、X 和 Y 的读取，以及一些其他不属于“主”染色体的染色体片段或位置未知的染色体块。让我们更仔细地分析一下代码：
 
 ```py
-readsData = ac.loadAlignments("data/HG00103") ![1](assets/1.png)
+readsData = ac.loadAlignments("data/HG00103") ![1](img/1.png)
 
-readsDataDF = readsData.toDF() ![2](assets/2.png)
+readsDataDF = readsData.toDF() ![2](img/2.png)
 
-unique_chr = readsDataDF.select('referenceName').distinct(). \ ![3](assets/3.png)
-              collect() ![4](assets/4.png)
+unique_chr = readsDataDF.select('referenceName').distinct(). \ ![3](img/3.png)
+              collect() ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-1)
+![1](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-1)
 
-`AlignmentDataset`：包含所有数据的ADAM类型。
+`AlignmentDataset`：包含所有数据的 ADAM 类型。
 
-[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-2)
+![2](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-2)
 
-`DataFrame`：底层的Spark DataFrame。
+`DataFrame`：底层的 Spark DataFrame。
 
-[![3](assets/3.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-3)
+![3](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-3)
 
-这将聚合所有不同的contig名称；这将很小。
+这将聚合所有不同的 contig 名称；这将很小。
 
-[![4](assets/4.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-4)
+![4](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO3-4)
 
-这将触发计算，并将DataFrame中的数据返回到客户端应用程序（Shell）。
+这将触发计算，并将 DataFrame 中的数据返回到客户端应用程序（Shell）。
 
-举个更临床的例子，假设我们正在测试一个个体的基因组，以检查他们是否携带任何可能导致其子女患囊性纤维化（CF）的基因变异。我们的基因检测使用下一代DNA测序从多个相关基因生成读取数，比如CFTR基因（其突变可以导致CF）。在通过我们的基因分型流程运行数据后，我们确定CFTR基因似乎有一个导致其功能受损的早期终止密码子。然而，这种突变在[Human Gene Mutation Database](https://oreil.ly/wULRR)中从未报告过，也不在[Sickkids CFTR database](https://oreil.ly/u1L0j)中（这是聚合CF基因变异的数据库）。我们想回到原始测序数据，以查看可能有害的基因型调用是否为假阳性。为此，我们需要手动分析所有映射到该变异位点的读数，比如染色体7上的117149189位置（参见[图 9-1](#IGV_HG00103_CFTR)）：
+举个更临床的例子，假设我们正在测试一个个体的基因组，以检查他们是否携带任何可能导致其子女患囊性纤维化（CF）的基因变异。我们的基因检测使用下一代 DNA 测序从多个相关基因生成读取数，比如 CFTR 基因（其突变可以导致 CF）。在通过我们的基因分型流程运行数据后，我们确定 CFTR 基因似乎有一个导致其功能受损的早期终止密码子。然而，这种突变在[Human Gene Mutation Database](https://oreil.ly/wULRR)中从未报告过，也不在[Sickkids CFTR database](https://oreil.ly/u1L0j)中（这是聚合 CF 基因变异的数据库）。我们想回到原始测序数据，以查看可能有害的基因型调用是否为假阳性。为此，我们需要手动分析所有映射到该变异位点的读数，比如染色体 7 上的 117149189 位置（参见图 9-1）：
 
 ```py
 from pyspark.sql import functions as fun
@@ -344,21 +344,21 @@ cftr_reads.count()
 
 现在可以手动检查这九个读取，或者例如通过自定义对齐器处理它们，并检查报告的致病变异是否为假阳性。
 
-![aaps 0901](assets/aaps_0901.png)
+![aaps 0901](img/aaps_0901.png)
 
-###### 图 9-1\. 在CFTR基因中chr7:117149189处的HG00103的综合基因组查看器可视化
+###### 图 9-1\. 在 CFTR 基因中 chr7:117149189 处的 HG00103 的综合基因组查看器可视化
 
-假设我们正在运营一个临床实验室，为临床医生提供携带者筛查服务。使用像AWS S3这样的云存储系统存档原始数据可以确保数据保持相对温暖（相对于磁带存档来说）。除了有一个可靠的数据处理系统外，我们还可以轻松访问所有过去的数据进行质量控制，或者在需要手动干预的情况下，例如之前介绍的CFTR案例。除了快速访问所有数据的便利性外，中心化还使得执行大规模分析研究（如人群遗传学、大规模质量控制分析等）变得更加容易。
+假设我们正在运营一个临床实验室，为临床医生提供携带者筛查服务。使用像 AWS S3 这样的云存储系统存档原始数据可以确保数据保持相对温暖（相对于磁带存档来说）。除了有一个可靠的数据处理系统外，我们还可以轻松访问所有过去的数据进行质量控制，或者在需要手动干预的情况下，例如之前介绍的 CFTR 案例。除了快速访问所有数据的便利性外，中心化还使得执行大规模分析研究（如人群遗传学、大规模质量控制分析等）变得更加容易。
 
-现在我们已经熟悉了ADAM API，让我们开始创建我们的转录因子预测数据集。
+现在我们已经熟悉了 ADAM API，让我们开始创建我们的转录因子预测数据集。
 
-# 从ENCODE数据预测转录因子结合位点
+# 从 ENCODE 数据预测转录因子结合位点
 
-在这个例子中，我们将使用公开可用的序列特征数据来构建一个简单的转录因子结合模型。TFs是结合基因组中特定DNA序列的蛋白质，并帮助控制不同基因的表达。因此，它们在确定特定细胞的表型方面至关重要，并参与许多生理和疾病过程。ChIP-seq是一种基于NGS的分析方法，允许对特定细胞/组织类型中特定TF结合位点进行全基因组特征化。然而，除了ChIP-seq的成本和技术难度之外，它还需要为每种组织/TF组合进行单独的实验。相比之下，DNase-seq是一种在全基因组范围内查找开放染色质区域的分析方法，并且只需每种组织类型执行一次。与为每种组织/TF组合执行ChIP-seq实验以测定TF结合位点不同，我们希望在仅有DNase-seq数据的情况下预测新组织类型中的TF结合位点。
+在这个例子中，我们将使用公开可用的序列特征数据来构建一个简单的转录因子结合模型。TFs 是结合基因组中特定 DNA 序列的蛋白质，并帮助控制不同基因的表达。因此，它们在确定特定细胞的表型方面至关重要，并参与许多生理和疾病过程。ChIP-seq 是一种基于 NGS 的分析方法，允许对特定细胞/组织类型中特定 TF 结合位点进行全基因组特征化。然而，除了 ChIP-seq 的成本和技术难度之外，它还需要为每种组织/TF 组合进行单独的实验。相比之下，DNase-seq 是一种在全基因组范围内查找开放染色质区域的分析方法，并且只需每种组织类型执行一次。与为每种组织/TF 组合执行 ChIP-seq 实验以测定 TF 结合位点不同，我们希望在仅有 DNase-seq 数据的情况下预测新组织类型中的 TF 结合位点。
 
-特别是，我们将使用来自[HT-SELEX](https://oreil.ly/t5OEkL)的已知序列模体数据和其他来自[公开可用的ENCODE数据集](https://oreil.ly/eFJ9n)的DNase-seq数据来预测CTCF TF的结合位点。我们选择了六种不同的细胞类型，这些类型具有可用的DNase-seq和CTCF ChIP-seq数据用于训练。训练示例将是一个DNase敏感性（HS）峰（基因组的一个片段），TF是否结合/未结合的二进制标签将从ChIP-seq数据中导出。
+特别是，我们将使用来自[HT-SELEX](https://oreil.ly/t5OEkL)的已知序列模体数据和其他来自[公开可用的 ENCODE 数据集](https://oreil.ly/eFJ9n)的 DNase-seq 数据来预测 CTCF TF 的结合位点。我们选择了六种不同的细胞类型，这些类型具有可用的 DNase-seq 和 CTCF ChIP-seq 数据用于训练。训练示例将是一个 DNase 敏感性（HS）峰（基因组的一个片段），TF 是否结合/未结合的二进制标签将从 ChIP-seq 数据中导出。
 
-总结整体数据流程：主要的训练/测试样本将从DNase-seq数据中派生。每个开放染色质区域（基因组上的一个区间）将用于生成是否会在那里结合特定组织类型中的特定转录因子的预测。为此，我们将ChIP-seq数据空间连接到DNase-seq数据；每个重叠都是DNase序列对象的正标签。最后，为了提高预测准确性，我们在DNase-seq数据的每个区间中生成一个额外的特征——到转录起始位点的距离（使用GENCODE数据集）。通过执行空间连接（可能进行聚合），将该特征添加到训练样本中。
+总结整体数据流程：主要的训练/测试样本将从 DNase-seq 数据中派生。每个开放染色质区域（基因组上的一个区间）将用于生成是否会在那里结合特定组织类型中的特定转录因子的预测。为此，我们将 ChIP-seq 数据空间连接到 DNase-seq 数据；每个重叠都是 DNase 序列对象的正标签。最后，为了提高预测准确性，我们在 DNase-seq 数据的每个区间中生成一个额外的特征——到转录起始位点的距离（使用 GENCODE 数据集）。通过执行空间连接（可能进行聚合），将该特征添加到训练样本中。
 
 我们将使用以下细胞系的数据：
 
@@ -386,14 +386,14 @@ HepG2
 
 肝细胞癌
 
-首先，我们下载每个细胞系的DNase数据，格式为*.narrowPeak*：
+首先，我们下载每个细胞系的 DNase 数据，格式为*.narrowPeak*：
 
 ```py
 mkdir data/genomics/dnase
 
 curl -O -L "https://www.encodeproject.org/ \
               files/ENCFF001UVC/@@download/ENCFF001UVC.bed.gz" | \
-              gunzip > data/genomics/dnase/GM12878.DNase.narrowPeak ![1](assets/1.png)
+              gunzip > data/genomics/dnase/GM12878.DNase.narrowPeak ![1](img/1.png)
 curl -O -L "https://www.encodeproject.org/ \
               files/ENCFF001UWQ/@@download/ENCFF001UWQ.bed.gz" | \
               gunzip > data/genomics/dnase/K562.DNase.narrowPeak
@@ -413,11 +413,11 @@ curl -O -L "https://www.encodeproject.org/ \
 [...]
 ```
 
-[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO4-1)
+![1](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO4-1)
 
 流式解压缩
 
-接下来，我们下载CTCF TF的ChIP-seq数据，也是*.narrowPeak*格式，以及GTF格式的GENCODE数据：
+接下来，我们下载 CTCF TF 的 ChIP-seq 数据，也是*.narrowPeak*格式，以及 GTF 格式的 GENCODE 数据：
 
 ```py
 mkdir data/genomics/chip-seq
@@ -459,13 +459,13 @@ curl -s -L "http://ftp.ebi.ac.uk/pub/databases/gencode/\
 
 1.  距离最近的转录起始位点（TSS）
 
-1.  TF标识（在本例中始终为“CTCF”）
+1.  TF 标识（在本例中始终为“CTCF”）
 
 1.  细胞系
 
-1.  TF结合状态（布尔值；目标变量）
+1.  TF 结合状态（布尔值；目标变量）
 
-该数据集可以轻松转换为DataFrame，用于输入到机器学习库中。由于我们需要为多个细胞系生成数据，我们将为每个细胞系单独定义一个DataFrame，并在最后进行连接：
+该数据集可以轻松转换为 DataFrame，用于输入到机器学习库中。由于我们需要为多个细胞系生成数据，我们将为每个细胞系单独定义一个 DataFrame，并在最后进行连接：
 
 ```py
 cell_lines = ["GM12878", "K562", "BJ", "HEK293", "H54", "HepG2"]
@@ -495,16 +495,16 @@ b_tss_df = spark.sparkContext.broadcast(tss_df.groupBy('referenceName').\
                 agg(fun.collect_list("start").alias("start_sites")))
 ```
 
-现在，我们已经加载了定义我们训练样本所需的数据，我们定义了计算每个细胞系数据的“循环”的主体。请注意我们如何读取ChIP-seq和DNase数据的文本表示，因为这些数据集并不大，不会影响性能。
+现在，我们已经加载了定义我们训练样本所需的数据，我们定义了计算每个细胞系数据的“循环”的主体。请注意我们如何读取 ChIP-seq 和 DNase 数据的文本表示，因为这些数据集并不大，不会影响性能。
 
-为此，我们加载DNase和ChIP-seq数据：
+为此，我们加载 DNase 和 ChIP-seq 数据：
 
 ```py
 current_cell_line = cell_lines[0]
 
 dnase_path = f'data/genomics/dnase/{current_cell_line}.DNase.narrowPeak'
-dnase_data = ac.loadFeatures(dnase_path) ![1](assets/1.png)
-dnase_data.toDF().columns ![2](assets/2.png)
+dnase_data = ac.loadFeatures(dnase_path) ![1](img/1.png)
+dnase_data.toDF().columns ![2](img/2.png)
 ...
 ['featureId', 'sampleId', 'name', 'source', 'featureType', 'referenceName',
 'start', 'end', 'strand', 'phase', 'frame', 'score', 'geneId', 'transcriptId',
@@ -515,16 +515,16 @@ dnase_data.toDF().columns ![2](assets/2.png)
 
 chip_seq_path = f'data/genomics/chip-seq/ \
                   {current_cell_line}.ChIP-seq.CTCF.narrowPeak'
-chipseq_data = ac.loadFeatures(chipseq_path) ![1](assets/1.png)
+chipseq_data = ac.loadFeatures(chipseq_path) ![1](img/1.png)
 ```
 
-[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO5-1)
+![1](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO5-1)
 
 `FeatureDataset`
 
-[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO5-2)
+![2](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO5-2)
 
-Dnase DataFrame中的列
+Dnase DataFrame 中的列
 
 与 `chipseq_data` 中的 `ReferenceRegion` 重叠的位点具有 TF 结合位点，因此标记为 `true`，而其余的位点标记为 `false`。这是通过 ADAM API 中提供的 1D 空间连接原语来实现的。连接功能需要一个按 `ReferenceRegion` 键入的 RDD，并将生成根据通常连接语义（例如内连接与外连接）重叠区域的元组。
 
@@ -564,20 +564,20 @@ training_df = dnase_with_label_df.withColumn(
 
 training_df = training_df.join(b_tss_df,
                                training_df.contig == b_tss_df.referenceName,
-                               "inner") ![1](assets/1.png)
+                               "inner") ![1](img/1.png)
 
 training_df.withColumn("closest_tss",
                       fun.least(distance_to_closest_udf(fun.col("start_sites"),
                                                         fun.col("start")),
                           distance_to_closest_udf(fun.col("start_sites"),
-                                                  fun.col("end")))) ![2](assets/2.png)
+                                                  fun.col("end")))) ![2](img/2.png)
 ```
 
-[![1](assets/1.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO6-1)
+![1](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO6-1)
 
 与之前创建的 `tss_df` 进行左连接。
 
-[![2](assets/2.png)](#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO6-2)
+![2](img/#co_analyzing_genomics_data___span_class__keep_together__and_the_bdg_project__span__CO6-2)
 
 获取最接近的 TSS 距离。
 
@@ -591,7 +591,7 @@ preTrainingData.count()
 preTrainingData.filter(fun.col("label") == true).count()
 ```
 
-此时，`preTrainingData` 中的数据可以被归一化并转换为一个 DataFrame，用于训练分类器，如 [“Random Forests”](ch04.xhtml#RandomDecisionForests) 中所述。请注意，应执行交叉验证，在每个折叠中，您应保留一个细胞系的数据。
+此时，`preTrainingData` 中的数据可以被归一化并转换为一个 DataFrame，用于训练分类器，如 “Random Forests” 中所述。请注意，应执行交叉验证，在每个折叠中，您应保留一个细胞系的数据。
 
 # 接下来该去哪里
 

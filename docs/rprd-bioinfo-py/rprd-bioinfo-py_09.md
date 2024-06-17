@@ -1,6 +1,6 @@
-# 第 8 章。在 DNA 中查找基序：探索序列相似性
+# 第八章。在 DNA 中查找基序：探索序列相似性
 
-在 [Rosalind SUBS 挑战](https://oreil.ly/hoUhB) 中，我将搜索另一个序列内任何出现的序列。共享的子序列可能代表诸如标记、基因或调控序列等保守元素。两个生物之间的保守序列可能暗示一些遗传或收敛特征。我将探讨如何使用 Python 中的 `str`（字符串）类编写解决方案，并将字符串与列表进行比较。然后，我将探讨如何使用高阶函数表达这些想法，并将继续讨论我在 [第 7 章](ch07.html#ch07) 中开始的 k-mer。最后，我将展示如何使用正则表达式找到模式，并指出重叠匹配的问题。
+在 [Rosalind SUBS 挑战](https://oreil.ly/hoUhB) 中，我将搜索另一个序列内任何出现的序列。共享的子序列可能代表诸如标记、基因或调控序列等保守元素。两个生物之间的保守序列可能暗示一些遗传或收敛特征。我将探讨如何使用 Python 中的 `str`（字符串）类编写解决方案，并将字符串与列表进行比较。然后，我将探讨如何使用高阶函数表达这些想法，并将继续讨论我在 第七章 中开始的 k-mer。最后，我将展示如何使用正则表达式找到模式，并指出重叠匹配的问题。
 
 在本章中，我将演示：
 
@@ -34,14 +34,14 @@ optional arguments:
   -h, --help  show this help message and exit
 ```
 
-该程序应报告子序列在序列中的起始位置。如 [图 8-1](#fig_8.1) 所示，子序列 *ATAT* 可以在序列 *GATATATGCATATACTT* 的位置 2、4 和 10 处找到：
+该程序应报告子序列在序列中的起始位置。如 图 8-1 所示，子序列 *ATAT* 可以在序列 *GATATATGCATATACTT* 的位置 2、4 和 10 处找到：
 
 ```py
 $ ./subs.py GATATATGCATATACTT ATAT
 2 4 10
 ```
 
-![mpfb 0801](assets/mpfb_0801.png)
+![mpfb 0801](img/mpfb_0801.png)
 
 ###### 图 8-1。子序列 *ATAT* 可以在位置 2、4 和 10 找到
 
@@ -55,12 +55,12 @@ Done, see new script "subs.py".
 这是我定义程序参数的方法：
 
 ```py
-class Args(NamedTuple): ![1](assets/1.png)
+class Args(NamedTuple): ![1](img/1.png)
     """ Command-line arguments """
     seq: str
     subseq: str
 
-def get_args() -> Args: ![2](assets/2.png)
+def get_args() -> Args: ![2](img/2.png)
     """ Get command-line arguments """
 
     parser = argparse.ArgumentParser(
@@ -73,18 +73,18 @@ def get_args() -> Args: ![2](assets/2.png)
 
     args = parser.parse_args()
 
-    return Args(args.seq, args.subseq) ![3](assets/3.png)
+    return Args(args.seq, args.subseq) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO1-1)
+![1](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO1-1)
 
 `Args` 类将有两个字符串字段，`seq` 和 `subseq`。
 
-[![2](assets/2.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO1-2)
+![2](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO1-2)
 
 函数返回一个 `Args` 对象。
 
-[![3](assets/3.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO1-3)
+![3](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO1-3)
 
 使用 `Args` 打包并返回参数。
 
@@ -123,14 +123,14 @@ subsequence = ATAT
 True
 ```
 
-这是很好的信息，但它没有告诉我*字符串*可以在哪里找到。幸运的是有`str.find()`函数，它说`subseq`可以从索引1（即第二个字符）开始找到：
+这是很好的信息，但它没有告诉我*字符串*可以在哪里找到。幸运的是有`str.find()`函数，它说`subseq`可以从索引 1（即第二个字符）开始找到：
 
 ```py
 >>> seq.find(subseq)
 1
 ```
 
-我从Rosalind的描述中知道答案应该是2、4和10。我刚刚找到了2，那么下一个如何找到？我不能再次调用相同的函数，因为我会得到相同的答案。我需要进一步查看序列。也许`help(str.find)`可能有一些用处？
+我从 Rosalind 的描述中知道答案应该是 2、4 和 10。我刚刚找到了 2，那么下一个如何找到？我不能再次调用相同的函数，因为我会得到相同的答案。我需要进一步查看序列。也许`help(str.find)`可能有一些用处？
 
 ```py
 >>> help(str.find)
@@ -144,21 +144,21 @@ find(...)
     Return -1 on failure.
 ```
 
-看起来我可以指定一个*起始*位置。我将使用比第一个子序列被发现的位置大1的位置，这个位置是1，所以从2开始：
+看起来我可以指定一个*起始*位置。我将使用比第一个子序列被发现的位置大 1 的位置，这个位置是 1，所以从 2 开始：
 
 ```py
 >>> seq.find(subseq, 2)
 3
 ```
 
-太好了。这是下一个答案——好吧，4是下一个答案，但你知道我是什么意思的。我再试一次，这次从4开始：
+太好了。这是下一个答案——好吧，4 是下一个答案，但你知道我是什么意思的。我再试一次，这次从 4 开始：
 
 ```py
 >>> seq.find(subseq, 4)
 9
 ```
 
-那是我预料之外的最后一个值。如果我尝试使用起始值为10会发生什么？正如文档所示，这将返回`-1`来指示无法找到子序列：
+那是我预料之外的最后一个值。如果我尝试使用起始值为 10 会发生什么？正如文档所示，这将返回`-1`来指示无法找到子序列：
 
 ```py
 >>> seq.find(subseq, 10)
@@ -194,9 +194,9 @@ find(...)
 3
 ```
 
-第三种方法是使用k-mer。如果子序列存在，那么它就是一个k-mer，其中*k*是子序列的长度定义。使用你从[第7章](ch07.html#ch07)中提取序列中所有k-mer及其位置的代码，并注意与子序列匹配的k-mer的位置。
+第三种方法是使用 k-mer。如果子序列存在，那么它就是一个 k-mer，其中*k*是子序列的长度定义。使用你从第七章中提取序列中所有 k-mer 及其位置的代码，并注意与子序列匹配的 k-mer 的位置。
 
-最后，由于我正在寻找一种文本模式，我可以使用正则表达式。在[第5章](ch05.html#ch05)中，我使用`re.findall()`函数来查找DNA中所有*G*和*C*。我可以类似地使用这种方法来找到序列中所有的子序列：
+最后，由于我正在寻找一种文本模式，我可以使用正则表达式。在第五章中，我使用`re.findall()`函数来查找 DNA 中所有*G*和*C*。我可以类似地使用这种方法来找到序列中所有的子序列：
 
 ```py
 >>> import re
@@ -214,7 +214,7 @@ find(...)
 
 现在显而易见它找到了第一个和最后一个子序列。为什么它不会找到第二个实例？原来正则表达式对重叠模式处理得不太好，但是对搜索模式的一些添加可以解决这个问题。我将把这个问题留给你和一些互联网搜索，看看你是否能找到解决方案。
 
-我介绍了四种不同的解决方案。看看你能否使用每种方法编写解决方案。关键在于探索Python的各个角落，存储可能在未来某个程序中起决定性作用的有趣片段和技巧。花上几个小时或几天也没关系。坚持下去，直到你有解决方案能够通过`pytest`和`make test`。
+我介绍了四种不同的解决方案。看看你能否使用每种方法编写解决方案。关键在于探索 Python 的各个角落，存储可能在未来某个程序中起决定性作用的有趣片段和技巧。花上几个小时或几天也没关系。坚持下去，直到你有解决方案能够通过`pytest`和`make test`。
 
 # 解决方案
 
@@ -227,47 +227,47 @@ find(...)
 ```py
 def main() -> None:
     args = get_args()
-    last = 0 ![1](assets/1.png)
-    found = [] ![2](assets/2.png)
-    while True: ![3](assets/3.png)
-        pos = args.seq.find(args.subseq, last) ![4](assets/4.png)
-        if pos == -1: ![5](assets/5.png)
+    last = 0 ![1](img/1.png)
+    found = [] ![2](img/2.png)
+    while True: ![3](img/3.png)
+        pos = args.seq.find(args.subseq, last) ![4](img/4.png)
+        if pos == -1: ![5](img/5.png)
             break
-        found.append(pos + 1) ![6](assets/6.png)
-        last = pos + 1 ![7](assets/7.png)
+        found.append(pos + 1) ![6](img/6.png)
+        last = pos + 1 ![7](img/7.png)
 
-    print(*found) ![8](assets/8.png)
+    print(*found) ![8](img/8.png)
 ```
 
-[![1](assets/1.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-1)
+![1](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-1)
 
 将`last`位置初始化为`0`，序列的起始位置。
 
-[![2](assets/2.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-2)
+![2](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-2)
 
 初始化一个列表以保存发现子序列的所有位置。
 
-[![3](assets/3.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-3)
+![3](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-3)
 
 创建一个使用`while`的无限循环。
 
-[![4](assets/4.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-4)
+![4](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-4)
 
 使用`str.find()`查找子序列，使用上次已知位置。
 
-[![5](assets/5.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-5)
+![5](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-5)
 
 如果返回`-1`，则未找到子序列，因此退出循环。
 
-[![6](assets/6.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-6)
+![6](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-6)
 
 将大于索引的值附加到已发现位置的列表中。
 
-[![7](assets/7.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-7)
+![7](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-7)
 
 更新最后已知位置，其值比找到的索引大一。
 
-[![8](assets/8.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-8)
+![8](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO2-8)
 
 使用`*`打印已找到的位置，将列表扩展为其元素。函数将使用空格分隔多个值。
 
@@ -323,33 +323,33 @@ def main() -> None:
 ```py
 def main() -> None:
     args = get_args()
-    seq, subseq = args.seq, args.subseq ![1](assets/1.png)
+    seq, subseq = args.seq, args.subseq ![1](img/1.png)
     found = []
     last = 0
-    while subseq in seq[last:]: ![2](assets/2.png)
-        last = seq.index(subseq, last) + 1 ![3](assets/3.png)
-        found.append(last) ![4](assets/4.png)
+    while subseq in seq[last:]: ![2](img/2.png)
+        last = seq.index(subseq, last) + 1 ![3](img/3.png)
+        found.append(last) ![4](img/4.png)
 
-    print(' '.join(map(str, found))) ![5](assets/5.png)
+    print(' '.join(map(str, found))) ![5](img/5.png)
 ```
 
-[![1](assets/1.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-1)
+![1](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-1)
 
 解包序列和子序列。
 
-[![2](assets/2.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-2)
+![2](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-2)
 
 询问子序列是否出现在从上次找到的位置开始的序列片段中。只要此条件为真，`while` 循环就会执行。
 
-[![3](assets/3.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-3)
+![3](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-3)
 
 使用 `str.index()` 获取子序列的起始位置。`last` 变量通过将子序列索引加 1 来更新，以创建下一个起始位置。
 
-[![4](assets/4.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-4)
+![4](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-4)
 
 将此位置追加到找到位置列表中。
 
-[![5](assets/5.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-5)
+![5](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO3-5)
 
 使用 `map()` 将所有找到的整数位置强制转换为字符串，然后在空格上进行连接以打印。
 
@@ -409,7 +409,7 @@ TypeError: sequence item 0: expected str instance, int found
 
 ## 解决方案 3：一种纯函数式方法
 
-下一个解决方案结合了许多先前的想法，使用纯函数式方法。首先，考虑第一和第二个解决方案中使用的`while`循环，用于将非负值附加到`found`列表中。这听起来像是列表理解可以做的事情吗？迭代的值范围包括从0到序列末尾减去子序列长度的所有位置`n`：
+下一个解决方案结合了许多先前的想法，使用纯函数式方法。首先，考虑第一和第二个解决方案中使用的`while`循环，用于将非负值附加到`found`列表中。这听起来像是列表理解可以做的事情吗？迭代的值范围包括从 0 到序列末尾减去子序列长度的所有位置`n`：
 
 ```py
 >>> r = range(len(seq) - len(subseq))
@@ -417,7 +417,7 @@ TypeError: sequence item 0: expected str instance, int found
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 ```
 
-列表理解可以使用这些值和`str.find()`来搜索子序列在序列中从每个位置`n`开始。从位置0和1开始，子序列可以在索引1处找到。从位置2和3开始，子序列可以在索引3处找到。这一直持续到`-1`指示子序列在那些位置`n`上不存在：
+列表理解可以使用这些值和`str.find()`来搜索子序列在序列中从每个位置`n`开始。从位置 0 和 1 开始，子序列可以在索引 1 处找到。从位置 2 和 3 开始，子序列可以在索引 3 处找到。这一直持续到`-1`指示子序列在那些位置`n`上不存在：
 
 ```py
 >>> [seq.find(subseq, n) for n in r]
@@ -470,7 +470,7 @@ TypeError: sequence item 0: expected str instance, int found
 {1, 3, 9}
 ```
 
-这些几乎是正确的值，但它们是*索引*位置，零基础的。我需要值加一，所以我可以创建一个函数来加1，并使用`map()`应用它：
+这些几乎是正确的值，但它们是*索引*位置，零基础的。我需要值加一，所以我可以创建一个函数来加 1，并使用`map()`应用它：
 
 ```py
 >>> add1 = partial(operator.add, 1)
@@ -499,48 +499,48 @@ TypeError: sequence item 0: expected str instance, int found
 2 4 10
 ```
 
-这是很多右括号。这段代码开始看起来有点像Lisp。如果将所有这些想法结合起来，你最终得到与命令式解决方案相同的答案，但现在只结合函数：
+这是很多右括号。这段代码开始看起来有点像 Lisp。如果将所有这些想法结合起来，你最终得到与命令式解决方案相同的答案，但现在只结合函数：
 
 ```py
 def main() -> None:
     args = get_args()
-    seq, subseq = args.seq, args.subseq ![1](assets/1.png)
-    r = list(range(len(seq) - len(subseq))) ![2](assets/2.png)
-    ok = partial(operator.le, 0) ![3](assets/3.png)
-    find = partial(seq.find, subseq) ![4](assets/4.png)
-    add1 = partial(operator.add, 1) ![5](assets/5.png)
-    print(*sorted(map(add1, set(filter(ok, map(find, r)))))) ![6](assets/6.png)
+    seq, subseq = args.seq, args.subseq ![1](img/1.png)
+    r = list(range(len(seq) - len(subseq))) ![2](img/2.png)
+    ok = partial(operator.le, 0) ![3](img/3.png)
+    find = partial(seq.find, subseq) ![4](img/4.png)
+    add1 = partial(operator.add, 1) ![5](img/5.png)
+    print(*sorted(map(add1, set(filter(ok, map(find, r)))))) ![6](img/6.png)
 ```
 
-[![1](assets/1.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-1)
+![1](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-1)
 
 展开序列和子序列。
 
-[![2](assets/2.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-2)
+![2](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-2)
 
 生成一个数字范围，直到序列的长度减去子序列的长度。
 
-[![3](assets/3.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-3)
+![3](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-3)
 
 创建一个部分`ok()`函数，如果给定的数字大于或等于`0`，则返回`True`。
 
-[![4](assets/4.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-4)
+![4](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-4)
 
 创建一个部分`find()`函数，当提供起始参数时，将查找序列中的子序列。
 
-[![5](assets/5.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-5)
+![5](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-5)
 
 创建一个部分函数`add1()`，它将返回比参数大一的值。
 
-[![6](assets/6.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-6)
+![6](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO4-6)
 
-将范围内的所有数字应用于`find()`函数，过滤掉负值，使用`set()`函数使结果唯一，对值加1并排序后再打印。
+将范围内的所有数字应用于`find()`函数，过滤掉负值，使用`set()`函数使结果唯一，对值加 1 并排序后再打印。
 
-这个解决方案只使用*纯*函数，对于背景在Haskell编程语言中的人来说应该很容易理解。如果对你来说这似乎一团糟，请花些时间在REPL中逐个理解每个部分如何完美地配合在一起。
+这个解决方案只使用*纯*函数，对于背景在 Haskell 编程语言中的人来说应该很容易理解。如果对你来说这似乎一团糟，请花些时间在 REPL 中逐个理解每个部分如何完美地配合在一起。
 
-## 解决方案4：使用K-mers
+## 解决方案 4：使用 K-mers
 
-我提到过你可以尝试使用k-mers找到答案，这在[第7章](ch07.html#ch07)中已经展示过了。如果子序列存在于序列中，那么它必须是一个k-mer，其中*k*等于子序列的长度：
+我提到过你可以尝试使用 k-mers 找到答案，这在第七章中已经展示过了。如果子序列存在于序列中，那么它必须是一个 k-mer，其中*k*等于子序列的长度：
 
 ```py
 >>> seq = 'GATATATGCATATACTT'
@@ -550,7 +550,7 @@ def main() -> None:
 4
 ```
 
-这里是序列中的所有4-mers：
+这里是序列中的所有 4-mers：
 
 ```py
 >>> kmers = [seq[i:i + k] for i in range(len(seq) - k + 1)]
@@ -559,14 +559,14 @@ def main() -> None:
  'ATAT', 'TATA', 'ATAC', 'TACT', 'ACTT']
 ```
 
-这里是与子序列相同的4-mers：
+这里是与子序列相同的 4-mers：
 
 ```py
 >>> list(filter(lambda s: s == subseq, kmers))
 ['ATAT', 'ATAT', 'ATAT']
 ```
 
-我需要知道位置以及k-mers。`enumerate()`函数将返回序列中所有元素的索引和值。以下是前四个：
+我需要知道位置以及 k-mers。`enumerate()`函数将返回序列中所有元素的索引和值。以下是前四个：
 
 ```py
 >>> kmers = list(enumerate([seq[i:i + k] for i in range(len(seq) - k + 1)]))
@@ -574,21 +574,21 @@ def main() -> None:
 [(0, 'GATA'), (1, 'ATAT'), (2, 'TATA'), (3, 'ATAT')]
 ```
 
-我可以与`filter()`一起使用，但现在`lambda`接收的是索引和值的元组，所以我需要查看第二个字段（即索引1）：
+我可以与`filter()`一起使用，但现在`lambda`接收的是索引和值的元组，所以我需要查看第二个字段（即索引 1）：
 
 ```py
 >>> list(filter(lambda t: t[1] == subseq, kmers))
 [(1, 'ATAT'), (3, 'ATAT'), (9, 'ATAT')]
 ```
 
-我真正关心的只是获取匹配k-mers的索引。我可以使用带有`if`表达式的`map()`来重写这个，当匹配时返回索引位置，否则返回`None`：
+我真正关心的只是获取匹配 k-mers 的索引。我可以使用带有`if`表达式的`map()`来重写这个，当匹配时返回索引位置，否则返回`None`：
 
 ```py
 >>> list(map(lambda t: t[0] if t[1] == subseq else None, kmers))
 [None, 1, None, 3, None, None, None, None, None, 9, None, None, None, None]
 ```
 
-我对标准的`map()`函数只能传递单个值给`lambda`感到沮丧。我需要的是一种可以打散元组的方法，就像`*t`，将其转换为两个值。幸运的是，我研究了`itertools`模块的文档，并找到了`starmap()`函数，因为它会给`lambda`参数添加一个*星号*来打散它。这使我能够将类似`(0, 'GATA')`的元组值解包为变量`i`（索引值为`0`）和`kmer`（值为`'GATA'`）。有了这些，我可以比较`kmer`与子序列，并将索引(`i`)加1：
+我对标准的`map()`函数只能传递单个值给`lambda`感到沮丧。我需要的是一种可以打散元组的方法，就像`*t`，将其转换为两个值。幸运的是，我研究了`itertools`模块的文档，并找到了`starmap()`函数，因为它会给`lambda`参数添加一个*星号*来打散它。这使我能够将类似`(0, 'GATA')`的元组值解包为变量`i`（索引值为`0`）和`kmer`（值为`'GATA'`）。有了这些，我可以比较`kmer`与子序列，并将索引(`i`)加 1：
 
 ```py
 >>> from itertools import starmap
@@ -604,31 +604,31 @@ def main() -> None:
 [2, 4, 10]
 ```
 
-我可以使用命令式技术表达一个k-mer解决方案：
+我可以使用命令式技术表达一个 k-mer 解决方案：
 
 ```py
 def main() -> None:
     args = get_args()
     seq, subseq = args.seq, args.subseq
-    k = len(subseq) ![1](assets/1.png)
-    kmers = [seq[i:i + k] for i in range(len(seq) - k + 1)] ![2](assets/2.png)
-    found = [i + 1 for i, kmer in enumerate(kmers) if kmer == subseq] ![3](assets/3.png)
-    print(*found) ![4](assets/4.png)
+    k = len(subseq) ![1](img/1.png)
+    kmers = [seq[i:i + k] for i in range(len(seq) - k + 1)] ![2](img/2.png)
+    found = [i + 1 for i, kmer in enumerate(kmers) if kmer == subseq] ![3](img/3.png)
+    print(*found) ![4](img/4.png)
 ```
 
-[![1](assets/1.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-1)
+![1](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-1)
 
-在寻找k-mers时，`k`是子序列的长度。
+在寻找 k-mers 时，`k`是子序列的长度。
 
-[![2](assets/2.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-2)
+![2](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-2)
 
 使用列表推导式从序列生成所有 k-mer。
 
-[![3](assets/3.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-3)
+![3](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-3)
 
 迭代遍历所有 k-mer 的索引和值，其中 k-mer 等于子序列。返回比索引位置大一的值。
 
-[![4](assets/4.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-4)
+![4](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO5-4)
 
 打印找到的位置。
 
@@ -639,21 +639,21 @@ def main() -> None:
     args = get_args()
     seq, subseq = args.seq, args.subseq
     k = len(subseq)
-    kmers = enumerate(seq[i:i + k] for i in range(len(seq) - k + 1)) ![1](assets/1.png)
-    found: Iterator[int] = filter( ![2](assets/2.png)
+    kmers = enumerate(seq[i:i + k] for i in range(len(seq) - k + 1)) ![1](img/1.png)
+    found: Iterator[int] = filter( ![2](img/2.png)
         None, starmap(lambda i, kmer: i + 1 if kmer == subseq else None, kmers))
-    print(*found) ![3](assets/3.png)
+    print(*found) ![3](img/3.png)
 ```
 
-[![1](assets/1.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO6-1)
+![1](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO6-1)
 
 生成一个 k-mer 的枚举列表。
 
-[![2](assets/2.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO6-2)
+![2](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO6-2)
 
 选择与子序列相等的那些 k-mer 的位置。
 
-[![3](assets/3.png)](#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO6-3)
+![3](img/#co_find_a_motif_in_dna___span_class__keep_together__exploring_sequence_similarity__span__CO6-3)
 
 打印结果。
 

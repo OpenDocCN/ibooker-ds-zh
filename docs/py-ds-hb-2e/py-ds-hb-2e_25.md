@@ -1,10 +1,10 @@
-# 第22章。向量化字符串操作
+# 第二十二章。向量化字符串操作
 
-Python的一个优点是相对容易处理和操作字符串数据。Pandas在此基础上构建，并提供了一套全面的*向量化字符串操作*，这是处理（即：清理）现实世界数据时必不可少的部分。在本章中，我们将逐步介绍一些Pandas字符串操作，然后看看如何使用它们部分清理从互联网收集的非常混乱的食谱数据集。
+Python 的一个优点是相对容易处理和操作字符串数据。Pandas 在此基础上构建，并提供了一套全面的*向量化字符串操作*，这是处理（即：清理）现实世界数据时必不可少的部分。在本章中，我们将逐步介绍一些 Pandas 字符串操作，然后看看如何使用它们部分清理从互联网收集的非常混乱的食谱数据集。
 
-# 引入Pandas字符串操作
+# 引入 Pandas 字符串操作
 
-在之前的章节中，我们看到工具如NumPy和Pandas如何将算术操作泛化，以便我们可以轻松快速地在许多数组元素上执行相同的操作。例如：
+在之前的章节中，我们看到工具如 NumPy 和 Pandas 如何将算术操作泛化，以便我们可以轻松快速地在许多数组元素上执行相同的操作。例如：
 
 ```py
 In [1]: import numpy as np
@@ -13,7 +13,7 @@ In [1]: import numpy as np
 Out[1]: array([ 4,  6, 10, 14, 22, 26])
 ```
 
-这种操作的*向量化*简化了操作数组数据的语法：我们不再需要担心数组的大小或形状，而只需关注我们想要进行的操作。对于字符串数组，NumPy没有提供如此简单的访问方式，因此你只能使用更冗长的循环语法：
+这种操作的*向量化*简化了操作数组数据的语法：我们不再需要担心数组的大小或形状，而只需关注我们想要进行的操作。对于字符串数组，NumPy 没有提供如此简单的访问方式，因此你只能使用更冗长的循环语法：
 
 ```py
 In [2]: data = ['peter', 'Paul', 'MARY', 'gUIDO']
@@ -31,7 +31,7 @@ Out[3]: ['Peter', 'Paul', None, 'Mary', 'Guido']
 
 这种手动方法不仅冗长且不方便，还容易出错。
 
-Pandas包括功能来同时解决对向量化字符串操作的需求以及通过Pandas `Series`和`Index`对象的`str`属性正确处理缺失数据的需求。因此，例如，如果我们创建一个包含这些数据的Pandas `Series`，我们可以直接调用`str.capitalize`方法，其中内置了缺失值处理：
+Pandas 包括功能来同时解决对向量化字符串操作的需求以及通过 Pandas `Series`和`Index`对象的`str`属性正确处理缺失数据的需求。因此，例如，如果我们创建一个包含这些数据的 Pandas `Series`，我们可以直接调用`str.capitalize`方法，其中内置了缺失值处理：
 
 ```py
 In [4]: import pandas as pd
@@ -45,18 +45,18 @@ Out[4]: 0    Peter
         dtype: object
 ```
 
-# Pandas字符串方法表
+# Pandas 字符串方法表
 
-如果你对Python中的字符串操作有很好的理解，大部分Pandas字符串语法都足够直观，可能只需列出可用的方法就足够了。我们先从这里开始，然后深入探讨一些细微之处。本节的示例使用以下`Series`对象：
+如果你对 Python 中的字符串操作有很好的理解，大部分 Pandas 字符串语法都足够直观，可能只需列出可用的方法就足够了。我们先从这里开始，然后深入探讨一些细微之处。本节的示例使用以下`Series`对象：
 
 ```py
 In [5]: monte = pd.Series(['Graham Chapman', 'John Cleese', 'Terry Gilliam',
                            'Eric Idle', 'Terry Jones', 'Michael Palin'])
 ```
 
-## 类似于Python字符串方法的方法
+## 类似于 Python 字符串方法的方法
 
-几乎所有Python内置的字符串方法都有与之对应的Pandas向量化字符串方法。以下Pandas `str`方法与Python字符串方法相对应：
+几乎所有 Python 内置的字符串方法都有与之对应的 Pandas 向量化字符串方法。以下 Pandas `str`方法与 Python 字符串方法相对应：
 
 | `len` | `lower` | `translate` | `islower` | `ljust` |
 | --- | --- | --- | --- | --- |
@@ -122,7 +122,7 @@ Out[9]: 0    [Graham, Chapman]
 
 ## 使用正则表达式的方法
 
-此外，还有几种方法接受正则表达式（regexps）来检查每个字符串元素的内容，并遵循 Python 内置 `re` 模块的一些 API 约定（参见 [Table 22-1](#table-22-1)）。
+此外，还有几种方法接受正则表达式（regexps）来检查每个字符串元素的内容，并遵循 Python 内置 `re` 模块的一些 API 约定（参见 Table 22-1）。
 
 Table 22-1\. Pandas 方法与 Python `re` 模块函数的映射关系
 
@@ -167,7 +167,7 @@ Out[11]: 0    [Graham Chapman]
 
 ## 杂项方法
 
-最后，[Table 22-2](#table-22-2) 列出了使其他便捷操作得以实现的杂项方法。
+最后，Table 22-2 列出了使其他便捷操作得以实现的杂项方法。
 
 Table 22-2\. 其他 Pandas 字符串方法
 
@@ -247,7 +247,7 @@ Out[15]:    A  B  C  D
 
 借助这些操作作为构建块，您可以在清理数据时构建各种无穷无尽的字符串处理过程。
 
-我们在这里不会进一步深入这些方法，但我鼓励您阅读 [“处理文本数据”](https://oreil.ly/oYgWA) 在 Pandas 在线文档中，或参考 [“进一步资源”](ch24.xhtml#section-0313-further-resources) 中列出的资源。
+我们在这里不会进一步深入这些方法，但我鼓励您阅读 [“处理文本数据”](https://oreil.ly/oYgWA) 在 Pandas 在线文档中，或参考 “进一步资源” 中列出的资源。
 
 # 示例：食谱数据库
 
@@ -373,7 +373,7 @@ Out[25]:     salt  pepper  oregano   sage  parsley  rosemary  tarragon  thyme   
          4    False   False
 ```
 
-现在，举个例子，假设我们想找到使用欧芹、辣椒粉和龙蒿的菜谱。我们可以使用`DataFrame`的`query`方法快速计算这一点，有关详细信息，请参阅 [第 24 章](ch24.xhtml#section-0312-performance-eval-and-query)：
+现在，举个例子，假设我们想找到使用欧芹、辣椒粉和龙蒿的菜谱。我们可以使用`DataFrame`的`query`方法快速计算这一点，有关详细信息，请参阅 第二十四章：
 
 ```py
 In [26]: selection = spice_df.query('parsley & paprika & tarragon')

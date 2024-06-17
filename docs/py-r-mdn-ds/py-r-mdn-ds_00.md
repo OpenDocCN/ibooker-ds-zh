@@ -1,6 +1,6 @@
 # 第一部分：发现新语言
 
-为了开始我们的探索，我们将回顾Python和R的历史。通过比较和对比这些起源故事，您将更好地理解数据科学领域每种语言的当前状态。如果您想开始编码，请随意跳到[第二部分](part02.xhtml#p02)。
+为了开始我们的探索，我们将回顾 Python 和 R 的历史。通过比较和对比这些起源故事，您将更好地理解数据科学领域每种语言的当前状态。如果您想开始编码，请随意跳到第二部分。
 
 # Python 和 R 适用于现代数据科学家
 
@@ -18,7 +18,7 @@
 
 出版：O’Reilly Media, Inc.，1005 Gravenstein Highway North, Sebastopol, CA 95472。
 
-O’Reilly 图书可供教育、商业或销售促销使用。大多数书籍也提供在线版（[http://oreilly.com](http://oreilly.com)）。有关更多信息，请联系我们的公司/机构销售部门：800-998-9938或*corporate@oreilly.com*。
+O’Reilly 图书可供教育、商业或销售促销使用。大多数书籍也提供在线版（[`oreilly.com`](http://oreilly.com)）。有关更多信息，请联系我们的公司/机构销售部门：800-998-9938 或*corporate@oreilly.com*。
 
 +   编辑：Angela Rufino 和 Michelle Smith
 
@@ -30,7 +30,7 @@ O’Reilly 图书可供教育、商业或销售促销使用。大多数书籍也
 
 +   插图：Kate Dullea
 
-+   2021年9月：第一版
++   2021 年 9 月：第一版
 
 # 第一版修订历史
 
@@ -42,7 +42,7 @@ O’Reilly 图书可供教育、商业或销售促销使用。大多数书籍也
 
 +   2021-05-19：第四次发布
 
-查看[http://oreilly.com/catalog/errata.csp?isbn=9781492093404](http://oreilly.com/catalog/errata.csp?isbn=9781492093404)以获取发布详细信息。
+查看[`oreilly.com/catalog/errata.csp?isbn=9781492093404`](http://oreilly.com/catalog/errata.csp?isbn=9781492093404)以获取发布详细信息。
 
 O’Reilly 标志是 O’Reilly Media, Inc. 的注册商标。*Python 和 R 适用于现代数据科学家*，封面图片及相关商标也是 O’Reilly Media, Inc. 的商标。
 
