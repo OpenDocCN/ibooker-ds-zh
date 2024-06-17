@@ -40,13 +40,13 @@ In [2]: from sklearn.datasets import make_blobs
 
 ![output 5 0](img/output_5_0.png)
 
-###### 图 41-1\. 高斯朴素贝叶斯分类数据^(1)
+###### 图 41-1\. 高斯朴素贝叶斯分类数据¹
 
 最简单的高斯模型假设数据由没有各维度间协方差的高斯分布描述。这个模型可以通过计算每个标签内点的均值和标准差来拟合，这是我们定义这种分布所需的所有内容。这种朴素高斯假设的结果显示在图 41-2 中。
 
 ![05.05 gaussian NB](img/05.05-gaussian-NB.png)
 
-###### 图 41-2\. 高斯朴素贝叶斯模型可视化^(2)
+###### 图 41-2\. 高斯朴素贝叶斯模型可视化²
 
 这里的椭圆代表每个标签的高斯生成模型，中心区域的概率更高。有了每个类别的生成模型，我们可以简单地计算任何数据点的似然<math alttext="upper P left-parenthesis normal f normal e normal a normal t normal u normal r normal e normal s vertical-bar upper L 1 right-parenthesis"><mrow><mi>P</mi> <mo>(</mo> <mi>features</mi> <mo>|</mo> <msub><mi>L</mi> <mn>1</mn></msub> <mo>)</mo></mrow></math>，因此我们可以快速计算后验比率，并确定给定点最有可能的标签。
 
@@ -255,6 +255,6 @@ Out[16]: 'comp.graphics'
 
 最后两点看似不同，但实际上是相关的：随着数据集维度的增长，任何两个点在一起的可能性大大降低（毕竟，它们必须在*每个维度*上都很接近才能在总体上接近）。这意味着在高维空间中，簇通常比低维空间中更为分离，平均而言。基于这个原因，像这里讨论的简单分类器往往在维度增加时表现得同样或更好：一旦你有足够的数据，即使是简单模型也可以非常强大。
 
-^(1) 此图的全彩版本可在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+¹ 此图的全彩版本可在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^(2) 生成此图的代码可在[在线附录](https://oreil.ly/o0ENq)中找到。
+² 生成此图的代码可在[在线附录](https://oreil.ly/o0ENq)中找到。

@@ -80,7 +80,7 @@ In [4]: plt.scatter(X[:, 0], X[:, 1], c=y_kmeans, s=50, cmap='viridis')
 
 ![05.11 expectation maximization](img/05.11-expectation-maximization.png)
 
-###### 图 47-3\. k-means 的 E-M 算法可视化^(1)
+###### 图 47-3\. k-means 的 E-M 算法可视化¹
 
 *k*-means 算法简单到我们可以用几行代码来编写它。以下是一个非常基本的实现（参见图 Figure 47-4）。
 
@@ -369,7 +369,7 @@ In [22]: plot_pixels(data, title='Input color space: 16 million possible colors'
 
 ![output 55 0](img/output_55_0.png)
 
-###### 图 47-12\. 在 RGB 色彩空间中的像素分布^(3)
+###### 图 47-12\. 在 RGB 色彩空间中的像素分布³
 
 现在让我们将这 1600 万种颜色减少到只有 16 种颜色，使用像素空间的* k *-means 聚类。由于我们正在处理一个非常大的数据集，我们将使用小批量* k *-means，它在数据子集上计算结果（显示在图 47-13 中）比标准* k *-means 算法更快：
 
@@ -385,7 +385,7 @@ In [23]: from sklearn.cluster import MiniBatchKMeans
 
 ![output 57 0](img/output_57_0.png)
 
-###### 图 47-13\. RGB 色彩空间中的 16 个聚类^(4)
+###### 图 47-13\. RGB 色彩空间中的 16 个聚类⁴
 
 结果是原始像素的重新着色，其中每个像素分配到最接近的聚类中心的颜色。将这些新颜色在图像空间而不是像素空间中绘制，显示了这种效果（见图 47-14）。
 
@@ -407,10 +407,10 @@ In [24]: china_recolored = new_colors.reshape(china.shape)
 
 右侧面板中确实丢失了一些细节，但整体图像仍然很容易识别。在存储原始数据所需的字节方面，右侧的图像实现了约 100 万的压缩比！现在，这种方法不会与像 JPEG 这样的专用图像压缩方案匹敌，但这个例子展示了通过* k *-means 等无监督方法进行创新思维的威力。
 
-^(1) 生成此图的代码可以在[在线附录](https://oreil.ly/yo6GV)中找到。
+¹ 生成此图的代码可以在[在线附录](https://oreil.ly/yo6GV)中找到。
 
-^(2) 欲查看彩色版本以及后续图像，请参阅[本书的在线版本](https://oreil.ly/PDSH_GitHub)。
+² 欲查看彩色版本以及后续图像，请参阅[本书的在线版本](https://oreil.ly/PDSH_GitHub)。
 
-^(3) 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+³ 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^(4) 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+⁴ 这幅图的全尺寸版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。

@@ -18,7 +18,7 @@
 
 # 版本和构建
 
-尽管 R 有几种不同的分发版本，但大多数用户仍然使用从 [r-project.org](https://www.r-project.org/)^(1) 获取的基本版本。对于 Python，至少有四种常见的 Python *构建*（即分发版本）供选择。在每种情况下，您还需要考虑 Python *版本*。
+尽管 R 有几种不同的分发版本，但大多数用户仍然使用从 [r-project.org](https://www.r-project.org/)¹ 获取的基本版本。对于 Python，至少有四种常见的 Python *构建*（即分发版本）供选择。在每种情况下，您还需要考虑 Python *版本*。
 
 首先，你可能已经注意到系统已经安装了 Python 的一个版本。在我使用的 macOS Big Sur (`v11.1`) 上，可以通过以下终端命令查看 Python 的版本：
 
@@ -46,7 +46,7 @@ Python 3.8.6
 
 安装方式因系统而异。因此，[官方 Python 使用和安装指南](https://docs.python.org/3.8/using/index.html) 是权威资源。如果遇到安装问题，一个好的起点是对错误消息的通用部分进行文字搜索（用双引号括起来）。
 
-表 3-1 提供了其他信息源，但您最好直接访问源头^(2)。
+表 3-1 提供了其他信息源，但您最好直接访问源头²。
 
 表 3-1\. 安装 Python
 
@@ -60,7 +60,7 @@ Python 3.8.6
 
 Anaconda [网站](https://www.anaconda.com/products/individual#Downloads) 上有详细的安装说明。您会注意到，Anaconda 可能不会打包最新版本的 Python。例如，在撰写本文时，Anaconda 打包的是 Python 3.8，而不是 3.9。因此，这为我们上面提到的偏爱原始 Python 3.8 提供了一些理由。Anaconda 是一个流行的构建，但对于我们的目的，我们将坚持使用原始的 Python，以避免那些在这一点上只会分散我们注意力的额外功能。因此，我不会进一步考虑这个选项，但如果您选择这条路，我会在需要时提到一些重要的区别。
 
-第四，您可能决定不使用本地 Python 安装，而是使用由[Google Colab](https://colab.research.google.com/)提供的流行的在线 Python 版本的 Notebooks 接口^(3). 还有其他在线 Notebook 工具，但详细介绍超出了本书的范围。Notebooks 类似于 RMarkdown 文档，但基于 JSON。我们将在后面更详细地讨论它们。
+第四，您可能决定不使用本地 Python 安装，而是使用由[Google Colab](https://colab.research.google.com/)提供的流行的在线 Python 版本的 Notebooks 接口³. 还有其他在线 Notebook 工具，但详细介绍超出了本书的范围。Notebooks 类似于 RMarkdown 文档，但基于 JSON。我们将在后面更详细地讨论它们。
 
 我敢打赌你已经能够猜到，这种早期阶段的多样性可能会在安装特定问题出现时导致混乱。未来，我们将假设您已经准备好本地或云端安装的 Python。
 
@@ -72,7 +72,7 @@ IDE 包括 JupyterLab、Spyder、PyCharm 和我们心爱的 RStudio。云原生 
 
 ## 文本编辑器
 
-文本编辑器是编写纯 Python 脚本最常见且看似首选的工具。有许多出色的文本编辑器可供选择，每年都在人气上升和下降。[Sublime](https://www.sublimetext.com/)、[Atom](https://atom.io/)、[Visual Studio Code](https://code.visualstudio.com/)（VS Code）甚至是古老的编辑器 [vim](https://www.vim.org/) 和 [emacs](https://www.gnu.org/software/emacs/)，以及许多其他编辑器，都在广泛使用中。尽管如此，VS Code，这款由微软开发和强力支持的开源编辑器，在过去几年中已成为首选。扩展市场意味着编辑器为包括 Python 和 R 在内的多种语言提供了强大且简便的支持^(4)。因此，我们将专注于 VS Code。你的第一个练习是获取并安装 [VS Code](https://code.visualstudio.com/)。
+文本编辑器是编写纯 Python 脚本最常见且看似首选的工具。有许多出色的文本编辑器可供选择，每年都在人气上升和下降。[Sublime](https://www.sublimetext.com/)、[Atom](https://atom.io/)、[Visual Studio Code](https://code.visualstudio.com/)（VS Code）甚至是古老的编辑器 [vim](https://www.vim.org/) 和 [emacs](https://www.gnu.org/software/emacs/)，以及许多其他编辑器，都在广泛使用中。尽管如此，VS Code，这款由微软开发和强力支持的开源编辑器，在过去几年中已成为首选。扩展市场意味着编辑器为包括 Python 和 R 在内的多种语言提供了强大且简便的支持⁴。因此，我们将专注于 VS Code。你的第一个练习是获取并安装 [VS Code](https://code.visualstudio.com/)。
 
 当你第一次打开 VS Code 时，将会看到欢迎屏幕，如图 3-1)所示。
 
@@ -86,7 +86,7 @@ IDE 包括 JupyterLab、Spyder、PyCharm 和我们心爱的 RStudio。云原生 
 
 ###### 图 3-2\. 我们的第一个 Python 脚本。
 
-由于文件扩展名，VS Code 自动检测到你希望在此文档中使用 Python 解释器。与许多其他文本编辑器一样，如果它知道要使用的解释器，VS Code 可以直接执行文档中的代码。请注意图 3-2（右下角），VS Code 将自动要求你安装适用于 Python 的适当扩展，因为我们尚未安装它们（并且页脚从紫色变为蓝色，表示正在使用 Python 解释器）。鼓励你访问市场并考虑自行选择其他扩展，但大多数情况下“少即是多”。在图 3-3 中，显示了扩展主页在安装包时的状态。请注意，这个扩展是由微软直接开发和维护的，就像 VS Code 本身一样，所以我们是在可靠的手中^(5)。
+由于文件扩展名，VS Code 自动检测到你希望在此文档中使用 Python 解释器。与许多其他文本编辑器一样，如果它知道要使用的解释器，VS Code 可以直接执行文档中的代码。请注意图 3-2（右下角），VS Code 将自动要求你安装适用于 Python 的适当扩展，因为我们尚未安装它们（并且页脚从紫色变为蓝色，表示正在使用 Python 解释器）。鼓励你访问市场并考虑自行选择其他扩展，但大多数情况下“少即是多”。在图 3-3 中，显示了扩展主页在安装包时的状态。请注意，这个扩展是由微软直接开发和维护的，就像 VS Code 本身一样，所以我们是在可靠的手中⁵。
 
 ![](img/prds_0303.png)
 
@@ -98,7 +98,7 @@ IDE 包括 JupyterLab、Spyder、PyCharm 和我们心爱的 RStudio。云原生 
 
 ###### 图 3-4\. VS Code Python 扩展的欢迎屏幕。
 
-扩展程序欢迎页面的第一项是“创建一个 Jupyter Notebook”。我们很快就会讨论到这一点；现在值得注意的是，我们可以在 VS Code 中同时使用脚本和 Notebooks。还要注意该项目的第一个要点告诉我们，要打开 Notebook，我们应该在命令面板中*运行*一个命令，您可以通过 Mac 上的键盘快捷键`shift + cmd + P`（或 PC 上的`shift + ctrl + P`）来访问该面板^(6)。返回到`helloworld.py`文件并使用此键盘快捷键来打开命令面板。这是您执行各种命令以使您的 Python 生活更轻松的地方。命令面板是 RStudio 中相对较新的功能，但长期以来一直是导航文本编辑器的标准方式。从市场安装的每个扩展程序都将添加更多您可以在此处访问的命令。我们的第一个命令将是`Create New Integrated Terminal (in Active Workspace)`。您只需开始输入命令，然后让自动完成完成其工作即可。确保选择`(in Active Workspace)`选项。请记住，这就像是一个 RStudio 项目，所以我们希望保持在我们的 Active Workspace 中。
+扩展程序欢迎页面的第一项是“创建一个 Jupyter Notebook”。我们很快就会讨论到这一点；现在值得注意的是，我们可以在 VS Code 中同时使用脚本和 Notebooks。还要注意该项目的第一个要点告诉我们，要打开 Notebook，我们应该在命令面板中*运行*一个命令，您可以通过 Mac 上的键盘快捷键`shift + cmd + P`（或 PC 上的`shift + ctrl + P`）来访问该面板⁶。返回到`helloworld.py`文件并使用此键盘快捷键来打开命令面板。这是您执行各种命令以使您的 Python 生活更轻松的地方。命令面板是 RStudio 中相对较新的功能，但长期以来一直是导航文本编辑器的标准方式。从市场安装的每个扩展程序都将添加更多您可以在此处访问的命令。我们的第一个命令将是`Create New Integrated Terminal (in Active Workspace)`。您只需开始输入命令，然后让自动完成完成其工作即可。确保选择`(in Active Workspace)`选项。请记住，这就像是一个 RStudio 项目，所以我们希望保持在我们的 Active Workspace 中。
 
 这会在屏幕底部打开一个新的终端窗格（图 3-5）。好吧，我们承认，这开始看起来越来越像一个集成开发环境（IDE），但我们不要太兴奋！
 
@@ -180,7 +180,7 @@ print('Hello, world!')
 
 ###### 图 3-11\. 使用命令行将包安装到虚拟环境中。
 
-你几乎在每个虚拟环境中都会安装的包包括 `numpy`、`pandas`、`matplotlib`、`seaborn` 和 `scipy`。你不需要一直安装它们，因为它们的包依赖项会自动处理。如果它们已经安装，pip 会告诉你，并且不会安装任何其他内容。你在这里遇到的最常见的错误消息是你的包版本与你的 Python 版本不兼容。对于这个问题，你可以为你的项目使用不同的 Python 内核^(7)，或者指定你想要安装的确切包版本。就像在 R 中一样，你只需要安装包一次，但是每次你激活你的环境时都需要 *导入* 它（即 *初始化* 它）（见上文）。包安装与在脚本中导入分开似乎很方便。你可能在 R 脚本中看到许多单独的 `install.packages()` 函数，这有点烦人。
+你几乎在每个虚拟环境中都会安装的包包括 `numpy`、`pandas`、`matplotlib`、`seaborn` 和 `scipy`。你不需要一直安装它们，因为它们的包依赖项会自动处理。如果它们已经安装，pip 会告诉你，并且不会安装任何其他内容。你在这里遇到的最常见的错误消息是你的包版本与你的 Python 版本不兼容。对于这个问题，你可以为你的项目使用不同的 Python 内核⁷，或者指定你想要安装的确切包版本。就像在 R 中一样，你只需要安装包一次，但是每次你激活你的环境时都需要 *导入* 它（即 *初始化* 它）（见上文）。包安装与在脚本中导入分开似乎很方便。你可能在 R 脚本中看到许多单独的 `install.packages()` 函数，这有点烦人。
 
 我想提及另外两个重要点。首先，在终端中使用以下命令检查环境中安装的所有包及其版本：
 
@@ -272,7 +272,7 @@ import seaborn as sns    # High level Plotting
 dp <- library(dplyr)       # nonsense, but just as an idea
 ```
 
-useR 不会这样做，但这是与之最接近的类似命令^(8)。`as` 关键字总是与 `import` 一起使用，为访问包或模块的函数提供了一个便捷的*别名*^(9)。因此，它是调用我们想要的确切函数的明确方式。执行此函数以导入数据集以供将来使用：
+useR 不会这样做，但这是与之最接近的类似命令⁸。`as` 关键字总是与 `import` 一起使用，为访问包或模块的函数提供了一个便捷的*别名*⁹。因此，它是调用我们想要的确切函数的明确方式。执行此函数以导入数据集以供将来使用：
 
 ```py
 plant_growth = pd.read_csv('ch03-py4r/data/plant_growth.csv')
@@ -667,20 +667,20 @@ print(pairwise_tukeyhsd(plant_growth['weight'], plant_growth['group']))
 
 如果您是习惯于函数式编程世界的用户，那么掌握面向对象的方法也可能会显得非常困难，但一旦您跨越了这个障碍，您就可以开始利用 Python 真正闪耀的地方，即第三部分的话题。
 
-^(1) 实际上，其他构建很少在合适的公司提到
+¹ 实际上，其他构建很少在合适的公司提到
 
-^(2) 如果您想通过这种方式进入 macOS，请安装[homebrew](https://brew.sh/)。
+² 如果您想通过这种方式进入 macOS，请安装[homebrew](https://brew.sh/)。
 
-^(3) 您需要一个 Google 账户来访问这个免费资源。
+³ 您需要一个 Google 账户来访问这个免费资源。
 
-^(4) 尽管 R 得到支持，但使用者很少在 VS Code 中工作。
+⁴ 尽管 R 得到支持，但使用者很少在 VS Code 中工作。
 
-^(5) 好吧，至少我们是*某人的*手下！
+⁵ 好吧，至少我们是*某人的*手下！
 
-^(6) 敏锐的用户可能已经注意到，在 2020 年底，RStudio v1.4 增加了使用相同键盘快捷键调用的命令面板。
+⁶ 敏锐的用户可能已经注意到，在 2020 年底，RStudio v1.4 增加了使用相同键盘快捷键调用的命令面板。
 
-^(7) Python 执行后端。
+⁷ Python 执行后端。
 
-^(8) 但是请记住，当我们开始同时使用 Python 和 R 时，因为我们会看到非常相似的东西。
+⁸ 但是请记住，当我们开始同时使用 Python 和 R 时，因为我们会看到非常相似的东西。
 
-^(9) 回顾一下`log()`，你更有可能使用`np.log()`而不是`math.log()`，因为它接受更广泛的输入类型。
+⁹ 回顾一下`log()`，你更有可能使用`np.log()`而不是`math.log()`，因为它接受更广泛的输入类型。

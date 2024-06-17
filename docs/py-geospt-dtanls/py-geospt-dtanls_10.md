@@ -227,7 +227,7 @@ seasonal_mean
 
 亚马逊雨林正在缩小。森林中的道路建设，人类与动物的接触，以及游客与居住在雨林中的土著人之间的接触都导致持续的森林砍伐和森林退化。*退化* 指的是森林密度下降，虽然未达到砍伐的程度，但通常在 10%到 30%之间，并且土地正在转为替代用途，如木材采伐或农业。当森林覆盖受到干扰时，*生物多样性*——亚马逊独有的生物和生态系统混合——受到威胁。砍伐也对碳排放产生影响。
 
-Web 时间序列服务（WTSS）是一个处理遥感图像采集的时间序列数据的网络服务。^(1) 你将再次使用一个具有空间（纬度和经度）和时间参考的三维数组。WTSS 是一个 Python 客户端库，因此你可以获取特定位置随时间记录的实际数值列表。
+Web 时间序列服务（WTSS）是一个处理遥感图像采集的时间序列数据的网络服务。¹ 你将再次使用一个具有空间（纬度和经度）和时间参考的三维数组。WTSS 是一个 Python 客户端库，因此你可以获取特定位置随时间记录的实际数值列表。
 
 ## 设置
 
@@ -241,7 +241,7 @@ Web 时间序列服务（WTSS）是一个处理遥感图像采集的时间序列
 
 ###### 图 10-10\. BDC 访问令牌
 
-BDC 项目收集了土地覆盖的持续数据（例如图 10-11 中的示例）。^(2) 为了识别感兴趣的区域，选择 CBERS-4-AWFI 立方体堆栈中的 CBB4_64_16D_STK-1 集合。信息图标（“i”）将提供背景信息。
+BDC 项目收集了土地覆盖的持续数据（例如图 10-11 中的示例）。² 为了识别感兴趣的区域，选择 CBERS-4-AWFI 立方体堆栈中的 CBB4_64_16D_STK-1 集合。信息图标（“i”）将提供背景信息。
 
 ![巴西数据立方体](img/pgda_1011.png)
 
@@ -334,7 +334,7 @@ time_series.plot()
 
 ## 分析
 
-如您在图 10-13 中所见，亚马逊雨林此区域的 NDVI 在 2016 年至 2022 年间呈上升趋势。这可能表明大气二氧化碳（CO[2]）水平增加，尽管降水和温度更重要，用于解释年际 NDVI 变异性。确实，生态系统模型表明，由于二氧化碳施肥效应，表现为近几十年来植物生长的季节振幅增加，大气 CO[2]浓度增加的观察主要归因于 CO[2]施肥效应，而气候和土地利用变化则起次要作用。基于这些数据，我们无法做出任何明确的声明，但捕获地表反射率并观测 NDVI 有助于提出假设。^(3)
+如您在图 10-13 中所见，亚马逊雨林此区域的 NDVI 在 2016 年至 2022 年间呈上升趋势。这可能表明大气二氧化碳（CO[2]）水平增加，尽管降水和温度更重要，用于解释年际 NDVI 变异性。确实，生态系统模型表明，由于二氧化碳施肥效应，表现为近几十年来植物生长的季节振幅增加，大气 CO[2]浓度增加的观察主要归因于 CO[2]施肥效应，而气候和土地利用变化则起次要作用。基于这些数据，我们无法做出任何明确的声明，但捕获地表反射率并观测 NDVI 有助于提出假设。³
 
 ## 优化
 
@@ -780,7 +780,7 @@ dist_defor + dist_edge + altitude + slope - 1"
 
 对于一些了解统计学的人来说，简而言之，内在条件自回归（iCAR）模型允许估计砍伐概率的变化，而不考虑不可测性的性质。例如，不可能测量每棵树及其对树冠的影响。我们使用二元结果的 Logistic 回归模型：如果森林像素被砍伐（像素较少），则为 1，否则为 0。
 
-如果您对模型准备或变量选择模型感兴趣，请在笔记本中运行代码。深入的统计学内容超出本书的范围，但理解过程非常有趣。^(4)
+如果您对模型准备或变量选择模型感兴趣，请在笔记本中运行代码。深入的统计学内容超出本书的范围，但理解过程非常有趣。⁴
 
 让我们看看模型总结：
 
@@ -928,10 +928,10 @@ print(C_df)
 
 -   对你的旅程表示祝贺。
 
-^(1) 欲了解更多信息，我推荐这篇论文，介绍了 WTSS 如何从巴西雨林的遥感数据中创建时间序列：Vinhas, L., Queiroz, G. R., Ferreira, K. R., 和 Camara, G. 2017\. “Web Services for Big Earth Observation Data.” *Revista Brasileira de Cartografia* 69: 5\. [英文翻译](https://oreil.ly/rbckx).
+¹ 欲了解更多信息，我推荐这篇论文，介绍了 WTSS 如何从巴西雨林的遥感数据中创建时间序列：Vinhas, L., Queiroz, G. R., Ferreira, K. R., 和 Camara, G. 2017\. “Web Services for Big Earth Observation Data.” *Revista Brasileira de Cartografia* 69: 5\. [英文翻译](https://oreil.ly/rbckx).
 
-^(2) Earth Observation Data Cubes for Brazil: Requirements, Methodology and Products, Earth Observation and Geoinformatics Division, National Institute for Space Research (INPE), Avenida dos Astronautas, 1758, Jardim da Granja, Sao Jose dos Campos, SP 12227-010, Brazil.
+² Earth Observation Data Cubes for Brazil: Requirements, Methodology and Products, Earth Observation and Geoinformatics Division, National Institute for Space Research (INPE), Avenida dos Astronautas, 1758, Jardim da Granja, Sao Jose dos Campos, SP 12227-010, Brazil.
 
-^(3) Ito, Akihiko. 2019\. “Disequilibrium of Terrestrial Ecosystem CO[2] Budget Caused by Disturbance-Induced Emissions and Non-CO[2] Carbon Export Flows: A Global Model Assessment.” *Earth System Dynamics* 10: 685–709\. [*https://doi.org/10.5194/esd-10-685-2019*](https://doi.org/10.5194/esd-10-685-2019).
+³ Ito, Akihiko. 2019\. “Disequilibrium of Terrestrial Ecosystem CO[2] Budget Caused by Disturbance-Induced Emissions and Non-CO[2] Carbon Export Flows: A Global Model Assessment.” *Earth System Dynamics* 10: 685–709\. [*https://doi.org/10.5194/esd-10-685-2019*](https://doi.org/10.5194/esd-10-685-2019).
 
-^(4) 有关此处所使用的统计方法的深入探讨，请参阅：Vieilledent, Ghislain, Vancutsem, Christelle, Bourgoin, Clément, Ploton, Pierre, Verley, Philippe 和 Achard, Frédéric. 2022\. “Spatial Scenario of Tropical Deforestation and Carbon Emissions for the 21st Century.” BioRxiv 预印本。[*https://www.biorxiv.org/content/biorxiv/early/2022/07/23/2022.03.22.485306.full.pdf*](https://www.biorxiv.org/content/biorxiv/early/2022/07/23/2022.03.22.485306.full.pdf)
+⁴ 有关此处所使用的统计方法的深入探讨，请参阅：Vieilledent, Ghislain, Vancutsem, Christelle, Bourgoin, Clément, Ploton, Pierre, Verley, Philippe 和 Achard, Frédéric. 2022\. “Spatial Scenario of Tropical Deforestation and Carbon Emissions for the 21st Century.” BioRxiv 预印本。[*https://www.biorxiv.org/content/biorxiv/early/2022/07/23/2022.03.22.485306.full.pdf*](https://www.biorxiv.org/content/biorxiv/early/2022/07/23/2022.03.22.485306.full.pdf)

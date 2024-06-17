@@ -2,11 +2,11 @@
 
 互联网是一个不可思议的数据来源；可以说，这是数据成为我们社会、经济、政治甚至创意生活中如此主导的原因。在 第四章 中，我们专注于数据整理的过程，重点是访问和重新格式化已保存在我们设备或云端的基于文件的数据。与此同时，这些数据的大部分最初来自互联网 —— 无论是从网站下载的，如失业数据，还是从 URL 检索的，如 Citi Bike 数据。然而，现在我们已经掌握了如何使用 Python 解析和转换各种基于文件的数据格式，是时候看看首先收集这些文件涉及哪些内容了 —— 特别是当这些文件中包含的数据是实时的、基于 feed 的类型时。为此，我们将在本章的大部分时间内学习如何获取通过 API 提供的数据 —— 这些是我在 第四章 中早期提到的应用程序接口。API 是我们访问由实时或按需服务生成的数据的主要（有时是唯一）途径，例如社交媒体平台、流媒体音乐和搜索服务，以及许多其他私人和公共（例如政府生成的）数据来源。
 
-尽管 API 的许多优点（参见 “为什么使用 API？” 进行复习）使它们成为数据收集公司提供的热门资源，但这样做也存在显著的成本和风险。对于像社交媒体平台这样以广告为驱动的企业来说，一个过于全面的外部产品或项目在数据收集方面是一种利润风险。关于个人的大量数据的即时可用性也显著增加了隐私风险。因此，通过许多 API 访问数据通常需要事先向数据收集者注册，甚至在请求数据时完成基于代码的登录或 *身份验证* 过程。与此同时，API 提供的数据可访问性是改善政府系统透明度^(1)和私营公司责任^(2)的有力工具，因此创建帐户和保护访问基于 API 的数据的任何 Python 脚本的前期工作是非常值得的。
+尽管 API 的许多优点（参见 “为什么使用 API？” 进行复习）使它们成为数据收集公司提供的热门资源，但这样做也存在显著的成本和风险。对于像社交媒体平台这样以广告为驱动的企业来说，一个过于全面的外部产品或项目在数据收集方面是一种利润风险。关于个人的大量数据的即时可用性也显著增加了隐私风险。因此，通过许多 API 访问数据通常需要事先向数据收集者注册，甚至在请求数据时完成基于代码的登录或 *身份验证* 过程。与此同时，API 提供的数据可访问性是改善政府系统透明度¹和私营公司责任²的有力工具，因此创建帐户和保护访问基于 API 的数据的任何 Python 脚本的前期工作是非常值得的。
 
 在本章的过程中，我们将介绍如何通过 API 访问一系列基于网络的、数据供稿类型的数据集，涵盖从基本的、无需登录的资源到社交媒体平台如 Twitter 的多步骤、高度保护的 API。正如我们将在“访问在线 XML 和 JSON”中看到的那样，这个光谱的简单端涉及使用 Python 的*requests*库下载已经格式化为 JSON 或 XML 的网页——我们只需要 URL。在“专用 API：添加基本身份验证”中，我们将继续讨论通过[Federal Reserve Economic Database (FRED)](https://fred.stlouisfed.org/docs/api/fred) API 获取的数据访问过程。这与我们在示例 4-12 和 4-15 中看到的数据相同，但与其使用我提供的示例文件不同，您将通过编程方式下载任何最新数据*每次运行脚本时*。
 
-这将需要在[FRED 网站](https://fred.stlouisfed.org/docs/api/fred)上创建一个帐户，以及创建并保护您自己的基本 API“密钥”，以便检索数据。最后，在“专用 API：使用 OAuth 工作”中，我们将介绍像 Twitter 这样的社交媒体平台所需的更复杂的 API 身份验证过程。尽管需要大量的前期工作，但学习如何通过编程方式与这些 API 进行交互具有巨大的回报——在大多数情况下，您可以随时重新运行这些脚本，以获取这些服务提供的最新数据。^(3) 当然，并非我们需要的每个数据源都提供 API，因此我们将在“网页抓取：最后的数据来源”中解释如何使用 Python 的*Beautiful Soup*库以*负责任的方式*“抓取”网站上的数据。尽管在许多情况下，这些数据访问任务可以通过浏览器和鼠标完成，但您很快就会看到，使用 Python 如何帮助我们通过使过程更快、更可重复来扩展我们的数据检索工作。
+这将需要在[FRED 网站](https://fred.stlouisfed.org/docs/api/fred)上创建一个帐户，以及创建并保护您自己的基本 API“密钥”，以便检索数据。最后，在“专用 API：使用 OAuth 工作”中，我们将介绍像 Twitter 这样的社交媒体平台所需的更复杂的 API 身份验证过程。尽管需要大量的前期工作，但学习如何通过编程方式与这些 API 进行交互具有巨大的回报——在大多数情况下，您可以随时重新运行这些脚本，以获取这些服务提供的最新数据。³ 当然，并非我们需要的每个数据源都提供 API，因此我们将在“网页抓取：最后的数据来源”中解释如何使用 Python 的*Beautiful Soup*库以*负责任的方式*“抓取”网站上的数据。尽管在许多情况下，这些数据访问任务可以通过浏览器和鼠标完成，但您很快就会看到，使用 Python 如何帮助我们通过使过程更快、更可重复来扩展我们的数据检索工作。
 
 # 访问在线 XML 和 JSON
 
@@ -140,7 +140,7 @@ Google 搜索引擎在这种情况下的行为几乎与我们在本章剩余部�
 
 # 专用 API：添加基本认证
 
-使用大多数 API 的第一步是与 API 提供商创建某种类型的账户。尽管许多 API 允许*您*免费使用它们，但在互联网上编译、存储、搜索和返回数据的过程仍然存在风险并且需要花钱，因此提供商希望跟踪谁在使用他们的 API，并且可以随时切断您的访问权限。^(4) 这个身份验证过程的第一部分通常包括创建一个账户并为自己和/或每个项目、程序或“应用程序”请求一个 API “密钥”。在像我们现在要进行的“基本” API 身份验证过程中，一旦您在服务提供商的网站上创建了您的 API 密钥，您只需像任何其他查询参数一样将其附加到您的数据请求中，即可成功检索数据。
+使用大多数 API 的第一步是与 API 提供商创建某种类型的账户。尽管许多 API 允许*您*免费使用它们，但在互联网上编译、存储、搜索和返回数据的过程仍然存在风险并且需要花钱，因此提供商希望跟踪谁在使用他们的 API，并且可以随时切断您的访问权限。⁴ 这个身份验证过程的第一部分通常包括创建一个账户并为自己和/或每个项目、程序或“应用程序”请求一个 API “密钥”。在像我们现在要进行的“基本” API 身份验证过程中，一旦您在服务提供商的网站上创建了您的 API 密钥，您只需像任何其他查询参数一样将其附加到您的数据请求中，即可成功检索数据。
 
 举例来说，让我们开始设置以编程方式访问我们在示例 4-15 中使用的失业数据。我们将首先在 FRED 网站上创建一个账户并请求一个 API 密钥。一旦我们有了这个，我们就可以简单地将其附加到我们的查询字符串中并开始下载数据！
 
@@ -233,9 +233,9 @@ api_key=*YOUR_API_KEY_HERE*
 
 ###### 警告
 
-正确保护你的 API 密钥需要一些努力，如果你是第一次使用数据、Python 或 API（或三者兼有），你可能会被诱惑跳过接下来的几节，只是把你的 API 凭据留在可能被上传到互联网的文件中。^(5) 不要这么做！虽然现在你可能会想，“谁会有兴趣看*我的*工作？”或“我只是随便玩玩而已—有什么区别？”但你应该知道两件事。
+正确保护你的 API 密钥需要一些努力，如果你是第一次使用数据、Python 或 API（或三者兼有），你可能会被诱惑跳过接下来的几节，只是把你的 API 凭据留在可能被上传到互联网的文件中。⁵ 不要这么做！虽然现在你可能会想，“谁会有兴趣看*我的*工作？”或“我只是随便玩玩而已—有什么区别？”但你应该知道两件事。
 
-首先，与文档一样，如果现在没有正确处理保护您的凭据，以后要做这件事情会*更加*困难和耗时，部分原因是到那时您可能已经忘记了具体涉及的内容，另一部分原因是*可能已经太晚*。其次，虽然我们中很少有人觉得自己正在做的事情“重要”或足够“可见”，以至于其他人*会*去查看它，但现实是，恶意行为者并不在乎他们的替罪羊是谁——如果您让它变得容易，他们可能会选择您。此外，后果可能不仅仅是使您被踢出数据平台。2021 年，SolarWinds 的前 CEO 声称，通过对公司软件的弱点，通过实习生个人 GitHub 账户上上传的一个弱密码文件，可能导致数千个高安全性系统的大规模入侵。^(6) 换句话说，即使你只是“练习”，你最好一开始就做好安全保护。
+首先，与文档一样，如果现在没有正确处理保护您的凭据，以后要做这件事情会*更加*困难和耗时，部分原因是到那时您可能已经忘记了具体涉及的内容，另一部分原因是*可能已经太晚*。其次，虽然我们中很少有人觉得自己正在做的事情“重要”或足够“可见”，以至于其他人*会*去查看它，但现实是，恶意行为者并不在乎他们的替罪羊是谁——如果您让它变得容易，他们可能会选择您。此外，后果可能不仅仅是使您被踢出数据平台。2021 年，SolarWinds 的前 CEO 声称，通过对公司软件的弱点，通过实习生个人 GitHub 账户上上传的一个弱密码文件，可能导致数千个高安全性系统的大规模入侵。⁶ 换句话说，即使你只是“练习”，你最好一开始就做好安全保护。
 
 保护您的 API 凭据是一个两部分的过程：
 
@@ -306,11 +306,11 @@ FRED_output_file.close()
 
 ## 开始使用 .gitignore
 
-正如其名称所示，*.gitignore* 文件让你指定某些类型的文件——惊喜，惊喜！——你希望 Git “忽略”，而不是跟踪或备份。通过创建（或修改）存储库中 *.gitignore* 文件中的模式匹配规则，我们可以预定义我们的存储库将跟踪或上传哪些类型的文件。虽然我们*理论上*可以通过从不使用 `git add` 来手动完成相同的操作——但使用 *.gitignore* 文件可以强制执行此行为^(8) *并且*防止 Git 每次运行 `git status` 时“警告”我们有未跟踪的文件。*没有* *.gitignore* 文件，我们将不得不确认每次提交时要忽略的文件——这会很快变得乏味，并很容易导致错误。只需一次匆忙的 `git add -A` 命令就可能意外开始跟踪我们的敏感凭据文件——并且将文件*移出*你的 Git 历史比将其加入要困难得多。更好的办法是通过一点准备来避免整个问题。
+正如其名称所示，*.gitignore* 文件让你指定某些类型的文件——惊喜，惊喜！——你希望 Git “忽略”，而不是跟踪或备份。通过创建（或修改）存储库中 *.gitignore* 文件中的模式匹配规则，我们可以预定义我们的存储库将跟踪或上传哪些类型的文件。虽然我们*理论上*可以通过从不使用 `git add` 来手动完成相同的操作——但使用 *.gitignore* 文件可以强制执行此行为⁸ *并且*防止 Git 每次运行 `git status` 时“警告”我们有未跟踪的文件。*没有* *.gitignore* 文件，我们将不得不确认每次提交时要忽略的文件——这会很快变得乏味，并很容易导致错误。只需一次匆忙的 `git add -A` 命令就可能意外开始跟踪我们的敏感凭据文件——并且将文件*移出*你的 Git 历史比将其加入要困难得多。更好的办法是通过一点准备来避免整个问题。
 
 换句话说，*.gitignore* 文件是我们的朋友，让我们创建通用规则，防止我们意外跟踪不想要的文件，并确保 Git 只报告我们真正关心的文件的状态。
 
-目前，我们将在与我们的*FRED_credentials.py*文件相同的文件夹/存储库中创建一个新的*.gitignore*文件，只是为了感受一下它们是如何工作的。^(9) 为此，我们将首先在 Atom 中打开一个新文件（或者您可以直接在 GitHub 存储库中添加一个新文件），并将其保存在与您的*FRED_credentials.py*相同的文件夹中，名称为*.gitignore*（确保文件名以点（`.`）开头——这很重要！）。
+目前，我们将在与我们的*FRED_credentials.py*文件相同的文件夹/存储库中创建一个新的*.gitignore*文件，只是为了感受一下它们是如何工作的。⁹ 为此，我们将首先在 Atom 中打开一个新文件（或者您可以直接在 GitHub 存储库中添加一个新文件），并将其保存在与您的*FRED_credentials.py*相同的文件夹中，名称为*.gitignore*（确保文件名以点（`.`）开头——这很重要！）。
 
 接下来，在您的文件中添加以下行：
 
@@ -319,7 +319,7 @@ FRED_output_file.close()
 **credentials*
 ```
 
-与 Python 一样，*.gitignore*文件中的注释以井号（`#`）符号开头，因此此文件的第一行只是描述性的。第二行的内容（`**credentials*`）是一种*正则表达式*——一种特殊的模式匹配系统，它让我们可以以一种类似于向另一个人解释的方式描述字符串（包括文件名）。^(10) 在这种情况下，表达式`**credentials*`转换为“此存储库中任何位置包含单词*credentials*的文件。”通过将此行添加到我们的*.gitignore*文件中，我们确保此存储库中任何文件名中包含单词*credentials*的文件都不会被跟踪或上传到 GitHub。
+与 Python 一样，*.gitignore*文件中的注释以井号（`#`）符号开头，因此此文件的第一行只是描述性的。第二行的内容（`**credentials*`）是一种*正则表达式*——一种特殊的模式匹配系统，它让我们可以以一种类似于向另一个人解释的方式描述字符串（包括文件名）。¹⁰ 在这种情况下，表达式`**credentials*`转换为“此存储库中任何位置包含单词*credentials*的文件。”通过将此行添加到我们的*.gitignore*文件中，我们确保此存储库中任何文件名中包含单词*credentials*的文件都不会被跟踪或上传到 GitHub。
 
 要查看您的*.gitignore*文件的效果，请保存文件，然后在命令行中运行：
 
@@ -397,7 +397,7 @@ OAuth 认证工作流程旨在通过提供一种方式来提供 API 访问而不
 
 ###### 图 5-12\. Twitter 项目创建：应用程序名称
 
-一旦您添加了您的应用程序名称，您将看到一个显示您的 API 密钥、API 密钥秘钥和 Bearer 令牌的屏幕，如图 5-13 所示。^(11)
+一旦您添加了您的应用程序名称，您将看到一个显示您的 API 密钥、API 密钥秘钥和 Bearer 令牌的屏幕，如图 5-13 所示。¹¹
 
 ![API 密钥和令牌屏幕](img/ppdw_0513.png)
 
@@ -485,7 +485,7 @@ auth_ready_key = b64_encoded_combined_key.decode('ascii')
 
 从 Twitter 请求访问或 bearer token 实际上只是向*授权端点*发送格式良好的请求，该端点是[*https://api.twitter.com/oauth2/token*](https://api.twitter.com/oauth2/token)。但是，与将我们的`auth_ready_key`附加到端点 URL 不同，我们将使用称为*post*请求的东西（回想一下，在示例 5-1 和 5-3 中，我们使用的`requests`方法称为`get`）。
 
-在这里，使用`post`请求是重要的部分，因为它在一定程度上提供了比`get`请求更高的安全性^(12)，但主要是因为当我们要求 API 执行*超出*简单返回数据的操作时，`post`请求实际上是标准。因此，当我们使用`post`提交我们的`auth_ready_key`时，Twitter API 将处理我们的唯一密钥并返回一个唯一的 bearer token。
+在这里，使用`post`请求是重要的部分，因为它在一定程度上提供了比`get`请求更高的安全性¹²，但主要是因为当我们要求 API 执行*超出*简单返回数据的操作时，`post`请求实际上是标准。因此，当我们使用`post`提交我们的`auth_ready_key`时，Twitter API 将处理我们的唯一密钥并返回一个唯一的 bearer token。
 
 在 Python 中构建我们的`post`请求时，我们需要创建两个`dict`对象：一个包含请求的*headers*，其中包含我们的`auth_ready_key`和一些其他信息，另一个包含请求的*data*，在这种情况下将指定我们正在请求凭证。然后，我们将这些作为参数传递给*requests*库的`post`方法，而不是像在示例 5-6 中所示那样将它们粘贴在 URL 字符串的末尾。
 
@@ -587,7 +587,7 @@ for a_Tweet in Twitter_data['statuses']: ![3](img/3.png)
 
 由于每个结果中包含的信息都很多，我们将打印出每条返回的推文文本，以便了解其内容。`statuses`是 JSON 对象中的推文列表，推文的实际文本可以通过键`text`访问。
 
-根据 Twitter 用户最近对 Python 的活动程度，即使你只在几分钟内再次运行此脚本，你可能会看到不同的结果。^(13) 当然，你可以更改此搜索以包含任何你想要的查询术语；只需根据需要修改`search_params`变量的值。要查看所有可能的参数及其有效值，你可以查看[此特定 Twitter API 端点的 API 文档](https://developer.twitter.com/en/docs/twitter-api/v1/tweets/search/api-reference/get-search-tweets)。
+根据 Twitter 用户最近对 Python 的活动程度，即使你只在几分钟内再次运行此脚本，你可能会看到不同的结果。¹³ 当然，你可以更改此搜索以包含任何你想要的查询术语；只需根据需要修改`search_params`变量的值。要查看所有可能的参数及其有效值，你可以查看[此特定 Twitter API 端点的 API 文档](https://developer.twitter.com/en/docs/twitter-api/v1/tweets/search/api-reference/get-search-tweets)。
 
 就是这样了！虽然 Twitter 提供了许多不同的 API（其他 API 允许你实际上发布到你自己的时间轴甚至别人的时间轴），但是在访问和处理数据方面，我们在这里所讲述的内容足以让你开始使用这些以及其他类似的 API 了。
 
@@ -597,9 +597,9 @@ for a_Tweet in Twitter_data['statuses']: ![3](img/3.png)
 
 首先，几乎每个 API 都使用*速率限制*来限制在给定时间间隔内可以进行多少数据请求。例如，在我们在示例 5-7 中使用的特定 API 端点上，你可以在 15 分钟的时间段内最多发出 450 个请求，每个请求最多可以返回 100 条推文。如果超过这个限制，你的数据请求可能会在 Twitter 确定下一个 15 分钟窗口开始之前无法返回数据。
 
-第二，虽然你可能没有详细阅读开发者协议（别担心，你并不孤单；^(14) ），你总是可以在[在线参考副本](https://developer.twitter.com/en/developer-terms/agreement-and-policy)中找到相关内容。该协议包含一些具有重要实际和伦理意义的条款。例如，Twitter 的开发者协议*明确*禁止“与 Twitter 外部的数据匹配”这一行为——也就是说，不得将 Twitter 数据与用户的其他信息结合，除非用户直接提供了这些信息或明确同意。协议还规定了您如何存储和展示从 API 获取的 Twitter 内容，以及一系列其他规则和限制。
+第二，虽然你可能没有详细阅读开发者协议（别担心，你并不孤单；¹⁴ ），你总是可以在[在线参考副本](https://developer.twitter.com/en/developer-terms/agreement-and-policy)中找到相关内容。该协议包含一些具有重要实际和伦理意义的条款。例如，Twitter 的开发者协议*明确*禁止“与 Twitter 外部的数据匹配”这一行为——也就是说，不得将 Twitter 数据与用户的其他信息结合，除非用户直接提供了这些信息或明确同意。协议还规定了您如何存储和展示从 API 获取的 Twitter 内容，以及一系列其他规则和限制。
 
-无论这些服务条款是否具有法律约束力，^(15)或者在本质上是否真正符合伦理，记住最终是*你*的责任确保你以伦理方式收集、分析、存储和共享*任何*数据。这意味着考虑到你可能使用的数据涉及的人的隐私和安全，以及思考聚合和分享的影响。
+无论这些服务条款是否具有法律约束力，¹⁵或者在本质上是否真正符合伦理，记住最终是*你*的责任确保你以伦理方式收集、分析、存储和共享*任何*数据。这意味着考虑到你可能使用的数据涉及的人的隐私和安全，以及思考聚合和分享的影响。
 
 当然，如果伦理问题容易识别和达成一致，我们将生活在一个截然不同的世界中。因为它们不是，许多组织都设有明确定义的审查流程和监督委员会，旨在帮助探索并（如果可能的话）解决在例如研究和数据收集影响人类之前的伦理问题。对我个人来说，当试图思考伦理问题时，我仍然认为一个好的起点是["新闻记者职业道德准则"协会](https://spj.org/ethicscode.asp)。虽然这份文件并没有详细涵盖每一个可能的伦理情境，但它阐述了一些核心原则，我认为所有数据用户在收集、分析和分享信息时都应该考虑。
 
@@ -615,7 +615,7 @@ for a_Tweet in Twitter_data['statuses']: ![3](img/3.png)
 
 同时，如果重要信息——尤其是关于强大组织或政府机构的信息——*仅*通过网页可获取，那么即使违反了服务条款，抓取也可能是你*唯一*的选择。虽然本书的范围远远超出了在这个主题上提供任何伪法律建议的范围，请记住，即使你的脚本编写得负责任，并且有一个良好的公共利益原因支持你的抓取活动，你可能会面临来自网站所有者的制裁（如“停止和放弃”信函）甚至法律诉讼。
 
-因此，我强烈建议，在你开始撰写*任何*网络抓取脚本之前，通过 Sophie Chou 展示的优秀决策树仔细思考一下。该决策树见图 5-16^(16)。
+因此，我强烈建议，在你开始撰写*任何*网络抓取脚本之前，通过 Sophie Chou 展示的优秀决策树仔细思考一下。该决策树见图 5-16¹⁶。
 
 ![Sophie Chou 为 Storybench.org 制作的网络抓取决策树，2016](img/ppdw_0516.png)
 
@@ -848,34 +848,34 @@ for i in range(0,4):
 
 现在我们已经探索了多种实际获取数据并将其转换为可用格式的方法，接下来的问题是：我们应该如何处理这些数据？由于所有这些数据整理的目标是能够回答问题并生成一些关于世界的见解，所以我们现在需要从*获取*数据的过程转向评估、改进和分析数据的过程。为此，在下一章中，我们将对一个公共数据集进行数据质量评估，以便理解其可能性和局限性，以及我们的数据整理工作如何帮助我们充分利用它。
 
-^(1) 就像[例如美国财政部](https://fiscaldata.treasury.gov/api-documentation)一样。
+¹ 就像[例如美国财政部](https://fiscaldata.treasury.gov/api-documentation)一样。
 
-^(2) 例如，请参阅[*The Markup*](https://themarkup.org/google-the-giant/2021/04/09/how-we-discovered-googles-social-justice-blocklist-for-youtube-ad-placements)和[*NPR*](https://npr.org/2021/08/04/1024791053/facebook-boots-nyu-disinformation-researchers-off-its-platform-and-critics-cry-f)上的文章。
+² 例如，请参阅[*The Markup*](https://themarkup.org/google-the-giant/2021/04/09/how-we-discovered-googles-social-justice-blocklist-for-youtube-ad-placements)和[*NPR*](https://npr.org/2021/08/04/1024791053/facebook-boots-nyu-disinformation-researchers-off-its-platform-and-critics-cry-f)上的文章。
 
-^(3) 这也是构建自己“应用程序”的第一步！
+³ 这也是构建自己“应用程序”的第一步！
 
-^(4) 虽然如果您在太短的时间内提出太多数据请求，这种情况可能发生得最有可能，但大多数 API 提供者可以在任何时候出于任何原因终止您对其 API 的访问。
+⁴ 虽然如果您在太短的时间内提出太多数据请求，这种情况可能发生得最有可能，但大多数 API 提供者可以在任何时候出于任何原因终止您对其 API 的访问。
 
-^(5) 例如，当您`git push`您的代码时。
+⁵ 例如，当您`git push`您的代码时。
 
-^(6) “黑客利用 SolarWinds 的主导地位进行大规模间谍活动” 作者 Raphael Satter、Christopher Bing 和 Joseph Menn，[*https://reuters.com/article/global-cyber-solarwinds/hackers-at-center-of-sprawling-spy-campaign-turned-solarwinds-dominance-against-it-idUSKBN28P2N8*](https://reuters.com/article/global-cyber-solarwinds/hackers-at-center-of-sprawling-spy-campaign-turned-solarwinds-dominance-against-it-idUSKBN28P2N8); “前 SolarWinds CEO 指责实习生泄露 *solarwinds123* 密码” 作者 Brian Fung 和 Geneva Sands，[*https://www.cnn.com/2021/02/26/politics/solarwinds123-password-intern*](https://www.cnn.com/2021/02/26/politics/solarwinds123-password-intern).
+⁶ “黑客利用 SolarWinds 的主导地位进行大规模间谍活动” 作者 Raphael Satter、Christopher Bing 和 Joseph Menn，[*https://reuters.com/article/global-cyber-solarwinds/hackers-at-center-of-sprawling-spy-campaign-turned-solarwinds-dominance-against-it-idUSKBN28P2N8*](https://reuters.com/article/global-cyber-solarwinds/hackers-at-center-of-sprawling-spy-campaign-turned-solarwinds-dominance-against-it-idUSKBN28P2N8); “前 SolarWinds CEO 指责实习生泄露 *solarwinds123* 密码” 作者 Brian Fung 和 Geneva Sands，[*https://www.cnn.com/2021/02/26/politics/solarwinds123-password-intern*](https://www.cnn.com/2021/02/26/politics/solarwinds123-password-intern).
 
-^(7) 这就是为什么使 Python 在您的设备上运行的程序通常被称为 Python *解释器* —— 因为它将我们人类编写的代码转换为您的设备实际可以理解的字节码。
+⁷ 这就是为什么使 Python 在您的设备上运行的程序通常被称为 Python *解释器* —— 因为它将我们人类编写的代码转换为您的设备实际可以理解的字节码。
 
-^(8) 即使我们运行，比如 `git add -A` 或 `git commit -a`。
+⁸ 即使我们运行，比如 `git add -A` 或 `git commit -a`。
 
-^(9) 一个仓库可以在不同的文件夹中有不同的 *.gitignore* 文件；要获取完整的详情，您可以查看 [文档](https://git-scm.com/docs/gitignore)。
+⁹ 一个仓库可以在不同的文件夹中有不同的 *.gitignore* 文件；要获取完整的详情，您可以查看 [文档](https://git-scm.com/docs/gitignore)。
 
-^(10) 我们在 示例 4-16 中使用了 *glob* 库，并将在 “正则表达式：强化的字符串匹配” 中详细讨论它。
+¹⁰ 我们在 示例 4-16 中使用了 *glob* 库，并将在 “正则表达式：强化的字符串匹配” 中详细讨论它。
 
-^(11) 这些密钥已被替换，将不再起作用！
+¹¹ 这些密钥已被替换，将不再起作用！
 
-^(12) 例如，`post` 请求的内容不会像 `get` 请求那样保存在浏览器历史记录中。
+¹² 例如，`post` 请求的内容不会像 `get` 请求那样保存在浏览器历史记录中。
 
-^(13) 请记住，每次运行脚本时，您也将覆盖输出文件，因此它只会包含最新的结果。
+¹³ 请记住，每次运行脚本时，您也将覆盖输出文件，因此它只会包含最新的结果。
 
-^(14) Aleecia M. McDonald 和 Lorrie Faith Cranor， “阅读隐私政策的成本”， *I/S: 信息社会法律与政策杂志* 4 (2008): 543， [*https://kb.osu.edu/bitstream/handle/1811/72839/ISJLP_V4N3_543.pdf*](https://kb.osu.edu/bitstream/handle/1811/72839/ISJLP_V4N3_543.pdf)， 以及 Jonathan A. Obar 和 Anne Oeldorf-Hirsch，“互联网上最大的谎言：忽视社交网络服务的隐私政策和服务条款”， *信息、传播与社会* 23 号 1 (2020): 128–147， [*https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757465*](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757465).
+¹⁴ Aleecia M. McDonald 和 Lorrie Faith Cranor， “阅读隐私政策的成本”， *I/S: 信息社会法律与政策杂志* 4 (2008): 543， [*https://kb.osu.edu/bitstream/handle/1811/72839/ISJLP_V4N3_543.pdf*](https://kb.osu.edu/bitstream/handle/1811/72839/ISJLP_V4N3_543.pdf)， 以及 Jonathan A. Obar 和 Anne Oeldorf-Hirsch，“互联网上最大的谎言：忽视社交网络服务的隐私政策和服务条款”， *信息、传播与社会* 23 号 1 (2020): 128–147， [*https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757465*](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757465).
 
-^(15) Victoria D. Baranetsky，“数据新闻与法律”， *Tow Center for Digital Journalism* (2018) [*https://doi.org/10.7916/d8-15sw-fy51*](https://doi.org/10.7916/d8-15sw-fy51).
+¹⁵ Victoria D. Baranetsky，“数据新闻与法律”， *Tow Center for Digital Journalism* (2018) [*https://doi.org/10.7916/d8-15sw-fy51*](https://doi.org/10.7916/d8-15sw-fy51).
 
-^(16) 伴随的博客文章也很棒：[*https://storybench.org/to-scrape-or-not-to-scrape-the-technical-and-ethical-challenges-of-collecting-data-off-the-web*](https://storybench.org/to-scrape-or-not-to-scrape-the-technical-and-ethical-challenges-of-collecting-data-off-the-web)。
+¹⁶ 伴随的博客文章也很棒：[*https://storybench.org/to-scrape-or-not-to-scrape-the-technical-and-ethical-challenges-of-collecting-data-off-the-web*](https://storybench.org/to-scrape-or-not-to-scrape-the-technical-and-ethical-challenges-of-collecting-data-off-the-web)。

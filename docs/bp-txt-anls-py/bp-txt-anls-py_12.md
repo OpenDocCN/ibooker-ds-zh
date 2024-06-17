@@ -83,7 +83,7 @@ spaCy 为许多语言提供了经过训练的 NER 模型。英语模型是在包
 | GPE | 国家、城市、州 | LANGUAGE | 任何具名语言 |
 | LOCATION | 非 GPE 位置、山脉、水体 |  |  |
 
-默认情况下，加载语言模型时会启用 NER 标记器。我们首先通过使用标准（小型）英语模型 `en_core_web_sm` 初始化一个 `nlp` 对象，并打印 NLP 流水线的组件：^(4)
+默认情况下，加载语言模型时会启用 NER 标记器。我们首先通过使用标准（小型）英语模型 `en_core_web_sm` 初始化一个 `nlp` 对象，并打印 NLP 流水线的组件：⁴
 
 ```py
 nlp = spacy.load('en_core_web_sm')
@@ -162,7 +162,7 @@ patterns = [{"label": "GOV",
 
 ```
 
-每条规则由一个带有标签的字典组成，在我们的案例中是自定义实体类型`GOV`，以及令牌序列必须匹配的模式。您可以为同一标签指定多个规则，就像我们在这里所做的一样。^(5) 例如，第一条规则匹配带有文本`"U.S."`（可选，用`"OP": "?"`表示）、`"Department"`、`"of"`和`"Justice"`或`"Transportation"`的令牌序列。请注意，这些规则会对已识别出的类型`ORG`的实体进行进一步的细化。因此，这些模式必须在 spaCy 的命名实体模型之上而不是代替它应用。
+每条规则由一个带有标签的字典组成，在我们的案例中是自定义实体类型`GOV`，以及令牌序列必须匹配的模式。您可以为同一标签指定多个规则，就像我们在这里所做的一样。⁵ 例如，第一条规则匹配带有文本`"U.S."`（可选，用`"OP": "?"`表示）、`"Department"`、`"of"`和`"Justice"`或`"Transportation"`的令牌序列。请注意，这些规则会对已识别出的类型`ORG`的实体进行进一步的细化。因此，这些模式必须在 spaCy 的命名实体模型之上而不是代替它应用。
 
 基于这些模式，我们创建了一个`EntityRuler`并将其添加到我们的流水线中：
 
@@ -327,7 +327,7 @@ def init_coref(doc):
 
 ## 蓝图：执行别名解析
 
-我们首先的目标是解决众所周知的领域别名，比如*Transportation Department*代表“美国交通部”，以及像 SEC 或 TWA 这样的缩写词。解决这类别名的简单方法是使用查找字典。我们为 Reuters 语料库中的所有缩写词和一些常见别名准备了这样一个字典，并将其作为本章蓝图模块的一部分提供。^(6) 这里是一些示例查找：
+我们首先的目标是解决众所周知的领域别名，比如*Transportation Department*代表“美国交通部”，以及像 SEC 或 TWA 这样的缩写词。解决这类别名的简单方法是使用查找字典。我们为 Reuters 语料库中的所有缩写词和一些常见别名准备了这样一个字典，并将其作为本章蓝图模块的一部分提供。⁶ 这里是一些示例查找：
 
 ```py
 from blueprints.knowledge import alias_lookup
@@ -604,7 +604,7 @@ nlp.add_pipe(norm_names)
 
 ## 实体链接
 
-在前面的章节中，我们开发了一个操作流程，其目的是统一命名实体的不同提及。但所有这些都是基于字符串的，除了语法表示之外，我们没有将“美国司法部”这样的字符串与所代表的现实世界实体联系起来。相比之下，实体链接器的任务是全局解析命名实体，并将它们链接到唯一标识的现实世界实体。实体链接从“字符串到实体”的转换。^(8)
+在前面的章节中，我们开发了一个操作流程，其目的是统一命名实体的不同提及。但所有这些都是基于字符串的，除了语法表示之外，我们没有将“美国司法部”这样的字符串与所代表的现实世界实体联系起来。相比之下，实体链接器的任务是全局解析命名实体，并将它们链接到唯一标识的现实世界实体。实体链接从“字符串到实体”的转换。⁸
 
 从技术上讲，这意味着每个提及都映射到一个 URI。URI 又可以用来指代现有知识库中的实体。这可以是公共本体，例如 Wikidata 或 DBpedia，也可以是公司内部的私有知识库。URI 可以是 URL（例如网页），但不一定要是。例如，美国司法部在 Wikidata 有一个 URI [*http://www.wikidata.org/entity/Q1553390*](http://www.wikidata.org/entity/Q1553390)，这也是一个包含有关该实体信息的网页。如果您构建自己的知识库，则不需要为每个 URI 创建网页；它们只需要是唯一的。顺便说一下，DBpedia 和 Wikidata 使用不同的 URI，但您将在 DBpedia 上找到对 Wikidata URI 的交叉引用。两者当然都包含指向维基百科网页的链接。
 
@@ -616,7 +616,7 @@ nlp.add_pipe(norm_names)
 
 在前面的部分，我们花了很多精力来规范命名实体并至少解析文档内的核心参考。现在我们终于准备好分析实体对之间的第一个关系了：它们在文章中的共同提及。为此，我们将创建一个共现图，这是知识图的最简形式。共现图中的节点是实体，例如组织。如果两个实体在相同的上下文中提及，例如在一篇文章、一个段落或一个句子中，它们之间就会共享一个（无向）边。
 
-图 12-5 显示了路透社语料库中一起提及的公司的共现图的部分。边的宽度可视化了共现频率。[*模块性*](https://oreil.ly/pGZ-s)，这是一种用于识别网络中紧密相关的群体或社群的结构性指标，被用来着色节点和边。^(9)
+图 12-5 显示了路透社语料库中一起提及的公司的共现图的部分。边的宽度可视化了共现频率。[*模块性*](https://oreil.ly/pGZ-s)，这是一种用于识别网络中紧密相关的群体或社群的结构性指标，被用来着色节点和边。⁹
 
 ![](img/btap_1205.jpg)
 
@@ -705,7 +705,7 @@ cooc_df.head(3)
 
 ## 使用 Gephi 可视化图形
 
-实际上，这个`DataFrame`已经代表了我们图形的边缘列表。对于可视化，我们更喜欢[图表](https://gephi.org)，这是一个用于图形分析的开源工具。因为它是交互式的，所以比 Python 的图形库 NetworkX 要好得多。^(10) 为了使用 Gephi，我们需要将图的节点和边的列表保存为 Graph Exchange XML 格式。幸运的是，NetworkX 提供了一个将图导出为这种格式的函数。因此，我们可以简单地将我们的`DataFrame`转换为 NetworkX 图，并将其保存为`.gexf`文件。我们舍弃了罕见的实体对，以保持图的紧凑性，并重新命名了频率列，因为 Gephi 会自动使用`weight`属性来调整边的宽度。
+实际上，这个`DataFrame`已经代表了我们图形的边缘列表。对于可视化，我们更喜欢[图表](https://gephi.org)，这是一个用于图形分析的开源工具。因为它是交互式的，所以比 Python 的图形库 NetworkX 要好得多。¹⁰ 为了使用 Gephi，我们需要将图的节点和边的列表保存为 Graph Exchange XML 格式。幸运的是，NetworkX 提供了一个将图导出为这种格式的函数。因此，我们可以简单地将我们的`DataFrame`转换为 NetworkX 图，并将其保存为`.gexf`文件。我们舍弃了罕见的实体对，以保持图的紧凑性，并重新命名了频率列，因为 Gephi 会自动使用`weight`属性来调整边的宽度。
 
 ```py
 import networkx as nx
@@ -720,7 +720,7 @@ nx.readwrite.write_gexf(graph, 'cooc.gexf', encoding='utf-8',
 
 ```
 
-将文件导入 Gephi 后，我们仅选择了最大的组件（连接的子图），并手动删除了一些只有少数连接的节点，以清晰起见。^(11) 结果呈现在图 12-5 中。
+将文件导入 Gephi 后，我们仅选择了最大的组件（连接的子图），并手动删除了一些只有少数连接的节点，以清晰起见。¹¹ 结果呈现在图 12-5 中。
 
 ###### 注意
 
@@ -734,7 +734,7 @@ nx.readwrite.write_gexf(graph, 'cooc.gexf', encoding='utf-8',
 
 在本节中，我们将介绍基于模式的关系抽取的两个蓝图。第一个更简单的蓝图搜索形式为“主语-谓语-宾语”的标记短语。第二个使用句子的语法结构——依赖树来以更复杂的规则获取更精确的结果。最终，我们将生成一个基于四种关系（*acquires*、*sells*、*subsidiary-of*和*chairperson-of*）的知识图谱。说实话，我们将使用较为宽松的*acquires*和*sells*定义，这样更容易识别。它们也会匹配句子如“富士通*计划收购*傲胜公司 80%股权”甚至“富士通*撤回了收购*傲胜公司的选项”。
 
-关系抽取是一个复杂的问题，因为自然语言的歧义性和不同种类及变化的关系。基于模型的关系抽取方法是当前研究的一个热门话题。^(12) 还有一些公开可用的训练数据集，如[FewRel](http://zhuhao.me/fewrel)。然而，训练一个模型来识别关系仍然主要停留在研究阶段，超出了本书的范围。
+关系抽取是一个复杂的问题，因为自然语言的歧义性和不同种类及变化的关系。基于模型的关系抽取方法是当前研究的一个热门话题。¹² 还有一些公开可用的训练数据集，如[FewRel](http://zhuhao.me/fewrel)。然而，训练一个模型来识别关系仍然主要停留在研究阶段，超出了本书的范围。
 
 ## 蓝图：使用短语匹配提取关系
 
@@ -877,7 +877,7 @@ if matcher.has_key("acquires"):
 
 ## 蓝图：使用依赖树提取关系
 
-语言的语法规则对每个句子强加了一种句法结构。每个词在与其他词的关系中起特定作用。例如，名词在句子中可以是主语或宾语；这取决于它与动词的关系。在语言学理论中，句子的词汇是层级相互依存的，而在自然语言处理管道中，解析器的任务是重建这些依赖关系。^(13) 其结果是*依赖树*，也可以通过`displacy`进行可视化：
+语言的语法规则对每个句子强加了一种句法结构。每个词在与其他词的关系中起特定作用。例如，名词在句子中可以是主语或宾语；这取决于它与动词的关系。在语言学理论中，句子的词汇是层级相互依存的，而在自然语言处理管道中，解析器的任务是重建这些依赖关系。¹³ 其结果是*依赖树*，也可以通过`displacy`进行可视化：
 
 ```py
 text = "Fujitsu, a competitor of NEC, acquired Fairchild Corp."
@@ -1094,28 +1094,28 @@ def extract_rels(doc):
 
 +   Lison, Pierre，Aliaksandr Hubin，Jeremy Barnes 和 Samia Touileb 的《无标注数据命名实体识别：弱监督方法》。ACL 会议论文，2020 年[*https://arxiv.org/abs/2004.14723*](https://arxiv.org/abs/2004.14723)。
 
-^(1) 参见 Natasha Noy，Yuqing Gao，Anshu Jain，Anant Narayanan，Alan Patterson 和 Jamie Taylor 的《产业规模知识图谱：经验与挑战》。2019 年。[*https://queue.acm.org/detail.cfm?id=3332266*](https://queue.acm.org/detail.cfm?id=3332266)。
+¹ 参见 Natasha Noy，Yuqing Gao，Anshu Jain，Anant Narayanan，Alan Patterson 和 Jamie Taylor 的《产业规模知识图谱：经验与挑战》。2019 年。[*https://queue.acm.org/detail.cfm?id=3332266*](https://queue.acm.org/detail.cfm?id=3332266)。
 
-^(2) 详情请见[*https://oreil.ly/nzhUR*](https://oreil.ly/nzhUR)。
+² 详情请见[*https://oreil.ly/nzhUR*](https://oreil.ly/nzhUR)。
 
-^(3) Tim Berners-Lee 等人，《语义网：对计算机有意义的新形式的 Web 内容将引发新的可能性革命》。《科学美国人》284 号 5 月 2001 年。
+³ Tim Berners-Lee 等人，《语义网：对计算机有意义的新形式的 Web 内容将引发新的可能性革命》。《科学美国人》284 号 5 月 2001 年。
 
-^(4) 星号操作符（*）将列表展开为`print`的单独参数。
+⁴ 星号操作符（*）将列表展开为`print`的单独参数。
 
-^(5) 参见[spaCy 的基于规则匹配的使用文档](https://oreil.ly/Hvtgs)以了解语法的解释，并查看[*https://explosion.ai/demos/matcher*](https://explosion.ai/demos/matcher)上的交互式模式探索器。
+⁵ 参见[spaCy 的基于规则匹配的使用文档](https://oreil.ly/Hvtgs)以了解语法的解释，并查看[*https://explosion.ai/demos/matcher*](https://explosion.ai/demos/matcher)上的交互式模式探索器。
 
-^(6) 在本章的笔记本上，你将找到一个用于缩略语检测的额外蓝图，位于[GitHub](https://oreil.ly/LlPHm)。
+⁶ 在本章的笔记本上，你将找到一个用于缩略语检测的额外蓝图，位于[GitHub](https://oreil.ly/LlPHm)。
 
-^(7) 更多详情请参见 Wolf（2017）的[“Chatbots 的最新神经指代消解技术”](https://oreil.ly/VV4Uy)。
+⁷ 更多详情请参见 Wolf（2017）的[“Chatbots 的最新神经指代消解技术”](https://oreil.ly/VV4Uy)。
 
-^(8) 谷歌在 2012 年推出其知识图谱时提出了这一口号。
+⁸ 谷歌在 2012 年推出其知识图谱时提出了这一口号。
 
-^(9) 你可以在本书的电子版和我们的[GitHub 存储库](https://oreil.ly/2ju0k)中找到彩色插图。
+⁹ 你可以在本书的电子版和我们的[GitHub 存储库](https://oreil.ly/2ju0k)中找到彩色插图。
 
-^(10) 你可以在本章笔记本的 [GitHub](https://oreil.ly/OWTcO) 上找到该图的 NetworkX 版本。
+¹⁰ 你可以在本章笔记本的 [GitHub](https://oreil.ly/OWTcO) 上找到该图的 NetworkX 版本。
 
-^(11) 更多详细信息请参阅我们本章的 [GitHub 仓库](https://oreil.ly/nri01)。
+¹¹ 更多详细信息请参阅我们本章的 [GitHub 仓库](https://oreil.ly/nri01)。
 
-^(12) 参见 [最新技术概述](https://oreil.ly/l6DIH)。
+¹² 参见 [最新技术概述](https://oreil.ly/l6DIH)。
 
-^(13) 与依存分析器相反，成分分析器根据嵌套短语创建层次化的句子结构。
+¹³ 与依存分析器相反，成分分析器根据嵌套短语创建层次化的句子结构。

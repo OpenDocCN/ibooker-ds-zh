@@ -141,7 +141,7 @@ True
 
 # 蓝图：从 sitemap.xml 查找 URL
 
-Reuters 甚至友好地提到了新闻 [站点地图](https://reuters.com/sitemap_news_index.xml) 的 URL，实际上只包含对 [其他站点地图文件](https://www.reuters.com/sitemap_news_index1.xml) 的引用。让我们下载它。撰写时的节选如下：^(1)
+Reuters 甚至友好地提到了新闻 [站点地图](https://reuters.com/sitemap_news_index.xml) 的 URL，实际上只包含对 [其他站点地图文件](https://www.reuters.com/sitemap_news_index1.xml) 的引用。让我们下载它。撰写时的节选如下：¹
 
 ```py
 [...]
@@ -167,7 +167,7 @@ us-health-vaping-marijuana-idUSKBN1WG4KT</loc>
 
 由于 Python 拥有一个非常丰富的库生态系统，找到一个站点地图解析器并不难。有几种可用，比如[`ultimate-sitemap-parser`](https://oreil.ly/XgY9z)。然而，这种解析器下载整个站点地图层次结构，对于我们来说有点过于复杂，因为我们只需 URL。
 
-将*sitemap.xml*转换为 Python 中称为`dict`的关联数组（哈希）非常容易：^(2)
+将*sitemap.xml*转换为 Python 中称为`dict`的关联数组（哈希）非常容易：²
 
 ```py
 import xmltodict
@@ -178,7 +178,7 @@ sitemap = xmltodict.parse(requests.get(
 
 ```
 
-让我们在实际下载文件之前检查一下`dict`中有什么内容^(3)：
+让我们在实际下载文件之前检查一下`dict`中有什么内容³：
 
 ```py
 urls = [url["loc"] for url in sitemap["urlset"]["url"]]
@@ -203,15 +203,15 @@ and-saudi-weigh-response-to-oil-attack-idUSKBN1W40VN
 
 # 蓝图：从 RSS 中找到 URL
 
-由于路透社是一个新闻网站，它也通过 RSS 提供其文章的访问。几年前，如果你可以订阅这个源，浏览器会在 URL 旁边显示一个 RSS 图标。虽然那些日子已经过去，但现在仍然不难找到 RSS 源的 URL。在网站底部，我们可以看到一行带有导航图标的内容，如[图 3-2 所示。
+由于路透社是一个新闻网站，它也通过 RSS 提供其文章的访问。几年前，如果你可以订阅这个源，浏览器会在 URL 旁边显示一个 RSS 图标。虽然那些日子已经过去，但现在仍然不难找到 RSS 源的 URL。在网站底部，我们可以看到一行带有导航图标的内容，如图 3-2 所示。
 
-![](img/btap_0302.jpg)
+![
 
 ###### 图 3-2。链接到 RSS 源的路透社网站的一部分。
 
 看起来像 WIFI 指示器的图标是指向 RSS 订阅页面的链接。通常（有时更容易），这可以通过查看相应网页的源代码并搜索*RSS*来找到。
 
-世界新闻的 RSS 源 URL 是[*http://feeds.reuters.com/Reuters/worldNews*](http://feeds.reuters.com/Reuters/worldNews)^(4)，在 Python 中可以轻松解析如下：
+世界新闻的 RSS 源 URL 是[*http://feeds.reuters.com/Reuters/worldNews*](http://feeds.reuters.com/Reuters/worldNews)⁴，在 Python 中可以轻松解析如下：
 
 ```py
 import feedparser
@@ -219,7 +219,7 @@ feed = feedparser.parse('http://feeds.reuters.com/Reuters/worldNews')
 
 ```
 
-RSS 文件的具体格式可能因网站而异。然而，大多数情况下，我们会找到标题和链接作为字段^(5)：
+RSS 文件的具体格式可能因网站而异。然而，大多数情况下，我们会找到标题和链接作为字段⁵：
 
 ```py
 [(e.title, e.link) for e in feed.entries]
@@ -415,7 +415,7 @@ Banned in Boston: Without vaping, medical marijuana patients must adapt - Reuter
 
 # 蓝图：使用 HTML 解析器进行提取
 
-文章还有更多有趣的部分，使用正则表达式提取起来很繁琐。在文章中有文本，与之相关的出版日期以及作者的名称。使用 HTML 解析器（^(6)）可以更容易地实现这一点。幸运的是，Python 包 Beautiful Soup 可以很好地处理这些任务。如果尚未安装 Beautiful Soup，请使用`pip install bs4`或`conda install bs4`进行安装。Beautiful Soup 很宽容，也可以解析通常在管理不善的网站上找到的“不良”HTML。
+文章还有更多有趣的部分，使用正则表达式提取起来很繁琐。在文章中有文本，与之相关的出版日期以及作者的名称。使用 HTML 解析器（⁶）可以更容易地实现这一点。幸运的是，Python 包 Beautiful Soup 可以很好地处理这些任务。如果尚未安装 Beautiful Soup，请使用`pip install bs4`或`conda install bs4`进行安装。Beautiful Soup 很宽容，也可以解析通常在管理不善的网站上找到的“不良”HTML。
 
 接下来的几节利用了新闻档案中所有文章具有相同的结构这一事实。幸运的是，这对大多数大型网站来说是真实的，因为这些页面不是手工制作的，而是由内容管理系统从数据库生成的。
 
@@ -441,7 +441,7 @@ marijuana patients must adapt</h1>
 
 ```
 
-使用 CSS 表示法，^(7)可以通过`h1.ArticleHeader_headline`选择此元素。Beautiful Soup 理解到：
+使用 CSS 表示法，⁷可以通过`h1.ArticleHeader_headline`选择此元素。Beautiful Soup 理解到：
 
 ```py
 from bs4 import Beautiful Soup
@@ -1069,16 +1069,16 @@ process.start()
 
 无论如何，你都应该了解法律方面的问题，并且要表现得像一个“道德的抓取者”，尊重*robots.txt*中的规则。
 
-^(1) 路透社是一个新闻网站，每天都在变化。因此，运行代码时会得到完全不同的结果！
+¹ 路透社是一个新闻网站，每天都在变化。因此，运行代码时会得到完全不同的结果！
 
-^(2) 你可能需要先用**`pip install xmltodict`**安装该包。
+² 你可能需要先用**`pip install xmltodict`**安装该包。
 
-^(3) 路透社是一个新闻网站，内容不断更新。请注意，你的结果肯定会有所不同！
+³ 路透社是一个新闻网站，内容不断更新。请注意，你的结果肯定会有所不同！
 
-^(4) 就在撰写本文的时候，路透社停止提供 RSS 源，引发了公众的强烈抗议。我们希望 RSS 源会得到恢复。本章的 Jupyter 笔记本 [在 GitHub 上](https://oreil.ly/Wamlu) 使用了来自互联网档案馆的 RSS 源的存档版本。
+⁴ 就在撰写本文的时候，路透社停止提供 RSS 源，引发了公众的强烈抗议。我们希望 RSS 源会得到恢复。本章的 Jupyter 笔记本 [在 GitHub 上](https://oreil.ly/Wamlu) 使用了来自互联网档案馆的 RSS 源的存档版本。
 
-^(5) 正如之前所述，路透社是一个动态生成的网站，你的结果会有所不同！
+⁵ 正如之前所述，路透社是一个动态生成的网站，你的结果会有所不同！
 
-^(6) HTML 不能用[正则表达式](https://oreil.ly/EeCjy)解析。
+⁶ HTML 不能用[正则表达式](https://oreil.ly/EeCjy)解析。
 
-^(7) 参见 Eric A. Meyer 和 Estelle Weyl 的*CSS：权威指南，第 4 版*（O'Reilly，2017）
+⁷ 参见 Eric A. Meyer 和 Estelle Weyl 的*CSS：权威指南，第 4 版*（O'Reilly，2017）

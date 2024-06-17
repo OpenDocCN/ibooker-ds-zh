@@ -52,7 +52,7 @@ In [2]: %matplotlib inline
 
 ![output 9 0](img/output_9_0.png)
 
-###### 图 38-1\. 鸢尾花数据集的可视化^(1)
+###### 图 38-1\. 鸢尾花数据集的可视化¹
 
 为了在 Scikit-Learn 中使用，我们将从 `DataFrame` 中提取特征矩阵和目标数组，我们可以使用一些在 第三部分 中讨论过的 Pandas `DataFrame` 操作来完成：
 
@@ -72,7 +72,7 @@ Out[4]: (150,)
 
 ![05.02 样本特征](img/05.02-samples-features.png)
 
-###### 图 38-2\. Scikit-Learn 的数据布局^(2)
+###### 图 38-2\. Scikit-Learn 的数据布局²
 
 有了这些数据正确格式化，我们可以继续考虑 Scikit-Learn 的估计器 API。
 
@@ -307,7 +307,7 @@ In [19]: iris['PCA1'] = X_2D[:, 0]
 
 ![output 53 0](img/output_53_0.png)
 
-###### 图 38-5\. 将 Iris 数据投影到二维空间^(3)
+###### 图 38-5\. 将 Iris 数据投影到二维空间³
 
 ## 无监督学习示例：鸢尾花聚类
 
@@ -333,7 +333,7 @@ In [21]: iris['cluster'] = y_gmm
 
 ![output 58 0](img/output_58_0.png)
 
-###### 图 38-6\. Iris 数据中的 k-means 聚类^(4)
+###### 图 38-6\. Iris 数据中的 k-means 聚类⁴
 
 通过按簇号拆分数据，我们可以看到 GMM 算法已经完美地恢复了底层标签：*setosa* 物种在簇 0 中完美分离，而 *versicolor* 和 *virginica* 之间仍然存在少量混合。这意味着即使没有专家告诉我们单个花的物种标签，这些花的测量也是足够明显的，以至于我们可以使用简单的聚类算法*自动*识别出这些不同物种群！这种算法可能进一步给领域专家提供关于他们正在观察的样本之间关系的线索。
 
@@ -487,10 +487,10 @@ In [32]: fig, axes = plt.subplots(10, 10, figsize=(8, 8),
 
 在下一章中，我们将探讨机器学习中可能最重要的主题：如何选择和验证您的模型。
 
-^(1) 这个图的全尺寸、全彩色版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+¹ 这个图的全尺寸、全彩色版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^(2) 可在[在线附录](https://oreil.ly/J8V6U)中找到生成此图的代码。
+² 可在[在线附录](https://oreil.ly/J8V6U)中找到生成此图的代码。
 
-^(3) 这个图的全彩色版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+³ 这个图的全彩色版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^(4) 这个图的全尺寸、全彩色版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+⁴ 这个图的全尺寸、全彩色版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。

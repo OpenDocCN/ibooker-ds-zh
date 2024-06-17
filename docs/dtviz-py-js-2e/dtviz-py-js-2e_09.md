@@ -38,7 +38,7 @@ Scrapy 应该是 Anaconda 包之一（参见第一章），所以你应该已经
 $ conda install -c https://conda.anaconda.org/anaconda scrapy
 ```
 
-如果你没有使用 Anaconda，只需快速安装`pip`即可完成任务:^(1)
+如果你没有使用 Anaconda，只需快速安装`pip`即可完成任务:¹
 
 ```py
 $ pip install scrapy
@@ -572,7 +572,7 @@ def process_winner_li(w, country=None):
 
 主要的维基百科诺贝尔奖按国家页面为我们提供了大量目标数据，但获奖者的出生日期、死亡日期（如适用）和性别仍需抓取。希望这些信息能够在他们的传记页面上（非组织获奖者）隐式或显式地获取。现在是启动 Chrome 的 Elements 选项卡并查看这些页面以确定如何提取所需数据的好时机。
 
-我们在上一章中看到（第 5 章）个人页面上的可见信息框不是可靠的信息来源，而且经常完全缺失。直到最近^(3)，一个隐藏的`persondata`表（参见图 6-4）相当可靠地提供了出生地点、死亡日期等信息。不幸的是，这个方便的资源已被弃用^(4)。好消息是，这是改进生物信息分类的一部分，通过在[Wikidata](https://oreil.ly/ICbBi)上为其提供一个专门的空间，维基百科的结构化数据中心。
+我们在上一章中看到（第 5 章）个人页面上的可见信息框不是可靠的信息来源，而且经常完全缺失。直到最近³，一个隐藏的`persondata`表（参见图 6-4）相当可靠地提供了出生地点、死亡日期等信息。不幸的是，这个方便的资源已被弃用⁴。好消息是，这是改进生物信息分类的一部分，通过在[Wikidata](https://oreil.ly/ICbBi)上为其提供一个专门的空间，维基百科的结构化数据中心。
 
 ![dpj2 0604](img/dpj2_0604.png)
 
@@ -600,7 +600,7 @@ def process_winner_li(w, country=None):
 
 # 链接请求和数据产出
 
-在本节中，我们将看到如何链式处理 Scrapy 请求，允许我们在进行数据抓取时跟随超链接。首先，让我们启用 Scrapy 的页面缓存。在尝试 xpath 目标时，我们希望限制对维基百科的调用次数，并且将我们抓取的页面存储起来是个好习惯。与某些数据集不同，我们的诺贝尔奖获得者每年只变一次。^(5)
+在本节中，我们将看到如何链式处理 Scrapy 请求，允许我们在进行数据抓取时跟随超链接。首先，让我们启用 Scrapy 的页面缓存。在尝试 xpath 目标时，我们希望限制对维基百科的调用次数，并且将我们抓取的页面存储起来是个好习惯。与某些数据集不同，我们的诺贝尔奖获得者每年只变一次。⁵
 
 ## 缓存页面
 
@@ -637,7 +637,7 @@ HTTPCACHE_ENABLED = True
 
 我们现有的 spider 的`parse`方法循环遍历诺贝尔获奖者，使用`process_winner_li`方法来抓取国家、姓名、年份、类别和传记超链接字段。我们现在想要使用传记超链接来生成一个 Scrapy 请求，以获取生物页面并将其发送到一个自定义的抓取方法。
 
-Scrapy 实现了一种 Python 风格的请求链接模式，利用 Python 的`yield`语句创建生成器，^(6) 使得 Scrapy 能够轻松处理我们所做的任何额外页面请求。示例 6-4 展示了该模式的实际应用。
+Scrapy 实现了一种 Python 风格的请求链接模式，利用 Python 的`yield`语句创建生成器，⁶ 使得 Scrapy 能够轻松处理我们所做的任何额外页面请求。示例 6-4 展示了该模式的实际应用。
 
 ##### 示例 6-4\. 使用 Scrapy 进行请求链接
 
@@ -1146,14 +1146,14 @@ class NWinnerSpiderBio(scrapy.Spider):
 
 我们抓取的数据，其中大部分是人工编辑的，肯定会有一些错误——从格式不正确的日期到分类异常和缺失字段。下一章基于 pandas 的重点是使数据变得可呈现。但首先，我们需要简要介绍一下 pandas 及其构建模块 NumPy。
 
-^(1) 查看 [Scrapy 安装文档](https://oreil.ly/LamAt) 获取特定平台的详细信息。
+¹ 查看 [Scrapy 安装文档](https://oreil.ly/LamAt) 获取特定平台的详细信息。
 
-^(2) 有一些方便的在线工具可以用来测试正则表达式，其中一些是特定于编程语言的。[Pyregex](http://www.pyregex.com) 是一个不错的 Python 工具，包含一个方便的速查表。
+² 有一些方便的在线工具可以用来测试正则表达式，其中一些是特定于编程语言的。[Pyregex](http://www.pyregex.com) 是一个不错的 Python 工具，包含一个方便的速查表。
 
-^(3) 作者被这次删除搞得很烦。
+³ 作者被这次删除搞得很烦。
 
-^(4) 查看 [Wikipedia](https://oreil.ly/pLVcE) 获取解释。
+⁴ 查看 [Wikipedia](https://oreil.ly/pLVcE) 获取解释。
 
-^(5) 严格来说，维基百科社区不断进行编辑，但基本细节应该稳定直到下一批奖项。
+⁵ 严格来说，维基百科社区不断进行编辑，但基本细节应该稳定直到下一批奖项。
 
-^(6) 参阅 [Jeff Knupp 的博客，“Everything I Know About Python”](https://oreil.ly/qgku4)，了解 Python 生成器和 `yield` 的使用。
+⁶ 参阅 [Jeff Knupp 的博客，“Everything I Know About Python”](https://oreil.ly/qgku4)，了解 Python 生成器和 `yield` 的使用。

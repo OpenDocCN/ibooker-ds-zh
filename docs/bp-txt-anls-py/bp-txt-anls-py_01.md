@@ -285,7 +285,7 @@ Let|s|defeat|SARS-CoV-2|together|in
 
 文本中最常见的词是诸如限定词、助动词、代词、副词等常见词汇。这些词称为*停用词*。停用词通常不携带太多信息，但由于其高频率而隐藏了有趣的内容。因此，在数据分析或模型训练之前通常会删除停用词。
 
-在本节中，我们展示如何丢弃预定义列表中包含的停用词。许多语言都有通用的停用词列表，并且几乎所有的自然语言处理库都集成了这些列表。我们将在这里使用 NLTK 的停用词列表，但你可以使用任何单词列表作为过滤器。^(2) 为了快速查找，你应该总是将列表转换为集合。集合是基于哈希的数据结构，类似于字典，具有几乎恒定的查找时间：
+在本节中，我们展示如何丢弃预定义列表中包含的停用词。许多语言都有通用的停用词列表，并且几乎所有的自然语言处理库都集成了这些列表。我们将在这里使用 NLTK 的停用词列表，但你可以使用任何单词列表作为过滤器。² 为了快速查找，你应该总是将列表转换为集合。集合是基于哈希的数据结构，类似于字典，具有几乎恒定的查找时间：
 
 ```py
 import nltk
@@ -365,7 +365,7 @@ df['num_tokens'] = df['tokens'].map(len)
 
 ###### 注意
 
-`tqdm`（阿拉伯语中“进展”的发音是*taqadum*）是 Python 中优秀的进度条库。它支持传统的循环，例如使用`tqdm_range`替代`range`，并且通过提供在数据框上的`progress_map`和`progress_apply`操作支持 Pandas。^(3) 我们在 GitHub 上的相关笔记本使用这些操作，但在本书中我们仅使用纯粹的 Pandas。
+`tqdm`（阿拉伯语中“进展”的发音是*taqadum*）是 Python 中优秀的进度条库。它支持传统的循环，例如使用`tqdm_range`替代`range`，并且通过提供在数据框上的`progress_map`和`progress_apply`操作支持 Pandas。³ 我们在 GitHub 上的相关笔记本使用这些操作，但在本书中我们仅使用纯粹的 Pandas。
 
 # 词频分析的蓝图
 
@@ -375,7 +375,7 @@ df['num_tokens'] = df['tokens'].map(len)
 
 ## 蓝图：使用计数器计数单词
 
-Python 的标准库中内置了一个名为`Counter`的类，它正如其名字所示：用来计数。^(4) 使用计数器的最简单方式是从一个项目列表创建它，本例中是代表单词或标记的字符串。生成的计数器基本上是一个包含这些项目作为键和它们频率作为值的字典对象。
+Python 的标准库中内置了一个名为`Counter`的类，它正如其名字所示：用来计数。⁴ 使用计数器的最简单方式是从一个项目列表创建它，本例中是代表单词或标记的字符串。生成的计数器基本上是一个包含这些项目作为键和它们频率作为值的字典对象。
 
 让我们通过一个简单的例子来说明它的功能：
 
@@ -559,7 +559,7 @@ def wordcloud(word_freq, title=None, max_words=200, stopwords=None):
 
 ```
 
-该函数有两个方便的参数来过滤单词。 `skip_n` 跳过列表中前 *n* 个单词。 显然，在联合国语料库中，像 *united*、*nations* 或 *international* 这样的单词位于列表的前列。 可视化之后，过滤掉特定但无趣的频繁单词可能更有帮助。 第二个过滤器是一个（额外的）停用词列表。 有时，仅在可视化时过滤掉特定频繁但无趣的单词是有帮助的。 ^(5)
+该函数有两个方便的参数来过滤单词。 `skip_n` 跳过列表中前 *n* 个单词。 显然，在联合国语料库中，像 *united*、*nations* 或 *international* 这样的单词位于列表的前列。 可视化之后，过滤掉特定但无趣的频繁单词可能更有帮助。 第二个过滤器是一个（额外的）停用词列表。 有时，仅在可视化时过滤掉特定频繁但无趣的单词是有帮助的。 ⁵
 
 因此，让我们来看看 2015 年的演讲（图示 1-5）。 左侧的词云可视化了最常见的单词，未经过滤。 而右侧的词云则将整个语料库中最频繁的 50 个单词视为停用词：
 
@@ -695,7 +695,7 @@ def kwic(doc_series, keyword, window=35, print_samples=5):
 
 ```
 
-该函数通过将`map`应用于每个文档来迭代收集关键字上下文的关键字上下文，这是我们已经在单词计数蓝图中使用过的技巧，非常有效，并且还可以对更大的语料库进行 KWIC 分析。 默认情况下，该函数返回形式为`(left context, keyword, right context)`的元组列表。 如果`print_samples`大于 0，则会打印结果的随机样本。^(8) 当您处理大量文档时，采样尤其有用，因为列表的前几个条目否则将来自单个或非常少量的文档。
+该函数通过将`map`应用于每个文档来迭代收集关键字上下文的关键字上下文，这是我们已经在单词计数蓝图中使用过的技巧，非常有效，并且还可以对更大的语料库进行 KWIC 分析。 默认情况下，该函数返回形式为`(left context, keyword, right context)`的元组列表。 如果`print_samples`大于 0，则会打印结果的随机样本。⁸ 当您处理大量文档时，采样尤其有用，因为列表的前几个条目否则将来自单个或非常少量的文档。
 
 之前的*sdgs*的 KWIC 列表是通过以下调用生成的：
 
@@ -712,7 +712,7 @@ kwic(df[df['year'] == 2015]['text'], 'sdgs', print_samples=5)
 
 在文本处理中，我们通常处理 bigrams（长度为 2 的序列），有时甚至是 trigrams（长度为 3）。 大小为 1 的 n-grams 是单个单词，也称为*unigrams*。 坚持保持<math alttext="n less-than-or-equal-to 3"><mrow><mi>n</mi> <mo>≤</mo> <mn>3</mn></mrow></math>的原因是，不同的 n-grams 数量随着*n*的增加呈指数增长，而它们的频率以相同的方式减少。 到目前为止，大多数 trigrams 在语料库中只出现一次。
 
-以下函数优雅地生成了一组标记序列的 n-gram：^(9)
+以下函数优雅地生成了一组标记序列的 n-gram：⁹
 
 ```py
 def ngrams(tokens, n=2, sep=' '):
@@ -939,20 +939,20 @@ sns.heatmap(data=freq_df.T,
 
 +   对于较大的项目，我们建议设置搜索引擎，如[Apache SOLR](https://oreil.ly/LqPvG)，[Elasticsearch](https://elastic.co)，或[Tantivy](https://oreil.ly/NCz1g)。这些平台创建了专门的索引（还使用 TF-IDF 加权），以便进行快速全文搜索。Python API 适用于所有这些平台。
 
-^(1) 查看[Pandas 文档](https://oreil.ly/XjAKa)获取完整列表。
+¹ 查看[Pandas 文档](https://oreil.ly/XjAKa)获取完整列表。
 
-^(2) 您可以类似地处理 spaCy 的列表，使用`spacy.lang.en.STOP_WORDS`。
+² 您可以类似地处理 spaCy 的列表，使用`spacy.lang.en.STOP_WORDS`。
 
-^(3) 查看[文档](https://oreil.ly/gO_VN)获取更多细节。
+³ 查看[文档](https://oreil.ly/gO_VN)获取更多细节。
 
-^(4) NLTK 类[`FreqDist`](https://oreil.ly/xQXUu)派生自`Counter`，并添加了一些便利功能。
+⁴ NLTK 类[`FreqDist`](https://oreil.ly/xQXUu)派生自`Counter`，并添加了一些便利功能。
 
-^(5) 注意，如果调用`generate_from_frequencies`，`wordcloud`模块会忽略停用词列表。因此，我们需要额外进行过滤。
+⁵ 注意，如果调用`generate_from_frequencies`，`wordcloud`模块会忽略停用词列表。因此，我们需要额外进行过滤。
 
-^(6) 例如，scikit-learn 的`TfIdfVectorizer`会添加`+1`。
+⁶ 例如，scikit-learn 的`TfIdfVectorizer`会添加`+1`。
 
-^(7) 另一种选择是在分母中添加+1，以避免未见术语导致的除零。这种技术称为*平滑*。
+⁷ 另一种选择是在分母中添加+1，以避免未见术语导致的除零。这种技术称为*平滑*。
 
-^(8) textacy 的`KWIC`函数中的参数`print_only`类似工作，但不进行抽样。
+⁸ textacy 的`KWIC`函数中的参数`print_only`类似工作，但不进行抽样。
 
-^(9) 查看斯科特·特里格利亚的[博文](https://oreil.ly/7WwTe)了解解释。
+⁹ 查看斯科特·特里格利亚的[博文](https://oreil.ly/7WwTe)了解解释。

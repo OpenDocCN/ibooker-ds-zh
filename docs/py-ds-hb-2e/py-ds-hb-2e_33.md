@@ -77,7 +77,7 @@ In [7]: y = np.sin(x[:, np.newaxis] + np.pi * np.arange(0, 2, 0.5))
 
 ![output 13 0](img/output_13_0.png)
 
-###### 图 29-5\. 图例元素的自定义^(1)
+###### 图 29-5\. 图例元素的自定义¹
 
 在实践中，我通常发现使用第一种方法更为清晰，即对你想在图例中显示的绘图元素应用标签（参见图 29-6）。
 
@@ -92,7 +92,7 @@ In [8]: plt.plot(x, y[:, 0], label='first')
 
 ![output 15 0](img/output_15_0.png)
 
-###### 图 29-6\. 自定义图例元素的另一种方法^(2)
+###### 图 29-6\. 自定义图例元素的另一种方法²
 
 # 点的尺寸图例
 
@@ -174,6 +174,6 @@ In [11]: fig, ax = plt.subplots()
 
 ###### 图 29-8\. 分割图例
 
-^(1) 该图的全彩版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+¹ 该图的全彩版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
 
-^(2) 该图的全彩版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。
+² 该图的全彩版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)上找到。

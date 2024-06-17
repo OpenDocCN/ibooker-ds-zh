@@ -10,15 +10,15 @@
 
 经常情况下，您会发现虽然一个数据集不能回答您最初的问题，但它仍然可以揭示其中某些关键方面。其他时候，您可能会发现关于您探索的主题**没有**数据，并且您可以利用这个事实来寻求帮助——发现**不存在**的数据可能会促使您和其他人彻底改变焦点。而且，由于“完美”的数据集永远不会存在，有时候您可能会选择*非常小心地*分享您知道有缺陷的数据，因为即使它提供的部分见解也对公众利益有重要作用。在每种情况下重要的是，您愿意对自己所做的选择负责——因为无论“原始”数据是什么或来自何处，经过清洗、增强、转换和/或分析的数据集仍然是*您的*。
 
-如果您感到有些不知所措——嗯，这并不完全是偶然。我们生活在一个时刻，使用强大的数字工具很容易而不考虑它们的现实世界后果，以及建造“先进”技术的人大多数情况下是在按照他们自己的利益编写算法规则的时刻。^(1)最终，数据既可以是信息的机制*也*可以是操纵的机制，既可以解释*也*可以利用。确保您的工作落在这些界限的哪一侧，最终取决于您自己。
+如果您感到有些不知所措——嗯，这并不完全是偶然。我们生活在一个时刻，使用强大的数字工具很容易而不考虑它们的现实世界后果，以及建造“先进”技术的人大多数情况下是在按照他们自己的利益编写算法规则的时刻。¹最终，数据既可以是信息的机制*也*可以是操纵的机制，既可以解释*也*可以利用。确保您的工作落在这些界限的哪一侧，最终取决于您自己。
 
 但实际上，实现数据质量意味着什么呢？为了了解这一点，我们将在本章的剩余部分中评估现实世界数据，从数据*完整性*和数据*适配性*的角度来看，这些概念在第三章中已经介绍过。我们将使用的数据集是来自美国薪资保护计划（PPP）的贷款数据的单个实例，该计划包含有关在 COVID-19 大流行期间向小企业发放的数百万笔贷款的信息。正如我们在本章剩余部分中将首次亲身经历的那样，PPP 数据体现了许多“发现”数据中常见的挑战：不明确的术语和从一个数据版本到下一个数据版本的不明确变化留下了数据*适配性*问题的空间，这些问题需要额外的研究来解决。数据*完整性*问题更为直接（尽管解决起来可能不一定更快）——比如确认数据集中某个特定银行的拼写是否始终一致，或者我们的数据文件是否包含应有的值和时间范围。尽管我们将会应对大多数这些挑战，但最终我们的见解将是高度自信的，*而非*无可辩驳的。与所有数据工作一样，它们将是知情决策、逻辑推理和大量数据处理的累积结果。为了完成这些处理工作，我们最依赖的 Python 库是*pandas*，它提供了一套流行且强大的工具，用于处理表格类型的数据。让我们开始吧！
 
 # **大流行和 PPP**
 
-在 2020 年春季，美国政府宣布了一个贷款计划，旨在帮助稳定因 COVID-19 大流行导致的美国经济下滑。该计划拥有近 1 万亿美元的指定资金，^(2) PPP 的目标显然是帮助小企业支付租金，并继续支付员工的工资，尽管有时会面临强制关闭和其他限制。尽管第一笔资金发放后失业率出现下降，但联邦政府的一些部分似乎决心不透明资金去向的要求。^(3)
+在 2020 年春季，美国政府宣布了一个贷款计划，旨在帮助稳定因 COVID-19 大流行导致的美国经济下滑。该计划拥有近 1 万亿美元的指定资金，² PPP 的目标显然是帮助小企业支付租金，并继续支付员工的工资，尽管有时会面临强制关闭和其他限制。尽管第一笔资金发放后失业率出现下降，但联邦政府的一些部分似乎决心不透明资金去向的要求。³
 
-PPP 贷款是否帮助挽救了美国的小企业？随着时间的推移，我们可能会认为这是一个足够直接的问题来回答，但我们是来亲自找出答案的。为此，当然我们会从数据开始进行系统评估，首先是对其整体质量的系统评估，在这一过程中，我们依次审查我们每个特征的 PPP 贷款数据的数据*完整性*和数据*适配性*。同样重要的是，我们将*仔细记录*这个过程的每一部分，以便我们有记录我们所做的事情、我们做出的选择以及背后的推理的记录。这个数据日记将是我们未来的重要资源，特别是在我们需要解释或重现我们的任何工作时。虽然您可以使用任何您喜欢的形式和格式，我喜欢保持我的格式简单，并让我的数据日记与我的代码一起，因此我将记录我的工作在一个 Markdown 文件中，我可以轻松地备份和在 GitHub 上阅读。^(4) 由于这个文件实际上是我所做的一切的一个正在进行的清单，我打算将其称为*ppp_process_log.md*。
+PPP 贷款是否帮助挽救了美国的小企业？随着时间的推移，我们可能会认为这是一个足够直接的问题来回答，但我们是来亲自找出答案的。为此，当然我们会从数据开始进行系统评估，首先是对其整体质量的系统评估，在这一过程中，我们依次审查我们每个特征的 PPP 贷款数据的数据*完整性*和数据*适配性*。同样重要的是，我们将*仔细记录*这个过程的每一部分，以便我们有记录我们所做的事情、我们做出的选择以及背后的推理的记录。这个数据日记将是我们未来的重要资源，特别是在我们需要解释或重现我们的任何工作时。虽然您可以使用任何您喜欢的形式和格式，我喜欢保持我的格式简单，并让我的数据日记与我的代码一起，因此我将记录我的工作在一个 Markdown 文件中，我可以轻松地备份和在 GitHub 上阅读。⁴ 由于这个文件实际上是我所做的一切的一个正在进行的清单，我打算将其称为*ppp_process_log.md*。
 
 # 评估数据完整性
 
@@ -36,7 +36,7 @@ PPP 贷款是否帮助挽救了美国的小企业？随着时间的推移，我�
 
 ## 是否具有已知的出处？
 
-在撰写本文时，“最新 PPP 贷款数据”短语的第一个搜索结果是美国财政部网站上的一个页面，链接到 2020 年 8 月的数据^(5)。第二个结果链接到更近期的数据，来自负责实际管理资金的小型企业管理局（SBA）^(6)。
+在撰写本文时，“最新 PPP 贷款数据”短语的第一个搜索结果是美国财政部网站上的一个页面，链接到 2020 年 8 月的数据⁵。第二个结果链接到更近期的数据，来自负责实际管理资金的小型企业管理局（SBA）⁶。
 
 尽管这两个网站都是与 PPP 相关的政府机构的合法网站，但对我们来说，与 SBA 发布的数据主要合作更有意义。尽管如此，在我首次寻找这些数据时，它*并不*是我首先找到的东西。
 
@@ -54,7 +54,7 @@ PPP 贷款是否帮助挽救了美国的小企业？随着时间的推移，我�
 
 到目前为止，我们知道 PPP 已经进行了多次数据发布。虽然我们可以相当有信心地说我们已经成功地找到了最*近*的数据，但接下来的问题是：这是*所有*的数据吗？
 
-由于我们主要关注那些获得较大贷款的企业，我们只需要担心检查一个文件：*public_150k_plus.csv*。^(7)但是我们如何知道这是否包括到目前为止的所有程序阶段，或者只是自 2020 年 8 月首次数据发布以来的贷款？由于我们可以访问这两组数据，^(8)我们可以采用几种策略：
+由于我们主要关注那些获得较大贷款的企业，我们只需要担心检查一个文件：*public_150k_plus.csv*。⁷但是我们如何知道这是否包括到目前为止的所有程序阶段，或者只是自 2020 年 8 月首次数据发布以来的贷款？由于我们可以访问这两组数据，⁸我们可以采用几种策略：
 
 1.  查找我们“最近”数据文件中的最早日期，并确认它们是*在*2020 年 8 月 8 日之前。
 
@@ -62,7 +62,7 @@ PPP 贷款是否帮助挽救了美国的小企业？随着时间的推移，我�
 
 1.  比较它们包含的数据以确认较早文件中的所有记录是否已经存在于较新的文件中。
 
-此时，你可能会想，“等等，确认最早的日期不就足够了吗？为什么我们要做其他两个？这两者似乎都更加困难。”当然，在*理论*上，只确认我们从早期阶段获得了数据应该就足够了。但事实上，这只是一个相当粗略的检查。显然，我们不能通过尝试自己收集更全面的数据来确认联邦政府发布的数据是否完整。另一方面（正如我们马上会看到的），政府和大型组织（包括——也许尤其是——银行）的数据收集过程远非完美。^(9)由于我们将使用这些数据来得出结论，如果我们拥有这些数据，我认为彻底地检查是值得的。
+此时，你可能会想，“等等，确认最早的日期不就足够了吗？为什么我们要做其他两个？这两者似乎都更加困难。”当然，在*理论*上，只确认我们从早期阶段获得了数据应该就足够了。但事实上，这只是一个相当粗略的检查。显然，我们不能通过尝试自己收集更全面的数据来确认联邦政府发布的数据是否完整。另一方面（正如我们马上会看到的），政府和大型组织（包括——也许尤其是——银行）的数据收集过程远非完美。⁹由于我们将使用这些数据来得出结论，如果我们拥有这些数据，我认为彻底地检查是值得的。
 
 令人高兴的是，进行我们的第一个“完整性”检查非常简单：只需在文本编辑器中打开数据，我们可以看到第一个条目包含一个“DateApproved”值为*05/01/2020*，这表明最近的数据集*确实*包含从 2020 年春季发放的 PPP 贷款第一轮数据，如图 6-1 所示。
 
@@ -70,7 +70,7 @@ PPP 贷款是否帮助挽救了美国的小企业？随着时间的推移，我�
 
 ###### 图 6-1\. 最近 PPP 贷款数据的快速文本编辑器视图
 
-太容易了！如果我们想再进一步，我们可以随时编写一个快速脚本来查找最近数据中最早和最近的`LoanStatus`日期。为了避免混淆，我已将更新的文件重命名为*public_150k_plus_recent.csv*。目前，^(10) 根据从[*https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data*](https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data)链接的数据，会导致 SBA Box 账户上的*不同*文件夹，显示的上传日期为[2020 年 8 月 14 日](https://sba.app.box.com/s/ox4mwmvli4ndbp14401xr411m8sefx3i)。我们需要下载整个文件夹，*150k plus 0808.zip*，但我们可以提取 CSV 并将其重命名为*public_150k_plus_080820.csv*。
+太容易了！如果我们想再进一步，我们可以随时编写一个快速脚本来查找最近数据中最早和最近的`LoanStatus`日期。为了避免混淆，我已将更新的文件重命名为*public_150k_plus_recent.csv*。目前，¹⁰ 根据从[*https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data*](https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data)链接的数据，会导致 SBA Box 账户上的*不同*文件夹，显示的上传日期为[2020 年 8 月 14 日](https://sba.app.box.com/s/ox4mwmvli4ndbp14401xr411m8sefx3i)。我们需要下载整个文件夹，*150k plus 0808.zip*，但我们可以提取 CSV 并将其重命名为*public_150k_plus_080820.csv*。
 
 为了帮助我们进行这个过程，通常情况下，我们会寻找一个库来简化操作 —— 这次我们选择 Pandas，这是一个用于操作表格类型数据的广为人知的 Python 库。虽然我们不会在这里详细讨论*pandas*库（已经有一本由 Pandas 的创作者 Wes McKinney 所写的优秀的 O'Reilly 书籍，*Python for Data Analysis*！），但我们肯定会在今后进行数据质量检查时充分利用它的许多有用功能。
 
@@ -212,7 +212,7 @@ recent_sample.to_csv('recent_sample.csv', index=False)
 
 尽管这些行之间的许多细节在两个数据文件中似乎匹配，但一些看似重要的内容*不*匹配。例如，在八月数据样本中，`DateApproved` 列中的值为 `05/03/2020`；而在最近的数据样本中，它是 `05/01/2020`。如果我们再看另一个看似共享的条目，我们会发现对于名为 `PLEASANT PLACES, INC.` 的企业/借款人（八月数据中的第 5 行和最近数据中的第 3 行），两个文件中的 `CD` 列（最近文件中的电子表格列 AF，八月文件中的列 P）有不同的值，显示在八月数据中为 `SC-01`，在最近的数据中为 `SC-06`。到底发生了什么？
 
-此时，我们必须对*哪些*列值需要匹配以便我们将特定贷款行视为两者相同作出一些判断。要求业务名称和放贷人名称匹配似乎是一个很好的起点。因为我们知道现在已经进行了多轮贷款，所以我们可能还想要求`DateApproved`列中的值匹配（尽管 Synovus Bank 在两天内向 Sumter Coatings，Inc.放款似乎不太可能）。那么不匹配的国会选区呢？如果我们查看南卡罗来纳州的国会选区地图，可以清楚地看到自 2013 年以来它们的边界没有变化，^(11)尽管第 1 和第 6 选区似乎有一个共同的边界。考虑到这一点，我们可能会得出结论这里的差异只是一个错误。
+此时，我们必须对*哪些*列值需要匹配以便我们将特定贷款行视为两者相同作出一些判断。要求业务名称和放贷人名称匹配似乎是一个很好的起点。因为我们知道现在已经进行了多轮贷款，所以我们可能还想要求`DateApproved`列中的值匹配（尽管 Synovus Bank 在两天内向 Sumter Coatings，Inc.放款似乎不太可能）。那么不匹配的国会选区呢？如果我们查看南卡罗来纳州的国会选区地图，可以清楚地看到自 2013 年以来它们的边界没有变化，¹¹尽管第 1 和第 6 选区似乎有一个共同的边界。考虑到这一点，我们可能会得出结论这里的差异只是一个错误。
 
 正如你所看到的，我们已经发现了一些显著的数据质量问题——而我们只看了五行数据！因为显然我们不能一次解决所有这些差异，所以我们需要从汇集（我们希望）确实匹配的行开始，同时确保跟踪任何不匹配的行。为了做到这一点，我们需要*连接*或*合并*这两个数据集。但因为我们已经知道会有差异，所以我们需要一种方式来跟踪这些差异。换句话说，我们希望我们连接过程创建的文件包括*每一个*来自*两个*数据集的行，无论它们是否匹配。为了做到这一点，我们需要使用所谓的[外连接](https://pandas.pydata.org/pandas-docs/stable/user_guide/merging.html#brief-primer-on-merge-methods-relational-algebra)，我们将在示例 6-4 中使用它。
 
@@ -292,7 +292,7 @@ left_only      22634
 dtype: int64
 ```
 
-换句话说，如果我们只要求企业名称和贷款人匹配，那么我们在最近的数据中“发现”了另外约 45,000 笔八月数据中的贷款。当然，我们*不知道*这些新“匹配”中有多少是由于数据输入错误（比如我们 `05/03/2020` 与 `05/01/2020` 的问题）导致的，有多少代表了多笔贷款。^(12) 我们只知道，从八月数据中我们还找不到 22,634 笔贷款。
+换句话说，如果我们只要求企业名称和贷款人匹配，那么我们在最近的数据中“发现”了另外约 45,000 笔八月数据中的贷款。当然，我们*不知道*这些新“匹配”中有多少是由于数据输入错误（比如我们 `05/03/2020` 与 `05/01/2020` 的问题）导致的，有多少代表了多笔贷款。¹² 我们只知道，从八月数据中我们还找不到 22,634 笔贷款。
 
 那么，如果我们简单地检查一个给定的企业是否同时出现在两个数据集中呢？这似乎是最基本的比较方式：理论上，负责服务 PPP 贷款的银行或贷款人可能会在多个月内变更，或者可能因为（可能的）微小数据输入差异而导致额外的不匹配。请记住：我们目前的目标仅仅是评估我们能够多么信任*最近*的数据是否包含所有的八月数据。
 
@@ -324,17 +324,17 @@ dtype: int64
 
 尽管联系主题专家始终是开始数据质量调查的好方法，在这种情况下，我们有更好的东西：关于放贷人和贷款接收者本身的信息。在文件中包含的企业名称和位置之间，我们可能会找到至少一些来自八月数据集中“丢失”的 7,207 笔贷款的联系信息，并尝试了解到底发生了什么。
 
-在您拿起电话开始拨打人们的时候（是的，大多数情况下您应该*打电话*），请先想清楚您要问什么。虽然想象可能发生一些恶意行为（放贷人在隐藏资金吗？企业在误导自己吗？）很诱人，但有一句老话（而且非常灵活）可能会让你稍作思考：“绝不要归因于恶意，那些可以用无能/愚蠢/疏忽来解释的事情。”^(13) 换句话说，这些贷款在最近的数据中可能没有出现是因为某些数据输入错误，甚至是因为*贷款从未到账*。
+在您拿起电话开始拨打人们的时候（是的，大多数情况下您应该*打电话*），请先想清楚您要问什么。虽然想象可能发生一些恶意行为（放贷人在隐藏资金吗？企业在误导自己吗？）很诱人，但有一句老话（而且非常灵活）可能会让你稍作思考：“绝不要归因于恶意，那些可以用无能/愚蠢/疏忽来解释的事情。”¹³ 换句话说，这些贷款在最近的数据中可能没有出现是因为某些数据输入错误，甚至是因为*贷款从未到账*。
 
-事实上，在打电话给全国各地几家汽车维修和理发店之后，这正是我经常听到的故事。我与多位受访者交谈后得出了类似的结论：他们申请了贷款，被告知贷款已获批，然后——资金就从未到账。虽然试图确认每一笔“丢失”的贷款是否如此并不现实，但从距离遥远的多家企业那里听到基本相同的故事，让我*相当有信心*这些贷款没有出现在最终数据集中，因为资金实际上从未发出。^(14)
+事实上，在打电话给全国各地几家汽车维修和理发店之后，这正是我经常听到的故事。我与多位受访者交谈后得出了类似的结论：他们申请了贷款，被告知贷款已获批，然后——资金就从未到账。虽然试图确认每一笔“丢失”的贷款是否如此并不现实，但从距离遥远的多家企业那里听到基本相同的故事，让我*相当有信心*这些贷款没有出现在最终数据集中，因为资金实际上从未发出。¹⁴
 
 到目前为止，我们可以相当肯定我们最近的 PPP 贷款数据实际上是“完整的”符合我们的目的。虽然对我们的数据集进行这样一个几乎十多个数据完整性措施中的其中一个测试可能感觉很多工作，但请记住，在此过程中，我们已经学到了宝贵的信息，这将使我们后续的“测试”工作更加迅速——甚至可以说是微不足道。所以，让我们转向下一个标准。
 
 ## 它是否有良好的注释？
 
-经过确认，我们的数据在时间上是*及时的*和*完整的*后，我们需要详细了解我们最近 PPP 贷款数据中的数据列实际包含什么信息。^15 与我们的完整性评估一样，我们可以从数据本身开始。通过查看列名和一些包含在该列中的值，我们可以开始对我们需要更多信息的内容有所了解。如果列名看起来描述性并且我们在该列中找到的数据值与我们对列名的解释相符，那么这是一个非常好的起点。
+经过确认，我们的数据在时间上是*及时的*和*完整的*后，我们需要详细了解我们最近 PPP 贷款数据中的数据列实际包含什么信息。¹⁵ 与我们的完整性评估一样，我们可以从数据本身开始。通过查看列名和一些包含在该列中的值，我们可以开始对我们需要更多信息的内容有所了解。如果列名看起来描述性并且我们在该列中找到的数据值与我们对列名的解释相符，那么这是一个非常好的起点。
 
-尽管我们有几个选项可以查看我们的列名及其对应的值，让我们继续利用我们之前创建的样本文件。由于屏幕宽度通常会阻止我们轻松打印大量数据列（而我们可以轻松向下滚动查看更多行），我们将首先*转置*我们的样本数据（即将列转换为行，将行转换为列），以便更轻松地查看列标题。^16 我们还将应用一些额外的数据类型过滤，以便更容易看到缺失的数据。我们对此的第一次尝试可以在示例 6-7 中看到。
+尽管我们有几个选项可以查看我们的列名及其对应的值，让我们继续利用我们之前创建的样本文件。由于屏幕宽度通常会阻止我们轻松打印大量数据列（而我们可以轻松向下滚动查看更多行），我们将首先*转置*我们的样本数据（即将列转换为行，将行转换为列），以便更轻松地查看列标题。¹⁶ 我们还将应用一些额外的数据类型过滤，以便更容易看到缺失的数据。我们对此的第一次尝试可以在示例 6-7 中看到。
 
 ##### 示例 6-7\. ppp_columns_review.py
 
@@ -374,7 +374,7 @@ print(transposed_ppp_data_sample)
 
 ###### 图 6-5\. 最近的样本数据转置
 
-起初，情况看起来相当有希望。在该页面的“所有数据”部分下，我们看到一个链接，承诺提供“关键数据方面”的摘要，如 图 6-6 所示。^(17)
+起初，情况看起来相当有希望。在该页面的“所有数据”部分下，我们看到一个链接，承诺提供“关键数据方面”的摘要，如 图 6-6 所示。¹⁷
 
 ![SBA 网站上 PPP 贷款数据的登陆页面](img/ppdw_0606.png)
 
@@ -388,7 +388,7 @@ print(transposed_ppp_data_sample)
 
 现在呢？我们有几个选项。我们可以转向更一般的研究策略，以便了解更多关于 PPP 的信息，并希望自己填补一些空白。例如，阅读足够的针对潜在 PPP 申请者的网站文章将清楚地表明，`Term` 列的适当单位几乎肯定是周。同样，如果我们对 `LMIIndicator`、`LMI Indicator` 和 `LMI Indicator loans` 进行足够的网络搜索，最终我们将找到一个 Wikipedia 页面，该页面表明这个术语 *可能* 是 “Loan Mortgage Insurance Indicator” 的简称 —— 但我们几乎肯定不会确定。
 
-换句话说，现在是再次寻找一些人类帮助的时候了。但是我们可以联系谁呢？已经查看过 PPP 数据的学者可能是一个开始的地方，但如果数据发布比较新，可能会很难找到他们。因此，就像我们在尝试确认所有那些缺失贷款从八月数据集中发生了什么时一样，我们将直接去找信息源：SBA。幸运的是，如果我们回到下载实际数据文件的网站，如 图 6-8 所示，我们会发现上传这些文件的人是 Stephen Morris。^(18)
+换句话说，现在是再次寻找一些人类帮助的时候了。但是我们可以联系谁呢？已经查看过 PPP 数据的学者可能是一个开始的地方，但如果数据发布比较新，可能会很难找到他们。因此，就像我们在尝试确认所有那些缺失贷款从八月数据集中发生了什么时一样，我们将直接去找信息源：SBA。幸运的是，如果我们回到下载实际数据文件的网站，如 图 6-8 所示，我们会发现上传这些文件的人是 Stephen Morris。¹⁸
 
 ![PPP 数据下载门户](img/ppdw_0608.png)
 
@@ -443,7 +443,7 @@ print(sum(ppp_data.value_counts('Gender')))
 print(ppp_data['BorrowerAddress'].isna().sum())
 ```
 
-示例 6-8 的输出，如示例 6-9 所示，开始描绘了我们数据集的约 750,000 行中实际包含了哪些数据。例如，大多数贷款的状态是“第四项豁免”，我们从注释调查中知道这意味着“豁免免于 FOIA 第四项规定下的披露”。^(19) 类似地，我们可以看到超过三分之二的贷款申请者在申请时未指明其性别，还有 17 笔贷款甚至没有列出借款人的地址！
+示例 6-8 的输出，如示例 6-9 所示，开始描绘了我们数据集的约 750,000 行中实际包含了哪些数据。例如，大多数贷款的状态是“第四项豁免”，我们从注释调查中知道这意味着“豁免免于 FOIA 第四项规定下的披露”。¹⁹ 类似地，我们可以看到超过三分之二的贷款申请者在申请时未指明其性别，还有 17 笔贷款甚至没有列出借款人的地址！
 
 ##### 示例 6-9\. 最近的数据列摘要
 
@@ -491,7 +491,7 @@ print(ppp_data['CurrentApprovalAmount'].min())
 print(ppp_data['CurrentApprovalAmount'].max())
 ```
 
-根据我们数据文件的标题—*150k_plus*—我们预计我们将在批准的*最低*贷款金额中找到$150,000。快速搜索“PPP 最大贷款额”将我们导向 SBA 网站上的一份文件，该文件表明对于大多数类型的企业，^(20)最大贷款金额为$10 million。事实上，运行我们的脚本似乎确认了这一最小和最大值在我们的数据中得到了反映：
+根据我们数据文件的标题—*150k_plus*—我们预计我们将在批准的*最低*贷款金额中找到$150,000。快速搜索“PPP 最大贷款额”将我们导向 SBA 网站上的一份文件，该文件表明对于大多数类型的企业，²⁰最大贷款金额为$10 million。事实上，运行我们的脚本似乎确认了这一最小和最大值在我们的数据中得到了反映：
 
 ```py
 150000.0
@@ -502,7 +502,7 @@ print(ppp_data['CurrentApprovalAmount'].max())
 
 幸运的是，因为这是一个如此常见的数据问题，已经有许多成熟的方法来处理它。在这里，我们将使用一种称为*指纹技术*的方法开始检查数据集中银行名称拼写的一致性。虽然在寻找拼写不同的重复项时可以按照音标等方式对这些公司名称进行分组，但我们选择指纹技术，因为它遵循一个简单、严格但有效的*算法*（实际上，只是一组集合），可以尽量减少我们将两个本不应该相同的名称匹配起来的风险。
 
-具体来说，我们将使用的指纹算法执行以下操作：^(21)
+具体来说，我们将使用的指纹算法执行以下操作：²¹
 
 1.  删除前导和尾随空格
 
@@ -566,7 +566,7 @@ fingerprint_set = set(fingerprint_list)
 print(len(fingerprint_set))
 ```
 
-运行此脚本会产生输出：^(22)
+运行此脚本会产生输出：²²
 
 ```py
 4337
@@ -825,7 +825,7 @@ print(sum(ppp_data['LoanStatusDate'].isna()))
 
 谈到*可靠性*时，我们感兴趣的主要标准是*准确性*和*稳定性*。换句话说，PPP 数据在多大程度上反映了谁获得了 PPP 贷款，以及随着时间的推移，获得这些贷款的人群是否可能发生变化？
 
-多亏了我们先前的调查，我们现在知道这个数据集的*稳定性*远非完美。在 8 月份数据集中被批准贷款并出现的数千家企业，在当前数据集中*没有*出现（我们将在下一节讨论其对*代表性*的影响），这与 SBA 的文件^(23)相符，取消的贷款不包括在内^(24)。此外，目前还不清楚在更新时，先前版本的数据是否仍然可用，这使得除非我们开始下载并归档每个版本，否则很难确定发生了什么变化。
+多亏了我们先前的调查，我们现在知道这个数据集的*稳定性*远非完美。在 8 月份数据集中被批准贷款并出现的数千家企业，在当前数据集中*没有*出现（我们将在下一节讨论其对*代表性*的影响），这与 SBA 的文件²³相符，取消的贷款不包括在内²⁴。此外，目前还不清楚在更新时，先前版本的数据是否仍然可用，这使得除非我们开始下载并归档每个版本，否则很难确定发生了什么变化。
 
 即使数据集本身的数字随时间可能也不是特别稳定。例如，我们知道有 538,905 家企业报告称他们只会将他们的 PPP 贷款用于工资支出。但正如 SBA 代表斯蒂芬·莫里斯通过电子邮件解释的那样：“这些数据在某种程度上是推测性的，因为并不要求借款人将资金用于他们在申请书上选择的用途。”换句话说，除非 PPP 贷款接收者的贷款原谅或偿还过程*要求*详细说明资金的使用情况（并且该信息随后在该数据集中更新），否则我们无法确定我们在各种`PROCEED`列中看到的数字是否准确或稳定。
 
@@ -839,7 +839,7 @@ PPP 贷款数据是否代表了实际获得 PPP 贷款的所有人？很可能�
 
 ### 分母问题
 
-几乎每个数据驱动探究领域都承认了分母问题，尽管称呼不同。有时被称为*基准测试*或*基准问题*^(25)，分母问题概括了在缺乏足够比较信息以便将数据置于上下文中时的困难。在大多数情况下，这是因为你真正需要的比较数据从未被收集。
+几乎每个数据驱动探究领域都承认了分母问题，尽管称呼不同。有时被称为*基准测试*或*基准问题*²⁵，分母问题概括了在缺乏足够比较信息以便将数据置于上下文中时的困难。在大多数情况下，这是因为你真正需要的比较数据从未被收集。
 
 在我们探索 PPP 数据的过程中，我们已经遇到了这个问题的一个版本：我们知道哪些企业获得了贷款，但我们不知道谁申请了却被拒绝了，或者为什么被拒绝了（至少在某些情况下，甚至是接受者也不知道）。对于评估 PPP 贷款流程来说，这是一个问题，因为我们不知道是否有合法的申请者被拒绝，即使一些企业获得了多轮贷款。如果我们想知道贷款的分配是否公平——甚至有效——了解谁*没有*被包括进来和谁*被*包括进来一样重要。
 
@@ -855,58 +855,58 @@ PPP 贷款数据是否代表了实际获得 PPP 贷款的所有人？很可能�
 
 这个过程是艰难而曲折的吗？是的。这也让我想起了我们在“How? And for Whom?”中关于建构效度的讨论。最终，这实际上也是*新知识是如何形成的*。考虑新选项、深思熟虑、测试并（可能）以稍微更多的信息和理解重新开始整个过程的不确定、令人沮丧和易失的工作，正是真正*独创*见解形成的方式。这是世界上每个算法系统都在拼命尝试模拟或模仿的事情。但如果你愿意付出努力，*你可以*真正成功。
 
-此时，我觉得我已经对这个数据集有了相当多的了解——足够让我知道，我可能*无法*用它来回答我的最初问题，但仍然可以想象它可能产生一些有趣的见解。例如，我确信最近的数据准确反映了当前批准的贷款状态，因为我确认了在更近期文件中缺失的贷款（出于某种原因）可能实际上从未实际发放。同时，尽管 SBA 宣布截至 2021 年 1 月初已经宽限[超过 1000 亿美元的 PPP 贷款已经被宽限](https://sba.gov/article/2021/jan/12/11-million-paycheck-protection-program-loans-forgiven-so-far-totaling-over-100-billion)，但似乎在 6 周多之后，`LoanStatus`列中并没有明确的值表示已宽限的贷款。虽然 SBA 的 Stephen Morris 在 2021 年 3 月初停止回复我的电子邮件，但截至 2021 年 5 月初，数据字典似乎是可用的，^(26)尽管它和更新的数据都没有包含这些信息。
+此时，我觉得我已经对这个数据集有了相当多的了解——足够让我知道，我可能*无法*用它来回答我的最初问题，但仍然可以想象它可能产生一些有趣的见解。例如，我确信最近的数据准确反映了当前批准的贷款状态，因为我确认了在更近期文件中缺失的贷款（出于某种原因）可能实际上从未实际发放。同时，尽管 SBA 宣布截至 2021 年 1 月初已经宽限[超过 1000 亿美元的 PPP 贷款已经被宽限](https://sba.gov/article/2021/jan/12/11-million-paycheck-protection-program-loans-forgiven-so-far-totaling-over-100-billion)，但似乎在 6 周多之后，`LoanStatus`列中并没有明确的值表示已宽限的贷款。虽然 SBA 的 Stephen Morris 在 2021 年 3 月初停止回复我的电子邮件，但截至 2021 年 5 月初，数据字典似乎是可用的，²⁶尽管它和更新的数据都没有包含这些信息。
 
 当然，在这里还有很多要学习的：关于谁获得了贷款及他们所在地的信息，他们获得了多少批准的贷款，以及谁在发放这些贷款。虽然数据还远非完美，但我可以保留过去数据集的副本以安抚自己，以便将来如果有重大变化，至少可以手边资源来察觉它。鉴于此，是时候从我们工作的评估阶段转入实际清理和转换数据的任务，我们将在第七章中处理。
 
-^(1)即使他们并不总是意识到这一点。
+¹即使他们并不总是意识到这一点。
 
-^(2)详情请参阅[*https://en.wikipedia.org/wiki/Paycheck_Protection_Program*](https://en.wikipedia.org/wiki/Paycheck_Protection_Program)。
+²详情请参阅[*https://en.wikipedia.org/wiki/Paycheck_Protection_Program*](https://en.wikipedia.org/wiki/Paycheck_Protection_Program)。
 
-^(3) “谁得到了半万亿美元的 COVID 贷款？特朗普政府不会说”，[*https://marketplace.org/shows/make-me-smart-with-kai-and-molly/who-got-half-a-billion-in-covid-loans-the-trump-administration-wont-say*](https://marketplace.org/shows/make-me-smart-with-kai-and-molly/who-got-half-a-billion-in-covid-loans-the-trump-administration-wont-say)。
+³ “谁得到了半万亿美元的 COVID 贷款？特朗普政府不会说”，[*https://marketplace.org/shows/make-me-smart-with-kai-and-molly/who-got-half-a-billion-in-covid-loans-the-trump-administration-wont-say*](https://marketplace.org/shows/make-me-smart-with-kai-and-molly/who-got-half-a-billion-in-covid-loans-the-trump-administration-wont-say)。
 
-^(4) 你可以在[*https://github.com/adam-p/markdown-here/wiki/Markdown-Here-Cheatsheet*](https://github.com/adam-p/markdown-here/wiki/Markdown-Here-Cheatsheet)找到一个很好的 Markdown 速查表。
+⁴ 你可以在[*https://github.com/adam-p/markdown-here/wiki/Markdown-Here-Cheatsheet*](https://github.com/adam-p/markdown-here/wiki/Markdown-Here-Cheatsheet)找到一个很好的 Markdown 速查表。
 
-^(5) 这个内容的原始链接是[*https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data*](https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data)，然而现在可以在[*https://home.treasury.gov/policy-issues/coronavirus/assistance-for-small-businesses/paycheck-protection-program*](https://home.treasury.gov/policy-issues/coronavirus/assistance-for-small-businesses/paycheck-protection-program)找到。
+⁵ 这个内容的原始链接是[*https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data*](https://home.treasury.gov/policy-issues/cares-act/assistance-for-small-businesses/sba-paycheck-protection-program-loan-level-data)，然而现在可以在[*https://home.treasury.gov/policy-issues/coronavirus/assistance-for-small-businesses/paycheck-protection-program*](https://home.treasury.gov/policy-issues/coronavirus/assistance-for-small-businesses/paycheck-protection-program)找到。
 
-^(6) 而这第二个链接是[*https://sba.gov/funding-programs/loans/coronavirus-relief-options/paycheck-protection-program/ppp-data*](https://sba.gov/funding-programs/loans/coronavirus-relief-options/paycheck-protection-program/ppp-data)。
+⁶ 而这第二个链接是[*https://sba.gov/funding-programs/loans/coronavirus-relief-options/paycheck-protection-program/ppp-data*](https://sba.gov/funding-programs/loans/coronavirus-relief-options/paycheck-protection-program/ppp-data)。
 
-^(7) 你可以在[*https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing*](https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing)下载这个文件。
+⁷ 你可以在[*https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing*](https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing)下载这个文件。
 
-^(8) 2020 年 8 月的数据可以在[*https://drive.google.com/file/d/11wTOapbAzcfeCQVVB-YJFIpsQVaZxJAm/view?usp=sharing*](https://drive.google.com/file/d/11wTOapbAzcfeCQVVB-YJFIpsQVaZxJAm/view?usp=sharing)找到；2021 年 2 月的数据可以在[*https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing*](https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing)找到。
+⁸ 2020 年 8 月的数据可以在[*https://drive.google.com/file/d/11wTOapbAzcfeCQVVB-YJFIpsQVaZxJAm/view?usp=sharing*](https://drive.google.com/file/d/11wTOapbAzcfeCQVVB-YJFIpsQVaZxJAm/view?usp=sharing)找到；2021 年 2 月的数据可以在[*https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing*](https://drive.google.com/file/d/1EtUB0nK9aQeWWWGUOiayO9Oe-avsKvXH/view?usp=sharing)找到。
 
-^(9) 例如，2008 年金融危机后，有许多银行明显没有妥善记录，因为他们重新打包和出售或“证券化”住房抵押贷款，导致一些法院[拒绝他们对房主的取房权尝试](https://nytimes.com/2009/10/25/business/economy/25gret.html)。
+⁹ 例如，2008 年金融危机后，有许多银行明显没有妥善记录，因为他们重新打包和出售或“证券化”住房抵押贷款，导致一些法院[拒绝他们对房主的取房权尝试](https://nytimes.com/2009/10/25/business/economy/25gret.html)。
 
-^(10) 以下链接被包含是为了保存记录，因为它们代表了本章提供的数据集的原始位置。
+¹⁰ 以下链接被包含是为了保存记录，因为它们代表了本章提供的数据集的原始位置。
 
-^(11) 有关南卡罗来纳州国会选区，请参阅维基百科的页面[*https://en.wikipedia.org/wiki/South_Carolina%27s_congressional_districts#Historical_and_present_district_boundaries*](https://en.wikipedia.org/wiki/South_Carolina%27s_congressional_districts#Historical_and_present_district_boundaries)。
+¹¹ 有关南卡罗来纳州国会选区，请参阅维基百科的页面[*https://en.wikipedia.org/wiki/South_Carolina%27s_congressional_districts#Historical_and_present_district_boundaries*](https://en.wikipedia.org/wiki/South_Carolina%27s_congressional_districts#Historical_and_present_district_boundaries)。
 
-^(12) SBA 开始接受所谓“第二轮”PPP 贷款的申请，日期为[2021 年 1 月 31 日](https://uschamber.com/co/run/business-financing/second-draw-ppp-loans)。
+¹² SBA 开始接受所谓“第二轮”PPP 贷款的申请，日期为[2021 年 1 月 31 日](https://uschamber.com/co/run/business-financing/second-draw-ppp-loans)。
 
-^(13) 尝试归因公理总是问题重重，但我更喜欢将这个表达归因为“汉隆剃刀”，见于[“Jargon File”](https://jargon-file.org/archive/jargon-4.4.7.dos.txt)，主要因为该文件解释了许多计算机/编程行话的起源。
+¹³ 尝试归因公理总是问题重重，但我更喜欢将这个表达归因为“汉隆剃刀”，见于[“Jargon File”](https://jargon-file.org/archive/jargon-4.4.7.dos.txt)，主要因为该文件解释了许多计算机/编程行话的起源。
 
-^(14) 当然，“为什么”它从未发送是一个有趣的问题。
+¹⁴ 当然，“为什么”它从未发送是一个有趣的问题。
 
-^(15) 你可能已经注意到，在这章中，我没有按照第三章中列出的顺序详细讨论我们的数据完整性标准。因为 PPP 是基于现有的 7(a)贷款计划进行[建模](https://journalofaccountancy.com/news/2020/apr/paycheck-protection-program-ppp-loans-sba-details-coronavirus.html)，我做出了（可疑的）假设，即这些数据将被很好地注释。当然，这些也是关于 PPP 的*唯一*可用数据集，所以我的选择有限（就像在处理现实世界数据时经常发生的情况一样）。
+¹⁵ 你可能已经注意到，在这章中，我没有按照第三章中列出的顺序详细讨论我们的数据完整性标准。因为 PPP 是基于现有的 7(a)贷款计划进行[建模](https://journalofaccountancy.com/news/2020/apr/paycheck-protection-program-ppp-loans-sba-details-coronavirus.html)，我做出了（可疑的）假设，即这些数据将被很好地注释。当然，这些也是关于 PPP 的*唯一*可用数据集，所以我的选择有限（就像在处理现实世界数据时经常发生的情况一样）。
 
-^(16) 我有时发现将数据转置为“把它放到一边”更容易理解。
+¹⁶ 我有时发现将数据转置为“把它放到一边”更容易理解。
 
-^(17) 自这章节写作起，此页面已经发生了相当大的变化。值得注意的是，主数据位置现在包括一个“数据字典”——但这仅在数据首次发布几个月后才发布。
+¹⁷ 自这章节写作起，此页面已经发生了相当大的变化。值得注意的是，主数据位置现在包括一个“数据字典”——但这仅在数据首次发布几个月后才发布。
 
-^(18) 值得注意的是，在我联系他不久后，此归因被改为`SM`。
+¹⁸ 值得注意的是，在我联系他不久后，此归因被改为`SM`。
 
-^(19) 有关 FOIA 请求和豁免的更多信息，请参阅“FOIA/L Requests”，以及在[司法部网站](https://justice.gov/oip/exemption-4-after-supreme-courts-ruling-food-marketing-institute-v-argus-leader-media)上的豁免全文。
+¹⁹ 有关 FOIA 请求和豁免的更多信息，请参阅“FOIA/L Requests”，以及在[司法部网站](https://justice.gov/oip/exemption-4-after-supreme-courts-ruling-food-marketing-institute-v-argus-leader-media)上的豁免全文。
 
-^(20) 具体来说，“薪资保护计划：如何计算第一次 PPP 贷款的最高金额及应提供的业务类型文档”，可以在[*https://sba.gov/sites/default/files/2021-01/PPP%20--%20How%20to%20Calculate%20Maximum%20Loan%20Amounts%20for%20First%20Draw%20PPP%20Loans%20%281.17.2021%29-508.pdf*](https://sba.gov/sites/default/files/2021-01/PPP%20--%20How%20to%20Calculate%20Maximum%20Loan%20Amounts%20for%20First%20Draw%20PPP%20Loans%20%281.17.2021%29-508.pdf)找到。
+²⁰ 具体来说，“薪资保护计划：如何计算第一次 PPP 贷款的最高金额及应提供的业务类型文档”，可以在[*https://sba.gov/sites/default/files/2021-01/PPP%20--%20How%20to%20Calculate%20Maximum%20Loan%20Amounts%20for%20First%20Draw%20PPP%20Loans%20%281.17.2021%29-508.pdf*](https://sba.gov/sites/default/files/2021-01/PPP%20--%20How%20to%20Calculate%20Maximum%20Loan%20Amounts%20for%20First%20Draw%20PPP%20Loans%20%281.17.2021%29-508.pdf)找到。
 
-^(21) 查看[*https://github.com/OpenRefine/OpenRefine/wiki/Clustering-In-Depth*](https://github.com/OpenRefine/OpenRefine/wiki/Clustering-In-Depth)获取更多关于聚类的信息。
+²¹ 查看[*https://github.com/OpenRefine/OpenRefine/wiki/Clustering-In-Depth*](https://github.com/OpenRefine/OpenRefine/wiki/Clustering-In-Depth)获取更多关于聚类的信息。
 
-^(22) 当你运行这个脚本时，你可能会看到一个关于安装 pyICU 的警告。然而，安装这个库有点复杂，并且不会改变我们此次练习的结果。不过，如果你打算广泛使用这个指纹识别过程，你可能希望投入额外的时间来设置 pyICU。你可以在这里找到关于这个过程的更多信息：[*https://pypi.org/project/PyICU*](https://pypi.org/project/PyICU)。
+²² 当你运行这个脚本时，你可能会看到一个关于安装 pyICU 的警告。然而，安装这个库有点复杂，并且不会改变我们此次练习的结果。不过，如果你打算广泛使用这个指纹识别过程，你可能希望投入额外的时间来设置 pyICU。你可以在这里找到关于这个过程的更多信息：[*https://pypi.org/project/PyICU*](https://pypi.org/project/PyICU)。
 
-^(23) 可以从[*https://sba.gov/document/report-paycheck-protection-program-ppp-loan-data-key-aspects*](https://sba.gov/document/report-paycheck-protection-program-ppp-loan-data-key-aspects)下载。
+²³ 可以从[*https://sba.gov/document/report-paycheck-protection-program-ppp-loan-data-key-aspects*](https://sba.gov/document/report-paycheck-protection-program-ppp-loan-data-key-aspects)下载。
 
-^(24) 再次强调，了解为何以及如何取消这些贷款可能是有益的，但我们在这里找不到这些信息——只有一些关于从哪里开始查找的线索。
+²⁴ 再次强调，了解为何以及如何取消这些贷款可能是有益的，但我们在这里找不到这些信息——只有一些关于从哪里开始查找的线索。
 
-^(25) 在涉及美国物业法时，“分母问题”似乎有非常具体的含义，但不用说，这并不是我在这里使用它的方式。
+²⁵ 在涉及美国物业法时，“分母问题”似乎有非常具体的含义，但不用说，这并不是我在这里使用它的方式。
 
-^(26) 你可以在[*https://data.sba.gov/dataset/ppp-foia/resource/aab8e9f9-36d1-42e1-b3ba-e59c79f1d7f0*](https://data.sba.gov/dataset/ppp-foia/resource/aab8e9f9-36d1-42e1-b3ba-e59c79f1d7f0)找到它。
+²⁶ 你可以在[*https://data.sba.gov/dataset/ppp-foia/resource/aab8e9f9-36d1-42e1-b3ba-e59c79f1d7f0*](https://data.sba.gov/dataset/ppp-foia/resource/aab8e9f9-36d1-42e1-b3ba-e59c79f1d7f0)找到它。

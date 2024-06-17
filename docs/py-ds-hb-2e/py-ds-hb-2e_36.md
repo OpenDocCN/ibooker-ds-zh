@@ -50,7 +50,7 @@ In [4]: fig, ax = plt.subplots(figsize=(12, 4))
 
 ![output 6 0](img/output_6_0.png)
 
-###### 图 32-1\. 每日平均出生数按日期统计^(1)
+###### 图 32-1\. 每日平均出生数按日期统计¹
 
 当我们可视化这样的数据时，注释图表的特定特征通常很有用，以吸引读者的注意。可以使用 `plt.text`/`ax.text` 函数手动完成此操作，该函数将文本放置在特定的 *x*/*y* 值处（参见图 32-2）。
 
@@ -81,7 +81,7 @@ In [5]: fig, ax = plt.subplots(figsize=(12, 4))
 
 ![output 8 0](img/output_8_0.png)
 
-###### 图 32-2\. 按日期注释的每日平均出生数^(2)
+###### 图 32-2\. 按日期注释的每日平均出生数²
 
 `ax.text` 方法需要一个 *x* 位置、一个 *y* 位置和一个字符串，然后是可选的关键字，指定文本的颜色、大小、样式、对齐方式和其他属性。这里我们使用了 `ha='right'` 和 `ha='center'`，其中 `ha` 是 *水平对齐* 的缩写。有关可用选项的更多信息，请参阅 `plt.text` 和 `mpl.text.Text` 的文档字符串。
 
@@ -227,10 +227,10 @@ In [9]: fig, ax = plt.subplots(figsize=(12, 4))
 
 ![output 18 0](img/output_18_0.png)
 
-###### 图 32-6\. 按天平均出生率的注释^(3)
+###### 图 32-6\. 按天平均出生率的注释³
 
-^(1) 该图的完整版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)找到。
+¹ 该图的完整版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)找到。
 
-^(2) 该图的完整版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)找到。
+² 该图的完整版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)找到。
 
-^(3) 该图的完整版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)找到。
+³ 该图的完整版本可以在[GitHub](https://oreil.ly/PDSH_GitHub)找到。

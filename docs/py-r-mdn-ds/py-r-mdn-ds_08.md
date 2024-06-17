@@ -52,11 +52,11 @@ Boyan Angelov
 
 EDA 是对任何数据源进行分析的基础步骤。通常在数据加载后直接进行，在业务理解方面有显著需求的阶段。这解释了为什么它是一个必要的步骤。你可能熟悉 *垃圾进，垃圾出* 的范式 - 任何数据项目的质量取决于输入数据的质量和背后的领域知识。EDA 促进了下游工作流程（如 ML）的成功，确保数据和其背后的假设都是正确且具有足够的质量。
 
-在 EDA 中，R 拥有比 Python 更好的工具。正如我们在 第一章 和 第二章 中讨论的，R 是一门由统计学家为统计学家开发的语言（还记得第二章中的 FUBU 吗？），在统计学中，数据可视化（绘图）几十年来一直非常重要。Python 在近年来取得了一些进展，但仍被认为是滞后的（只需看看例子 `matplotlib` 绘图就能意识到这一事实^(1)）。足够赞扬 R 了，让我们看看为什么它在 EDA 中如此出色！
+在 EDA 中，R 拥有比 Python 更好的工具。正如我们在 第一章 和 第二章 中讨论的，R 是一门由统计学家为统计学家开发的语言（还记得第二章中的 FUBU 吗？），在统计学中，数据可视化（绘图）几十年来一直非常重要。Python 在近年来取得了一些进展，但仍被认为是滞后的（只需看看例子 `matplotlib` 绘图就能意识到这一事实¹）。足够赞扬 R 了，让我们看看为什么它在 EDA 中如此出色！
 
 ## 静态可视化
 
-您应该已经熟悉了基本 R 在 DV 方面的能力，特别是关于时间序列绘图的部分 第四章。在这里，我们将进一步讨论并介绍最著名的 R 包之一 - `ggplot2`。它是 Python 爱好者希望转向 R 的主要原因之一^(2)。`ggplot2` 在 EDA 工作中如此成功的原因在于它基于一个经过深思熟虑的方法论 - 图形语法（GoG）。这是由 L. Wilkinson 开发的，而包由 Hadley Wickham 开发^(3)。
+您应该已经熟悉了基本 R 在 DV 方面的能力，特别是关于时间序列绘图的部分 第四章。在这里，我们将进一步讨论并介绍最著名的 R 包之一 - `ggplot2`。它是 Python 爱好者希望转向 R 的主要原因之一²。`ggplot2` 在 EDA 工作中如此成功的原因在于它基于一个经过深思熟虑的方法论 - 图形语法（GoG）。这是由 L. Wilkinson 开发的，而包由 Hadley Wickham 开发³。
 
 什么*是* GoG？它的[原始论文](https://vita.had.co.nz/papers/layered-grammar.html)标题为“图形的分层语法”，而“分层”一词是关键。您在图上看到的每一样东西都对一个更大的堆栈或系统有所贡献。例如，坐标轴和网格形成一个单独的层，与线条、条形和点相比。后者构成“数据”层。所有图层的完整堆栈形成结果 - 一个完整的`ggplot`。这种模块化的设计模式可以提供极大的灵活性，并提供了一种新的数据可视化思维方式。GoG 背后的逻辑在图 5-2 中说明。
 
@@ -64,7 +64,7 @@ EDA 是对任何数据源进行分析的基础步骤。通常在数据加载后�
 
 ###### 图 5-2\. 图形语法的分层结构。
 
-为了说明常规 EDA 工作流程的不同程序，我们将使用`dplyr`包中的`starwars`数据集^(4)。这个数据集包含了关于星球大战电影中人物的信息，比如他们的性别、身高和物种。让我们来看一下！
+为了说明常规 EDA 工作流程的不同程序，我们将使用`dplyr`包中的`starwars`数据集⁴。这个数据集包含了关于星球大战电影中人物的信息，比如他们的性别、身高和物种。让我们来看一下！
 
 ```py
 library(ggplot2)
@@ -84,7 +84,7 @@ ggplot(starwars, aes(hair_color)) +
   geom_bar()
 ```
 
-这个图绘制了头发颜色变量的计数。在这里，我们看到了一个熟悉的运算符，`+`，被不同寻常地使用。在`ggplot2`中，我们使用`+`来在图中*添加*图层。让我们在此基础上构建一个更复杂的案例。注意，我们在这里省略了代码中的一个过滤步骤（有一个离群值 - 贾巴·赫特）：^(5)。
+这个图绘制了头发颜色变量的计数。在这里，我们看到了一个熟悉的运算符，`+`，被不同寻常地使用。在`ggplot2`中，我们使用`+`来在图中*添加*图层。让我们在此基础上构建一个更复杂的案例。注意，我们在这里省略了代码中的一个过滤步骤（有一个离群值 - 贾巴·赫特）：⁵。
 
 ```py
 ggplot(starwars, aes(x = height, y = mass, fill = gender)) + ![1](img/1.png)
@@ -142,7 +142,7 @@ leaflet(data = shared_cars_data[1:20, ]) %>%
         addMarkers(lng = longitude, lat = latitude)
 ```
 
-在这种情况下，我们仅使用前 20 行数据（以减少可视化的混乱程度）。`addTiles`函数提供地图背景，并显示街道和城市名称^(6)。下一步是通过使用`addMarkers`添加指定汽车位置的标记。这个相对简单的操作的结果如图 5-4 所示。
+在这种情况下，我们仅使用前 20 行数据（以减少可视化的混乱程度）。`addTiles`函数提供地图背景，并显示街道和城市名称⁶。下一步是通过使用`addMarkers`添加指定汽车位置的标记。这个相对简单的操作的结果如图 5-4 所示。
 
 ![](img/prds_0504.png)
 
@@ -160,7 +160,7 @@ leaflet(data = shared_cars_data[1:20, ]) %>%
 
 如今，数据科学几乎与机器学习（ML）同义使用。尽管数据科学项目需要许多不同的工作流程（图 5-1），但 ML 往往吸引了渴望成为数据科学家的人们的注意力。这在一定程度上是由于近年来数据量大幅增长、计算资源更好（如更好的 CPU 和 GPU）以及现代业务中预测和自动化的需求。在该领域的早期阶段，它以另一种名称——统计学习——而闻名。正如之前提到的，统计学一直是 R 的主要领域。因此，早期进行 ML 有很好的工具可用。然而，这在近年来已经改变，Python 的工具大多数已经取代了它的统计竞争对手。
 
-可以追溯到 Python 的 ML 生态系统成功的一个特定包——[`scikit-learn`](https://scikit-learn.org/stable/)。自其早期版本以来，核心开发团队一直致力于设计一个易于访问和使用的 API。他们支持这一点的方式是提供了一些在开源世界中最完整和易于访问的文档。这不仅仅是一个参考文档，还包括关于各种特定现代 ML 应用的优秀教程，例如[处理文本数据](https://scikit-learn.org/stable/tutorial/text_analytics/working_with_text_data.html)。`scikit-learn`提供了几乎所有常见的 ML 算法的开箱即用^(7)。
+可以追溯到 Python 的 ML 生态系统成功的一个特定包——[`scikit-learn`](https://scikit-learn.org/stable/)。自其早期版本以来，核心开发团队一直致力于设计一个易于访问和使用的 API。他们支持这一点的方式是提供了一些在开源世界中最完整和易于访问的文档。这不仅仅是一个参考文档，还包括关于各种特定现代 ML 应用的优秀教程，例如[处理文本数据](https://scikit-learn.org/stable/tutorial/text_analytics/working_with_text_data.html)。`scikit-learn`提供了几乎所有常见的 ML 算法的开箱即用⁷。
 
 让我们来看看一些证据，证明`scikit-learn`在 ML 中的出色之处。首先，我们可以展示模型的导入：
 
@@ -240,7 +240,7 @@ visualizer.show()
 
 1.  Python ML 工作流提供了一个更一致且易于使用的 API。
 
-1.  Python 更像是一种粘合语言 ^(8)，非常适合组合不同的软件组件（即前端/后端和数据库）。
+1.  Python 更像是一种粘合语言 ⁸，非常适合组合不同的软件组件（即前端/后端和数据库）。
 
 在下一节中，我们将深入探讨此列表的第三部分，并展示推荐的数据工程工作流程。
 
@@ -248,21 +248,21 @@ visualizer.show()
 
 尽管近年来 ML 工具取得了进展，但企业中此类项目的完成率仍然较低。其中一个常被归因的原因是缺乏数据工程（DE）支持。为了应用 ML 和高级分析，企业需要数据工程师提供的基础设施，包括数据库、数据处理管道、测试和部署工具。当然，这形成了一个单独的职位 - 数据工程师。但数据科学家仍需要与这些技术进行交互（有时甚至是实施），以确保数据科学项目成功完成。
 
-虽然 DE 是一个庞大的领域，但我们将在本节中关注其子集。我们选择了模型部署，因为这是数据科学家可能需要参与的最常见 DE 工作流程。那么什么是 ML 部署？大多数情况下，这意味着创建一个应用程序接口（API）并使其可供其他应用程序使用，无论是内部还是外部（向客户，“暴露”API，以被“消耗”）。通常，ML 模型通过 REST 接口进行部署^(9)。
+虽然 DE 是一个庞大的领域，但我们将在本节中关注其子集。我们选择了模型部署，因为这是数据科学家可能需要参与的最常见 DE 工作流程。那么什么是 ML 部署？大多数情况下，这意味着创建一个应用程序接口（API）并使其可供其他应用程序使用，无论是内部还是外部（向客户，“暴露”API，以被“消耗”）。通常，ML 模型通过 REST 接口进行部署⁹。
 
-与本章其他主题相比，机器学习模型部署需要与许多不直接与数据科学相关的技术进行接口。这些技术包括 Web 框架、CSS、HTML、JavaScript、云服务器、负载均衡器等。因此，Python 工具在这里占据主导地位^(10) - 正如我们之前所讨论的，它是一种出色的胶水语言。
+与本章其他主题相比，机器学习模型部署需要与许多不直接与数据科学相关的技术进行接口。这些技术包括 Web 框架、CSS、HTML、JavaScript、云服务器、负载均衡器等。因此，Python 工具在这里占据主导地位¹⁰ - 正如我们之前所讨论的，它是一种出色的胶水语言。
 
 ###### 注意
 
 模型部署的工作流程需要在数据科学家进行日常工作的本地机器之外的其他机器上执行代码。这正是“在我的机器上运行正常”问题的核心。处理不同环境一致性管理的方法有多种，从简单到复杂不等。一个简单的方法是使用`requirements.txt`文件，其中指定了所有的依赖关系。在大规模、关键的部署中经常使用的更复杂的选项是使用像[Docker](https://www.docker.com/)这样的容器解决方案。在 Python 中，与 R 相比，这种依赖管理要容易得多。
 
-创建 API 的最流行工具之一是 Python 的[Flask](https://flask.palletsprojects.com/en/1.1.x/) - 一个[微框架](https://en.wikipedia.org/wiki/Microframework#:~:text=A%20microframework%20is%20a%20term,Accounts%2C%20authentication%2C%20authorization%2C%20roles)。它提供了一个简约的接口，可以轻松地通过其他工具进行扩展，例如提供用户认证或更好的设计。为了开始，我们将通过一个小例子进行演示。我们需要一个典型的 Python 安装，以及其他一些额外的配置，如虚拟环境^(11)和一个 GUI 来查询 API。让我们开始吧！
+创建 API 的最流行工具之一是 Python 的[Flask](https://flask.palletsprojects.com/en/1.1.x/) - 一个[微框架](https://en.wikipedia.org/wiki/Microframework#:~:text=A%20microframework%20is%20a%20term,Accounts%2C%20authentication%2C%20authorization%2C%20roles)。它提供了一个简约的接口，可以轻松地通过其他工具进行扩展，例如提供用户认证或更好的设计。为了开始，我们将通过一个小例子进行演示。我们需要一个典型的 Python 安装，以及其他一些额外的配置，如虚拟环境¹¹和一个 GUI 来查询 API。让我们开始吧！
 
 # 专注于机器学习 API 的框架
 
 最近，出现了一些与 Flask 竞争的框架。它们有着相同的目标，但更加专注于机器学习。两个流行的例子包括[BentoML](https://www.bentoml.ai/)和[FastAPI](https://fastapi.tiangolo.com/)。这些框架为你提供了一些额外的选项，使得机器学习部署更加容易。请记住，Flask 最初是为了 Web 开发 API 而构建的，而机器学习项目的需求可能有所不同。
 
-我们将构建一个 API 来预测房价^(12)。始终明智的做法是从最终目标出发，思考我们希望这样的预测模型如何被外部应用程序或最终用户使用。在这种情况下，我们可以想象我们的 API 被集成到一个在线房屋租赁门户中。
+我们将构建一个 API 来预测房价¹²。始终明智的做法是从最终目标出发，思考我们希望这样的预测模型如何被外部应用程序或最终用户使用。在这种情况下，我们可以想象我们的 API 被集成到一个在线房屋租赁门户中。
 
 为了简洁起见，我们将省略模型训练部分。想象一下，您已经按照传统的`scikit-learn`模型开发过程进行了操作。预测模型的结果存储在一个`.pkl`（`Pickle`对象，标准的 Python 对象存储方式）文件中。这个过程称为序列化，我们需要这样做以便稍后在 API 中使用模型：
 
@@ -340,7 +340,7 @@ if __name__ == '__main__':
 
 推断结果以 JSON 格式返回。
 
-这段代码被添加到一个名为 `app.py` 的文件中。一旦你执行此脚本，命令行将输出一个本地 URL。然后我们可以使用诸如 Postman 等工具来查询它^(13)。看一看图 5-8，看看这样的查询是如何工作的。哇 - 我们构建了一个 ML API！
+这段代码被添加到一个名为 `app.py` 的文件中。一旦你执行此脚本，命令行将输出一个本地 URL。然后我们可以使用诸如 Postman 等工具来查询它¹³。看一看图 5-8，看看这样的查询是如何工作的。哇 - 我们构建了一个 ML API！
 
 ###### 注意
 
@@ -396,7 +396,7 @@ Then we can have a look at the result.
 
 ## 交互式报告
 
-如果我们希望让报告的接收者也能做些工作怎么办？如果允许一些互动，我们的最终用户将能够自行回答问题，而无需依赖我们返回修改代码并重新生成图形。有几种工具可用^(14)，但大多数与 R 的`shiny`包^(15)相比显得逊色。
+如果我们希望让报告的接收者也能做些工作怎么办？如果允许一些互动，我们的最终用户将能够自行回答问题，而无需依赖我们返回修改代码并重新生成图形。有几种工具可用¹⁴，但大多数与 R 的`shiny`包¹⁵相比显得逊色。
 
 使用这个包需要一种稍微不同的方式编写 R 代码，但一旦你习惯了，你将能够创建出色的应用程序。让我们通过一个基本但实用的例子来了解。`shiny`应用程序由两个基本元素组成：用户界面（UI）和服务器逻辑。通常这两者甚至分别放在两个文件中。为了简单起见，我们将使用单文件布局，并使用两个函数来构建应用程序。
 
@@ -488,32 +488,32 @@ shinyApp(ui = ui, server = server)
 
 在本章中，我们讨论了数据科学项目中最基本的工作流程，并发现了在 R 和 Python 中最好的工具。在探索性数据分析（EDA）和报告方面，R 可以称为王者。像`ggplot2`这样的包在数据科学社区中无与伦比，而`shiny`则可以以迷人的新方式呈现数据科学结果给利益相关者和同事们。在机器学习和数据工程领域，Python 的类似胶水的特性提供了出色的选择，使现代数据科学家能够专注于工作而非工具。
 
-^(1) 将`matplotlib`作为 Python 中唯一可行的替代方案显得有些不公平。`seaborn`包也能够快速创建漂亮的图表，但在`ggplot`功能方面仍有所不足。值得一提的是，`pandas`的新版本也具有绘图功能，因此我们应密切关注这一领域的发展。
+¹ 将`matplotlib`作为 Python 中唯一可行的替代方案显得有些不公平。`seaborn`包也能够快速创建漂亮的图表，但在`ggplot`功能方面仍有所不足。值得一提的是，`pandas`的新版本也具有绘图功能，因此我们应密切关注这一领域的发展。
 
-^(2) 已经有尝试在 Python 中重建这个包，比如[ggplot](https://pypi.org/project/ggplot/)，但目前在社区中并没有流行起来。
+² 已经有尝试在 Python 中重建这个包，比如[ggplot](https://pypi.org/project/ggplot/)，但目前在社区中并没有流行起来。
 
-^(3) 他编写了许多其他包，并在某些方面几乎单枪匹马地改变了人们在现代环境中使用 R 的方式。详细信息请参阅第二章了解他的包。
+³ 他编写了许多其他包，并在某些方面几乎单枪匹马地改变了人们在现代环境中使用 R 的方式。详细信息请参阅第二章了解他的包。
 
-^(4) 数据集的更多信息请参见[这里](https://rdrr.io/cran/dplyr/man/starwars.html)。
+⁴ 数据集的更多信息请参见[这里](https://rdrr.io/cran/dplyr/man/starwars.html)。
 
-^(5) 你知道他的真名是贾巴·迪斯利吉克·提乌雷吗？
+⁵ 你知道他的真名是贾巴·迪斯利吉克·提乌雷吗？
 
-^(6) 探索不同地图样式的官方文档可以在[这里](https://rstudio.github.io/leaflet/)找到。
+⁶ 探索不同地图样式的官方文档可以在[这里](https://rstudio.github.io/leaflet/)找到。
 
-^(7) 可以在[这里](https://scikit-learn.org/stable/tutorial/machine_learning_map/index.html)找到这些的概述。
+⁷ 可以在[这里](https://scikit-learn.org/stable/tutorial/machine_learning_map/index.html)找到这些的概述。
 
-^(8) 想要对机器学习架构的复杂性有更直观的了解，请查看来自 Google 的[这篇](https://cloud.google.com/solutions/machine-learning/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning)MLOps 文档。
+⁸ 想要对机器学习架构的复杂性有更直观的了解，请查看来自 Google 的[这篇](https://cloud.google.com/solutions/machine-learning/mlops-continuous-delivery-and-automation-pipelines-in-machine-learning)MLOps 文档。
 
-^(9) 想要了解更多关于 REST 的信息，请参考[这个](https://en.wikipedia.org/wiki/Representational_state_transfer)资源。
+⁹ 想要了解更多关于 REST 的信息，请参考[这个](https://en.wikipedia.org/wiki/Representational_state_transfer)资源。
 
-^(10) Flask 在 R 中的替代方案是`plumber`。RStudio IDE 提供了友好的界面来使用这个工具，但在机器学习社区中仍然存在选项和采用上的差距。
+¹⁰ Flask 在 R 中的替代方案是`plumber`。RStudio IDE 提供了友好的界面来使用这个工具，但在机器学习社区中仍然存在选项和采用上的差距。
 
-^(11) 为了简洁起见，我们不会在这里深入探讨设置虚拟环境的问题。我们建议有兴趣的读者阅读[`virtualenv`](https://virtualenv.pypa.io/en/latest/)和[`renv`](https://rstudio.github.io/renv/articles/renv.html)工具的相关内容，这些内容在第三章中有所涵盖。
+¹¹ 为了简洁起见，我们不会在这里深入探讨设置虚拟环境的问题。我们建议有兴趣的读者阅读[`virtualenv`](https://virtualenv.pypa.io/en/latest/)和[`renv`](https://rstudio.github.io/renv/articles/renv.html)工具的相关内容，这些内容在第三章中有所涵盖。
 
-^(12) 数据集是“波士顿房屋”，可以在[这里](https://scikit-learn.org/stable/modules/generated/sklearn.datasets.load_boston.html)找到。
+¹² 数据集是“波士顿房屋”，可以在[这里](https://scikit-learn.org/stable/modules/generated/sklearn.datasets.load_boston.html)找到。
 
-^(13) 如果你更喜欢命令行，可以看看`curl`。
+¹³ 如果你更喜欢命令行，可以看看`curl`。
 
-^(14) Python 中有一个先进的新工具，称为[streamlit](https://www.streamlit.io/)，但它还没有普及和广泛采用。
+¹⁴ Python 中有一个先进的新工具，称为[streamlit](https://www.streamlit.io/)，但它还没有普及和广泛采用。
 
-^(15) 要想了解 Shiny 的可能性，可以看看[RStudio 网站](https://shiny.rstudio.com/gallery/)上的使用案例库。
+¹⁵ 要想了解 Shiny 的可能性，可以看看[RStudio 网站](https://shiny.rstudio.com/gallery/)上的使用案例库。

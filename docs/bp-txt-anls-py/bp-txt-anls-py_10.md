@@ -42,9 +42,9 @@
 
 ![](img/btap_1001.jpg)
 
-###### 图 10-1\. 密集向量表示语义相似性的标注（左）可用于回答类比问题（右）。我们对向量维度命名为“Royalty”等来展示可能的解释。^(1)
+###### 图 10-1\. 密集向量表示语义相似性的标注（左）可用于回答类比问题（右）。我们对向量维度命名为“Royalty”等来展示可能的解释。¹
 
-训练的基本思想是在相似上下文中出现的单词具有相似的含义。这被称为*分布假设*。例如，以下描述*tesgüino*的句子：^(2)
+训练的基本思想是在相似上下文中出现的单词具有相似的含义。这被称为*分布假设*。例如，以下描述*tesgüino*的句子：²
 
 +   桌子上有一瓶 ___。
 
@@ -62,7 +62,7 @@
 
 <math alttext="v left-parenthesis q u e e n right-parenthesis minus v left-parenthesis k i n g right-parenthesis almost-equals v left-parenthesis w o m a n right-parenthesis minus v left-parenthesis m a n right-parenthesis" display="block"><mrow><mi>v</mi> <mo>(</mo> <mi>q</mi> <mi>u</mi> <mi>e</mi> <mi>e</mi> <mi>n</mi> <mo>)</mo> <mo>-</mo> <mi>v</mi> <mo>(</mo> <mi>k</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mo>)</mo> <mo>≈</mo> <mi>v</mi> <mo>(</mo> <mi>w</mi> <mi>o</mi> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo> <mo>-</mo> <mi>v</mi> <mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo></mrow></math>
 
-如果这个近似等式成立，我们可以将这个类比重述为一个问题：像“king”对应于“man”，“woman”对应于什么？或者数学上表示为：^(3)
+如果这个近似等式成立，我们可以将这个类比重述为一个问题：像“king”对应于“man”，“woman”对应于什么？或者数学上表示为：³
 
 <math alttext="v left-parenthesis w o m a n right-parenthesis plus left-bracket v left-parenthesis k i n g right-parenthesis minus v left-parenthesis m a n right-parenthesis right-bracket almost-equals question-mark" display="block"><mrow><mi>v</mi> <mrow><mo>(</mo> <mi>w</mi> <mi>o</mi> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo></mrow> <mo>+</mo> <mfenced separators="" open="[" close="]"><mi>v</mi> <mo>(</mo> <mi>k</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mo>)</mo> <mo>-</mo> <mi>v</mi> <mo>(</mo> <mi>m</mi> <mi>a</mi> <mi>n</mi> <mo>)</mo></mfenced> <mo>≈</mo> <mo>?</mo></mrow></math>
 
@@ -108,7 +108,7 @@
 
 ## 加载预训练模型
 
-几个模型可以公开下载。^(5) 我们稍后会描述如何加载自定义模型，但在这里，我们将使用 Gensim 的方便下载 API。
+几个模型可以公开下载。⁵ 我们稍后会描述如何加载自定义模型，但在这里，我们将使用 Gensim 的方便下载 API。
 
 根据默认设置，Gensim 将模型存储在 `~/gensim-data` 下。如果您想将其更改为自定义路径，可以在导入下载器 API 之前设置环境变量 `GENSIM_DATA_DIR`。我们将所有模型存储在本地目录 `models` 中：
 
@@ -574,7 +574,7 @@ fig.show()
 
 ```
 
-你可以在我们的 [GitHub 仓库](https://oreil.ly/gX6Ti) 中的 `embeddings` 包中找到一个更通用的蓝图函数 `plot_embeddings`。它允许你选择降维算法，并突出显示低维投影中的选定搜索词及其最相似的邻居。对于 图 10-3 中的绘图，我们事先手动检查了一些聚类，然后明确命名了一些典型的搜索词来着色聚类。^(7) 在交互视图中，你可以在悬停在点上时看到这些词。
+你可以在我们的 [GitHub 仓库](https://oreil.ly/gX6Ti) 中的 `embeddings` 包中找到一个更通用的蓝图函数 `plot_embeddings`。它允许你选择降维算法，并突出显示低维投影中的选定搜索词及其最相似的邻居。对于 图 10-3 中的绘图，我们事先手动检查了一些聚类，然后明确命名了一些典型的搜索词来着色聚类。⁷ 在交互视图中，你可以在悬停在点上时看到这些词。
 
 下面是生成此图的代码：
 
@@ -765,16 +765,16 @@ plot_tree(graph, node_size=500, font_size=8)
 
 +   Wolf, Thomas。*通用词向量和句子向量的最新进展*. 2018\. [*https://medium.com/huggingface/universal-word-sentence-embeddings-ce48ddc8fc3a*](https://medium.com/huggingface/universal-word-sentence-embeddings-ce48ddc8fc3a)。
 
-^(1) 受到 Adrian Colyer 的[“词向量的惊人力量”博文](https://oreil.ly/8iMPF)的启发。
+¹ 受到 Adrian Colyer 的[“词向量的惊人力量”博文](https://oreil.ly/8iMPF)的启发。
 
-^(2) 这个经常被引用的例子最初来自语言学家尤金·尼达，于 1975 年提出。
+² 这个经常被引用的例子最初来自语言学家尤金·尼达，于 1975 年提出。
 
-^(3) Jay Alammar 的博文[“图解 Word2Vec”](https://oreil.ly/TZNTT)生动地解释了这个方程。
+³ Jay Alammar 的博文[“图解 Word2Vec”](https://oreil.ly/TZNTT)生动地解释了这个方程。
 
-^(4) 拥有相同发音但不同意义的单词被称为*同音异义词*。如果它们拼写相同，则被称为*同形异义词*。
+⁴ 拥有相同发音但不同意义的单词被称为*同音异义词*。如果它们拼写相同，则被称为*同形异义词*。
 
-^(5) 例如，来自[RaRe Technologies](https://oreil.ly/two0R)和[3Top](https://oreil.ly/4DwDy)。
+⁵ 例如，来自[RaRe Technologies](https://oreil.ly/two0R)和[3Top](https://oreil.ly/4DwDy)。
 
-^(6) 如果你自己运行这段代码，由于随机初始化的原因，结果可能会与书中打印的略有不同。
+⁶ 如果你自己运行这段代码，由于随机初始化的原因，结果可能会与书中打印的略有不同。
 
-^(7) 你可以在电子版和[GitHub](https://oreil.ly/MWJLd)上找到彩色的图表。
+⁷ 你可以在电子版和[GitHub](https://oreil.ly/MWJLd)上找到彩色的图表。

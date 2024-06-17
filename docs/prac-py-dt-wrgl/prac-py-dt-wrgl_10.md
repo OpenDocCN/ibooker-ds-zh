@@ -4,7 +4,7 @@
 
 就像我们数据整理过程的每个部分一样，有效和准确地传达我们的见解涉及应用少数一成不变的规则，但更多的是判断力。这当然适用于书面沟通，但当涉及到数据沟通的方面时，可能更是如此，因为这部分通常引起最多关注：*可视化*。
 
-正如我们在“数据分析可视化”中提到的，为了有效地与他人分享我们的数据见解，创建可视化图表需要与生成这些见解时的焦点和方法不同的关注点。例如，除非您试图接触*非常*专业的受众（比如通过学术出版物），否则直方图在您分享研究发现时不太可能进入您的可视化词汇表中。同时，*极有可能*您会使用柱状图或柱形图的某种形式^(1)来与非专业人士分享您的见解，因为这些广泛使用且高度易读的图形形式对大多数观众来说相对容易准确解释。
+正如我们在“数据分析可视化”中提到的，为了有效地与他人分享我们的数据见解，创建可视化图表需要与生成这些见解时的焦点和方法不同的关注点。例如，除非您试图接触*非常*专业的受众（比如通过学术出版物），否则直方图在您分享研究发现时不太可能进入您的可视化词汇表中。同时，*极有可能*您会使用柱状图或柱形图的某种形式¹来与非专业人士分享您的见解，因为这些广泛使用且高度易读的图形形式对大多数观众来说相对容易准确解释。
 
 换句话说，我们选择用来视觉呈现我们数据发现的方式，不仅应受我们拥有的（或用来得出结论的）*数据*的启发，还应受我们试图接触的*受众*的影响。许多软件包（包括我们已经使用过的一些软件包）如果您只需指向一个结构化数据集并传入几个可选参数，它们将乐意生成图表和图形。虽然这在最低限度上可以产生可视化效果，但其输出更像是机器翻译而不是诗歌。是的，在高层次上它可能符合语言的“规则”，但其意义的清晰度（更不用说其有效性或*雄辩性*）是值得怀疑的。因此，利用可视化使我们的数据见解真正可访问他人，需要仔细考虑*您想要传达的内容*，*哪种视觉形式最适合*以及*如何*能够根据您的特定需求进行定制。
 
@@ -38,7 +38,7 @@
 
 许多年前，我有幸邀请到《纽约时报》的[Amanda Cox](https://en.wikipedia.org/wiki/Amanda_Cox)作为我的数据可视化课程的特邀讲师，她分享了一个评估特定数据陈述是否适合可视化的绝佳提示：“如果你的标题中没有动词，那就有问题。”
 
-浅尝辄止的话，当然，这个要求很容易满足。^(2) 然而，她的陈述精神暗示了一种更为严格的要求：你的图形标题应清晰地表达某种重要的关系或主张，并且支持证据应该在图形本身可见。为什么这么重要？首先，将你的主张直接放在标题中会鼓励读者首先*看*你的图形；清晰地命名帮助确保观众确实会——字面上——知道*在哪里*寻找这些主张的支持证据。当然，作为信息设计师，我们的工作是确保我们所有图形的视觉线索也这样做，但往往[正是标题吸引了人们的注意](https://psychologicalscience.org/news/how-headlines-change-the-way-we-think.html)。
+浅尝辄止的话，当然，这个要求很容易满足。² 然而，她的陈述精神暗示了一种更为严格的要求：你的图形标题应清晰地表达某种重要的关系或主张，并且支持证据应该在图形本身可见。为什么这么重要？首先，将你的主张直接放在标题中会鼓励读者首先*看*你的图形；清晰地命名帮助确保观众确实会——字面上——知道*在哪里*寻找这些主张的支持证据。当然，作为信息设计师，我们的工作是确保我们所有图形的视觉线索也这样做，但往往[正是标题吸引了人们的注意](https://psychologicalscience.org/news/how-headlines-change-the-way-we-think.html)。
 
 如果你简单地不能在你的图形标题中找到一个动作动词，这是一个提示，即可视化可能*不*是传达你的见解的最佳方式。诚然，在适当的情况下，人类可以非常迅速地处理可视化，但只有当可视化有所“表达”时才能实现这种优势。换句话说，虽然你可能能够生成一个标题为“一年的每日国库长期利率”的视觉上准确的图表，但现实是，即使是最大的政策狂热者也会想知道他们为什么要费心去看它。如果不是正确的工具，不要坚持可视化！记住，我们的目标是尽可能有效地传达我们的数据整理见解，而不是不惜一切代价地以视觉方式表达它们。通过首先专注于完善你的数据陈述，并确认它具有你需要的力量，你将避免花费大量时间设计和构建一个实际上并不做你想要的事情或你的观众需要的可视化。当然，基本的数据可视化可以使用数据集和一个强大的可视化库（如*seaborn*）快速生成。但是，制作真正*雄辩的*可视化需要仔细考虑以及对甚至最好的库的默认图表进行详细定制。因此，在你投入所有的时间和精力之前，确保你的复杂可视化不是从你的分析中提取的一个突出的统计数字会更好。
 
@@ -60,7 +60,7 @@
 
 例如，查看 [2021 年 6 月纽约市民主党市长初选的结果](https://washingtonpost.com/elections/election-results/new-york/nyc-primary)，我们可以想象编写一个数据声明，如“尽管候选人众多，前三名候选人几乎占据了四分之三的第一选择票。”由于只有四名候选人获得了超过 10%的第一选择票，因此将所有其余候选人归为单一的“其他”类别也是合理的。在这种情况下，饼图是准确呈现结果并支持我们主张的完全合理的方式之一，部分原因是因为它使得我们可以轻松地看到领先者显著超越其他候选人。
 
-鉴于饼图的争议性质，一般而言相当灵活的*seaborn*库中并没有提供饼图选项并不完全令人意外。然而，我们可以直接使用*matplotlib*来获得一个非常实用的饼图。^(4) 不过，在*matplotlib*的饼图功能中还存在一些特殊之处需要克服。例如，最佳实践要求饼图从最大部分开始，即“12 点钟”位置，其余部分按顺时针方向以降序添加。然而，在*matplotlib*中，第一部分从“3 点钟”位置开始，并以逆时针方向添加其他部分。因此，我们需要指定 `startangle=90` 并反转片段的从大到小的顺序。^(5) 同样，在*matplotlib*中，默认情况下，饼图的每个“片段”被分配了不同的颜色色调（例如紫色、红色、绿色、橙色和蓝色），这在某些类型的色盲人士中可能无法访问。由于我们的数据声明在概念上将前三名候选人分组，因此我将它们都设置为相同的绿色阴影；并且由于*所有*的候选人都来自同一政党，我将所有的片段保持在绿色系列中。要查看如何编码这种类型的图表（包括这些小的自定义），请参阅例子 10-1 和在图 10-1 中的结果可视化。
+鉴于饼图的争议性质，一般而言相当灵活的*seaborn*库中并没有提供饼图选项并不完全令人意外。然而，我们可以直接使用*matplotlib*来获得一个非常实用的饼图。⁴ 不过，在*matplotlib*的饼图功能中还存在一些特殊之处需要克服。例如，最佳实践要求饼图从最大部分开始，即“12 点钟”位置，其余部分按顺时针方向以降序添加。然而，在*matplotlib*中，第一部分从“3 点钟”位置开始，并以逆时针方向添加其他部分。因此，我们需要指定 `startangle=90` 并反转片段的从大到小的顺序。⁵ 同样，在*matplotlib*中，默认情况下，饼图的每个“片段”被分配了不同的颜色色调（例如紫色、红色、绿色、橙色和蓝色），这在某些类型的色盲人士中可能无法访问。由于我们的数据声明在概念上将前三名候选人分组，因此我将它们都设置为相同的绿色阴影；并且由于*所有*的候选人都来自同一政党，我将所有的片段保持在绿色系列中。要查看如何编码这种类型的图表（包括这些小的自定义），请参阅例子 10-1 和在图 10-1 中的结果可视化。
 
 ##### 例子 10-1\. a_humble_pie.py
 
@@ -218,13 +218,13 @@ ax = sns.barplot(x="country", y="retirement_gap", data=retirement_data,
 
 当你的数据陈述关于*变化率*而不是*值差异*时，是时候探索折线图了。与条形图类似，折线图可以有效显示多个类别的数值数据，但只能显示它*随时间变化*的情况。然而，因为它们不直观地编码绝对数据值，折线图刻度*不*需要从零开始。
 
-起初，这可能看起来像是一种操纵的邀请——事实上，折线图一直处于一些重大政治争议的中心。^(6) 然而，对于条形图和折线图，真正驱动 y 轴刻度的是*数据*：正如我们不能决定将条形图从零开始，将 y 轴刻度扩展到最大数据测量的多倍是荒谬的，如图 10-5 所示。
+起初，这可能看起来像是一种操纵的邀请——事实上，折线图一直处于一些重大政治争议的中心。⁶ 然而，对于条形图和折线图，真正驱动 y 轴刻度的是*数据*：正如我们不能决定将条形图从零开始，将 y 轴刻度扩展到最大数据测量的多倍是荒谬的，如图 10-5 所示。
 
 ![另一个糟糕的工资比较图形](img/ppdw_1005.png)
 
 ###### 图 10-5\. 另一个糟糕的工资比较图形
 
-尽管在技术上是准确的，但图 10-5 中超长的 y 轴刻度已经将数据值压缩到我们的眼睛无法准确或有效区分它们的程度。因此，对于条形图，y 轴的最高值通常应在下一个“整数”标记的增量处（更多关于此内容，请参见“选择刻度”）。对于线图，可视化专家如唐娜·王建议数据值的范围应占据 y 轴空间的大约三分之二。^(7)
+尽管在技术上是准确的，但图 10-5 中超长的 y 轴刻度已经将数据值压缩到我们的眼睛无法准确或有效区分它们的程度。因此，对于条形图，y 轴的最高值通常应在下一个“整数”标记的增量处（更多关于此内容，请参见“选择刻度”）。对于线图，可视化专家如唐娜·王建议数据值的范围应占据 y 轴空间的大约三分之二。⁷
 
 当然，这种方法突出了线图中数据点的选择对整体信息传达的影响。例如，请考虑来自[*经济学人*](https://economist.com/graphic-detail/2021/06/21/the-pandemic-cut-annual-fdi-flows-by-one-third)的这张图，它在图 10-6 中重新制作。
 
@@ -292,7 +292,7 @@ plt.show()
 
 大多数情况下，散点图用于显示随时间（如图 10-8）或跨许多个体成员（例如“学校”、“大城市”、“河流供水的湖泊”或“漫威电影”）捕获的数据值。有时，散点图可能包括计算的趋势线，用作将个别数据点与“预期”平均值进行比较的基准；其他时候，基准可能是由专业、法律或社会规范确定的值。
 
-例如，从一篇*Pioneer Press*关于某些学校的学生表现优于典型指标的报道中获得灵感，^(8)我们可以使用*seaborn*绘制加利福尼亚学校系统的历史数据，生成一个散点图并突出显示一个异常数据点。此示例的代码可以在示例 10-4 中找到。
+例如，从一篇*Pioneer Press*关于某些学校的学生表现优于典型指标的报道中获得灵感，⁸我们可以使用*seaborn*绘制加利福尼亚学校系统的历史数据，生成一个散点图并突出显示一个异常数据点。此示例的代码可以在示例 10-4 中找到。
 
 ##### 示例 10-4\. schools_that_work.py
 
@@ -394,7 +394,7 @@ WA    18869      LA    10828      MS     4540      SD     2247
 
 在数字化的视觉元素中，必然以定量术语表达：[十六进制颜色代码](https://computerhope.com/htmcolor.htm)的数学起源和 x/y 坐标定位可能使人误以为为图表找到“正确”的颜色或标注标签的正确位置只是数学问题。但事实并非如此。例如，颜色感知既复杂又高度个体化——我们不能确保别人看到的是我们“相同”的颜色——当然，有许多类型的颜色“盲”可能会阻止某些人根本无法感知某些对比色对（例如红/绿，蓝/橙，黄/紫）。没有方程可以解释这一点。
 
-实际上，我们可能使用的每一种“颜色”实际上都由三个不同的属性来表征：色调（例如红色与蓝色），亮度（或光度）和饱和度。彩色“搭配”通过这些特征以非常特定的方式对齐或对比。当然，当涉及到可视化时，我们需要颜色做的远不止是看起来好看；它们必须*有意义地编码*信息。但是一个颜色“比另一个更蓝 20%”是什么意思？不管怎样，这不仅仅是在你的十六进制颜色值中翻转一些数字的问题。^(9)
+实际上，我们可能使用的每一种“颜色”实际上都由三个不同的属性来表征：色调（例如红色与蓝色），亮度（或光度）和饱和度。彩色“搭配”通过这些特征以非常特定的方式对齐或对比。当然，当涉及到可视化时，我们需要颜色做的远不止是看起来好看；它们必须*有意义地编码*信息。但是一个颜色“比另一个更蓝 20%”是什么意思？不管怎样，这不仅仅是在你的十六进制颜色值中翻转一些数字的问题。⁹
 
 幸运的是，我们得到了专家的帮助。二十多年来，寻找颜色建议的人（主要是地图，虽然它也是其他类型图表的一个很好的起点）一直可以求助于宾州州立大学地理学教授兼制图师[Cynthia Brewer](http://personal.psu.edu/cab38)的工作，她的[ColorBrewer](https://colorbrewer2.org)工具提供了出色的免费视觉设计颜色分布。同样，Dona Wong 的优秀著作*《华尔街日报信息图表指南》*（Norton）包括了我个人喜欢的一些图形颜色组合。
 
@@ -462,7 +462,7 @@ ColorBrewer 等工具包含生成只有色盲安全组合的选项。如果您�
 
 要在 Python 中实现这些自定义视觉效果，我们仍然要依赖 *seaborn* 和 *matplotlib* 库。但是，虽然在以前的情况下我们让 *seaborn* 处理大部分繁重的工作，在这个例子中，真正发挥作用的是 *matplotlib* 提供的细粒度控制。是的，我们仍然让 *seaborn* 处理高级任务，比如实际按比例绘制数据值。但 *matplotlib* 将给我们提供我们需要的杠杆，以指定从标签放置和方向到单位、标签、注释和突出显示值等一切，这些都是我们真正需要的，以使我们的可视化真正适应我们的主张。
 
-对于这个例子，我们将暂时离开 PPP 数据，转而使用一些 COVID-19 数据，这些数据是由一组研究人员根据约翰斯·霍普金斯大学的数据整理而成，并在[我们世界的数据](https://ourworldindata.org/coronavirus-source-data)上公开。我们的目标是突出显示 2020 年 7 月美国确诊 COVID-19 病例激增的情况，当时这一情况被归因于许多州在之前春季较早时加快了重新开放^(11)，以及在 7 月 4 日假期期间的聚会^(12)。要了解依赖默认值和自定义轴范围、标签和颜色之间的区别，请比较图 10-10 和图 10-11。生成图 10-11 的代码显示在示例 10-5 中。
+对于这个例子，我们将暂时离开 PPP 数据，转而使用一些 COVID-19 数据，这些数据是由一组研究人员根据约翰斯·霍普金斯大学的数据整理而成，并在[我们世界的数据](https://ourworldindata.org/coronavirus-source-data)上公开。我们的目标是突出显示 2020 年 7 月美国确诊 COVID-19 病例激增的情况，当时这一情况被归因于许多州在之前春季较早时加快了重新开放¹¹，以及在 7 月 4 日假期期间的聚会¹²。要了解依赖默认值和自定义轴范围、标签和颜色之间的区别，请比较图 10-10 和图 10-11。生成图 10-11 的代码显示在示例 10-5 中。
 
 ##### 示例 10-5。refined_covid_barchart.py
 
@@ -609,28 +609,28 @@ plt.show()
 
 到目前为止，我们已经用 Python 进行了几乎所有我们想做的数据整理，但是*Python 之外*还有一整个世界的数据和可视化工具，这些工具在支持你的数据整理和数据质量工作时可以非常有用。我们将在第十一章中介绍这些工具。
 
-^(1) 其中直方图是一种特殊类型。
+¹ 其中直方图是一种特殊类型。
 
-^(2) 特别是如果你给自己信心[*连接动词*](https://merriam-webster.com/dictionary/linking%20verb)。
+² 特别是如果你给自己信心[*连接动词*](https://merriam-webster.com/dictionary/linking%20verb)。
 
-^(3) 尽管这些几乎总是公开和频繁地被违反，例如，Junk Chart 的[“从零开始改善这个图表，但只是稍微改善了一点”](https://junkcharts.typepad.com/junk_charts/2021/06/start-at-zero-improves-this-chart-but-only-slightly.html)。
+³ 尽管这些几乎总是公开和频繁地被违反，例如，Junk Chart 的[“从零开始改善这个图表，但只是稍微改善了一点”](https://junkcharts.typepad.com/junk_charts/2021/06/start-at-zero-improves-this-chart-but-only-slightly.html)。
 
-^(4) 由于 *pandas* 和 *seaborn* 库都大量依赖于 *matplotlib*，在许多情况下，需要直接使用 *matplotlib* 的特性进行重要的定制，我们将在“优雅视觉元素”中更详细地看到。
+⁴ 由于 *pandas* 和 *seaborn* 库都大量依赖于 *matplotlib*，在许多情况下，需要直接使用 *matplotlib* 的特性进行重要的定制，我们将在“优雅视觉元素”中更详细地看到。
 
-^(5) 显然，我们可以简单地反转我们最初指定数据的顺序，但我更喜欢数据顺序和最终可视化顺序匹配。
+⁵ 显然，我们可以简单地反转我们最初指定数据的顺序，但我更喜欢数据顺序和最终可视化顺序匹配。
 
-^(6) “曲棍球桨图：科学史上最具争议的图表解释” by Chris Mooney，[*https://theatlantic.com/technology/archive/2013/05/the-hockey-stick-the-most-controversial-chart-in-science-explained/275753*](https://theatlantic.com/technology/archive/2013/05/the-hockey-stick-the-most-controversial-chart-in-science-explained/275753)；也就是说，[组织结构图](http://voices.washingtonpost.com/ezra-klein/2009/07/when_health-care_reform_stops.html)也曾经（谩骂警告）[盛行一时](https://flickr.com/photos/robertpalmer/3743826461)。
+⁶ “曲棍球桨图：科学史上最具争议的图表解释” by Chris Mooney，[*https://theatlantic.com/technology/archive/2013/05/the-hockey-stick-the-most-controversial-chart-in-science-explained/275753*](https://theatlantic.com/technology/archive/2013/05/the-hockey-stick-the-most-controversial-chart-in-science-explained/275753)；也就是说，[组织结构图](http://voices.washingtonpost.com/ezra-klein/2009/07/when_health-care_reform_stops.html)也曾经（谩骂警告）[盛行一时](https://flickr.com/photos/robertpalmer/3743826461)。
 
-^(7) 欲知更多详情，请参阅 Wong 的《华尔街日报信息图指南》（诺顿出版社）。
+⁷ 欲知更多详情，请参阅 Wong 的《华尔街日报信息图指南》（诺顿出版社）。
 
-^(8) Megan Boldt 等人，“学校那工作：尽管表面看起来不佳，但那些表现优于预期的学校有共同特点”，2010 年 7 月 9 日，[*https://twincities.com/2010/07/09/schools-that-work-despite-appearances-schools-doing-better-than-expected-have-traits-in-common*](https://twincities.com/2010/07/09/schools-that-work-despite-appearances-schools-doing-better-than-expected-have-traits-in-common)。
+⁸ Megan Boldt 等人，“学校那工作：尽管表面看起来不佳，但那些表现优于预期的学校有共同特点”，2010 年 7 月 9 日，[*https://twincities.com/2010/07/09/schools-that-work-despite-appearances-schools-doing-better-than-expected-have-traits-in-common*](https://twincities.com/2010/07/09/schools-that-work-despite-appearances-schools-doing-better-than-expected-have-traits-in-common)。
 
-^(9) 相信我，我已经尝试过。
+⁹ 相信我，我已经尝试过。
 
-^(10) 你可以通过使用`pandas`的`quantile()`函数，并传入`0.2`、`0.4`、`0.6`等值来快速完成这一操作。有关如何计算这些值及其代表什么的更一般性提醒，请参见示例 9-3 在第 9 章中。
+¹⁰ 你可以通过使用`pandas`的`quantile()`函数，并传入`0.2`、`0.4`、`0.6`等值来快速完成这一操作。有关如何计算这些值及其代表什么的更一般性提醒，请参见示例 9-3 在第 9 章中。
 
-^(11) Lazaro Gamio，“自州开始重新开放以来，冠状病毒病例如何上升”， *纽约时报*，2020 年 7 月 9 日，[*https://nytimes.com/interactive/2020/07/09/us/coronavirus-cases-reopening-trends.html*](https://nytimes.com/interactive/2020/07/09/us/coronavirus-cases-reopening-trends.html)。
+¹¹ Lazaro Gamio，“自州开始重新开放以来，冠状病毒病例如何上升”， *纽约时报*，2020 年 7 月 9 日，[*https://nytimes.com/interactive/2020/07/09/us/coronavirus-cases-reopening-trends.html*](https://nytimes.com/interactive/2020/07/09/us/coronavirus-cases-reopening-trends.html)。
 
-^(12) Anne Gearan、Derek Hawkins 和 Siobhán O’Grady，“上个月冠状病毒病例增长近 50%，由首批重新开放的州领导”， *华盛顿邮报*，2020 年 7 月 1 日，[*https://washingtonpost.com/politics/coronavirus-cases-rose-by-nearly-50-percent-last-month-led-by-states-that-reopened-first/2020/07/01/3337f1ec-bb96-11ea-80b9-40ece9a701dc_story.html*](https://washingtonpost.com/politics/coronavirus-cases-rose-by-nearly-50-percent-last-month-led-by-states-that-reopened-first/2020/07/01/3337f1ec-bb96-11ea-80b9-40ece9a701dc_story.html)。
+¹² Anne Gearan、Derek Hawkins 和 Siobhán O’Grady，“上个月冠状病毒病例增长近 50%，由首批重新开放的州领导”， *华盛顿邮报*，2020 年 7 月 1 日，[*https://washingtonpost.com/politics/coronavirus-cases-rose-by-nearly-50-percent-last-month-led-by-states-that-reopened-first/2020/07/01/3337f1ec-bb96-11ea-80b9-40ece9a701dc_story.html*](https://washingtonpost.com/politics/coronavirus-cases-rose-by-nearly-50-percent-last-month-led-by-states-that-reopened-first/2020/07/01/3337f1ec-bb96-11ea-80b9-40ece9a701dc_story.html)。
 
-^(13) Mark Olalde 和 Nicole Hayden，“加利福尼亚州 7 月 4 日后 COVID-19 病例激增。专家表示家庭聚会助长了传播。” *USA Today*，2020 年 8 月 2 日，[*https://usatoday.com/story/news/nation/2020/08/02/covid-19-spike-california-after-july-4-linked-family-gatherings/5569158002*](https://usatoday.com/story/news/nation/2020/08/02/covid-19-spike-california-after-july-4-linked-family-gatherings/5569158002)。
+¹³ Mark Olalde 和 Nicole Hayden，“加利福尼亚州 7 月 4 日后 COVID-19 病例激增。专家表示家庭聚会助长了传播。” *USA Today*，2020 年 8 月 2 日，[*https://usatoday.com/story/news/nation/2020/08/02/covid-19-spike-california-after-july-4-linked-family-gatherings/5569158002*](https://usatoday.com/story/news/nation/2020/08/02/covid-19-spike-california-after-july-4-linked-family-gatherings/5569158002)。

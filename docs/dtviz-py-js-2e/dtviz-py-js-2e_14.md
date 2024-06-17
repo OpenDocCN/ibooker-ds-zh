@@ -16,7 +16,7 @@ Matplotlib 可能会让人感到相当困惑，特别是如果你随机在网上
 $ jupyter notebook
 ```
 
-您可以在 IPython 会话中使用[Matplotlib 魔术命令](https://oreil.ly/KhWbX)之一来启用交互式 Matplotlib。单独使用`%matplotlib`将使用默认的 GUI 后端创建绘图窗口，但您可以直接指定后端。以下命令应该适用于标准和 Qt 控制台 IPython：^(1)
+您可以在 IPython 会话中使用[Matplotlib 魔术命令](https://oreil.ly/KhWbX)之一来启用交互式 Matplotlib。单独使用`%matplotlib`将使用默认的 GUI 后端创建绘图窗口，但您可以直接指定后端。以下命令应该适用于标准和 Qt 控制台 IPython：¹
 
 ```py
 %matplotlib [qt | osx | wx ...]
@@ -42,7 +42,7 @@ import matplotlib.pyplot as plt
 
 虽然 NumPy 和 pandas 不是强制的，但 Matplotlib 设计时考虑了它们，能处理 NumPy 数组，通过关联处理 pandas Series。
 
-在 IPython 中创建内联图的能力对于与 Matplotlib 的愉快交互至关重要，我们使用以下“魔术”^(2) 指令来实现这一点：
+在 IPython 中创建内联图的能力对于与 Matplotlib 的愉快交互至关重要，我们使用以下“魔术”² 指令来实现这一点：
 
 ```py
 In [0]: %matplotlib inline
@@ -56,7 +56,7 @@ In [0]: %matplotlib inline
 
 # 使用 pyplot 的全局状态进行交互绘图
 
-`pyplot`模块提供了一个全局状态，你可以进行交互式操作。^(3) 这是用于交互式数据探索的，当你创建简单图表时非常方便。你会看到很多示例使用`pyplot`，但对于更复杂的绘图，Matplotlib 的面向对象 API（我们马上会看到）更适合。在演示全局绘图使用之前，让我们创建一些随机数据来显示，借助 pandas 有用的`period_range`方法：
+`pyplot`模块提供了一个全局状态，你可以进行交互式操作。³ 这是用于交互式数据探索的，当你创建简单图表时非常方便。你会看到很多示例使用`pyplot`，但对于更复杂的绘图，Matplotlib 的面向对象 API（我们马上会看到）更适合。在演示全局绘图使用之前，让我们创建一些随机数据来显示，借助 pandas 有用的`period_range`方法：
 
 ```py
 from datetime import datetime
@@ -163,7 +163,7 @@ plt.legend(plots, ('foo', 'bar', 'baz'), ![1](img/1.png)
 
 ![4](img/#co_visualizing_data_with_matplotlib_CO2-4)
 
-这里我们调整图例的字体属性：^(5)
+这里我们调整图例的字体属性：⁵
 
 ## 标题和轴标签
 
@@ -175,7 +175,7 @@ plt.xlabel('Date')
 plt.ylabel('Cum. sum')
 ```
 
-使用`figtext`方法可以添加一些文本：^(6)
+使用`figtext`方法可以添加一些文本：⁶
 
 ```py
 plt.figtext(0.995, 0.01, ![1](img/1.png)
@@ -230,7 +230,7 @@ plt.gcf().set_tight_layout(True)
 
 ## 保存您的图表
 
-Matplotlib 在保存绘图方面表现出色，提供多种输出格式。^(7) 可用的格式取决于可用的后端，但通常支持 PNG、PDF、PS、EPS 和 SVG。PNG 代表便携式网络图形，是分发网络图像的最流行格式。其他格式都是基于矢量的，可以在不产生像素化伪影的情况下平滑缩放。对于高质量的印刷工作，这可能是您想要的格式。
+Matplotlib 在保存绘图方面表现出色，提供多种输出格式。⁷ 可用的格式取决于可用的后端，但通常支持 PNG、PDF、PS、EPS 和 SVG。PNG 代表便携式网络图形，是分发网络图像的最流行格式。其他格式都是基于矢量的，可以在不产生像素化伪影的情况下平滑缩放。对于高质量的印刷工作，这可能是您想要的格式。
 
 保存操作就像这样简单：
 
@@ -239,7 +239,7 @@ plt.tight_layout() # force plot into figure dimensions
 plt.savefig('mpl_3lines_custom.svg')
 ```
 
-您可以使用 `format="svg"` 明确设置格式，但 Matplotlib 也能理解 *.svg* 后缀。为避免标签截断，使用 `tight_layout` 方法。^(8)
+您可以使用 `format="svg"` 明确设置格式，但 Matplotlib 也能理解 *.svg* 后缀。为避免标签截断，使用 `tight_layout` 方法。⁸
 
 # 图形和面向对象的 Matplotlib
 
@@ -296,7 +296,7 @@ ax.set_xticks([]); ![2](img/2.png)
 
 从我们嵌入的绘图中删除 x 轴刻度和标签。
 
-虽然`add_axes`给了我们很多调整图表外观的空间，但大多数情况下，Matplotlib 内置的网格布局系统使生活变得更加轻松。^(9) 最简单的选项是使用`figure.subplots`，它允许您指定等大小的行列布局的网格。如果您想要具有不同大小的网格，`gridspec`模块是您的首选。
+虽然`add_axes`给了我们很多调整图表外观的空间，但大多数情况下，Matplotlib 内置的网格布局系统使生活变得更加轻松。⁹ 最简单的选项是使用`figure.subplots`，它允许您指定等大小的行列布局的网格。如果您想要具有不同大小的网格，`gridspec`模块是您的首选。
 
 ![dpj2 1003](img/dpj2_1003.png)
 
@@ -569,7 +569,7 @@ x 和 y 数组的大小相等，提供了点的坐标。
 
 ###### 图 10-9\. 简单的散点图
 
-通过将标记大小和颜色索引数组传递给当前默认的颜色映射，我们可以调整单个点的大小和颜色。需要注意的一点（可能会令人困惑的一点）是，我们指定的是标记边界框的面积，而不是圆的直径。这意味着，如果我们希望点的直径是圆的两倍，我们必须将大小增加四倍。^(11) 在 示例 10-10 中，我们向简单的散点图添加了大小和颜色信息，生成了 图 10-10。
+通过将标记大小和颜色索引数组传递给当前默认的颜色映射，我们可以调整单个点的大小和颜色。需要注意的一点（可能会令人困惑的一点）是，我们指定的是标记边界框的面积，而不是圆的直径。这意味着，如果我们希望点的直径是圆的两倍，我们必须将大小增加四倍。¹¹ 在 示例 10-10 中，我们向简单的散点图添加了大小和颜色信息，生成了 图 10-10。
 
 ##### 示例 10-10\. 调整点的大小和颜色
 
@@ -641,9 +641,9 @@ fig.suptitle('Scatterplot With Regression-line')
 
 # seaborn
 
-有许多库将 Matplotlib 强大的绘图能力封装成更用户友好的形式^(12)，对于我们这些数据可视化者来说，这些库与 pandas 的兼容性非常好。
+有许多库将 Matplotlib 强大的绘图能力封装成更用户友好的形式¹²，对于我们这些数据可视化者来说，这些库与 pandas 的兼容性非常好。
 
-[Bokeh](https://bokeh.pydata.org/en/latest)是一个专为网络设计的交互式可视化库，产生浏览器渲染的输出，因此非常适合 IPython 笔记本。它是一个伟大的成就，设计哲学与 D3 类似。^(13)
+[Bokeh](https://bokeh.pydata.org/en/latest)是一个专为网络设计的交互式可视化库，产生浏览器渲染的输出，因此非常适合 IPython 笔记本。它是一个伟大的成就，设计哲学与 D3 类似。¹³
 
 但是，要进行交互式、探索性数据可视化，以便对数据有所感觉并建议可视化方法，我推荐使用[seaborn](https://oreil.ly/b2RpH)。seaborn 通过一些强大的统计图扩展了 Matplotlib，并且与 PyData 堆栈非常好地集成，与 NumPy、pandas 以及在 SciPy 和[statsmodels](https://oreil.ly/peqqT)中找到的统计例程良好地配合。
 
@@ -740,7 +740,7 @@ seaborn 提供了一些比 Matplotlib 基本设置更有用的图形。让我们
 
 FacetGrids 要求数据以 pandas DataFrame 的形式存在（参见 “DataFrame”），并且按照 Hadley Wickham 的说法，应该是“整洁”的形式，意味着 DataFrame 的每一列应该是一个变量，每一行是一个观察结果。
 
-让我们使用 Tips，seaborn 的一个测试数据集，^(14)展示 FacetGrid 的工作原理。Tips 是一个小数据集，显示了小费的分布情况，根据不同维度如周几或顾客是否吸烟。^(15)首先，让我们使用`load_dataset`方法将 Tips 数据加载到 pandas DataFrame 中：
+让我们使用 Tips，seaborn 的一个测试数据集，¹⁴展示 FacetGrid 的工作原理。Tips 是一个小数据集，显示了小费的分布情况，根据不同维度如周几或顾客是否吸烟。¹⁵首先，让我们使用`load_dataset`方法将 Tips 数据加载到 pandas DataFrame 中：
 
 ```py
 In [0]: tips = sns.load_dataset('tips')
@@ -791,7 +791,7 @@ g.add_legend();
 
 ###### Figure 10-15\. Scatter plot with diamond and square markers for sex
 
-我们可以使用行和列来创建数据维度的子集。结合一个`regplot`，^(16)可以探索五个维度：
+我们可以使用行和列来创建数据维度的子集。结合一个`regplot`，¹⁶可以探索五个维度：
 
 ```py
 pal = dict(Female='red', Male='blue')
@@ -831,7 +831,7 @@ sns.lmplot(x="total_bill", y="tip", hue="sex",
 
 ## PairGrid
 
-PairGrid 是另一种相当酷的 seaborn 绘图类型，提供了一种快速评估多维数据的方式。与 FacetGrid 不同，您不会将数据集分成子集，然后按指定的维度进行比较。使用 PairGrid，数据集的各个维度将按成对方式在一个方形网格中进行比较。默认情况下，将比较所有维度，但是您可以通过在声明 PairGrid 时向 `vars` 参数提供列表来指定要绘制的维度。^(17)
+PairGrid 是另一种相当酷的 seaborn 绘图类型，提供了一种快速评估多维数据的方式。与 FacetGrid 不同，您不会将数据集分成子集，然后按指定的维度进行比较。使用 PairGrid，数据集的各个维度将按成对方式在一个方形网格中进行比较。默认情况下，将比较所有维度，但是您可以通过在声明 PairGrid 时向 `vars` 参数提供列表来指定要绘制的维度。¹⁷
 
 我们通过使用经典的 Iris 数据集来演示这种成对比较的效用，展示包含三种 Iris 种类成员的一组数据的一些重要统计信息。首先，我们加载示例数据集：
 
@@ -876,7 +876,7 @@ g.add_legend();
 
 ###### 图 10-17\. Iris 测量的 PairGrid 汇总
 
-正如您在 Figure 10-17 中看到的，seaborn 的几行代码就能创建一组丰富信息的图表，相关联不同 Iris 测量指标。这种图表称为 [散点矩阵](https://oreil.ly/UAJ8T)，是在多变量集中查找变量对线性相关性的一个很好的方式。目前，网格中存在冗余：例如，`sepal_width-petal_length` 和 `petal_length-sepal_width` 的图表。`PairGrid` 提供了使用主对角线之上或之下的冗余图表来提供数据的不同反映的机会。查看一些 seaborn 文档中的示例以获取更多信息。^(18)
+正如您在 Figure 10-17 中看到的，seaborn 的几行代码就能创建一组丰富信息的图表，相关联不同 Iris 测量指标。这种图表称为 [散点矩阵](https://oreil.ly/UAJ8T)，是在多变量集中查找变量对线性相关性的一个很好的方式。目前，网格中存在冗余：例如，`sepal_width-petal_length` 和 `petal_length-sepal_width` 的图表。`PairGrid` 提供了使用主对角线之上或之下的冗余图表来提供数据的不同反映的机会。查看一些 seaborn 文档中的示例以获取更多信息。¹⁸
 
 在本节中，我介绍了一些 seaborn 的图表，下一章我们在探索新贵数据集时将看到更多。但 seaborn 还有许多其他非常方便和强大的统计工具。进一步调查时，我建议从 [seaborn 主要文档](https://stanford.io/28L8ezk) 开始。那里有一些很好的示例、完整的 API 文档和一些好的教程，可以补充您在本章学到的内容。
 
@@ -888,38 +888,38 @@ g.add_legend();
 
 在下一章中，我们将结合 pandas 使用 Matplotlib 探索我们新获取并清理的诺贝尔数据集。我们将使用本章中演示的一些图表类型，看到一些有用的新功能。
 
-^(1) 如果启动 GUI 会话时出现错误，请尝试更改后端设置（例如，如果在 macOS 上使用 `%matplotlib qt` 无效，请尝试 `%matplotlib osx`）。
+¹ 如果启动 GUI 会话时出现错误，请尝试更改后端设置（例如，如果在 macOS 上使用 `%matplotlib qt` 无效，请尝试 `%matplotlib osx`）。
 
-^(2) IPython 拥有大量这样的函数，可以为普通的 Python 解释器提供一整套有用的额外功能。请查看 [IPython 网站](https://oreil.ly/0gUSc)。
+² IPython 拥有大量这样的函数，可以为普通的 Python 解释器提供一整套有用的额外功能。请查看 [IPython 网站](https://oreil.ly/0gUSc)。
 
-^(3) 这受到 [MATLAB](https://oreil.ly/sw9KZ) 的启发。
+³ 这受到 [MATLAB](https://oreil.ly/sw9KZ) 的启发。
 
-^(4) 您可以在 [Matplotlib 的文档](https://oreil.ly/iqlBE) 中找到有关线型的详细信息。
+⁴ 您可以在 [Matplotlib 的文档](https://oreil.ly/iqlBE) 中找到有关线型的详细信息。
 
-^(5) 更多细节请参阅 [文档](https://oreil.ly/upz5A)。
+⁵ 更多细节请参阅 [文档](https://oreil.ly/upz5A)。
 
-^(6) 有关详情，请参阅 [Matplotlib 网站](https://oreil.ly/oD0lN)。
+⁶ 有关详情，请参阅 [Matplotlib 网站](https://oreil.ly/oD0lN)。
 
-^(7) 除了提供多种格式外，它还理解 [LaTeX 数学模式](https://www.latex-project.org)，这是一种语言，允许您在标题、图例等处使用数学符号。这是 Matplotlib 受到学术界喜爱的原因之一，因为它能够生成期刊质量的图像。
+⁷ 除了提供多种格式外，它还理解 [LaTeX 数学模式](https://www.latex-project.org)，这是一种语言，允许您在标题、图例等处使用数学符号。这是 Matplotlib 受到学术界喜爱的原因之一，因为它能够生成期刊质量的图像。
 
-^(8) 更多详细信息，请访问 [Matplotlib 网站](https://oreil.ly/GacYP)。
+⁸ 更多详细信息，请访问 [Matplotlib 网站](https://oreil.ly/GacYP)。
 
-^(9) 便捷的 `tight_layout` 选项假定网格布局子图。
+⁹ 便捷的 `tight_layout` 选项假定网格布局子图。
 
-^(10) 叠加条形图是否特别适合理解数据组？请参阅[Solomon Messing 的博客](https://oreil.ly/nClO0)，进行精彩的讨论，并提供一个“好”使用的例子。
+¹⁰ 叠加条形图是否特别适合理解数据组？请参阅[Solomon Messing 的博客](https://oreil.ly/nClO0)，进行精彩的讨论，并提供一个“好”使用的例子。
 
-^(11) 设置标记大小而不是宽度或半径，实际上是一个很好的默认选择，使其与我们试图反映的任何值成比例。
+¹¹ 设置标记大小而不是宽度或半径，实际上是一个很好的默认选择，使其与我们试图反映的任何值成比例。
 
-^(12) 普遍认为 Matplotlib 的默认设置并不那么好，通过改进可以轻松提升任何包的表现。
+¹² 普遍认为 Matplotlib 的默认设置并不那么好，通过改进可以轻松提升任何包的表现。
 
-^(13) D3 和 Bokeh 都向经典的可视化著作《图形语法》（Springer，Leland Wilkinson 著）致敬。
+¹³ D3 和 Bokeh 都向经典的可视化著作《图形语法》（Springer，Leland Wilkinson 著）致敬。
 
-^(14) seaborn 有一些方便的数据集，你可以在[GitHub](https://oreil.ly/clELR)上找到。
+¹⁴ seaborn 有一些方便的数据集，你可以在[GitHub](https://oreil.ly/clELR)上找到。
 
-^(15) Tips 数据集使用性别作为一个类别，而本书的数据集使用性别。过去这些词汇通常可以互换使用，但现在情况已经不同。请参阅[Yale School of Medicine 的文章](https://oreil.ly/P0zWt)以获取解释。
+¹⁵ Tips 数据集使用性别作为一个类别，而本书的数据集使用性别。过去这些词汇通常可以互换使用，但现在情况已经不同。请参阅[Yale School of Medicine 的文章](https://oreil.ly/P0zWt)以获取解释。
 
-^(16) `regplot`，即回归图，相当于`lmplot`，在示例 10-12 中有使用。后者结合了`regplot`和 FacetGrid 以提供便利。
+¹⁶ `regplot`，即回归图，相当于`lmplot`，在示例 10-12 中有使用。后者结合了`regplot`和 FacetGrid 以提供便利。
 
-^(17) 还有`x_vars`和`y_vars`参数，使您能够指定非方形网格。
+¹⁷ 还有`x_vars`和`y_vars`参数，使您能够指定非方形网格。
 
-^(18) 如果你感兴趣，有一个 D3 的例子在[*bl.ocks.org*站点](https://oreil.ly/ox8VW)上构建了一个散点矩阵。
+¹⁸ 如果你感兴趣，有一个 D3 的例子在[*bl.ocks.org*站点](https://oreil.ly/ox8VW)上构建了一个散点矩阵。

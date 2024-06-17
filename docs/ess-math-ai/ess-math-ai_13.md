@@ -138,9 +138,9 @@ PDE 是一个等式，意味着左边等于右边，涉及到一个多变量函�
 
 <math alttext="dollar-sign u Subscript t Baseline left-parenthesis h comma t right-parenthesis equals minus u squared left-parenthesis u cubed right-parenthesis Subscript h h h h Baseline where h element-of left-bracket 0 comma 1 right-bracket comma t element-of left-bracket 0 comma normal infinity right-parenthesis dollar-sign"><mrow><msub><mi>u</mi> <mi>t</mi></msub> <mrow><mo>(</mo> <mi>h</mi> <mo>,</mo> <mi>t</mi> <mo>)</mo></mrow> <mo>=</mo> <mo>-</mo> <msup><mi>u</mi> <mn>2</mn></msup> <msub><mrow><mo>(</mo><msup><mi>u</mi> <mn>3</mn></msup> <mo>)</mo></mrow> <mrow><mi>h</mi><mi>h</mi><mi>h</mi><mi>h</mi></mrow></msub> <mtext>where</mtext> <mi>h</mi> <mo>∈</mo> <mrow><mo>[</mo> <mn>0</mn> <mo>,</mo> <mn>1</mn> <mo>]</mo></mrow> <mo>,</mo> <mi>t</mi> <mo>∈</mo> <mrow><mo></mo> <mn>0</mn> <mo>,</mo> <mi>∞</mi> <mo>)</mo></mrow></mrow></math>
 
-对于训练有素的人来说，这是一个高度非线性的四阶方程：未知函数*u*既平方又立方。它的立方体在空间中出现了四个导数，我们可以将其视为距我们想要评估的函数有四个度的距离。[图 13-6 展示了我在空间中使用有限差分（我们将很快讨论有限差分）对我的 PDE 进行离散化，以及其边界条件（在点 0 和 1 处的函数值）。
+对于训练有素的人来说，这是一个高度非线性的四阶方程：未知函数*u*既平方又立方。它的立方体在空间中出现了四个导数，我们可以将其视为距我们想要评估的函数有四个度的距离。图 13-6 展示了我在空间中使用有限差分（我们将很快讨论有限差分）对我的 PDE 进行离散化，以及其边界条件（在点 0 和 1 处的函数值）。
 
-![250](img/emai_1306.png)
+![250
 
 ###### 图 13-6。离散微分方程及其连续模拟。
 

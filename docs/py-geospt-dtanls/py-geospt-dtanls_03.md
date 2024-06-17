@@ -343,7 +343,7 @@ massgis:GISDATA.CENSUS2010TIGERROADS_ARC
 
 从这里开始，您可以继续利用帮助函数、QGIS 文档和其他资源来建立您的专业知识。您将在以下练习中进行实践。对于这个练习，我们的研究问题将是：*亚马逊河沿岸有哪些城市？*也许您希望专注于洪水或农业径流如何影响当地社区。这个练习是尝试过滤和分析大型开源数据集的机会。探索属性表并定制查询！
 
-Python 脚本的最大优势之一是您的任务可以灵活且易于复制。在本章的最后一部分，您将学习如何使用*处理算法*：这些算法允许您保存脚本并将它们链接在一起。调整现有脚本是学习 Python 操作的最佳方式之一。您将使用从 Anita Graser^(1)调整的脚本来构建 Python 控制台中的工作流程。这个工作流程将使用三个处理算法：
+Python 脚本的最大优势之一是您的任务可以灵活且易于复制。在本章的最后一部分，您将学习如何使用*处理算法*：这些算法允许您保存脚本并将它们链接在一起。调整现有脚本是学习 Python 操作的最佳方式之一。您将使用从 Anita Graser¹调整的脚本来构建 Python 控制台中的工作流程。这个工作流程将使用三个处理算法：
 
 +   native:extractbyexpression
 
@@ -511,4 +511,4 @@ processing.algorithmHelp("native:extractbylocation")
 
 在接下来的章节中，你将继续通过与 Google Earth Engine 和 ArcGIS 等附加工具互动来构建你的 Python 技能。
 
-^(1) 这个工作流程改编自 Anita Graser 未标日期的博文[“PyQGIS 101: Chaining Processing Tools”](https://oreil.ly/RdQxx)，一个处理工具的使用教程。
+¹ 这个工作流程改编自 Anita Graser 未标日期的博文[“PyQGIS 101: Chaining Processing Tools”](https://oreil.ly/RdQxx)，一个处理工具的使用教程。

@@ -1,6 +1,6 @@
 # 第十三章：使用 Flask 构建 RESTful 数据
 
-正如在“使用 Flask 构建简单数据 API”一节中所见，我们看到如何使用 Flask 和 Dataset 构建一个非常简单的数据 API。对于许多简单的数据可视化来说，这种快速而简陋的 API 是可以接受的，但随着数据需求变得更加复杂，有一个遵循一些检索和有时创建、更新和删除的惯例的 API 会更有帮助。^(1) 在“使用 Python 从 Web API 消费数据”一章中，我们介绍了 Web API 的类型及为什么 RESTful^(2) API 正在获得应有的重视。在本章中，我们将看到将几个 Flask 库组合成一个灵活的 RESTful API 是多么简单。
+正如在“使用 Flask 构建简单数据 API”一节中所见，我们看到如何使用 Flask 和 Dataset 构建一个非常简单的数据 API。对于许多简单的数据可视化来说，这种快速而简陋的 API 是可以接受的，但随着数据需求变得更加复杂，有一个遵循一些检索和有时创建、更新和删除的惯例的 API 会更有帮助。¹ 在“使用 Python 从 Web API 消费数据”一章中，我们介绍了 Web API 的类型及为什么 RESTful² API 正在获得应有的重视。在本章中，我们将看到将几个 Flask 库组合成一个灵活的 RESTful API 是多么简单。
 
 # RESTful 作业工具
 
@@ -231,7 +231,7 @@ $ curl http://localhost:5000/winners/10/
 }
 ```
 
-能够在单个 API 调用中检索所有获奖者并不特别有用。让我们增加通过请求中提供的一些参数来过滤这些结果的功能。这些参数可以在 URL 查询字符串上找到，以`?`开头并以`&`分隔，跟随端点，例如`http://nobel.net/api/winners?category=Physics&year=1980`。Flask 提供了一个`request.args`对象，具有一个`to_dict`方法，返回 URL 参数的字典。^(3) 我们可以使用这个方法来指定我们的数据表过滤器，这可以作为键值对应用于 SQLAlchemy 的`to_filter`方法，这个方法可以应用于查询。这是一个简单的实现：
+能够在单个 API 调用中检索所有获奖者并不特别有用。让我们增加通过请求中提供的一些参数来过滤这些结果的功能。这些参数可以在 URL 查询字符串上找到，以`?`开头并以`&`分隔，跟随端点，例如`http://nobel.net/api/winners?category=Physics&year=1980`。Flask 提供了一个`request.args`对象，具有一个`to_dict`方法，返回 URL 参数的字典。³ 我们可以使用这个方法来指定我们的数据表过滤器，这可以作为键值对应用于 SQLAlchemy 的`to_filter`方法，这个方法可以应用于查询。这是一个简单的实现：
 
 ```py
 @app.route('/winners/')
@@ -706,7 +706,7 @@ $ git add .
 $ git commit -m "First commit"
 ```
 
-使用初始化的`git`，我们只需创建我们的 Heroku 应用程序：^(4)
+使用初始化的`git`，我们只需创建我们的 Heroku 应用程序：⁴
 
 ```py
 $ heroku create flask-rest-pyjs2
@@ -821,10 +821,10 @@ JS 调用将期望的结果输出到控制台：
 
 通过 Heroku 轻松部署 API 的能力意味着大型数据集可以在不运行本地数据服务器的情况下切割和切块——非常适合向客户或同事演示雄心勃勃的数据可视化。
 
-^(1) 这些创建、读取、更新和删除方法构成了[CRUD 首字母缩写](https://oreil.ly/0AkAw)。
+¹ 这些创建、读取、更新和删除方法构成了[CRUD 首字母缩写](https://oreil.ly/0AkAw)。
 
-^(2) 本质上，RESTful 意味着资源由无状态、可缓存的 URI/URL 标识，并由 GET 或 POST 等 HTTP 动词进行操作。参见[维基百科的解释](https://oreil.ly/l0QhB)和这个[Stack Overflow 的讨论](https://oreil.ly/6zxhv)。
+² 本质上，RESTful 意味着资源由无状态、可缓存的 URI/URL 标识，并由 GET 或 POST 等 HTTP 动词进行操作。参见[维基百科的解释](https://oreil.ly/l0QhB)和这个[Stack Overflow 的讨论](https://oreil.ly/6zxhv)。
 
-^(3) 从技术上讲，URL 查询字符串形成了一个多字典，允许同一个键有多个出现。对于我们的 API，我们期望每个键只有一个实例，因此转换为字典是可以的。
+³ 从技术上讲，URL 查询字符串形成了一个多字典，允许同一个键有多个出现。对于我们的 API，我们期望每个键只有一个实例，因此转换为字典是可以的。
 
-^(4) 你可以从 Heroku 仪表板执行此操作，然后使用 `git remote - <app_name>` 将当前 Git 目录附加到应用上。
+⁴ 你可以从 Heroku 仪表板执行此操作，然后使用 `git remote - <app_name>` 将当前 Git 目录附加到应用上。

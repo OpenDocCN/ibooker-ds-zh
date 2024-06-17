@@ -16,7 +16,7 @@
 
 我们的基础工具包包括：
 
-+   一种连接 Python 和 JavaScript 的语言学习桥梁。这旨在平滑两种语言之间的过渡，突出它们的许多相似之处，并为现代数据可视化的双语过程铺平道路。随着最新 JavaScript 的出现^(1)，Python 和 JavaScript 之间有更多共同之处，使得在它们之间切换变得更少压力。
++   一种连接 Python 和 JavaScript 的语言学习桥梁。这旨在平滑两种语言之间的过渡，突出它们的许多相似之处，并为现代数据可视化的双语过程铺平道路。随着最新 JavaScript 的出现¹，Python 和 JavaScript 之间有更多共同之处，使得在它们之间切换变得更少压力。
 
 +   能够轻松读取和写入关键数据格式（例如 JSON 和 CSV）和数据库（包括 SQL 和 NoSQL）是 Python 的一大优势。我们看到在 Python 中传递数据的简易程度，可以在进行格式转换和数据库更改的同时移动数据。这种数据的流动是任何数据可视化工具链的主要润滑剂。
 
@@ -170,4 +170,4 @@ D3 是变化最大的库，但这些变化使 D3 更易于使用和教学。Java
 
 我也要感谢我的技术审阅者 Jordan Goldmeier、Drew Winstel 和 Jess Males 提供的宝贵建议。
 
-^(1) 基于[ECMAScript](https://oreil.ly/0uwuN)有许多 JavaScript 版本，但最重要的版本是[ECMAScript 6](https://oreil.ly/owrsZ)，它提供了大部分新功能。
+¹ 基于[ECMAScript](https://oreil.ly/0uwuN)有许多 JavaScript 版本，但最重要的版本是[ECMAScript 6](https://oreil.ly/owrsZ)，它提供了大部分新功能。

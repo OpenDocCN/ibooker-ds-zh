@@ -40,7 +40,7 @@
 
 通用安全计算电路也已应用于 PSI 问题，无意识传输技术也是如此。最近，完全同态加密方案被提出，以实现近似和精确匹配。
 
-对于本书的目的，我们将考虑由 Catherine Meadows 在 1986 年提出的原始公钥技术，使用 *椭圆曲线 Diffie-Hellman*（ECDH）协议。^(1) 我们不会深入探讨加密和解密过程的细节或数学。如果您想更详细地了解这个主题，我推荐阅读 Phillip J. Windley 的 *Learning Digital Identity*（O’Reilly）作为一个很好的入门书。
+对于本书的目的，我们将考虑由 Catherine Meadows 在 1986 年提出的原始公钥技术，使用 *椭圆曲线 Diffie-Hellman*（ECDH）协议。¹ 我们不会深入探讨加密和解密过程的细节或数学。如果您想更详细地了解这个主题，我推荐阅读 Phillip J. Windley 的 *Learning Digital Identity*（O’Reilly）作为一个很好的入门书。
 
 # 基于 ECDH 的 PSI 协议
 
@@ -243,7 +243,7 @@
 
 *您有责任确保停止或删除实例，以避免产生意外费用。*
 
-创建了您的实例后，您将能够点击“打开 JupyterLab”以打开一个本地窗口，访问托管在新的 GCP Workbench 上的 JupyterLab 环境。^(2) 从这里，我们可以在“其他”下选择“终端”以打开终端窗口来配置我们的环境。
+创建了您的实例后，您将能够点击“打开 JupyterLab”以打开一个本地窗口，访问托管在新的 GCP Workbench 上的 JupyterLab 环境。² 从这里，我们可以在“其他”下选择“终端”以打开终端窗口来配置我们的环境。
 
 我们将要使用的 PSI 包由 OpenMined 社区发布和分发。
 
@@ -744,8 +744,8 @@ WORLDWIDE RECRUITMENT SOLUTIONS WA15 8AB
 
 我们注意到，这些技术可以轻松应用于精确匹配场景，但更高级的近似或概率匹配仍然是一个挑战，也是积极研究的课题。
 
-^(1) Meadows, Catherine，“用于在没有连续可用第三方的情况下使用的更有效的加密匹配协议”，*1986 IEEE 安全与隐私研讨会*，美国加利福尼亚州奥克兰，1986 年，第 134 页，*https://doi.org/10.1109/SP.1986.10022*。
+¹ Meadows, Catherine，“用于在没有连续可用第三方的情况下使用的更有效的加密匹配协议”，*1986 IEEE 安全与隐私研讨会*，美国加利福尼亚州奥克兰，1986 年，第 134 页，*https://doi.org/10.1109/SP.1986.10022*。
 
-^(2) 您可能需要在本地浏览器上允许弹出窗口。
+² 您可能需要在本地浏览器上允许弹出窗口。
 
-^(3) 请参阅专利“使用全同态加密方案进行紧凑模糊私有匹配”，[*https://patents.google.com/patent/US20160119119*](https://patents.google.com/patent/US20160119119)。
+³ 请参阅专利“使用全同态加密方案进行紧凑模糊私有匹配”，[*https://patents.google.com/patent/US20160119119*](https://patents.google.com/patent/US20160119119)。

@@ -45,11 +45,7 @@ model.describeTopics().show() ![2](img/2.png)
 +-----+-----------+--------------------+
 ```
 
-[![1](img/#co_understanding_wikipedia___span_class__keep_together__with_lda_and_spark_nlp__span__CO1-1)
-
-我们将在我们的数据框上应用 LDA，主题数（*k*）设为 2。
-
-![2](img/#co_understanding_wikipedia___span_class__keep_together__with_lda_and_spark_nlp__span__CO1-2)
+![1 我们将在我们的数据框上应用 LDA，主题数（*k*）设为 2。![2](img/#co_understanding_wikipedia___span_class__keep_together__with_lda_and_spark_nlp__span__CO1-2)
 
 数据框描述了我们主题中每个术语关联的概率权重。
 
@@ -422,7 +418,7 @@ tokens_df.show(2, vertical=True)
  tokens | mathemat, tertia...
 -RECORD 1----------------------
  title  | Binomial (polynom...
- tokens | [algebra, binomi,...
+ tokens | algebra, binomi,...
 only showing top 2 rows
 ```
 
@@ -531,7 +527,7 @@ The upper bound on perplexity: 6.768323190833805
 现在我们已经创建了我们的模型，我们希望将主题输出为人类可读的形式。我们将获取从我们的预处理步骤生成的词汇表，从 LDA 模型获取主题，并将它们映射起来。
 
 ```py
-vocab = cv_model.vocabulary ![1raw_topics = model.describeTopics().collect() ![2](img/2.png)
+vocab = cv_model.vocabulary ![1raw_topics = model.describeTopics().collect() ![2
 
 topic_inds = [ind.termIndices for ind in raw_topics] ![3](img/3.png)
 

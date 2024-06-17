@@ -173,7 +173,7 @@
 | B - D | 不匹配 | 不匹配 | 真负例 |
 | C - D | 匹配 | 不匹配 | 假正例 |
 
-实体解析的评估是一个活跃研究的领域，出现了工具集来协助这一过程，并提供可操作的反馈来改进性能。^(3)
+实体解析的评估是一个活跃研究的领域，出现了工具集来协助这一过程，并提供可操作的反馈来改进性能。³
 
 # 实体解析的未来
 
@@ -187,8 +187,8 @@
 
 希望您享受了我们一起分享的实体解析挑战之旅，并且感觉准备好在您的数据中连接这些点。谁知道您会发现什么...
 
-^(1) 关于 Jaccard 指数的更多详细信息，请访问[Wikipedia 页面](https://oreil.ly/vJyir)。
+¹ 关于 Jaccard 指数的更多详细信息，请访问[Wikipedia 页面](https://oreil.ly/vJyir)。
 
-^(2) 关于如何使用 sent2vec 库的进一步详细信息，请参阅[PyPI 文档](https://oreil.ly/SUHrG)。
+² 关于如何使用 sent2vec 库的进一步详细信息，请参阅[PyPI 文档](https://oreil.ly/SUHrG)。
 
-^(3) 例如，用于评估实体解析（ER）系统的开源 Python 包可以在[GitHub](https://github.com/Valires/er-evaluation)上找到。
+³ 例如，用于评估实体解析（ER）系统的开源 Python 包可以在[GitHub](https://github.com/Valires/er-evaluation)上找到。

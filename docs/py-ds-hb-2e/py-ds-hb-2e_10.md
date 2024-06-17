@@ -72,7 +72,7 @@ Out[7]: array([[0, 1, 2],
 
 ![02.05 broadcasting](img/02.05-broadcasting.png)
 
-###### 图 8-1\. NumPy 广播可视化（改编自 [astroML 文档](http://astroml.org)，并获得许可使用）^(1)
+###### 图 8-1\. NumPy 广播可视化（改编自 [astroML 文档](http://astroml.org)，并获得许可使用）¹
 
 # Broadcasting 规则
 
@@ -288,4 +288,4 @@ In [23]: plt.imshow(z, origin='lower', extent=[0, 5, 0, 5])
 
 结果是二维函数引人注目的可视化。
 
-^(1) 生成此图的代码可在在线[附录](https://oreil.ly/gtOaU)中找到。
+¹ 生成此图的代码可在在线[附录](https://oreil.ly/gtOaU)中找到。

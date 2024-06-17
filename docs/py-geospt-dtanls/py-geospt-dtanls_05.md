@@ -406,7 +406,7 @@ del stats["streets_per_node_proportions"]
 pd.DataFrame(pd.Series(stats, name="value")).round(3)
 ```
 
-这个例子可能比大多数情况都更详细，但我希望你能看到用来计算诸如最短距离之类的测量数据。^(1)
+这个例子可能比大多数情况都更详细，但我希望你能看到用来计算诸如最短距离之类的测量数据。¹
 
 一目了然，您可以确定从每个节点出来的街道数。如果您对密度感兴趣，您可以计算交叉口的数量或线性街道距离的米数。具体而言，*线性街道距离*表示网络的无向表示中总街道长度的总和，意味着未捕获方向性（单向和双向街道）。这些信息对于驾驶指南很重要，但对于步行指南则不那么重要。
 
@@ -713,4 +713,4 @@ edge_linewidth=0.7,bgcolor='#FFFFFF')
 
 OSM 包含丰富的开源地理空间数据，您可以访问、建模、投影、可视化，并用于探索现实世界的街道网络、兴趣点、建筑位置、高程等。希望您继续使用它进行探索。现在我想向您展示如何将这种新技能与另一种工具，即 ArcGIS Python API 集成。
 
-^(1) 如果您希望了解这些计算背后的详细信息和案例研究，请参阅 Boeing，G. 2017\. “OSMnx: New Methods for Acquiring, Constructing, Analyzing, and Visualizing Complex Street Networks.” *Computers, Environment and Urban Systems,* 65: 126–139\. [*https://doi.org/10.1016/j.compenvurbsys.2017.05.004*](https://doi.org/10.1016/j.compenvurbsys.2017.05.004)。用户参考还提供了包含属性的字典摘要。
+¹ 如果您希望了解这些计算背后的详细信息和案例研究，请参阅 Boeing，G. 2017\. “OSMnx: New Methods for Acquiring, Constructing, Analyzing, and Visualizing Complex Street Networks.” *Computers, Environment and Urban Systems,* 65: 126–139\. [*https://doi.org/10.1016/j.compenvurbsys.2017.05.004*](https://doi.org/10.1016/j.compenvurbsys.2017.05.004)。用户参考还提供了包含属性的字典摘要。

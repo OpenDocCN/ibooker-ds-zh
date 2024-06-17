@@ -18,7 +18,7 @@
 
 ###### 图 8-1 上传文件至 Colab
 
-[Missingno](https://oreil.ly/ps5JI)是一个 Python 库，用于检测数据集中的缺失值，并可视化它们在数据框架中的分布，这样可以更容易地发现模式。^(1) Missingno 在底层运行时依赖 NumPy、pandas、SciPy、matplotlib 和 seaborn，这使得底层代码片段更加熟悉。安装 missingno：
+[Missingno](https://oreil.ly/ps5JI)是一个 Python 库，用于检测数据集中的缺失值，并可视化它们在数据框架中的分布，这样可以更容易地发现模式。¹ Missingno 在底层运行时依赖 NumPy、pandas、SciPy、matplotlib 和 seaborn，这使得底层代码片段更加熟悉。安装 missingno：
 
 ```py
 pip install missingno
@@ -400,4 +400,4 @@ df.loc[(df['OFNS_DESC'] == value) & (df['TRANSIT_DISTRICT'] == value)]
 
 您已学习了一系列在清理数据时非常有用的方法。这一点尤为重要，特别是在处理开放源码数据时。例如，社区级别的数据通常是手动输入的，拼写错误、缺少日期和几何变量的缺失可能会限制这些宝贵资源的实用性。
 
-^(1) Bilogur, Aleksey. 2018\. “Missingno: A Missing Data Visualization Suite.” *Journal of Open Source Software* 3 (22): 547\. [*https://doi.org/10.21105/joss.00547*](https://doi.org/10.21105/joss.00547)
+¹ Bilogur, Aleksey. 2018\. “Missingno: A Missing Data Visualization Suite.” *Journal of Open Source Software* 3 (22): 547\. [*https://doi.org/10.21105/joss.00547*](https://doi.org/10.21105/joss.00547)

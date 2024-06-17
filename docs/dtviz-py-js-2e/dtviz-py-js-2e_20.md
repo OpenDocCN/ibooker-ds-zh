@@ -181,7 +181,7 @@ h1.title {
 
 # 使用 Plotly 进行图表化
 
-对于以 PNG 或 SVG 格式呈现的静态图表，Matplotlib 具有极高的可定制性，尽管其 API 可能不够直观。但是，如果你希望你的图表具有任何动态/交互元素，例如使用按钮或选择器更改或过滤数据集的能力，则需要使用不同的图表库，这就是 Plotly^(1) 的用武之地。
+对于以 PNG 或 SVG 格式呈现的静态图表，Matplotlib 具有极高的可定制性，尽管其 API 可能不够直观。但是，如果你希望你的图表具有任何动态/交互元素，例如使用按钮或选择器更改或过滤数据集的能力，则需要使用不同的图表库，这就是 Plotly¹ 的用武之地。
 
 [Plotly](https://plotly.com/python) 是一个基于 Python（以及其他语言）的图表库，类似于 Matplotlib，可以在交互式 Jupyter 笔记本会话中使用。它提供了各种图表形式，其中一些在 Matplotlib 中找不到，并且配置起来比 Matplotlib 更容易。因此，单单因为这个原因它就是一个有用的工具，但 Plotly 的亮点在于其能够将这些图表以及任何脚本化的交互式小部件导出到 Web 上。
 
@@ -237,7 +237,7 @@ year
 
 ## Plotly Express
 
-Plotly 提供了一个 [`express` 模块](https://oreil.ly/bJRlf)，可以快速绘制图表草图，非常适合在笔记本中进行探索性迭代。该模块为线图、条形图等提供了高级对象，并且可以接受 pandas DataFrame 作为参数来解释列数据。^(2) 刚刚创建的区域 DataFrame 可以直接被 Plotly Express 使用，用几行代码构建一条线图。这将生成图表 图 14-2（左侧）：
+Plotly 提供了一个 [`express` 模块](https://oreil.ly/bJRlf)，可以快速绘制图表草图，非常适合在笔记本中进行探索性迭代。该模块为线图、条形图等提供了高级对象，并且可以接受 pandas DataFrame 作为参数来解释列数据。² 刚刚创建的区域 DataFrame 可以直接被 Plotly Express 使用，用几行代码构建一条线图。这将生成图表 图 14-2（左侧）：
 
 ```py
 # load the express module
@@ -264,9 +264,9 @@ fig.show()
 
 ![1](img/#co_bringing_your_charts_to_the_web_with_matplotlib_and_plotly_CO4-1)
 
-默认情况下，Plotly 为线条着色，但为了在本书的印刷版本中区分它们，我们可以调整它们的样式。为此，我们将 `line_dash` 参数设置为国家组，并将 `line_dash_sequence` 设置为我们想要的线条样式。^(3)
+默认情况下，Plotly 为线条着色，但为了在本书的印刷版本中区分它们，我们可以调整它们的样式。为此，我们将 `line_dash` 参数设置为国家组，并将 `line_dash_sequence` 设置为我们想要的线条样式。³
 
-Plotly Express 使用简单，并引入了一些新颖的图表^(4)。对于快速数据草图，它与 pandas 的 Matplotlib 包竞争，后者直接在 DataFrame 上运行。但如果您想对您的图表有更多控制，并真正利用 Plotly 的优势，我建议专注于使用 Plotly 图表和图形对象。这个 API 更复杂，但显著更强大。它还有 JavaScript API 的镜像，这意味着您实际上正在学习两个库——这是一个非常有用的事情，我们将在本章后面看到。
+Plotly Express 使用简单，并引入了一些新颖的图表⁴。对于快速数据草图，它与 pandas 的 Matplotlib 包竞争，后者直接在 DataFrame 上运行。但如果您想对您的图表有更多控制，并真正利用 Plotly 的优势，我建议专注于使用 Plotly 图表和图形对象。这个 API 更复杂，但显著更强大。它还有 JavaScript API 的镜像，这意味着您实际上正在学习两个库——这是一个非常有用的事情，我们将在本章后面看到。
 
 ## Plotly 图形对象
 
@@ -310,7 +310,7 @@ fig.show()
 
 ![4](img/#co_bringing_your_charts_to_the_web_with_matplotlib_and_plotly_CO5-4)
 
-`Scatter` 对象有一个 *line* 属性，允许您设置各种线属性，如颜色、线样式、线形状等^(5) 为了在黑白印刷书中区分我们的线条，我们希望设置它们的样式。为此，我们使用 `traces` 数组的大小（`len`）作为样式数组的索引，按顺序设置线条样式。
+`Scatter` 对象有一个 *line* 属性，允许您设置各种线属性，如颜色、线样式、线形状等⁵ 为了在黑白印刷书中区分我们的线条，我们希望设置它们的样式。为此，我们使用 `traces` 数组的大小（`len`）作为样式数组的索引，按顺序设置线条样式。
 
 ![5](img/#co_bringing_your_charts_to_the_web_with_matplotlib_and_plotly_CO5-5)
 
@@ -1123,14 +1123,14 @@ d3.select("#nobel-group").on("change", function (e) {
 
 Plotly 是一个很好的图表库，通过学习 Python API，你基本上也学会了 JS API——这是一个很大的优势。对于传统和一些专业（例如机器学习）图表，它是一个很好的选择。对于稍微复杂或特别定制的内容，D3 提供了更多的功能，我们将在即将到来的章节中看到。
 
-^(1) [Bokeh](https://bokeh.org)是一个值得考虑的替代品。
+¹ [Bokeh](https://bokeh.org)是一个值得考虑的替代品。
 
-^(2) 您可以使用 DataFrame 的`T`运算符轻松将数据框转置为所需的列形式。
+² 您可以使用 DataFrame 的`T`运算符轻松将数据框转置为所需的列形式。
 
-^(3) 查看[*https://oreil.ly/zUyxK*](https://oreil.ly/zUyxK)了解 Plotly 的线型选项。
+³ 查看[*https://oreil.ly/zUyxK*](https://oreil.ly/zUyxK)了解 Plotly 的线型选项。
 
-^(4) 查看[Plotly 网站](https://plotly.com/python)获取一些演示。
+⁴ 查看[Plotly 网站](https://plotly.com/python)获取一些演示。
 
-^(5) 查看[*https://oreil.ly/8UDgA*](https://oreil.ly/8UDgA)获取更多详细信息。
+⁵ 查看[*https://oreil.ly/8UDgA*](https://oreil.ly/8UDgA)获取更多详细信息。
 
-^(6) 对于更高级、用户驱动的大数据可视化，使用带有 API 的数据服务器是另一种选择。
+⁶ 对于更高级、用户驱动的大数据可视化，使用带有 API 的数据服务器是另一种选择。

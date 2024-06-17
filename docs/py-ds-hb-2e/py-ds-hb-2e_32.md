@@ -156,7 +156,7 @@ In [4]: x1 = rng.normal(0, 0.8, 1000)
 
 ![output 7 0](img/output_7_0.png)
 
-###### 图 28-8\. 叠加多个直方图^(1)
+###### 图 28-8\. 叠加多个直方图¹
 
 如果您只对计算而不是显示直方图（即计算给定箱中点的数量）感兴趣，可以使用 `np.histogram` 函数：
 
@@ -250,4 +250,4 @@ SciPy 生态系统中还提供了其他 KDE 实现，每种实现都有其各自
 
 对于基于 KDE 的可视化，使用 Matplotlib 往往显得冗长。Seaborn 库在 第三十六章 中讨论，为创建基于 KDE 的可视化提供了更紧凑的 API。
 
-^(1) 这个图的全彩版可以在 [GitHub](https://oreil.ly/PDSH_GitHub) 上找到。
+¹ 这个图的全彩版可以在 [GitHub](https://oreil.ly/PDSH_GitHub) 上找到。

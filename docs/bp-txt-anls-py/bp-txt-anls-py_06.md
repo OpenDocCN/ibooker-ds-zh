@@ -438,7 +438,7 @@ weighted avg       0.81      0.87      0.83      9006
 
 模型表现如此的原因是由于我们之前观察到的优先级类别中的*类别不平衡*。尽管 P3 优先级有接近 36,000 个错误，但其他优先级类别的错误数量只有大约 4,000 个，其他情况更少。这意味着当我们训练我们的模型时，它只能学习 P3 类别的特征。
 
-有几种技术可以用来解决类别不平衡的问题。它们属于上采样和下采样技术的两类。上采样技术是指用于人工增加少数类观测数量（例如我们例子中的非 P3 类别）的方法。这些技术可以从简单地添加多个副本到使用 SMOTE 等方法生成新观测数据。^(1) 下采样技术是指用于减少多数类观测数量（例如我们例子中的 P3 类别）的方法。我们将选择随机下采样 P3 类别，使其观测数量与其他类别相似：
+有几种技术可以用来解决类别不平衡的问题。它们属于上采样和下采样技术的两类。上采样技术是指用于人工增加少数类观测数量（例如我们例子中的非 P3 类别）的方法。这些技术可以从简单地添加多个副本到使用 SMOTE 等方法生成新观测数据。¹ 下采样技术是指用于减少多数类观测数量（例如我们例子中的 P3 类别）的方法。我们将选择随机下采样 P3 类别，使其观测数量与其他类别相似：
 
 ```py
 # Filter bug reports with priority P3 and sample 4000 rows from it
@@ -870,4 +870,4 @@ result[result['actual'] != result['predicted']].sample(2)
 
 +   Sebastian Raschka 的文章“Model Evaluation, Model Selection, and Algorithm Selection in Machine Learning.” 2018 年. [*https://arxiv.org/pdf/1811.12808.pdf*](https://arxiv.org/pdf/1811.12808.pdf).
 
-^(1) Nitesh Chawla 等人的文章“Synthetic Minority Over-Sampling Technique.” *人工智能研究杂志* 16 (2002 年 6 月). [*https://arxiv.org/pdf/1106.1813.pdf*](https://arxiv.org/pdf/1106.1813.pdf).
+¹ Nitesh Chawla 等人的文章“Synthetic Minority Over-Sampling Technique.” *人工智能研究杂志* 16 (2002 年 6 月). [*https://arxiv.org/pdf/1106.1813.pdf*](https://arxiv.org/pdf/1106.1813.pdf).

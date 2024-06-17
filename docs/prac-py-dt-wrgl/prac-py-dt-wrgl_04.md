@@ -2,7 +2,7 @@
 
 在第三章中，我们着重讨论了对数据质量贡献巨大的许多特征——从数据*完整性*、一致性和清晰度到数据*适应性*的可靠性、有效性和代表性。我们讨论了清理和标准化数据的必要性，以及通过与其他数据集的结合来增强数据的必要性。但在实践中，我们如何实现这些目标呢？
 
-很显然，要评估数据集的*质量*，首先需要审查其内容，但这有时说起来比做起来更容易。几十年来，数据整理一直是一项高度专业化的追求，导致公司和组织创建了各种不同（有时是专有的）数字数据格式，以满足其特定需求。通常，这些格式带有自己的文件扩展名——你可能见过其中的一些：*xls*、*csv*、*dbf* 和 *spss* 都是通常与“数据”文件相关联的文件格式。^(1) 尽管它们的具体结构和细节各不相同，但所有这些格式都可以被描述为*基于文件*的——也就是说，它们包含（或多或少）静态文件中的历史数据，可以从数据库下载、通过同事的电子邮件发送，或者通过文件共享站点访问。最重要的是，基于文件的数据集在今天打开和一周、一个月或一年后打开时，大部分情况下会包含相同的信息。
+很显然，要评估数据集的*质量*，首先需要审查其内容，但这有时说起来比做起来更容易。几十年来，数据整理一直是一项高度专业化的追求，导致公司和组织创建了各种不同（有时是专有的）数字数据格式，以满足其特定需求。通常，这些格式带有自己的文件扩展名——你可能见过其中的一些：*xls*、*csv*、*dbf* 和 *spss* 都是通常与“数据”文件相关联的文件格式。¹ 尽管它们的具体结构和细节各不相同，但所有这些格式都可以被描述为*基于文件*的——也就是说，它们包含（或多或少）静态文件中的历史数据，可以从数据库下载、通过同事的电子邮件发送，或者通过文件共享站点访问。最重要的是，基于文件的数据集在今天打开和一周、一个月或一年后打开时，大部分情况下会包含相同的信息。
 
 如今，这些基于文件的格式与过去 20 年中伴随实时网络服务而出现的数据格式和接口形成鲜明对比。网络数据今天涵盖从新闻到天气监测再到社交媒体站点的一切，这些 Feed 风格的数据源具有其独特的格式和结构。像*xml*、*json* 和 *rss* 这样的扩展表示这种实时数据类型，通常需要通过专门的应用程序接口或 API 访问。与基于文件的格式不同，通过 API 访问同一网络数据位置或“端点”将始终显示出当前可用的最*新*数据——而这些数据可能在几天、几小时甚至几秒钟内发生变化。
 
@@ -265,19 +265,19 @@ print (next(politicians_reader))
 
 > 总失业人数，加上所有边缘附属于劳动力的人员，再加上因经济原因而只能兼职工作的总人数，作为民用劳动力加上所有边缘附属于劳动力的人员的百分比。
 
-当我们阅读附带的注释时，这个较长的定义开始清晰起来：^(5)
+当我们阅读附带的注释时，这个较长的定义开始清晰起来：⁵
 
 > 注意：边缘附属于劳动力的人员是指目前既不工作也不寻找工作，但表示他们想要工作并且有时间，并且在过去 12 个月内曾经寻找过工作。较少附属的人员是边缘附属的一个子集，他们没有目前寻找工作的原因。经济原因而只能兼职工作的人员是那些希望全职工作并且有时间但不得不接受兼职安排的人员。每年都会随着一月份的数据发布而引入更新的人口控制。
 
-换句话说，如果你想要一份工作（并且在过去一年内曾经寻找过工作），但最近没有寻找过工作——或者你有一份兼职工作，但希望全职工作——那么在 U3 的定义中你不被正式计算为“失业”。这意味着美国人工作多份工作的经济现实（更可能是女性并且有更多孩子的人）^(6)，以及可能的“零工”工作者（最近估计占美国劳动力的 30%），^(7)并不一定反映在 U3 数字中。毫不奇怪，U6 率通常比 U3 率每月高出几个百分点。
+换句话说，如果你想要一份工作（并且在过去一年内曾经寻找过工作），但最近没有寻找过工作——或者你有一份兼职工作，但希望全职工作——那么在 U3 的定义中你不被正式计算为“失业”。这意味着美国人工作多份工作的经济现实（更可能是女性并且有更多孩子的人）⁶，以及可能的“零工”工作者（最近估计占美国劳动力的 30%），⁷并不一定反映在 U3 数字中。毫不奇怪，U6 率通常比 U3 率每月高出几个百分点。
 
 为了看到这些比率随时间的变化如何，我们可以从圣路易斯联邦储备银行的网站上下载它们，该网站提供了成千上万的经济数据集供下载，包括表格类型的*.xls(x)*文件以及如我们稍后将在示例 4-12 中看到的，还有提供提要型格式。
 
 您可以从 [联邦储备经济数据库 (FRED) 网站](https://fred.stlouisfed.org/series/U6RATE) 下载这些练习的数据。它展示了自上世纪 90 年代初创建以来的当前 U6 失业率。
 
-要在这张图表上添加 U3 率，请在右上角选择“编辑图表” → “添加线条”。在搜索字段中，输入 **`UNRATE`** 然后在搜索栏下方出现时选择“失业率”。最后，点击“添加系列”。使用右上角的 X 关闭此侧窗口，然后选择“下载”，确保选择第一个选项，即 Excel。^(8) 这将是一个 *.xls* 文件，我们将在最后处理它，因为尽管它仍然广泛可用，但这是一个相对过时的文件格式（自 [2007 年起被 *.xlsx* 取代成为 [Microsoft Excel 电子表格的默认格式](https://en.wikipedia.org/wiki/Microsoft_Excel#File_formats)）。
+要在这张图表上添加 U3 率，请在右上角选择“编辑图表” → “添加线条”。在搜索字段中，输入 **`UNRATE`** 然后在搜索栏下方出现时选择“失业率”。最后，点击“添加系列”。使用右上角的 X 关闭此侧窗口，然后选择“下载”，确保选择第一个选项，即 Excel。⁸ 这将是一个 *.xls* 文件，我们将在最后处理它，因为尽管它仍然广泛可用，但这是一个相对过时的文件格式（自 [2007 年起被 *.xlsx* 取代成为 [Microsoft Excel 电子表格的默认格式](https://en.wikipedia.org/wiki/Microsoft_Excel#File_formats)）。
 
-要获取我们需要的其他文件格式，只需用电子表格程序如 Google Sheets 打开您下载的文件，选择“另存为”，然后选择 *.xlsx*，然后重复该过程选择 *.ods*。现在您应该有以下三个包含相同信息的文件：*fredgraph.xlsx*、*fredgraph.ods* 和 *fredgraph.xls*。^(9)
+要获取我们需要的其他文件格式，只需用电子表格程序如 Google Sheets 打开您下载的文件，选择“另存为”，然后选择 *.xlsx*，然后重复该过程选择 *.ods*。现在您应该有以下三个包含相同信息的文件：*fredgraph.xlsx*、*fredgraph.ods* 和 *fredgraph.xls*。⁹
 
 ###### 注意
 
@@ -289,11 +289,11 @@ print (next(politicians_reader))
 
 将 *.xls(x)* 和类似的数据格式重新保存和审查为 *.csv* 或等效的基于文本的文件格式，既能减小文件大小，*又*能让你更好地了解“真实”数据的样子。由于电子表格程序中的格式选项，有时屏幕上看到的内容与实际文件中存储的原始值有很大不同。例如，在电子表格程序中以百分比形式显示的值（例如，10%）实际上可能是小数（.1）。如果你试图基于电子表格中看到的内容而不是像 *.csv* 这样的基于文本的数据格式进行 Python 处理或分析，这可能会导致问题。
 
-但是，肯定会有一些情况，你需要直接使用 Python 访问 *.xls(x)* 和类似的文件类型。^(10) 例如，如果有一个 *.xls* 数据集，你需要定期处理（比如，每个月），每次手动重新保存文件都会变得不必要地耗时。
+但是，肯定会有一些情况，你需要直接使用 Python 访问 *.xls(x)* 和类似的文件类型。¹⁰ 例如，如果有一个 *.xls* 数据集，你需要定期处理（比如，每个月），每次手动重新保存文件都会变得不必要地耗时。
 
 幸运的是，我们在 “社区” 中谈到的活跃 Python 社区已经创建了可以轻松处理各种数据格式的库。为了彻底了解这些库如何与更复杂的源数据（以及数据格式）配合工作，以下代码示例读取指定的文件格式，然后创建一个包含相同数据的 *新* *.csv* 文件。
 
-然而，要使用这些库，你首先需要在设备上安装它们，方法是在终端窗口中逐个运行以下命令：^(11)
+然而，要使用这些库，你首先需要在设备上安装它们，方法是在终端窗口中逐个运行以下命令：¹¹
 
 ```py
 pip install openpyxl
@@ -677,7 +677,7 @@ JSON 文件比 XML 文件稍微新一些，但目的类似。总体而言，JSON
 
 提要类型的数据几乎完全可以在网上找到，通常位于称为应用程序编程接口（API）*端点*的特殊网址上。我们将在第五章详细讨论使用 API 的细节，但现在你只需要知道 API 端点实际上只是数据页面：你可以使用常规的 Web 浏览器查看许多页面，但你所看到的只是数据本身。一些 API 端点甚至会根据您发送给它们的信息返回不同的数据，这正是处理提要类型数据如此灵活的部分原因：通过仅更改代码中的几个单词或值，您可以访问完全不同的数据集！
 
-找到提供提要类型数据的 API 并不需要太多特殊的搜索策略，因为通常具有 API 的网站和服务*希望*您找到它们。为什么呢？简单来说，当有人编写使用 API 的代码时，它（通常）会为提供 API 的公司带来一些好处，即使这种好处只是更多的公众曝光。例如，在 Twitter 早期，许多 Web 开发人员使用 Twitter API 编写程序，这不仅使平台更加有用，*还*节省了公司理解用户需求并构建的费用和工作量。通过最初免费提供其平台数据的 API，Twitter 促使了几家公司的诞生，这些公司最终被 Twitter 收购，尽管还有更多公司在 API 或其服务条款发生变化时被迫停业。^(17) 这突显了处理任何类型数据时可能出现的特定问题之一，尤其是由盈利公司提供的提要类型数据：数据本身及您访问它的权利随时都可能在没有警告的情况下发生变化。因此，尽管提要类型数据源确实很有价值，但它们在更多方面上也是短暂的。
+找到提供提要类型数据的 API 并不需要太多特殊的搜索策略，因为通常具有 API 的网站和服务*希望*您找到它们。为什么呢？简单来说，当有人编写使用 API 的代码时，它（通常）会为提供 API 的公司带来一些好处，即使这种好处只是更多的公众曝光。例如，在 Twitter 早期，许多 Web 开发人员使用 Twitter API 编写程序，这不仅使平台更加有用，*还*节省了公司理解用户需求并构建的费用和工作量。通过最初免费提供其平台数据的 API，Twitter 促使了几家公司的诞生，这些公司最终被 Twitter 收购，尽管还有更多公司在 API 或其服务条款发生变化时被迫停业。¹⁷ 这突显了处理任何类型数据时可能出现的特定问题之一，尤其是由盈利公司提供的提要类型数据：数据本身及您访问它的权利随时都可能在没有警告的情况下发生变化。因此，尽管提要类型数据源确实很有价值，但它们在更多方面上也是短暂的。
 
 ## 使用 Python 整理提要类型数据
 
@@ -746,7 +746,7 @@ XML 元素是包含在开放标签及其匹配闭合标签之间的任何内容�
  </outerElement>
 ```
 
-*先开后闭*原则也被称为*嵌套*，类似于 图 2-3 中的“嵌套” `for...in` 循环。^(18) 嵌套在 XML 文档中尤为重要，因为它管理了我们用代码读取或*解析* XML（和其他标记语言）文档的主要机制之一。在 XML 文档中，`doc-type` 声明之后的第一个元素称为*根*元素。如果 XML 文档已经格式化，根元素将始终左对齐，而直接*在*该元素内嵌套的任何元素将向右缩进一级，并称为*子*元素。因此，在 示例 4-8 中，`<mainDoc>` 将被视为*根*元素，`<elements>` 将被视为其子元素。同样，`<mainDoc>` 是`<elements>` 的*父*元素（示例 4-9）。
+*先开后闭*原则也被称为*嵌套*，类似于 图 2-3 中的“嵌套” `for...in` 循环。¹⁸ 嵌套在 XML 文档中尤为重要，因为它管理了我们用代码读取或*解析* XML（和其他标记语言）文档的主要机制之一。在 XML 文档中，`doc-type` 声明之后的第一个元素称为*根*元素。如果 XML 文档已经格式化，根元素将始终左对齐，而直接*在*该元素内嵌套的任何元素将向右缩进一级，并称为*子*元素。因此，在 示例 4-8 中，`<mainDoc>` 将被视为*根*元素，`<elements>` 将被视为其子元素。同样，`<mainDoc>` 是`<elements>` 的*父*元素（示例 4-9）。
 
 ##### Example 4-9\. 一个带注释的 XML 文档
 
@@ -828,11 +828,11 @@ EPUB
 
 电子出版格式（*.epub*）是广泛接受的数字图书出版开放标准。
 
-正如您从上述列表中可以看到的那样，一些常见的 XML 格式清楚地表明它们与 XML 的关系；而其他许多则没有。^(19)
+正如您从上述列表中可以看到的那样，一些常见的 XML 格式清楚地表明它们与 XML 的关系；而其他许多则没有。¹⁹
 
 现在我们对 XML 文件的工作原理有了高层次的理解，让我们看看如何使用 Python 解析一个 XML 文件。尽管 Python 有一些用于解析 XML 的内置工具，但我们将使用一个名为*lxml*的库，这个库特别擅长[快速解析大型 XML 文件](https://nickjanetakis.com/blog/how-i-used-the-lxml-library-to-parse-xml-20x-faster-in-python#xmltodict-vs-python-s-standard-library-vs-lxml)。尽管我们接下来的示例文件相当小，但请知道，即使我们的数据文件变得更大，我们基本上可以使用相同的代码。
 
-首先，我们将使用从 FRED 网站下载的“U6”失业数据的 XML 版本，使用其 API。^(20) 在从[Google Drive](https://drive.google.com/file/d/1gPGaDTT9Nn6BtlTtVp7gQLSuocMyIaLU)下载此文件的副本后，您可以使用示例 4-12 中的脚本将源 XML 转换为*.csv*。首先安装`pip install`：
+首先，我们将使用从 FRED 网站下载的“U6”失业数据的 XML 版本，使用其 API。²⁰ 在从[Google Drive](https://drive.google.com/file/d/1gPGaDTT9Nn6BtlTtVp7gQLSuocMyIaLU)下载此文件的副本后，您可以使用示例 4-12 中的脚本将源 XML 转换为*.csv*。首先安装`pip install`：
 
 ```py
 pip install lxml
@@ -1367,48 +1367,48 @@ sudo apt install default-jre
 
 最后，在本章中，我们的工作集中在基于文件的数据和预先保存的基于 feed 的数据版本上，而在第五章中，我们将探讨如何使用 Python 结合 API 和网页抓取来从在线系统中处理数据，必要时甚至直接从网页本身获取数据！
 
-^(1) 与您可能知道的其他一些格式相比，如 *mp4* 或 *png*，它们通常分别与音乐和图像相关联。
+¹ 与您可能知道的其他一些格式相比，如 *mp4* 或 *png*，它们通常分别与音乐和图像相关联。
 
-^(2) 尽管您很快就会知道如何处理它！
+² 尽管您很快就会知道如何处理它！
 
-^(3) 实际上，您不需要那么多运气——我们将在“使用 Python 处理 PDF 文档”一节中讨论如何做到这一点。
+³ 实际上，您不需要那么多运气——我们将在“使用 Python 处理 PDF 文档”一节中讨论如何做到这一点。
 
-^(4) 在计算机科学中，“数据”和“信息”这两个术语的使用方式恰好相反： “数据”是收集的关于世界的原始事实，“信息”是组织和结构化这些数据后的有意义的最终产品。然而，近年来，随着“大数据”讨论主导了许多领域，我在此使用的解释方式变得更加普遍，因此为了清晰起见，在本书中我将坚持使用这种解释方式。
+⁴ 在计算机科学中，“数据”和“信息”这两个术语的使用方式恰好相反： “数据”是收集的关于世界的原始事实，“信息”是组织和结构化这些数据后的有意义的最终产品。然而，近年来，随着“大数据”讨论主导了许多领域，我在此使用的解释方式变得更加普遍，因此为了清晰起见，在本书中我将坚持使用这种解释方式。
 
-^(5) 来自[美国劳工统计局](https://bls.gov/news.release/empsit.t15.htm)。
+⁵ 来自[美国劳工统计局](https://bls.gov/news.release/empsit.t15.htm)。
 
-^(6) “多职工”作者是 Stéphane Auray，David L. Fuller 和 Guillaume Vandenbroucke，发布于 2018 年 12 月 21 日，[*https://research.stlouisfed.org/publications/economic-synopses/2018/12/21/multiple-jobholders*](https://research.stlouisfed.org/publications/economic-synopses/2018/12/21/multiple-jobholders)。
+⁶ “多职工”作者是 Stéphane Auray，David L. Fuller 和 Guillaume Vandenbroucke，发布于 2018 年 12 月 21 日，[*https://research.stlouisfed.org/publications/economic-synopses/2018/12/21/multiple-jobholders*](https://research.stlouisfed.org/publications/economic-synopses/2018/12/21/multiple-jobholders)。
 
-^(7) 参见“改进临时和替代工作安排数据的新建议”，[*https://blogs.bls.gov/blog/tag/contingent-workers*](https://blogs.bls.gov/blog/tag/contingent-workers); “灵活工作的价值：Uber 司机的证据”作者是 M. Keith Chen 等，*Nber Working Paper Series* No. 23296，[*https://nber.org/system/files/working_papers/w23296/w23296.pdf*](https://nber.org/system/files/working_papers/w23296/w23296.pdf)。
+⁷ 参见“改进临时和替代工作安排数据的新建议”，[*https://blogs.bls.gov/blog/tag/contingent-workers*](https://blogs.bls.gov/blog/tag/contingent-workers); “灵活工作的价值：Uber 司机的证据”作者是 M. Keith Chen 等，*Nber Working Paper Series* No. 23296，[*https://nber.org/system/files/working_papers/w23296/w23296.pdf*](https://nber.org/system/files/working_papers/w23296/w23296.pdf)。
 
-^(8) 你也可以在[FRED 网站](https://fredhelp.stlouisfed.org/fred/graphs/customize-a-fred-graph/data-transformation-add-series-to-existing-line)找到相关的操作说明。
+⁸ 你也可以在[FRED 网站](https://fredhelp.stlouisfed.org/fred/graphs/customize-a-fred-graph/data-transformation-add-series-to-existing-line)找到相关的操作说明。
 
-^(9) 你也可以直接从[我的 Google Drive](https://drive.google.com/drive/u/0/folders/1cU5Tdg_fvrCcwvAAyhMOhpbEcI2fF7sb)下载这些文件的副本。
+⁹ 你也可以直接从[我的 Google Drive](https://drive.google.com/drive/u/0/folders/1cU5Tdg_fvrCcwvAAyhMOhpbEcI2fF7sb)下载这些文件的副本。
 
-^(10) 截至本文撰写时，LibreOffice 可以处理与 Microsoft Excel 相同数量的行数（2²⁰），但列数远远不及。虽然 Google Sheets 可以处理比 Excel 更多的列，但只能处理约 40,000 行。
+¹⁰ 截至本文撰写时，LibreOffice 可以处理与 Microsoft Excel 相同数量的行数（2²⁰），但列数远远不及。虽然 Google Sheets 可以处理比 Excel 更多的列，但只能处理约 40,000 行。
 
-^(11) 截至本文撰写时，所有这些库已经在 Google Colab 中可用并准备就绪。
+¹¹ 截至本文撰写时，所有这些库已经在 Google Colab 中可用并准备就绪。
 
-^(12) 关于`get_rows()`更多信息，请参阅[*xlrd*文档](https://xlrd.readthedocs.io/en/latest/api.html#xlrd-sheet)。
+¹² 关于`get_rows()`更多信息，请参阅[*xlrd*文档](https://xlrd.readthedocs.io/en/latest/api.html#xlrd-sheet)。
 
-^(13) 关于这个问题，请参阅[*xlrd*文档](https://xlrd.readthedocs.io/en/latest/dates.html)。
+¹³ 关于这个问题，请参阅[*xlrd*文档](https://xlrd.readthedocs.io/en/latest/dates.html)。
 
-^(14) 作者是 Stephen John Machin 和 Chris Withers，《Excel 电子表格中的日期》[*https://xlrd.readthedocs.io/en/latest/dates.html*](https://xlrd.readthedocs.io/en/latest/dates.html)。
+¹⁴ 作者是 Stephen John Machin 和 Chris Withers，《Excel 电子表格中的日期》[*https://xlrd.readthedocs.io/en/latest/dates.html*](https://xlrd.readthedocs.io/en/latest/dates.html)。
 
-^(15) 如果你在文本编辑器中打开前面三个代码示例的输出文件，你会发现开源的*.ods*格式是最简单和最干净的。
+¹⁵ 如果你在文本编辑器中打开前面三个代码示例的输出文件，你会发现开源的*.ods*格式是最简单和最干净的。
 
-^(16) 例如，像[Pennsylvania](https://spotlightpa.org/news/2021/05/pa-unemployment-claims-overhaul-ibm-gsi-benefits-labor-industry)或[Colorado](https://denverpost.com/2021/01/10/colorado-unemployment-benefits-new-claims-system)这样的地方。
+¹⁶ 例如，像[Pennsylvania](https://spotlightpa.org/news/2021/05/pa-unemployment-claims-overhaul-ibm-gsi-benefits-labor-industry)或[Colorado](https://denverpost.com/2021/01/10/colorado-unemployment-benefits-new-claims-system)这样的地方。
 
-^(17) 请参阅 Vassili van der Mersch 的文章，“Twitter 与开发者关系的 10 年斗争”来自 Nordic APIs，详见[Nordic APIs](https://nordicapis.com/twitter-10-year-struggle-with-developer-relations)。
+¹⁷ 请参阅 Vassili van der Mersch 的文章，“Twitter 与开发者关系的 10 年斗争”来自 Nordic APIs，详见[Nordic APIs](https://nordicapis.com/twitter-10-year-struggle-with-developer-relations)。
 
-^(18) 与 Python 代码不同，XML 文档在工作时*不*需要正确缩进，但这当然会使它们更易读！
+¹⁸ 与 Python 代码不同，XML 文档在工作时*不*需要正确缩进，但这当然会使它们更易读！
 
-^(19) 有趣的事实：*.xlsx*格式中的第二个*x*实际上指的是 XML！
+¹⁹ 有趣的事实：*.xlsx*格式中的第二个*x*实际上指的是 XML！
 
-^(20) 同样地，我们将逐步介绍像这样的 API 的使用，在第五章中，但是使用这个文档让我们看到不同的数据格式如何影响我们与数据的交互。
+²⁰ 同样地，我们将逐步介绍像这样的 API 的使用，在第五章中，但是使用这个文档让我们看到不同的数据格式如何影响我们与数据的交互。
 
-^(21) 如果已应用样式表，例如我们在示例 4-13 中使用的 BBC feed，您可以右键点击页面并选择“查看源代码”以查看“原始”XML。
+²¹ 如果已应用样式表，例如我们在示例 4-13 中使用的 BBC feed，您可以右键点击页面并选择“查看源代码”以查看“原始”XML。
 
-^(22) 查看更多信息，请参阅[Adobe 关于 PDF 页面](https://acrobat.adobe.com/us/en/acrobat/about-adobe-pdf.html)。
+²² 查看更多信息，请参阅[Adobe 关于 PDF 页面](https://acrobat.adobe.com/us/en/acrobat/about-adobe-pdf.html)。
 
-^(23) George Nagy, “文档识别中的颠覆性发展,” *Pattern Recognition Letters* 79 (2016): 106–112, [*https://doi.org/10.1016/j.patrec.2015.11.024*](https://doi.org/10.1016/j.patrec.2015.11.024). 可查看[*https://ecse.rpi.edu/~nagy/PDF_chrono/2016_PRL_Disruptive_asPublished.pdf*](https://ecse.rpi.edu/~nagy/PDF_chrono/2016_PRL_Disruptive_asPublished.pdf)。
+²³ George Nagy, “文档识别中的颠覆性发展,” *Pattern Recognition Letters* 79 (2016): 106–112, [*https://doi.org/10.1016/j.patrec.2015.11.024*](https://doi.org/10.1016/j.patrec.2015.11.024). 可查看[*https://ecse.rpi.edu/~nagy/PDF_chrono/2016_PRL_Disruptive_asPublished.pdf*](https://ecse.rpi.edu/~nagy/PDF_chrono/2016_PRL_Disruptive_asPublished.pdf)。

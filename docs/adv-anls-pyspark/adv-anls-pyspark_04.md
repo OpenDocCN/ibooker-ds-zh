@@ -217,7 +217,7 @@ assembled_train_data.select("featureVector").show(truncate = False)
 ...
 ```
 
-[![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO2-1)
+![1
 
 排除标签，Cover_Type
 
@@ -293,7 +293,7 @@ predictions.select("Cover_Type", "prediction", "probability").\
 |Cover_Type|prediction|probability                                      ...
 +----------+----------+------------------------------------------------ ...
 |6.0       |4.0       |0.0,0.0,0.028372324539571926,0.2936784469885515, ...
-|6.0       |3.0       |[0.0,0.0,0.024558587479935796,0.6454654895666132, ...
+|6.0       |3.0       |0.0,0.0,0.024558587479935796,0.6454654895666132, ...
 |6.0       |3.0       |[0.0,0.0,0.024558587479935796,0.6454654895666132, ...
 |6.0       |3.0       |[0.0,0.0,0.024558587479935796,0.6454654895666132, ...
 ...
@@ -330,27 +330,7 @@ evaluator.setMetricName("f1").evaluate(predictions)
 ```py
 confusion_matrix = predictions.groupBy("Cover_Type").\
   pivot("prediction", range(1,8)).count().\
-  na.fill(0.0).\ ![1](img/1.png)
-  orderBy("Cover_Type")
-
-confusion_matrix.show()
-
-...
-
-+----------+------+------+-----+---+---+---+-----+
-|Cover_Type|     1|     2|    3|  4|  5|  6|    7|
-+----------+------+------+-----+---+---+---+-----+
-|       1.0|133792| 51547|  109|  0|  0|  0| 5223|
-|       2.0| 57026|192260| 4888| 57|  0|  0|  750|
-|       3.0|     0|  3368|28238|590|  0|  0|    0|
-|       4.0|     0|     0| 1493|956|  0|  0|    0|
-|       5.0|     0|  8282|  283|  0|  0|  0|    0|
-|       6.0|     0|  3371|11872|406|  0|  0|    0|
-|       7.0|  8122|    74|    0|  0|  0|  0|10319|
-+----------+------+------+-----+---+---+---+-----+
-```
-
-![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO3-1)
+  na.fill(0.0).\ ![1  orderBy("Cover_Type")confusion_matrix.show()...+----------+------+------+-----+---+---+---+-----+|Cover_Type|     1|     2|    3|  4|  5|  6|    7|+----------+------+------+-----+---+---+---+-----+|       1.0|133792| 51547|  109|  0|  0|  0| 5223||       2.0| 57026|192260| 4888| 57|  0|  0|  750||       3.0|     0|  3368|28238|590|  0|  0|    0||       4.0|     0|     0| 1493|956|  0|  0|    0||       5.0|     0|  8282|  283|  0|  0|  0|    0||       6.0|     0|  3371|11872|406|  0|  0|    0||       7.0|  8122|    74|    0|  0|  0|  0|10319|+----------+------+------+-----+---+---+---+-----+```![1](img/#co_making_predictions_with_decision_trees___span_class__keep_together__and_decision_forests__span__CO3-1)
 
 将 null 替换为 0。
 

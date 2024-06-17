@@ -168,4 +168,4 @@ Table P-1\. 章节概述
 
 当我们使用库的最新功能时，有时会遇到问题或不兼容性。作为我们分析流水线中的核心组件，与 Explosion 团队（Ines Montani、Sofie Van Landeghem 和 Adriane Boyd）的合作非常愉快。他们对涵盖 spaCy 的章节的评论非常有帮助。同样感谢 textacy 的开发者 Burton DeWilde 检查代码的部分。
 
-^(1) Devlin, Jacob, et al., “BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding.” 2018\. [*https://arxiv.org/abs/1810.04805*](https://arxiv.org/abs/1810.04805).
+¹ Devlin, Jacob, et al., “BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding.” 2018\. [*https://arxiv.org/abs/1810.04805*](https://arxiv.org/abs/1810.04805).

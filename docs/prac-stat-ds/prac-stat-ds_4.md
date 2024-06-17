@@ -6,7 +6,7 @@
 
 # 简单线性回归
 
-简单线性回归提供了一个描述一个变量的大小与第二个变量的大小之间关系的模型，例如，随着*X*的增加，*Y*也增加。或者随着*X*的增加，*Y*减少^(1)。相关性是衡量两个变量关系的另一种方法，请参见“相关性”部分。不同之处在于，相关性衡量了两个变量之间关系的*强度*，而回归则量化了这种关系的*性质*。
+简单线性回归提供了一个描述一个变量的大小与第二个变量的大小之间关系的模型，例如，随着*X*的增加，*Y*也增加。或者随着*X*的增加，*Y*减少¹。相关性是衡量两个变量关系的另一种方法，请参见“相关性”部分。不同之处在于，相关性衡量了两个变量之间关系的*强度*，而回归则量化了这种关系的*性质*。
 
 ## 回归方程
 
@@ -84,7 +84,7 @@ print(f'Coefficient Exposure: {model.coef_[0]:.3f}')
 
 # 帽子符号：估计值与已知值
 
-“帽子”符号用于区分估计值和已知值。因此，符号 <math alttext="ModifyingAbove b With caret"><mover accent="true"><mi>b</mi> <mo>^</mo></mover></math>（“b-hat”）是未知参数 <math alttext="b"><mi>b</mi></math> 的估计值。为什么统计学家要区分估计值和真实值？估计值具有不确定性，而真实值是固定的。^(2)
+“帽子”符号用于区分估计值和已知值。因此，符号 <math alttext="ModifyingAbove b With caret"><mover accent="true"><mi>b</mi> <mo>^</mo></mover></math>（“b-hat”）是未知参数 <math alttext="b"><mi>b</mi></math> 的估计值。为什么统计学家要区分估计值和真实值？估计值具有不确定性，而真实值是固定的。²
 
 我们通过从原始数据中减去*预测*值来计算残差 <math alttext="ModifyingAbove e With caret Subscript i"><msub><mover accent="true"><mi>e</mi> <mo>^</mo></mover> <mi>i</mi></msub></math>：
 
@@ -586,7 +586,7 @@ Source: local data frame [6 x 1]
 house.PropertyType.head()
 ```
 
-有三种可能的取值：`Multiplex`、`Single Family` 和 `Townhouse`。要使用这个因子变量，我们需要将其转换为一组二进制变量。在*R*中，我们使用 `model.matrix` 函数来实现这一点：^(3)
+有三种可能的取值：`Multiplex`、`Single Family` 和 `Townhouse`。要使用这个因子变量，我们需要将其转换为一组二进制变量。在*R*中，我们使用 `model.matrix` 函数来实现这一点：³
 
 ```py
 prop_type_dummies <- model.matrix(~PropertyType -1, data=house)
@@ -659,7 +659,7 @@ for name, coef in zip(X.columns, house_lm_factor.coef_):
     print(f' {name}: {coef}')
 ```
 
-*R*回归的输出显示了两个与`PropertyType`对应的系数：`PropertyTypeSingle Family`和`PropertyTypeTownhouse`。由于在`PropertyTypeSingle Family == 0`和`PropertyTypeTownhouse == 0`时它被隐含定义，所以没有`Multiplex`的系数。这些系数被解释为相对于`Multiplex`，因此一个`Single Family`的房屋价值减少了将近$85,000，而一个`Townhouse`的房屋价值减少了超过$150,000。^(4)
+*R*回归的输出显示了两个与`PropertyType`对应的系数：`PropertyTypeSingle Family`和`PropertyTypeTownhouse`。由于在`PropertyTypeSingle Family == 0`和`PropertyTypeTownhouse == 0`时它被隐含定义，所以没有`Multiplex`的系数。这些系数被解释为相对于`Multiplex`，因此一个`Single Family`的房屋价值减少了将近$85,000，而一个`Townhouse`的房屋价值减少了超过$150,000。⁴
 
 # 不同的因子编码方式
 
@@ -843,7 +843,7 @@ reduced_lm.fit(X, house[outcome])
 
 对于相关变量，问题是包含具有与响应变量类似的预测关系的不同变量。对于*混淆变量*，问题是省略了一个重要变量，该变量未包含在回归方程中。对方程系数的天真解释可能导致无效结论。
 
-例如，来自“示例：金县住房数据”的金县回归方程`house_lm`。`SqFtLot`，`Bathrooms`和`Bedrooms`的回归系数都为负。原始回归模型不包含代表位置的变量——房价的一个非常重要的预测因子。为了建模位置，包括一个将邮政编码分为五个组的变量`ZipGroup`，从最便宜（1）到最昂贵（5）：^(5)
+例如，来自“示例：金县住房数据”的金县回归方程`house_lm`。`SqFtLot`，`Bathrooms`和`Bedrooms`的回归系数都为负。原始回归模型不包含代表位置的变量——房价的一个非常重要的预测因子。为了建模位置，包括一个将邮政编码分为五个组的变量`ZipGroup`，从最便宜（1）到最昂贵（5）：⁵
 
 ```py
 lm(formula = AdjSalePrice ~ SqFtTotLiving + SqFtLot + Bathrooms +
@@ -1024,7 +1024,7 @@ print(outlier[predictors])
 
 一个值，如果去掉会显著改变回归方程，被称为*有影响力的观测*。在回归中，这样的值不一定与大的残差相关联。例如，考虑图 4-5 中的回归线。实线对应于所有数据的回归，而虚线对应于移除右上角的点的回归。显然，即使与大的异常值（来自完整回归）无关，该数据值对回归的影响仍然巨大。认为这个数据值对回归具有很高的*杠杆*。
 
-除了标准化残差（参见“异常值”），统计学家还开发了几个度量标准，以确定单个记录对回归的影响。一个常见的杠杆度量是*帽子值*；值大于<math alttext="2 左括号 上标 P 加 1 右括号 斜杠 n"><mrow><mn>2</mn> <mo>(</mo> <msup><mi>P</mi><mo>+</mo><mn>1</mn></msup> <mo>)</mo> <mo>/</mo> <mi>n</mi></mrow></math>表示高杠杆的数据值。^(6)
+除了标准化残差（参见“异常值”），统计学家还开发了几个度量标准，以确定单个记录对回归的影响。一个常见的杠杆度量是*帽子值*；值大于<math alttext="2 左括号 上标 P 加 1 右括号 斜杠 n"><mrow><mn>2</mn> <mo>(</mo> <msup><mi>P</mi><mo>+</mo><mn>1</mn></msup> <mo>)</mo> <mo>/</mo> <mi>n</mi></mrow></math>表示高杠杆的数据值。⁶
 
 ![回归中有影响力的数据点的示例](img/psd2_0405.png)
 
@@ -1067,7 +1067,7 @@ ax.set_ylabel('studentized residuals')
 
 表 4-2 比较了使用完整数据集和去除高度有影响力的数据点（Cook 距离 > 0.08）的回归。
 
-`Bathrooms`的回归系数发生了相当大的变化。^(7)
+`Bathrooms`的回归系数发生了相当大的变化。⁷
 
 表 4-2 比较了使用完整数据和去除有影响力数据后的回归系数
 
@@ -1314,16 +1314,16 @@ gam.gridsearch(X, y)
 
 或许没有其他统计方法像回归那样多年来被广泛使用——建立多个预测变量与一个结果变量之间关系的过程。其基本形式为线性：每个预测变量都有一个系数，描述其与结果的线性关系。更高级的回归形式，如多项式和样条回归，允许关系是非线性的。在经典统计中，重点是找到与观察数据良好匹配的模型来解释或描述某一现象，模型的强度是通过传统的*样本内*指标来评估。相反，在数据科学中，目标通常是对新数据进行预测，因此使用基于预测精度的样本外数据指标。变量选择方法用于减少维度并创建更紧凑的模型。
 
-^(1) 本章及后续章节内容 © 2020 Datastats, LLC，Peter Bruce，Andrew Bruce 和 Peter Gedeck；经许可使用。
+¹ 本章及后续章节内容 © 2020 Datastats, LLC，Peter Bruce，Andrew Bruce 和 Peter Gedeck；经许可使用。
 
-^(2) 在贝叶斯统计中，真实值被假定为具有特定分布的随机变量。在贝叶斯背景下，不是未知参数的估计，而是后验和先验分布。
+² 在贝叶斯统计中，真实值被假定为具有特定分布的随机变量。在贝叶斯背景下，不是未知参数的估计，而是后验和先验分布。
 
-^(3) `model.matrix` 中的 `-1` 参数产生一种独热编码表示（通过删除截距，因此为“-”）。否则，在 *R* 中默认生成一个具有 *P* - 1 列的矩阵，其中第一个因子水平作为参考。
+³ `model.matrix` 中的 `-1` 参数产生一种独热编码表示（通过删除截距，因此为“-”）。否则，在 *R* 中默认生成一个具有 *P* - 1 列的矩阵，其中第一个因子水平作为参考。
 
-^(4) 这看起来不直观，但可以解释为位置作为混杂变量的影响；详见“混杂变量”。
+⁴ 这看起来不直观，但可以解释为位置作为混杂变量的影响；详见“混杂变量”。
 
-^(5) 金县有 80 个邮政编码，其中几个只有少量销售。`ZipGroup`是将相似的邮政编码聚类到一个组中，作为因子变量的一种替代方案。详见“具有多个水平的因子变量”。
+⁵ 金县有 80 个邮政编码，其中几个只有少量销售。`ZipGroup`是将相似的邮政编码聚类到一个组中，作为因子变量的一种替代方案。详见“具有多个水平的因子变量”。
 
-^(6) 术语*帽值*源于回归中帽矩阵的概念。多元线性回归可以用公式表示为 <math alttext="ModifyingAbove upper Y With caret equals upper H upper Y"><mrow><mover accent="true"><mi>Y</mi> <mo>^</mo></mover> <mo>=</mo> <mi>H</mi> <mi>Y</mi></mrow></math> 其中 <math alttext="upper H"><mi>H</mi></math> 是帽矩阵。帽值对应于 <math alttext="upper H"><mi>H</mi></math> 的对角线。
+⁶ 术语*帽值*源于回归中帽矩阵的概念。多元线性回归可以用公式表示为 <math alttext="ModifyingAbove upper Y With caret equals upper H upper Y"><mrow><mover accent="true"><mi>Y</mi> <mo>^</mo></mover> <mo>=</mo> <mi>H</mi> <mi>Y</mi></mrow></math> 其中 <math alttext="upper H"><mi>H</mi></math> 是帽矩阵。帽值对应于 <math alttext="upper H"><mi>H</mi></math> 的对角线。
 
-^(7) `Bathrooms` 的系数变为负数，这是不直观的。没有考虑到地理位置，而且邮政编码 98105 包含了不同类型的住宅区域。参见“混杂变量”讨论混杂变量。
+⁷ `Bathrooms` 的系数变为负数，这是不直观的。没有考虑到地理位置，而且邮政编码 98105 包含了不同类型的住宅区域。参见“混杂变量”讨论混杂变量。

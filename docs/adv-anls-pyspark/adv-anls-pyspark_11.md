@@ -218,16 +218,12 @@ preds.select('Cover_Type', 'rawPrediction', 'probability', 'prediction').\
 -RECORD 0-----------------------------
  Cover_Type    | 6.0
  rawPrediction | 0.0,0.0,605.0,15...
- probability   | [0.0,0.0,0.024462...
+ probability   | 0.0,0.0,0.024462...
  prediction    | 3.0
 only showing top 1 row
 ```
 
-[![1](img/#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-1)
-
-可以从相关的 *MLmodel* 文件在追踪 UI 中获取此 ID。
-
-![2](img/#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-2)
+[![1 可以从相关的 *MLmodel* 文件在追踪 UI 中获取此 ID。![2](img/#co_managing_the_machine_learning___span_class__keep_together__lifecycle_with_mlflow__span__CO1-2)
 
 我们使用 Python f-strings 添加相关的运行 ID。
 
