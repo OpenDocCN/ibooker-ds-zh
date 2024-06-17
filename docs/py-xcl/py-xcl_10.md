@@ -1,6 +1,4 @@
-# 第十一章
-
-第七章. 使用 pandas 进行 Excel 文件操作
+# 第七章：使用 pandas 进行 Excel 文件操作
 
 在经历了六章对工具、Python 和 pandas 的激烈介绍之后，我将给你一个休息时间，并从一个实际案例研究开始本章，让你能够将你新获得的技能应用到实际中：仅需十行 pandas 代码，你就可以将数十个 Excel 文件合并成一份 Excel 报告，准备发送给你的经理们。案例研究之后，我将更深入地介绍 pandas 提供的处理 Excel 文件的工具：`read_excel` 函数和 `ExcelFile` 类用于读取，`to_excel` 方法和 `ExcelWriter` 类用于写入 Excel 文件。pandas 不依赖 Excel 应用程序来读写 Excel 文件，这意味着本章中的所有代码示例都可以在 Python 运行的任何地方运行，包括 Linux。
 

@@ -1,3 +1,1 @@
-# 第二章
-
-Part I. Python 入门
+# 第一部分：Python 入门

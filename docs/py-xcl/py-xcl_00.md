@@ -1,6 +1,4 @@
-# 第一章
-
-前言
+# 前言
 
 Microsoft 正在运行一个 Excel 的反馈论坛[UserVoice](https://oreil.ly/y1XwU)，每个人都可以提交新的想法供其他人投票。最受欢迎的功能请求是“将 Python 作为 Excel 脚本语言”，它的票数大约是第二名请求的两倍。尽管自 2015 年提出这个想法以来并没有真正发生什么，但在 2020 年底，当 Python 的创始人 Guido van Rossum [发推文](https://oreil.ly/N1_7N)说他的“退休很无聊”，并且他将加入 Microsoft 时，Excel 用户们又充满了新的希望。他的举动是否对 Excel 和 Python 的整合有任何影响，我不知道。但我确实知道，这种组合的魅力何在，以及你如何可以今天就开始使用 Excel 和 Python。这本书就是关于这个的简要概述。
 

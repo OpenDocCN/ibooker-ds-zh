@@ -1,6 +1,4 @@
-# 第十四章
-
-第十章 Python 驱动的 Excel 工具
+# 第十章：Python 驱动的 Excel 工具
 
 在上一章中，我们学习了如何编写 Python 脚本来自动化 Microsoft Excel。虽然这非常强大，但用户必须习惯使用 Anaconda Prompt 或像 VS Code 这样的编辑器来运行脚本。如果您的工具是由业务用户使用，情况可能不会如此。对于他们，您希望隐藏 Python 部分，使 Excel 工具再次感觉像一个普通的启用宏的工作簿。如何通过 xlwings 实现这一点是本章的主题。在查看 xlwings 工具部署的挑战之前，我将首先向您展示从 Excel 运行 Python 代码的最短路径——这也将使我们更详细地了解 xlwings 提供的可用设置。与上一章类似，本章要求您在 Windows 或 macOS 上安装 Microsoft Excel。
 

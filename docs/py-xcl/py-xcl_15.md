@@ -1,6 +1,4 @@
-# 第十六章
-
-第十二章\. 用户定义函数（UDFs）
+# 第十二章：用户定义函数（UDFs）
 
 过去的三章向你展示了如何使用 Python 脚本自动化 Excel，以及如何在 Excel 中点击按钮运行这样的脚本。本章介绍了另一种选项，即使用 xlwings 从 Excel 中调用 Python 代码的用户定义函数（UDFs）。UDFs 是你在 Excel 单元格中使用的 Python 函数，与像`SUM`或`AVERAGE`等内置函数的使用方式相同。与上一章类似，我们将从`quickstart`命令开始，这样可以很快尝试第一个 UDF。接下来，我们将进行一个关于从 Google Trends 获取和处理数据的案例研究，作为使用更复杂的 UDFs 的借口：我们将学习如何处理 pandas 的数据框架和绘图，以及如何调试 UDFs。最后，我们将深入探讨一些重点放在性能上的高级主题。不幸的是，xlwings 不支持在 macOS 上使用 UDFs，这使得本章是唯一需要在 Windows 上运行示例的章节。1
 
