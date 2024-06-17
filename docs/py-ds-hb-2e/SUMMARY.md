@@ -1,3 +1,4 @@
++   [Python 数据科学手册第二版](README.md)
 +   [前言](py-ds-hb-2e_00.md)
 +   [第一部分：Jupyter：超越普通 Python](py-ds-hb-2e_01.md)
 +   [第一章：在 IPython 和 Jupyter 中开始](py-ds-hb-2e_02.md)

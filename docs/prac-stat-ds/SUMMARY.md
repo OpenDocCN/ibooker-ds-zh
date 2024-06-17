@@ -1,3 +1,4 @@
++   [数据科学家的统计学实践指南](README.md)
 +   [前言](prac-stat-ds_0.md)
 +   [第一章：探索性数据分析](prac-stat-ds_1.md)
 +   [第二章：数据和抽样分布](prac-stat-ds_2.md)

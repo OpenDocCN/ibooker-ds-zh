@@ -1,3 +1,4 @@
++   [人工智能的数学基础](README.md)
 +   [前言](ess-math-ai_00.md)
 +   [第一章：为什么学习人工智能的数学](ess-math-ai_01.md)
 +   [第二章：数据，数据，数据](ess-math-ai_02.md)

@@ -1,3 +1,4 @@
++   [Python 和 JavaScript 数据可视化指南第二版](README.md)
 +   [序言](dtviz-py-js-2e_00.md)
 +   [第一章：简介](dtviz-py-js-2e_01.md)
 +   [第一部分：基本工具包](dtviz-py-js-2e_02.md)

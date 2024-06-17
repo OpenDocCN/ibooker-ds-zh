@@ -1,3 +1,4 @@
++   [可复现的 Python 生物信息学指南](README.md)
 +   [序言](rprd-bioinfo-py_00.md)
 +   [第一部分：Rosalind.info 挑战](rprd-bioinfo-py_01.md)
 +   [第一章：四核苷酸频率：计数事物](rprd-bioinfo-py_02.md)
@@ -22,4 +23,4 @@
 +   [第十九章：Blastomatic：解析分隔文本文件](rprd-bioinfo-py_21.md)
 +   [附录 A. 使用 make 记录命令和创建工作流](rprd-bioinfo-py_22.md)
 +   [附录 B. 理解 $PATH 和安装命令行程序](rprd-bioinfo-py_23.md)
-+   [第二十章：结语](rprd-bioinfo-py_24.md)
++   [结语](rprd-bioinfo-py_24.md)

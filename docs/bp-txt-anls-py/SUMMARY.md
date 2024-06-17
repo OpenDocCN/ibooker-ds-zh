@@ -1,3 +1,4 @@
++   [Python 文本分析蓝图](README.md)
 +   [序言](bp-txt-anls-py_00.md)
 +   [第一章：从文本数据中获得早期见解](bp-txt-anls-py_01.md)
 +   [第二章：使用 API 提取文本洞见](bp-txt-anls-py_02.md)

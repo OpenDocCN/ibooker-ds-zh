@@ -1,3 +1,4 @@
++   [现代数据科学家 Python 与 R 指南](README.md)
 +   [第一部分：发现新语言](py-r-mdn-ds_00.md)
 +   [前言](py-r-mdn-ds_01.md)
 +   [第一章：初生牛犊不怕虎](py-r-mdn-ds_02.md)

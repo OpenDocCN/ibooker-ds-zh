@@ -1,3 +1,4 @@
++   [数据科学的数学基础](README.md)
 +   [序言](ess-math-ds_00.md)
 +   [第一章：基础数学和微积分复习](ess-math-ds_01.md)
 +   [第二章：概率](ess-math-ds_02.md)
