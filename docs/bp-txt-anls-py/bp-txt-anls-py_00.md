@@ -1,0 +1,171 @@
+# 序言
+
+书面文字是一种强大的东西。古苏美尔人发明了第一种书面语言，古腾堡印刷术的引入使书面文字传播知识和启蒙思想到全世界。语言对人类思维如此重要，以至于人类学家声称我们复杂推理能力的发展与语言同时发展。以文本形式呈现的语言捕捉了大多数人类思想、行为和行动，我们的生活日益被其主导。我们通过电子邮件与同事交流，通过通讯工具与朋友和家人联系，通过社交媒体工具与分享我们热情的其他人交流。领导人通过演讲（和推文）激励着大批人群，这些演讲被记录为文本，领先的研究人员通过发表的研究论文传达其发现，公司通过季度报告传达其健康状况。即使这本书也使用文本传播知识。分析和理解文本赋予我们获取知识和做出决策的能力。文本分析是关于编写能够分析大量以文本形式存在的信息的计算机程序。在购买产品或访问餐馆之前，我们会阅读客户评论。然后公司可以利用同样的评论来改进其产品或服务。出版商可以分析互联网上的讨论，以估算在委托书籍之前对某种编程语言的需求。
+
+对于计算机来说，理解文本相比其他类型的数据要困难得多。虽然有语法规则和句子构成的指导，但这些规则通常不严格遵循，而且严重依赖上下文。即使语法正确，机器也很难正确解释文本。一个人在发布推文时选择的词语可能与写邮件表达相同的思想时大不相同。近年来，统计技术和机器学习算法取得了重大进展，使我们能够克服许多这些障碍，从文本数据中获取价值。新模型能够比仅基于词频的先前方法更好地捕捉文本的语义意义。但也有许多业务任务，这些简单模型表现出令人惊讶的良好性能。
+
+例如，在我们的一个客户项目中，一家家电制造商通过分析产品评论，能够理解影响客户购买的关键主题，并调整其营销信息以便专注于这些方面。在另一个案例中，一家电子商务零售商使用深度神经网络来分类客户查询，并将其路由到正确的部门以实现更快的解决方案。分析科学期刊摘要使一家研发公司能够检测新材料的趋势，并相应调整其研究。一家时尚公司通过查看社交网络中的帖子，确定了其客户群体中的超级主题。通过本书，我们试图将我们在这些以及许多其他项目中的经验转化为您可以轻松在自己项目中重复使用的蓝图。
+
+# 书籍的方法
+
+本书旨在支持数据科学家和开发人员，使其能够快速进入文本分析和自然语言处理领域。因此，我们重点放在开发实用解决方案上，这些解决方案可以作为您日常业务中的蓝图。在我们的定义中，蓝图是常见问题的最佳实践解决方案。这是一个模板，您可以轻松复制并适应以供重复使用。对于这些蓝图，我们使用了生产就绪的 Python 框架进行数据分析、自然语言处理和机器学习。尽管如此，我们也介绍了底层的模型和算法。
+
+我们不要求您在自然语言处理领域有任何先前知识，但会为您提供快速入门所需的背景知识。在每章中，我们解释并讨论了不同的解决方案方法及其潜在优缺点。因此，您不仅会获得解决特定问题的知识，还会得到一组可立即使用并根据自己数据和需求进行定制的蓝图。
+
+每个包含在 13 章中的用例都涵盖了文本分析特定方面的自包含应用（见[表 P-1](#preface_approach_table)）。基于示例数据集，我们逐步开发和解释这些蓝图。
+
+Table P-1\. 章节概述
+
+| 章节 | 数据集 | 库 |
+| --- | --- | --- |
+| [第 1 章，*从文本数据中获取早期洞见*](ch01.xhtml#ch-exploration)开始统计探索文本数据 | 联合国大会辩论 | Pandas, Regex |
+| [第 2 章，*使用 API 提取文本洞见*](ch02.xhtml#ch-api)使用不同的 Python 模块从流行的 API 提取数据 | GitHub、Twitter 和 Wikipedia API | Requests, Tweepy |
+| [第 3 章，*网页抓取和数据提取*](ch03.xhtml#ch-scraping)使用 Python 库下载网页并提取内容 | Reuters 网站 | Requests, Beautiful Soup, Readability-lxml, Scrapy |
+| [第 4 章，*为统计和机器学习准备文本数据*](ch04.xhtml#ch-preparation)数据清洗和语言处理简介 | Reddit 自发布帖子 | Regex, spaCy |
+| [第 5 章，*特征工程和句法相似性*](ch05.xhtml#ch-vectorization)特征和向量化简介 | ABC 新闻的 100 万条头条新闻 | scikit-learn, NumPy |
+| [第 6 章，*文本分类算法*](ch06.xhtml#ch-classification)文本分类算法使用机器学习算法对软件 Bug 进行分类 | Java 开发工具的 Bug 报告 | scikit-learn |
+| [第 7 章，*如何解释文本分类器*](ch07.xhtml#ch-explain)解释模型和分类结果 | Java 开发工具的 Bug 报告 | scikit-learn, Lime, Anchor, ELI5 |
+| [第 8 章，*无监督方法：主题建模和聚类*](ch08.xhtml#ch-topicmodels)使用无监督方法获取文本的无偏见洞见 | 联合国大会辩论 | scikit-learn, Gensim |
+| [第 9 章，*文本摘要*](ch09.xhtml#ch-summarization)使用基于规则和机器学习方法创建新闻文章和论坛帖子的简短摘要 | 路透社新闻文章、旅行论坛帖子 | Sumy, scikit-learn |
+| [第 10 章，*使用词嵌入探索语义关系*](ch10.xhtml#ch-embeddings)使用词嵌入探索和可视化特定数据集中的语义相似性 | Reddit 自发布帖子 | Gensim |
+| [第 11 章，*对文本数据进行情感分析*](ch11.xhtml#ch-sentiment)在亚马逊产品评论中识别客户情感 | 亚马逊产品评论 | Transformers, scikit-learn, NLTK |
+| [第 12 章，*构建知识图谱*](ch12.xhtml#ch-knowledge)使用预训练模型和自定义规则提取命名实体及其关系 | 路透社有关并购的新闻 | spaCy |
+| [第 13 章，*在生产环境中使用文本分析*](ch13.xhtml#ch-production)将情感分析蓝图部署为 Google Cloud 平台上的 API 并进行扩展 |  | FastAPI, Docker, conda, Kubernetes, gcloud |
+
+选题反映了日常文本分析工作中最常见的问题类型。典型任务包括数据获取、统计数据探索以及监督和无监督机器学习的使用。业务问题涵盖内容分析（“人们在谈论什么？”）到自动文本分类。
+
+# 先决条件
+
+本书将教会您如何在Python生态系统中高效解决文本分析问题。我们将详细解释文本分析和机器学习的所有概念，但假设您已经掌握了Python的基本知识，包括像Pandas这样的基础库。您还应该熟悉Jupyter笔记本，以便在阅读本书时进行代码实验。如果还不熟悉，请参考[*learnpython.org*](https://www.learnpython.org/)、[*docs.python.org*](https://docs.python.org/3/tutorial)或[DataCamp](https://oreil.ly/oB-eH)上的教程。
+
+即使我们解释了所使用算法的一般思想，我们不会深入细节。您应该能够按照示例进行操作并重复使用代码，而无需完全理解其背后的数学原理。尽管如此，具备大学水平的线性代数和统计知识会有所帮助。
+
+# 一些重要的库
+
+每个数据分析项目都始于数据探索和数据处理。最受欢迎的Python库之一是[*Pandas*](https://pandas.pydata.org)。它提供丰富的功能来访问、转换、分析和可视化数据。如果您以前没有使用过这个框架，我们建议先查看官方介绍，[*10 minutes to Pandas*](https://oreil.ly/eWlId)，或者其他免费的在线教程。
+
+多年来，[*scikit-learn*](https://scikit-learn.org)一直是Python的机器学习工具包。它实现了大量的监督和无监督机器学习算法，以及许多用于数据预处理的函数。我们在几章中使用scikit-learn来将文本转换为数值向量，并进行文本分类。
+
+然而，当涉及到深度神经模型时，像PyTorch或TensorFlow这样的框架明显优于scikit-learn。我们在[第11章](ch11.xhtml#ch-sentiment)中用来进行情感分析的是来自Hugging Face的[*Transformers library*](https://oreil.ly/f5Ped)。自BERT发布以来，基于transformer的模型在需要理解文本含义的任务上表现优异，而Transformers库提供了方便访问多个预训练模型的途径。
+
+我们最喜欢的自然语言处理库是*spaCy*。自2016年首次发布以来，spaCy拥有不断增长的用户群。尽管是开源的，但它主要由[Explosion](https://explosion.ai)公司开发。对于许多语言，可以使用预训练的神经语言模型进行词性标注、依赖解析和命名实体识别。我们在书的编写过程中使用了spaCy 2.3.2，特别是用于数据准备（[第4章](ch04.xhtml#ch-preparation)）和知识提取（[第12章](ch12.xhtml#ch-knowledge)）。在出版时，spaCy 3.0将推出全新的基于Transformer的模型，支持PyTorch和TensorFlow的自定义模型以及定义端到端工作流程的模板。
+
+我们使用的另一个NLP库是[Gensim](https://oreil.ly/YJ4Pz)，由Radim Řehůřek维护。Gensim侧重于语义分析，并提供了学习主题模型（[第8章](ch08.xhtml#ch-topicmodels)）和词嵌入（[第10章](ch10.xhtml#ch-embeddings)）所需的一切。
+
+这本书只简要提及了一些自然语言处理的其他库，这些库可能对您有所帮助。这些包括NLTK（Python NLP库的功能丰富的前辈）、TextBlob（易于上手）、Stanford的Stanza和CoreNLP，以及Flair（用于高级任务的最新模型）。我们的目标不是对所有现有的内容进行概述，而是选择和解释在我们项目中表现最佳的那些库。
+
+# 可与本书并读的书籍
+
+由于我们专注于实际解决方案，您可能希望查阅一些额外的书籍以获取更多详细信息或我们未涵盖的主题。以下是一些建议，可与本书并读：
+
++   [*实用自然语言处理*,](https://www.oreilly.com/library/view/practical-natural-language/9781492054047/)，Sowmya Vajjala，Bodhisattwa Majumder，Anuj Gupta和Harshit Surana（O'Reilly，2020），ISBN 978-1-492-05405-4。
+
++   [*动手学自然语言处理*](https://www.oreilly.com/library/view/natural-language-processing/9781617294631/)，Hobson Lane，Cole Howard和Hannes Hapke（Manning Publications，2019），ISBN 978-1-617-29463-1。
+
++   [*挖掘社交网络*, 第3版](https://www.oreilly.com/library/view/mining-the-social/9781491973547/)，Matthew A. Russell和Mikhail Klassen（O'Reilly，2019），ISBN 978-1-491-98504-5。
+
++   [*Python文本分析实战*,](https://www.oreilly.com/library/view/applied-text-analysis/9781491963036/)，Benjamin Bengfort，Rebecca Bilbro和Tony Ojeda（O'Reilly 2018），ISBN 978-1-491-96304-3。
+
++   [*Python数据分析*, 第2版](https://www.oreilly.com/library/view/python-for-data/9781491957653/)，Wes McKinney（O'Reilly，2017），ISBN 978-1-491-95766-0。
+
+# 本书使用的约定
+
+本书使用以下排版约定：
+
+*斜体*
+
+指示新术语、URL、电子邮件地址、文件名和文件扩展名。
+
+`常量宽度`
+
+用于程序清单，以及在段落内引用程序元素，如变量或函数名称、数据库、数据类型、环境变量、语句和关键字。
+
+**`常量宽度粗体`**
+
+显示用户应直接输入的命令或其他文本。
+
+*`常量宽度斜体`*
+
+显示应由用户提供的值或由上下文确定的值替换的文本。
+
+###### 提示
+
+此元素表示提示或建议。
+
+###### 注意
+
+此元素表示一般注释。
+
+###### 警告
+
+此元素指示警告或注意。
+
+###### 注意
+
+此元素指示蓝图。
+
+# 使用代码示例
+
+蓝图的整个目的是被复制。因此，我们在我们的[GitHub存储库](https://oreil.ly/btap-code)中提供了本书中开发的所有代码。
+
+每章您将找到一个可执行的Jupyter笔记本，其中包含书中的代码以及可能省略的一些附加函数或蓝图。该存储库还包含必要的数据集和一些额外信息。
+
+运行笔记本的最简单方法是在[Google Colab](https://oreil.ly/colab)，Google的公共云平台上。您甚至不需要在本地计算机上安装Python；只需单击GitHub上相应章节的Colab链接（需要Google帐号）。但是，我们还添加了在GitHub存储库中设置自己（虚拟）Python环境的说明。我们设计了Jupyter笔记本，使您可以在本地和Google Colab上运行它们。
+
+库、数据和网站可能会不断变化。因此，书中的逐字代码可能在将来无法正确运行。为了解决这个问题，我们将保持存储库的更新。如果您发现任何技术问题或有改进代码的建议，请毫不犹豫地在存储库中创建问题或发送拉取请求。
+
+如果您有技术问题或在使用代码示例时遇到问题，请发送电子邮件至[*bookquestions@oreilly.com*](mailto:bookquestions@oreilly.com)。对于技术问题，我们建议[在GitHub存储库中创建问题](https://oreil.ly/ApUgF)，并参考O'Reilly的勘误页面了解书中的错误。
+
+本书旨在帮助您完成工作。通常，如果本书提供示例代码，您可以在自己的程序和文档中使用它。除非您复制了代码的大部分，否则无需征得我们的许可。例如，编写使用本书多个代码片段的程序无需许可。销售或分发奥莱利书籍的示例需要许可。引用本书并引用示例代码来回答问题无需许可。将本书的大量示例代码整合到产品文档中需要许可。
+
+您可以在自己的项目中自由使用我们的代码，无需征得许可。特别是如果您公开重新发布我们的代码，我们感谢您的署名。署名通常包括标题、作者、出版商和ISBN。例如：“*Python文本分析的蓝图*，作者Jens Albrecht、Sidharth Ramachandran和Christian Winkler（O’Reilly，2021），ISBN 978-1-492-07408-3。”
+
+如果您认为您使用的示例代码超出了公平使用范围或上述许可，请随时通过[*permissions@oreilly.com*](mailto:permissions@oreilly.com)与我们联系。
+
+# 奥莱利在线学习
+
+###### 注意
+
+40多年来，[*奥莱利媒体*](http://oreilly.com)为企业提供技术和商业培训、知识和洞察力，帮助公司取得成功。
+
+我们独特的专家和创新者网络通过书籍、文章和我们的在线学习平台分享他们的知识和专业知识。奥莱利的在线学习平台为您提供按需访问的实时培训课程、深度学习路径、交互式编码环境以及来自奥莱利和其他200多家出版商的大量文本和视频。欲了解更多信息，请访问[*http://oreilly.com*](http://oreilly.com)。
+
+# 如何联系我们
+
+请将有关本书的评论和问题发送给出版商：
+
++   奥莱利媒体公司
+
++   1005 Gravenstein Highway North
+
++   加利福尼亚州塞巴斯托波尔95472
+
++   800-998-9938（美国或加拿大）
+
++   707-829-0515（国际或本地）
+
++   707-829-0104（传真）
+
+我们为本书制作了一个网页，列出勘误、示例和任何额外信息。您可以访问[*https://oreil.ly/text-analytics-with-python*](https://oreil.ly/text-analytics-with-python)获取此页面。
+
+发送电子邮件至[*bookquestions@oreilly.com*](mailto:bookquestions@oreilly.com)以评论或询问有关本书的技术问题。
+
+获取关于我们的书籍和课程的新闻和信息，请访问[*http://oreilly.com*](http://oreilly.com)。
+
+在Facebook上找到我们：[*http://facebook.com/oreilly*](http://facebook.com/oreilly)
+
+在Twitter上关注我们：[*http://twitter.com/oreillymedia*](http://twitter.com/oreillymedia)
+
+观看我们在YouTube上的视频：[*http://youtube.com/oreillymedia*](http://youtube.com/oreillymedia)
+
+# 致谢
+
+写一本书对于作者来说是一种挑战，对于他们的家人和朋友们也是如此。我们所有人都预料到这需要很多时间，但我们仍然对为每个章节开发故事所需的时间感到惊讶。由于我们都全职工作，因此讨论、编码、写作和重写的时间不得不从我们的家庭中抽取。
+
+与O’Reilly合作对我们来说是一种极大的愉悦。从最初的提议到写作期间，再到生产阶段，我们都享受与专业人士合作，并且从他们的提示和建议中受益匪浅。对我们来说最紧张的时期是撰写各章节的时候。在那段时间里，我们得到了我们的开发编辑Amelia Blevins的完美支持。如果没有她的帮助和改进，这本书可能会一直停留在不易阅读的状态。
+
+我们还要感谢我们的审阅人员Oliver Zeigermann、Benjamin Bock、Alexander Schneider和Darren Cook。他们利用他们的专业知识和大量时间提出了卓越的建议和改进，并且找出了文本和笔记本中的错误。
+
+当我们使用库的最新功能时，有时会遇到问题或不兼容性。作为我们分析流水线中的核心组件，与Explosion团队（Ines Montani、Sofie Van Landeghem和Adriane Boyd）的合作非常愉快。他们对涵盖spaCy的章节的评论非常有帮助。同样感谢textacy的开发者Burton DeWilde检查代码的部分。
+
+^([1](preface01.xhtml#idm45634210878232-marker)) Devlin, Jacob, et al., “BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding.” 2018\. [*https://arxiv.org/abs/1810.04805*](https://arxiv.org/abs/1810.04805).
