@@ -9,6 +9,7 @@
 +   [人工智能的数学基础](docs/ess-math-ai/README.md)
 +   [数据科学的数学基础](docs/ess-math-ds/README.md)
 +   [数据可视化的基础知识](docs/fund-data-viz/README.md)
++   [云中的基因组学](docs/gnm-cld/README.md)
 +   [实体解析实用指南](docs/hsn-ent-rslt/README.md)
 +   [数据科学学习指南](docs/lrn-ds/README.md)
 +   [Python 自然语言处理第二版](docs/nlp-py-2e/README.md)
