@@ -1,0 +1,1445 @@
+- en: Chapter 7\. GATK Best Practices for Somatic Variant Discovery
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第7章 GATK 体细胞变异发现的最佳实践
+- en: In this chapter, we tackle somatic variant discovery, mainly as it applies to
+    cancer research. This is going to introduce new challenges and, correspondingly,
+    new experimental and computational designs. We begin with somatic short variants,
+    which still have a lot in common with germline short variants, with enough new
+    challenges to keep things interesting. Then we expand our horizons to include
+    copy-number variation, which involves a very different approach from what we’ve
+    taken so far.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论体细胞变异的发现，主要是在癌症研究中的应用。这将引入新的挑战，相应地，也将带来新的实验和计算设计。我们从体细胞短变异开始，这些变异与生殖细胞的短变异仍然有很多共同点，但也有足够的新挑战来保持事情的趣味性。然后我们扩展视野，包括拷贝数变异，这需要与我们迄今为止采取的方法大不相同。
+- en: Challenges in Cancer Genomics
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 癌症基因组学中的挑战
+- en: 'Before we get into the weeds, let’s make one thing clear: everything is more
+    difficult with respect to cancer. Consider what is happening in the body before
+    a tumor even begins to develop. Living cells in our bodies are not static; they
+    are metabolically active, taking in nutrients, doing work, and pumping out waste.
+    Some of them are dividing at various rates. Enzymes are unraveling DNA to transcribe
+    it and/or copy and repackage it. At the scale of a single cell, very few of those
+    molecular transactions ever go wrong, but because this is happening all the time
+    in millions of cells, the numbers add up to a lot of little things going wrong,
+    causing mutations across the board.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们深入探讨之前，让我们明确一件事：与癌症相关的所有事情都更加困难。考虑在肿瘤甚至开始发展之前，在身体中正在发生的事情。我们体内的活细胞并非静态；它们具有新陈代谢活跃，吸收营养，进行工作，并排出废物。其中一些以各种速率分裂。酶正在解开DNA以转录它和/或复制并重新包装它。在单个细胞的尺度上，这些分子交易中极少有错，但因为这在数百万个细胞中随时都在发生，所以数目上积累了许多小错误，导致全面的突变。
+- en: 'Most of the time, these mutations have no discernible effect whatsoever. But
+    from time to time, a mutation arises that destabilizes the affected cell’s metabolism
+    in a way that causes it to begin dividing more rapidly and produce a tumor. That’s
+    still not cancer yet, mind you; most tumors in our bodies remain relatively contained
+    and harmless. However, some then experience other destabilizing mutations that
+    kick off a chain reaction, leading to cancerous development, including aggressive
+    growth and in the worst-case scenario, *metastasis*: dissemination to other parts
+    of the body. The mutation events that drive this progression are appropriately
+    called *driver mutations*, in contrast to the others, which are called *passenger
+    mutations*. Driver mutations are typically the main focus of somatic analysis
+    in cancer research.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数情况下，这些突变根本没有可察觉的影响。但是偶尔会出现一种突变，使受影响的细胞的代谢不稳定，导致其开始更快地分裂并产生肿瘤。但这还不是癌症；我们体内的大多数肿瘤仍然相对局限和无害。然而，有些肿瘤随后经历其他的不稳定性突变，引发一连串反应，导致癌症的发展，包括侵袭性生长，最坏的情况下还可能发生*转移*：向身体的其他部位扩散。推动这种进展的突变事件通常被称为*驱动突变*，与其他被称为*乘客突变*的突变形成对比。在癌症研究中，驱动突变通常是体细胞分析的主要焦点。
+- en: The difficulty here is that as the tumor progresses, various metabolic functions
+    begin to break down and the cells lose their ability to repair damaged DNA. As
+    a result, the frequency of mutation events increases, and variants accumulate
+    in a variety of divergent cell lineages, producing a highly heterogeneous environment.
+    When a pathologist samples the tumor tissue, they end up extracting a mix of multiple
+    cell lines instead of the well-behaved population of largely clonal cells that
+    you expect from healthy tissue.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的困难在于随着肿瘤的进展，各种代谢功能开始崩溃，细胞失去修复受损DNA的能力。因此，突变事件的频率增加，变异在多种不同的细胞系中积累，产生高度异质的环境。当病理学家取样肿瘤组织时，他们得到的是多种细胞系的混合物，而不是健康组织中你所期望的主要是单克隆细胞的群体。
+- en: This is a huge problem for detecting somatic variation, because depending on
+    the internal state of the tumor tissue at the time we sample it, the variants
+    caused by driver mutations might be represented at only a low fraction of the
+    total genomic material. The most direct consequence is that we can’t allow the
+    variant caller to make any assumptions about the fraction of variant allele that
+    we expect to find. This is a big difference compared to the germline case, in
+    which variant allele fractions should roughly follow the ploidy of the organism.
+    That is why we use different variant callers for somatic versus germline variant
+    discovery analysis, which, under the hood, use different algorithms to model genomic
+    variation in the data.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这对检测体细胞变异是一个巨大的问题，因为依赖于我们取样时肿瘤组织的内部状态，由驱动突变引起的变异可能仅占总基因组材料的一小部分。最直接的后果是，我们不能允许变异调用程序对我们预期发现的变异等位基因分数做出任何假设。这与生殖系情况形成了很大差异，其中变异等位基因分数应大致遵循有丝分裂体的多倍性。这就是为什么我们在体细胞与生殖系变异发现分析中使用不同的变异调用程序的原因，这些程序在底层使用不同的算法来模拟数据中的基因组变异。
+- en: In addition, the sampling process itself introduces confounding factors. Depending
+    on the skill of the pathologist, the stage of progression of the tumor, and the
+    type of biological tissue affected, we can end up with a tumor sample that is
+    contaminated with healthy “normal” cells. Conversely, if we are able to obtain
+    a *matched normal sample*, a sample taken from supposed healthy tissue from the
+    same person—that sample can, in fact, be contaminated with low levels of tumor
+    cells, as depicted in [Figure 7-1](#aright_parenthesis_tumor_progression_le).
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，采样过程本身引入了混淆因素。根据病理学家的技能、肿瘤进展的阶段和生物组织类型的影响，我们可能会得到一种被健康“正常”细胞污染的肿瘤样本。相反，如果我们能够获得*匹配的正常样本*，即来自同一人的假定健康组织的样本—事实上，该样本可能受到低水平肿瘤细胞的污染，如[图7-1](#aright_parenthesis_tumor_progression_le)所示。
+- en: '![A) Tumor progression leads to heterogeneity; B) sampling is difficult.](Images/gitc_0701.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![A) 肿瘤进展导致异质性；B) 取样困难。](Images/gitc_0701.png)'
+- en: Figure 7-1\. Tumor progression leads to heterogeneity (left); sampling is difficult
+    (right).
+  id: totrans-9
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-1\. 肿瘤进展导致异质性（左）；取样困难（右）。
+- en: The practical consequence of all this for somatic variant analysis is that our
+    work will necessarily be deeply vulnerable to sources of contamination and error
+    because the signal we are trying to detect is much lower compared to the noise
+    that is present in the data, particularly in the case of advanced cancers.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些对体细胞变异分析的实际影响是，我们的工作必然对污染源和误差非常敏感，因为我们试图检测的信号远低于数据中存在的噪音，特别是在晚期癌症的情况下尤为如此。
+- en: Somatic Short Variants (SNVs and Indels)
+  id: totrans-11
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: '**体细胞短变异（SNV和Indels）**'
+- en: Let’s commence our exploration of somatic variant calling with short variants—SNVs
+    and indels. Some of the core concepts we cover here should feel familiar if you’ve
+    already worked through [Chapter 6](ch06.xhtml#best_practices_for_germline_short_varia),
+    and indeed some of the tools and underlying algorithms are the same. As we’ve
+    done previously, we’ll be looking at piles of reads and their exact sequences
+    to identify substitutions and small insertions and deletions.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们开始探索体细胞变异调用与短变异—SNV和indels。如果您已经阅读了[第6章](ch06.xhtml#best_practices_for_germline_short_varia)，这里涵盖的一些核心概念应该会让您感到耳熟能详，事实上，一些工具和底层算法也是相同的。与之前一样，我们将查看大量阅读材料及其确切序列，以识别替代和小插入及删除。
+- en: 'However, the basic experimental design that we follow is actually very different.
+    In germline variant discovery, we were mainly interested in identifying variants
+    that were present in some people but not in others, which led us to favor the
+    joint calling approach. In somatic variant discovery, we’re primarily looking
+    for differences between samples coming from the same person, so we will shift
+    our focus to a different paradigm: the *Tumor-Normal* pair analysis.'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我们实际遵循的基本实验设计却有很大不同。在生殖系变异发现中，我们主要关注的是在某些人中存在而在其他人中不存在的变异，这导致我们偏爱联合调用方法。在体细胞变异发现中，我们主要寻找的是来自同一人的样本之间的差异，因此我们将把焦点转移到另一种范式：*肿瘤-正常*
+    对分析。
+- en: The most useful source of information for identifying somatic short variants
+    in the context of cancer is the comparison of the tumor against a sampling of
+    healthy tissue from the same individual, which, as we said previously, is called
+    a *matched normal*, or often *normal* for short. The idea here is that any variation
+    observed in the normal sample is part of the germline genome of the individual
+    and can be discounted as background, whereas any variant observed in the tumor
+    sample that is not present in the normal sample is more likely to be a somatic
+    mutation, as demonstrated in [Figure 7-2](#the_fundamental_concept_of_tumor_normal).
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在癌症背景下，识别体细胞短变异的最有用信息来源是将肿瘤与同一个体的健康组织样本进行比较，正如我们之前提到的，这称为*匹配正常*，通常简称为*正常*。这里的思想是，在正常样本中观察到的任何变异都是个体的生殖基因组的一部分，可以排除为背景，而在肿瘤样本中观察到的任何在正常样本中不存在的变异更可能是体细胞突变，正如[图7-2](#the_fundamental_concept_of_tumor_normal)所示。
+- en: Unfortunately, some confounding factors muddy the waters. For example, biopsy
+    samples preserved with formalin and paraffin, a widely used laboratory technique
+    (FFPE, for formalin-fixed paraffin-embedded), are subject to biochemical alterations
+    that happen during sample preparation and cause patterns of false-positive variant
+    calls that are specific to the tumor sample. Conversely, the presence of tumor
+    cells in normal tissue (either due to contamination during sampling or metastatic
+    dispersion) can cause real somatic variants to be erroneously discounted as being
+    part of the germline of the individual. Finally, as we discussed earlier, the
+    various sources of technical error and contamination that affect all high-throughput
+    sequencing techniques to some degree will have a proportionately higher impact
+    on somatic calling. So, we will need to apply some robust processing and filtering
+    techniques to mitigate all these problems. (The overall workflow is illustrated
+    in [Figure 7-3](#best_practices_for_somatic_short_varian).)
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，一些混淆因素使情况变得更加复杂。例如，用福尔马林和石蜡保存的活检样本（FFPE，指福尔马林固定石蜡包埋），这是一种广泛使用的实验室技术，会在样本制备过程中发生生化改变，导致对肿瘤样本特定的假阳性变异调用模式。相反，正常组织中存在肿瘤细胞（无论是在取样过程中污染还是转移扩散过程中）可能会导致真正的体细胞变异被错误地认定为个体的生殖系变异。最后，正如我们之前讨论的，各种技术错误和污染源对所有高通量测序技术都会产生一定程度的影响，对体细胞变异调用的影响会更大一些。因此，我们需要应用一些强大的处理和过滤技术来减轻所有这些问题。（总体工作流程如图[7-3](#best_practices_for_somatic_short_varian)所示。）
+- en: '![The fundamental concept of Tumor-Normal comparison.](Images/gitc_0702.png)'
+  id: totrans-16
+  prefs: []
+  type: TYPE_IMG
+  zh: '![肿瘤-正常比较的基本概念。](Images/gitc_0702.png)'
+- en: Figure 7-2\. The fundamental concept of Tumor-Normal comparison.
+  id: totrans-17
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-2\. 肿瘤-正常比较的基本概念。
+- en: Before we get into the details of the Tumor-Normal workflow in the next subsection,
+    it’s important to note that sometimes it’s not possible to apply the full Tumor-Normal
+    pair analysis to a sample or set of samples, usually because we simply don’t have
+    matched normals for them. This is particularly frustrating when that lack comes
+    from an investigator’s failure to collect a matched normal from the participant
+    or patient. Such cases highlight the importance of making sure that researchers
+    map out the full analysis protocol before engaging in data collection. On the
+    other hand, in some cases it’s biologically impossible to obtain a matched normal;
+    for example, blood-borne cancers typically reach every tissue in the body, so
+    we can’t assume that any tissue sample would constitute an appropriate normal.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一小节详细介绍肿瘤-正常工作流程之前，重要的是要注意，有时候不可能对样本或一组样本应用完整的肿瘤-正常对分析，通常是因为我们没有为它们准备匹配的正常样本。当这种情况发生时，特别是因为调查者未能从参与者或患者那里收集到匹配的正常样本时，情况就会变得非常令人沮丧。这些案例突显了在进行数据收集之前，研究人员确保绘制出完整的分析方案的重要性。另一方面，在某些情况下，从生物学角度来看，获取匹配的正常样本是不可能的；例如，血液源性癌症通常能够影响身体的每个组织，因此我们不能假设任何组织样本都能构成适当的正常样本。
+- en: Whatever the reason for the absence of a matched normal, the workflow that we
+    present in the next subsection can be run on a tumor sample with only a few minor
+    modifications, which are detailed in the online [GATK documentation](https://oreil.ly/ZgIrB).
+    However, you should be aware that the results will necessarily be noisier because
+    you will be relying on the germline population resource to exclude the person’s
+    own germline genome.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论缺乏匹配正常样本的原因是什么，我们在下一小节中介绍的工作流程可以在仅进行少量修改的情况下应用于肿瘤样本，这些修改在在线 [GATK 文档](https://oreil.ly/ZgIrB)
+    中有详细说明。然而，您应该意识到结果必然会更加嘈杂，因为您将依赖于种群资源来排除个体自身的基因组。
+- en: Overview of the Tumor-Normal Pair Analysis Workflow
+  id: totrans-20
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 肿瘤-正常配对分析工作流程概述
+- en: This workflow, illustrated in [Figure 7-3](#best_practices_for_somatic_short_varian),
+    is designed to be applied to a tumor sample and its matched normal. We can apply
+    it equally to whole genome data as well as exome data, but both the tumor and
+    the normal must be of the same data type and have been run through the same preprocessing
+    workflow, as we described for germline variant discovery.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个工作流程，如 [图7-3](#best_practices_for_somatic_short_varian) 所示，旨在应用于肿瘤样本及其匹配的正常样本。我们可以同样应用于全基因组数据以及外显子组数据，但是肿瘤和正常样本必须是相同的数据类型，并且经过相同的预处理工作流程，就像我们为配对的基因组变异发现所描述的那样。
+- en: '![Best Practices for somatic short variant discovery.](Images/gitc_0703.png)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: '![somatic short variant 发现的最佳实践。](Images/gitc_0703.png)'
+- en: Figure 7-3\. Best Practices for somatic short variant discovery.
+  id: totrans-23
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-3\. somatic short variant 发现的最佳实践。
+- en: 'The main variant calling step, which involves a tool called `Mutect2`, is applied
+    on both the tumor and the normal sample, with the addition of two important resources:
+    a Panel of Normals (PoN) and a database of germline population frequencies of
+    all germline variants that have been previously reported. The PoN is a resource
+    that allows us to eliminate common technical artifacts; we dedicate the next subsection
+    to explaining how it works and how to create one, although you won’t run it yourself
+    for practical reasons. We talk about the germline population frequencies resource
+    in [“Filtering Mutect2 Calls”](#filtering_mutect2_calls). The filtering process
+    will take into account read orientation statistics, an estimate of cross-sample
+    contamination, germline background, and concordance with the PoN. Finally, we
+    apply functional annotation to the variant callset to predict the effect of candidate
+    variants.'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主要的变异调用步骤，涉及一个名为 `Mutect2` 的工具，应用于肿瘤和正常样本，同时添加了两个重要资源：一个正常样本汇总（PoN）和一个包含先前报告的所有基因组变异的基因组种群频率数据库。
+    PoN 是一个资源，允许我们消除常见的技术性伪迹；我们在下一小节专门解释它的工作原理以及如何创建一个，尽管出于实际原因您不会自己运行它。我们在 [“过滤 Mutect2
+    调用”](#filtering_mutect2_calls) 中讨论基因组种群频率资源。过滤过程将考虑读取方向统计、跨样本污染估计、基因型背景和与 PoN
+    的一致性。最后，我们对变异调用集应用功能注释，以预测候选变异的影响。
+- en: Creating a Mutect2 PoN
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创建 Mutect2 PoN
+- en: The PoN is a callset in VCF format that aims to capture common recurring artifacts,
+    so we can filter those out if we encounter them in our tumor data. We generate
+    it by running the somatic caller, `Mutect2`, on a set of normal samples that were
+    produced with the same sequencing and library preparation technologies as our
+    tumor sample. The idea is that we’re asking the caller to show us everything it
+    could consider a somatic variant, excluding obvious germline variants (unless
+    otherwise specified). Because these are normals, not tumor samples, we can reasonably
+    assume that any variant calls that are produced this way are either germline variants
+    or artifacts. For those that are more likely to be artifacts, we can therefore
+    further assume that if we see the same artifacts in multiple normals, they might
+    have been caused by the technological processes involved, so we can expect to
+    see them pop up in some of our tumor samples that were processed the same way.
+    If we do see them, we’ll want to discount their likelihood of being real somatic
+    variants.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PoN 是一个以 VCF 格式呈现的调用集，旨在捕获常见的重复性人工产生的变异，因此如果在我们的肿瘤数据中遇到它们，我们可以将其过滤掉。我们通过在一组与我们的肿瘤样本使用相同测序和文库准备技术生产的正常样本上运行
+    somatic 调用器 `Mutect2` 来生成它。这个想法是，我们要求调用器展示它可能考虑为体细胞变异的一切，排除明显的生殖变异（除非另有说明）。因为这些是正常样本，而不是肿瘤样本，我们可以合理地假设以这种方式产生的任何变异调用要么是生殖变异，要么是人工产生的。对于更有可能是人工产生的那些，我们因此可以进一步假设，如果我们在多个正常样本中看到相同的人工产生的变异，那么它们可能是由涉及的技术过程引起的，因此我们可以期望在以相同方式处理的一些肿瘤样本中看到它们出现。如果我们看到它们，我们将希望降低它们是真实体细胞变异的可能性。
+- en: Note
+  id: totrans-27
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The normal samples used for making the PoN usually come from people who are
+    unrelated to the person whose tumor we are analyzing. They can be matched normals
+    from other cancer research participants or germline samples collected from healthy
+    individuals in unrelated research projects, as long as the appropriate consents
+    have been provided. The background genetics of the participants or their population
+    of origin don’t really matter; it’s all about the technical profile of the data.
+    Ideally, we want to include at least 40 samples; most PoNs used for research purposes
+    at the Broad Institute are composed of several hundred samples.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 制作 PoN 时使用的正常样本通常来自与我们分析肿瘤的人无关的人。它们可以是其他癌症研究参与者的匹配正常样本，也可以是从无关研究项目中收集的健康个体的生殖系样本，只要提供了适当的同意。参与者的背景遗传学或其来源人口并不重要；关键在于数据的技术特征。理想情况下，我们希望包括至少
+    40 个样本；在 Broad Institute 用于研究目的的大多数 PoN 由数百个样本组成。
+- en: We won’t run the PoN creation commands in this chapter, because they would take
+    too long to run. Instead, we demonstrate usage with some generic command lines.
+    You can find links to full implementations in the [GATK Best Practices documentation](https://oreil.ly/ZgIrB).
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会在本章中运行 PoN 创建命令，因为运行时间太长。相反，我们将使用一些通用命令行演示用法。您可以在[GATK 最佳实践文档](https://oreil.ly/ZgIrB)中找到完整实现的链接。
+- en: 'If we were to do this, we would first run `Mutect2` in tumor-only mode on the
+    normals selected to be in our PoN. We would do this separately on all the normals
+    in our panel. The following command (and subsequent ones in this section) are
+    just examples; we’ll have you execute commands on your VM a little later:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们要这样做，我们将首先在选定为 PoN 的正常样本上以肿瘤单模式运行 `Mutect2`。我们将在面板中的所有正常样本上分别执行此操作。以下命令（以及本节中的后续命令）仅为示例；稍后我们将让您在虚拟机上执行命令：
+- en: '[PRE0]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This command applies the somatic variant calling model to the normal tissue
+    sample’s BAM file and produces a VCF file of calls that are most likely all either
+    artifacts or germline variants.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令将 somatic 变异调用模型应用于正常组织样本的 BAM 文件，并生成一个 VCF 文件，其中包含最有可能是人工产生的或生殖变异的调用。
+- en: Note
+  id: totrans-33
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The `--max-mnp-distance 0` setting disables the tool’s ability to combine neighboring
+    SNVs into multinucleotide variants in order to maximize comparability across all
+    the normals in the PoN that we’re putting together.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--max-mnp-distance 0` 设置禁用了工具将相邻 SNV 合并为多核苷酸变体的能力，以最大化 PoN 中所有正常样本之间的可比性。'
+- en: 'Next, we would consolidate all the per-normal VCFs using `GenomicsDB`, which
+    you might recognize from the germline joint calling workflow. At that time, we
+    were consolidating GVCFs, whereas here we’re working with regular VCFs, but it
+    doesn’t make any difference: the `GenomicsDB` tools are quite happy to work with
+    either type of VCF:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将使用 `GenomicsDB` 整合所有每个正常样本的 VCF 文件，您可能会从有关配对调用的常规流程中认出它。当时我们在整合 GVCFs，而在这里我们使用的是常规的
+    VCFs，但这并没有任何区别：`GenomicsDB` 工具能够轻松处理任何类型的 VCF：
+- en: '[PRE1]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Finally, we would extract the calls that are relevant to the goals of the PoN.
+    By default, the rule is to keep any variant call observed in two or more samples
+    but below a certain frequency threshold in the germline population resource:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们将提取与 PoN 目标相关的调用。默认情况下，规则是保留在两个或更多样本中观察到的任何变异调用，但低于特定频率阈值的人群资源：
+- en: '[PRE2]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: You might recognize [gnomAD](https://oreil.ly/gNICj) as the population resource
+    we used in [Chapter 6](ch06.xhtml#best_practices_for_germline_short_varia), in
+    the single-sample filtering protocol. The gnomAD database is a public resource
+    that includes variant calls from more than 100,000 people, and for each, it provides
+    the frequency at which each allele is found in the population of the database.
+    We use that information here to gauge the likelihood that a variant call that
+    shows up in several normals in the panel might in fact be a germline variant rather
+    than a recurring artifact.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能会认识到 [gnomAD](https://oreil.ly/gNICj) 是我们在[第六章](ch06.xhtml#best_practices_for_germline_short_varia)中使用的人群资源，在单样本过滤协议中。gnomAD
+    数据库是一个公共资源，包含来自超过 100,000 人的变异调用，并为每个人提供每个等位基因在数据库人群中的频率。我们在这里使用该信息来评估在面板中显示在多个正常样本中的变异调用，实际上可能是一种生殖细胞变异，而不是一个经常出现的人工产物。
+- en: 'This generates the final VCF that we will use as a PoN. It does not include
+    any of the sample genotypes; only site-level information is retained. We provide
+    an example PoN that you can examine with good old `zcat`, `grep`, and `head`,
+    as we’ve done previously, if you want to see the structure of the information
+    within the file (execute this command in the */home/book/data/somatic* directory
+    inside the GATK container):'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将生成我们将用作 PoN 的最终 VCF。它不包括任何样本基因型；仅保留位点级别的信息。我们提供一个示例 PoN，您可以像之前一样使用 `zcat`、`grep`
+    和 `head` 来查看文件内部的结构（在 GATK 容器内 */home/book/data/somatic* 目录中执行此命令）：
+- en: '[PRE3]'
+  id: totrans-41
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Note that this example PoN file includes data only in a subset of regions of
+    interest that are located within chromosome 6, chromosome 11, and chromosome 17.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，此示例 PoN 文件仅包含位于染色体 6、染色体 11 和染色体 17 内感兴趣区域的数据。
+- en: Running Mutect2 on the Tumor-Normal Pair
+  id: totrans-43
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 运行 Mutect2 对肿瘤-正常配对样本进行分析
+- en: 'Now that you know how to create a PoN, let’s move to the main event of this
+    section, which consists of running `Mutect2` on the Tumor-Normal pair using a
+    PoN that we created for you from 40 publicly available normal samples from the
+    1000 Genomes Project. Just as in [Chapter 6](ch06.xhtml#best_practices_for_germline_short_varia),
+    we’re going to do this work within the GATK container on our trusty VM, so turn
+    on your VM if it’s not already running, and spin up the GATK container as we showed
+    you in [Chapter 5](ch05.xhtml#first_steps_with_gatk). This time, however, our
+    working directory is */home/book/data/somatic*, and we’ll need to make another
+    sandbox:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经知道如何创建 PoN 了，让我们进入本节的主要内容，即使用我们从 1000 基因组计划的 40 个公共正常样本中为您创建的 PoN，在肿瘤-正常样本对上运行
+    `Mutect2`。就像在[第六章](ch06.xhtml#best_practices_for_germline_short_varia)中一样，我们将在我们值得信赖的
+    VM 上的 GATK 容器中完成这项工作，所以如果您的 VM 还没有运行，请启动它，并按照我们在[第五章](ch05.xhtml#first_steps_with_gatk)中所示的方式启动
+    GATK 容器。不过这次，我们的工作目录是 */home/book/data/somatic*，我们需要创建另一个沙盒：
+- en: '[PRE4]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'We run `Mutect2` on the Tumor-Normal pair together, specifying which sample
+    name (as encoded in the `SM` tag in the BAM file) should be used for the normal
+    with the `-normal` argument. We provide the PoN and the gnomAD germline resource
+    with the `-pon` and `--germline-resource` arguments, respectively. Plus, we specify
+    intervals (using `-L` and an interval list file) because we’re running on exome
+    data:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们一起对肿瘤-正常样本对运行 `Mutect2`，指定在 BAM 文件中使用 `-normal` 参数编码的正常样本名称。我们提供 PoN 和 gnomAD
+    基因组资源，分别使用 `-pon` 和 `--germline-resource` 参数。此外，我们指定间隔（使用 `-L` 和间隔列表文件），因为我们正在处理外显子数据：
+- en: '[PRE5]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'This will run for a few minutes, so it’s a good time to take a stretch break.
+    After about five minutes, you should see the completion message from `Mutect2`:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将运行几分钟，所以现在是伸展一下的好时机。大约五分钟后，您应该能看到来自`Mutect2`的完成消息：
+- en: '[PRE6]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This `Mutect2` command produces a VCF file containing possible variant calls
+    as well as a bamout file. You might remember the bamout file from the exercises
+    we ran with `HaplotypeCaller` in [Chapter 5](ch05.xhtml#first_steps_with_gatk);
+    this is the same thing. `Mutect2` is built on most of the same code as `HaplotypeCaller`,
+    and pulls the same graph-based realignment trick to improve sensitivity to indels.
+    The big difference between them is the genotyping model. For more information
+    on their respective algorithms, see the `Haplotype​Caller` and `Mutect2` documentation
+    on [GATK’s website](https://oreil.ly/Bits1). For now, just keep in mind that `Mutect2`
+    also realigns the reads, so if we want to look at the read data as part of the
+    variant review process later on, we’ll need the bamout. Because this is something
+    analysts do very frequently for somatic calls (much more, relatively speaking,
+    than for germline calls) we just set the `Mutect2` command to produce the bamout
+    systematically.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个`Mutect2`命令生成一个包含可能变异调用的VCF文件以及一个bamout文件。你可能还记得我们在[第5章](ch05.xhtml#first_steps_with_gatk)中与`HaplotypeCaller`一起运行的练习中的bamout文件；这是同一件事。`Mutect2`是建立在与`HaplotypeCaller`大部分相同的代码上，并使用相同的基于图的重对齐技巧来提高对插入缺失的灵敏度。它们之间的主要区别在于基因分型模型。有关它们各自算法的更多信息，请参阅[GATK网站](https://oreil.ly/Bits1)上的`Haplotype​Caller`和`Mutect2`文档。目前，只需记住`Mutect2`也会重新对齐读取，因此如果我们稍后想要查看读取数据作为变异审查过程的一部分，我们将需要bamout。因为这是分析员在体细胞调用中非常频繁做的事情（相对而言，比对生殖细胞调用更频繁），所以我们只需系统地设置`Mutect2`命令来生成bamout。
+- en: Estimating Cross-Sample Contamination
+  id: totrans-51
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 估计跨样本污染
+- en: As we outlined earlier, identification of somatic mutations is more heavily
+    affected by sources of low-grade noise than the germline case. Even small amounts
+    of contamination between samples (which happens more often than researchers like
+    to think) can confuse the caller and lead to a lot of FPs. Indeed, we have no
+    direct way to distinguish between an allele that shows up in the data because
+    there is a real mutation in the biological tissue, and one that shows up because
+    our sample is contaminated with DNA from someone else who has that allele in their
+    germline.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前概述的，鉴定体细胞突变受到低级噪音来源的影响更大，而不是生殖细胞情况。即使很小量的样本间污染（比研究人员愿意承认的情况要多）也会让呼叫者困惑，并导致大量的FP。事实上，我们没有直接的方法来区分数据中出现的等位基因是否因为生物组织中存在真正的突变，还是因为我们的样本被来自其他人的DNA污染，而这个人的生殖细胞中具有这种等位基因。
+- en: We can’t directly correct for such contamination, but we can estimate how much
+    it affects any given sample. From there, we can flag any mutation calls that are
+    observed at an allelic fraction equal to or smaller than the contamination rate.
+    It doesn’t mean we rule out those calls as being necessarily false, but it does
+    mean we’ll be extra skeptical of those calls when we move on to the next phase
+    of analysis.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们无法直接对这种污染进行校正，但我们可以估计它对任何给定样本的影响程度。从这里开始，我们可以标记任何等于或小于污染率的等位分数观察到的突变调用。这并不意味着我们把这些调用彻底排除为假，但这确实意味着在我们进行下一个分析阶段时，我们会对这些调用持更加怀疑的态度。
+- en: To estimate the contamination rate in our tumor sample, we first identify homozygous-variant
+    sites in the Normal to choose what sites to look at in the Tumor and then evaluate
+    how much contamination we might have in the tumor based on the fraction of reads
+    supporting the reference allele at those sites. The idea is that because those
+    sites should be homozygous variant, any reference reads present must have come
+    from someone else through a contamination event.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要估计我们肿瘤样本中的污染率，我们首先在正常样本中识别同种异变位点，以选择在肿瘤中查看的位点，然后根据这些位点支持参考等位基因的读取比例来评估我们在肿瘤中可能有多少污染。这个想法是因为这些位点应该是同种异变的，任何参考序列的读数都必须来自于其他人通过污染事件。
+- en: 'To select the sites that we use in the calculation, we look at biallelic sites
+    that are found in a catalog of common variation (so that there’s a good chance
+    they will be relevant) but have an alternate allele frequency that is rather low
+    (so there won’t be too much noise from alternate alleles). Then, for every site
+    in that subset, we do a quick pileup-based genotyping run to identify those that
+    are homozygous-variant in that sample. We do this on both the tumor sample and
+    the matched normal:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了选择我们在计算中使用的站点，我们查看了在常见变异目录中找到的双等位基因位点（这样有很大可能性它们是相关的），但是其备用等位基因频率相当低（因此不会有太多来自备用等位基因的噪声）。然后，对于该子集中的每个位点，我们进行了基于堆积的快速基因分型运行，以识别在该样本中为同种合子变体的位点。我们在肿瘤样本和匹配正常样本上都这样做：
+- en: '[PRE7]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: These two commands should run very quickly. If you see a warning about the `GetPileupSummaries`
+    tool being in a beta evaluation stage and not yet ready for production, you can
+    ignore it; this is a leftover of the development process and will be removed in
+    the near future.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个命令应该运行非常快。如果看到关于 `GetPileupSummaries` 工具处于 beta 评估阶段且尚未准备好投入生产的警告，可以忽略它；这是开发过程中的遗留问题，将在不久的将来移除。
+- en: Note
+  id: totrans-58
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: GATK developers tend to be very cautious and label their tools as alpha or beta
+    when they start working on them, to make sure that researchers don’t mistake an
+    experimental tool for something that has been fully vetted. However, they sometimes
+    forget to remove or update those labels when the tools have been fully vetted,
+    so the warnings remain longer than necessary. If you’re ever in doubt about the
+    state of a particular tool, don’t hesitate to ask the support team by posting
+    in the [community support forum](https://oreil.ly/KmHzX).
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GATK 开发人员在开始工作时往往非常谨慎，并将他们的工具标记为 alpha 或 beta 版本，以确保研究人员不会误将实验性工具误认为已完全经过审核的工具。然而，有时候当工具经过完全审核后，他们会忘记移除或更新这些标签，因此警告会比必要的时间更长地存在。如果你对特定工具的状态感到怀疑，请毫不犹豫地在
+    [社区支持论坛](https://oreil.ly/KmHzX) 中向支持团队提问。
+- en: 'Each run produces a table that summarizes the allelic counts at each site that
+    was selected as well as the allele frequency annotated in the population resource:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次运行都会生成一张表，总结每个被选中站点的等位基因计数以及在种群资源中注释的等位基因频率：
+- en: '[PRE8]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Now we can do the actual estimation by providing both tables to the calculator
+    tool:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以通过向计算工具提供这两张表来进行实际的估计：
+- en: '[PRE9]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'This command produces a final table that tells us the likely rate of cross-sample
+    contamination in the Tumor callset. Viewing the contents of the file shows us
+    that the level of contamination of the tumor is estimated at 1.15%, with an error
+    of 0.19%:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该命令生成一张最终表格，告诉我们肿瘤调用集中交叉样品污染的可能率。查看文件内容后，我们发现肿瘤的污染估计率为1.15%，误差为0.19%：
+- en: '[PRE10]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: This means that one read out of every hundred is likely to come from someone
+    else. This percentage will effectively be our floor for detecting low-frequency
+    somatic events; for any potential variant called at or below that AF, we would
+    have zero power to judge whether they were real or created through contamination.
+    And even a larger AF could be due entirely to contamination. We’ll feed the table
+    into the filtering tool so that it can take the contamination estimate properly
+    into account.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着每百个读取中可能有一个来自他人。这个百分比将有效地成为我们检测低频率体细胞事件的底线；对于任何在该等位频率或以下调用的潜在变异，我们将无法判断它们是真实存在还是由污染引起的。即使较大的等位频率也可能完全由污染引起。我们将向过滤工具提供这个表格，以便它能正确考虑污染估计。
+- en: Filtering Mutect2 Calls
+  id: totrans-67
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 过滤 Mutect2 调用
+- en: 'Much like `HaplotypeCaller`, `Mutect2` is designed to be very sensitive and
+    capture as many true positives as possible. As a result, we know that the raw
+    callset will be rife with false positives of various types. To filter these calls,
+    we’re going to use a tool called `FilterMutectCalls`, which filters calls based
+    on a single quantity: the probability that a variant is a somatic mutation. Internally
+    the tool takes into account multiple factors, including the germline population
+    frequencies provided during the variant-calling step, the contamination estimates,
+    and the read orientation statistics computed earlier. After it has calculated
+    that probability for each variant call, the tool then determines the threshold
+    that optimizes the *F score,* the harmonic mean of sensitivity and precision across
+    the entire callset. As a result, we can simply run this one command to apply default
+    filtering to our callset:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似于`HaplotypeCaller`，`Mutect2`被设计为非常敏感，以捕获尽可能多的真阳性。因此，我们知道原始调用集将充斥各种类型的假阳性。为了过滤这些调用，我们将使用一个称为`FilterMutectCalls`的工具，该工具基于一个量过滤变异：变异是体细胞突变的概率。在内部，该工具考虑了多个因素，包括在变异调用步骤中提供的种群频率，污染估计和先前计算的读取方向统计。在计算了每个变异调用的概率后，工具然后确定了优化*F分数*的阈值，这是整个调用集敏感性和精度的调和平均数。因此，我们只需运行这个命令即可对我们的调用集应用默认过滤：
+- en: '[PRE11]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The main output of this operation is the VCF output file containing all variants
+    with filter annotations applied as appropriate:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此操作的主要输出是包含所有变异的VCF输出文件，并根据需要应用过滤器注释：
+- en: '[PRE12]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Note
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you want to tweak the balance point one way or the other, you can adjust
+    the relative weight of sensitivity versus precision in the harmonic mean. Setting
+    the `-f-score-beta` parameter to a value greater than its default of `1` increases
+    sensitivity, whereas setting it lower favors greater precision.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想调整平衡点，您可以调整灵敏度与精度的相对权重在调和平均数中。将`-f-score-beta`参数设置为大于其默认值`1`的值会增加灵敏度，而将其设置为更低则有利于更大的精度。
+- en: Alright, it’s time to have a look at the calls we produced in IGV. You might
+    have noticed that we’re now working with the hg38 reference build, so we’ll need
+    to adjust the reference setting in IGV before we can try to load any files.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好了，现在是时候在IGV中查看我们产生的调用了。您可能已经注意到，我们现在正在使用hg38参考构建，因此在尝试加载任何文件之前，我们需要调整IGV中的参考设置。
+- en: 'You’re going to load the following files: the original BAM files for the Tumor
+    and the Normal, the bamout generated by `Mutect2`, and the filtered callset. Identify
+    the files based on the commands you ran a moment ago and then follow the same
+    procedure as in [Chapter 4](ch04.xhtml#first_steps_in_the_cloud) through [Chapter 6](ch06.xhtml#best_practices_for_germline_short_varia)
+    to copy the files to your Google Cloud Storage bucket and then load them in IGV
+    using the File > URL pathway.'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要加载以下文件：肿瘤和正常的原始BAM文件，由`Mutect2`生成的bamout文件以及经过过滤的调用集。根据刚才运行的命令识别文件，然后按照[第4章](ch04.xhtml#first_steps_in_the_cloud)到[第6章](ch06.xhtml#best_practices_for_germline_short_varia)中的相同步骤将文件复制到您的Google
+    Cloud Storage存储桶中，并使用File > URL路径在IGV中加载它们。
+- en: In IGV, set the view coordinates to `**chr17:7,666,402-7,689,550**` after the
+    files are loaded, as shown in [Figure 7-4](#zooming_in_on_tp53_in_igvdot), which
+    are centered on the TP53 locus. We care about this gene because it is known as
+    a tumor suppressor; it is activated by DNA damage and produces a protein called
+    p53 that can either repair the damage or trigger killing off the cell. Any mutations
+    to this gene that interfere with this very important function could contribute
+    to allowing unchecked tumor development.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在加载文件后，将IGV的视图坐标设置为`**chr17:7,666,402-7,689,550**`，如[图7-4](#zooming_in_on_tp53_in_igvdot)所示，这些坐标围绕TP53基因座中心。我们关注这个基因是因为它被称为肿瘤抑制因子；它被DNA损伤激活，并产生一种名为p53的蛋白质，可以修复损伤或触发杀死细胞。对这一基因的任何突变可能会干扰这个非常重要的功能，从而促使未受控制的肿瘤发展。
+- en: To review this call in detail, zoom into the somatic call in the output BAM
+    track, using coordinates `**chr17:7,673,333-7,675,077**`. Hover over or click
+    the gray call in the variant track to view annotations, and try scrolling through
+    the data to evaluate the amount of coverage for each sample. In the sequence tracks,
+    we see a C to T variant light up in red for the Tumor but not the Normal ([Figure 7-4](#zooming_in_on_tp53_in_igvdot)).
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要详细查看这个调用，请放大输出 BAM 跟踪中的体细胞调用，使用坐标 `**chr17:7,673,333-7,675,077**`。悬停或点击变异跟踪中的灰色调用以查看注释，并尝试滚动数据以评估每个样本的覆盖量。在序列跟踪中，我们看到肿瘤中的
+    C 到 T 变异以红色突出显示，但正常样本中没有（[图 7-4](#zooming_in_on_tp53_in_igvdot)）。
+- en: '![Zooming in on TP53 in IGV.](Images/gitc_0704.png)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在 IGV 中放大 TP53。](Images/gitc_0704.png)'
+- en: Figure 7-4\. Zooming in on TP53 in IGV.
+  id: totrans-79
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-4\. 在 IGV 中放大 TP53。
+- en: What do you think of this somatic variant call?
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您如何看待这个体细胞变异调用？
+- en: Annotating Predicted Functional Effects with Funcotator
+  id: totrans-81
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 Funcotator 注释预测的功能影响
+- en: Filtering somatic mutation calls can be an especially daunting task compared
+    to their germline equivalent. It can therefore be particularly helpful to annotate
+    the calls with predicted functional effects and their significance. For example,
+    a stop codon in the middle of a protein coding region is likely to be more significant
+    than a mutation in the middle of an intron. Knowing this about your calls can
+    help you prioritize which ones you spend time investigating in depth.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 筛选体细胞突变调用可能比其生殖等价物更具挑战性。因此，用预测的功能影响和其重要性注释调用可能特别有帮助。例如，蛋白质编码区域中间的终止密码子可能比内含子中间的突变更为显著。了解这些关于您调用的信息可以帮助您确定哪些值得深入调查。
+- en: To gauge functional impact, we need to know which regions of the genome code
+    for protein sequence and which correspond to elements important to gene expression.
+    Transcript annotation resources such as [GENCODE](https://www.gencodegenes.org)
+    capture such information in the standardized [Gene Transfer Format](https://oreil.ly/SDmFX)
+    (GTF). The GATK team provides a [set of resources](https://oreil.ly/LDGdM) containing
+    compiled functional annotation resources, or datasources, that are suitable for
+    many common functional annotation needs as well as a tool called `Funcotator`
+    to annotate your callset with information from these datasources. You can also
+    create your own custom data sources. In addition, although `Funcotator` outputs
+    results in VCF by default, you can make it output Mutation Annotation Format (MAF),
+    instead, which the cancer genomics community uses extensively. See the [Funcotator
+    documentation](https://oreil.ly/6qw0X) for details on both options.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要评估功能影响，我们需要知道基因组中编码蛋白质序列的区域，以及与基因表达重要的元素对应的区域。例如，像 [GENCODE](https://www.gencodegenes.org)
+    这样的转录注释资源在标准化的 [Gene Transfer Format](https://oreil.ly/SDmFX)（GTF）中捕获了这些信息。GATK
+    团队提供了一组资源，其中包括编译的功能注释资源或数据源，适用于许多常见的功能注释需求，以及一个名为 `Funcotator` 的工具，可以使用这些数据源的信息为您的调用集进行注释。您也可以创建自己的定制数据源。此外，虽然
+    `Funcotator` 默认输出 VCF 格式的结果，但您也可以使其输出突变注释格式（MAF），这在癌症基因组学社区中被广泛使用。详细信息请参阅 [Funcotator
+    文档](https://oreil.ly/6qw0X)。
+- en: 'For now, though, let’s apply `Funcotator` to our filtered `Mutect2` callset:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们把 `Funcotator` 应用到我们筛选过的 `Mutect2` 调用集中：
+- en: '[PRE13]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'This runs very quickly and produces a VCF in which our somatic callset has
+    now been lovingly annotated based on the GENCODE functional data. Here’s a sneak
+    peek of what the annotations look like in their natural habitat:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个过程非常快速，生成的 VCF 文件已经根据 GENCODE 的功能数据进行了精心注释。这里是这些注释在其自然环境中的初步展示：
+- en: '[PRE14]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Now let’s have a look at the annotations specifically for the TP53 mutation
+    that we viewed earlier in IGV, at chr17:7674220:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们专门查看我们之前在 IGV 中查看的 TP53 突变的注释，位置在 chr17:7674220：
+- en: '[PRE15]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: This SNV is a C-to-T substitution that is predicted to cause an arginine-to-glutamine
+    *missense mutation*. Missense mutations change the protein that is produced from
+    the gene, which can be functionally neutral, but can also have deleterious effects.
+    If we look at the rest of the file, out of our 124 mutation records, 21 were annotated
+    as `MISSENSE`; and of these, 10 passed all filters. That information should help
+    us prioritize what to investigate in the next stage of our analysis.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个单核苷酸变异是一个 C-to-T 替换，预测会导致一个 *错义突变*，将精氨酸变为谷氨酰胺。错义突变会改变从基因产生的蛋白质，这可能在功能上是中性的，但也可能具有有害效应。如果我们看一下文件的其余部分，在我们的
+    124 个突变记录中，有 21 个被注释为 `MISSENSE`；其中有 10 个通过了所有的过滤器。这些信息应该有助于我们在分析的下一阶段确定要调查的内容。
+- en: With that, we’re done with the Tumor-Normal pair analysis workflow for discovery
+    of somatic SNVs and indels! Next, we’re going to go over the process we apply
+    for investigating somatic copy-number alterations.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 至此，我们完成了肿瘤-正常对分析工作流程，用于发现体细胞SNVs和indels！接下来，我们将详细讨论我们用于调查体细胞复制数变化的流程。
+- en: Note
+  id: totrans-92
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you’re taking a break before continuing on with the next section, consider
+    stopping your VM to avoid paying for it while you’re away living your best life.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在继续下一节之前休息，请考虑停止您的虚拟机以避免在您离开享受生活时支付费用。
+- en: Somatic Copy-Number Alterations
+  id: totrans-94
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 基因组中的体细胞复制数改变
+- en: So far, we’ve been looking exclusively at small variants, SNVs, and indels that
+    are characterized based on the presence or absence of specific nucleotides compared
+    to the reference sequence. Moving to the copy number involves a big mental (and
+    methodological!) shift given that now we’re going to be looking at the *relative
+    amounts of sequence* in the sample of interest, measured relative to itself ([Figure 7-5](#difference_between_copy_number_and_copy)
+    and [Figure 7-6](#spectral_karyotyping_paints_each_chromo)). In other words, we’re
+    not actually going to measure the copy number that is physically present in the
+    biological material. What we measure is the copy ratio, which we use as a proxy
+    because it is a *consequence* of copy-number alterations (CNAs). As part of that
+    process, we’re going to use the reference genome primarily as a coordinate system
+    for defining segments that display CNAs.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直在专注于小变异、单核苷酸变体（SNVs）和插入/缺失变异（indels），这些变异是基于相对于参考序列特定核苷酸的存在或缺失进行特征化的。转向复制数涉及到一个重大的心理（和方法论上的！）转变，因为现在我们将要观察样本中感兴趣的相对序列量，相对于其自身进行测量（参见
+    [Figure 7-5](#difference_between_copy_number_and_copy) 和 [Figure 7-6](#spectral_karyotyping_paints_each_chromo)）。换句话说，我们实际上不会测量生物材料中物理存在的复制数。我们测量的是复制比，这是一种代用品，因为它是复制数变化（CNAs）的结果。作为这一过程的一部分，我们将主要使用参考基因组作为一个坐标系统，用来定义显示CNAs的片段。
+- en: As shown in [Figure 7-5](#difference_between_copy_number_and_copy), the *copy
+    number* is the absolute, integer-valued number of copies of each locus (i.e.,
+    gene or other meaningful segment of DNA). The copy ratio is the relative, real-valued
+    ratio of the number of copies of each locus to the average ploidy.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [Figure 7-5](#difference_between_copy_number_and_copy) 所示，*复制数* 是每个位点（即基因或其他有意义的DNA片段）的绝对整数值复制数。复制比是每个位点的复制数与平均倍性的相对实数比率。
+- en: '![Difference between copy number and copy ratio.](Images/gitc_0705.png)'
+  id: totrans-97
+  prefs: []
+  type: TYPE_IMG
+  zh: '![复制数和复制比之间的区别。](Images/gitc_0705.png)'
+- en: Figure 7-5\. Difference between copy number and copy ratio.
+  id: totrans-98
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-5\. 复制数和复制比之间的区别。
+- en: '[Figure 7-6](#spectral_karyotyping_paints_each_chromo) shows the striking contrast
+    in genomic composition between a normal cell line that has the expected copy number
+    for all chromosomes (left) and a cancer cell line that has suffered multiple major
+    CNAs (right), not to mention a variety of structural alterations. For the normal
+    cell line in this figure (and indeed, most healthy human cells), any given chromsome’s
+    copy number is 2 and its copy ratio is 1\. Meanwhile, in the cancer cell line,
+    there is a lot of variation between chromosomes; for example, it looks like the
+    copy number for chromosome 7 is 5, whereas for chromosome 12 it is 3, and we can’t
+    really guess their copy ratio because the alterations are so extensive that we
+    don’t have a good sense of the average ploidy of this genome.'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Figure 7-6](#spectral_karyotyping_paints_each_chromo) 显示了正常细胞系和癌细胞系之间基因组组成的显著对比。在这张图中，正常细胞系（事实上，大多数健康的人类细胞）任何给定染色体的复制数为2，其复制比为1。与此同时，在癌细胞系中，染色体之间存在大量变异；例如，染色体7的复制数看起来是5，而染色体12的复制数是3，我们无法准确猜测它们的复制比，因为这些改变非常广泛，我们对该基因组的平均倍性没有一个良好的了解。'
+- en: '![Spectral karyotyping paints each chromosome pair with a color, showing various
+    chromosomal segments that are amplified or missing (colors in left and right panels
+    are not expected to match).](Images/gitc_0706.png)'
+  id: totrans-100
+  prefs: []
+  type: TYPE_IMG
+  zh: '![光谱核型染色技术（spectral karyotyping）用彩色标记每对染色体，显示被放大或缺失的各种染色体片段（左右面板中的颜色不必匹配）。](Images/gitc_0706.png)'
+- en: Figure 7-6\. Spectral karyotyping paints each chromosome pair with a color,
+    showing various chromosomal segments that are amplified or missing (colors in
+    left and right panels are not expected to match).
+  id: totrans-101
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-6\. 光谱核型染色技术用彩色标记每对染色体，显示被放大或缺失的各种染色体片段（左右面板中的颜色不必匹配）。
+- en: The good news is that copy-number analysis is less sensitive than short variant
+    analysis to some of the challenges that we enumerated earlier because we don’t
+    care as much about exact sequence. However, it is more sensitive to technical
+    biases that affect the evenness of sequence coverage distribution. The consequence
+    of these two points for the analysis design is that it is less important to have
+    a matched normal available, whereas it is even more important to have a PoN composed
+    of normals that have a closely matching technical profile. Note, however, that
+    the copy-number PoN is completely different from the PoN used for short variant
+    analysis. We go over the specifics in the next section.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好消息是，与短变异分析相比，拷贝数分析对我们之前列举的一些挑战不太敏感，因为我们对确切的序列不那么关心。然而，它对影响序列覆盖均匀性的技术偏倚更为敏感。这两点对分析设计的影响是，拥有匹配的正常样本可用性不那么重要，而拥有一个由具有紧密匹配技术配置文件的正常样本组成的
+    PoN 更为重要。然而，请注意，拷贝数 PoN 与用于短变异分析的 PoN 完全不同。我们将在下一节详细介绍具体内容。
+- en: Overview of the Tumor-Only Analysis Workflow
+  id: totrans-103
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 肿瘤单样本分析工作流程概述
+- en: The standard workflow for somatic copy-number analysis involves four main steps
+    ([Figure 7-7](#best_practices_workflow_for_somatic_cop)). First, we collect proportional
+    coverage statistics for the case sample as well as any normals that will be used
+    for the PoN. Setting the case sample aside for a moment, we create a copy-number
+    PoN that captures the amount of systematic skew in coverage observed across the
+    exome or genome. Then, we use that information to normalize the coverage data
+    we collected for the case sample, which eliminates technical noise and reveals
+    actual copy ratio differences in the data. Finally, we run a segmentation algorithm
+    that identifies contiguous segments of sequence that presents the same copy ratio,
+    and emit CNA calls for those segments whose copy ratio diverges significantly
+    from the mean. Optionally, we can produce plots to visualize the data at several
+    stages, which is helpful for interpretation.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 肿瘤体细胞拷贝数分析的标准工作流程涉及四个主要步骤（[图 7-7](#best_practices_workflow_for_somatic_cop)）。首先，我们收集用于
+    PoN 的案例样本和任何正常样本的比例覆盖统计数据。暂时将案例样本置于一旁，我们创建一个拷贝数 PoN，捕捉到整个外显子或基因组中观察到的覆盖率系统偏移的量。然后，我们利用这些信息来对我们收集的案例样本的覆盖数据进行归一化，从而消除技术噪声并揭示数据中实际的拷贝比差异。最后，我们运行一个分割算法，识别序列的连续片段，这些片段呈现相同的拷贝比，并为那些拷贝比显著偏离均值的片段发出
+    CNA 调用。可选地，我们可以生成图形来在几个阶段可视化数据，这有助于解释。
+- en: '![Best Practices workflow for somatic copy-number alteration discovery.](Images/gitc_0707.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![肿瘤体细胞拷贝数变异发现的最佳实践工作流程。](Images/gitc_0707.png)'
+- en: Figure 7-7\. Best Practices workflow for somatic copy-number alteration discovery.
+  id: totrans-106
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-7\. 肿瘤体细胞拷贝数变异发现的最佳实践工作流程。
+- en: Again, you’re going to do this work from within the GATK container on your VM,
+    so make sure everything is turned on and you’re in the */home/book/data/somatic*
+    directory. The exercises in this section use the same reference genome and some
+    of the same resource files as the first section, and we’re going to use the same
+    sandbox for writing outputs.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次强调，你将在你的虚拟机中的 GATK 容器内完成这些工作，所以确保所有设备都打开，并且你在 */home/book/data/somatic* 目录下。本节中的练习使用与第一节相同的参考基因组和一些相同的资源文件，我们将使用相同的沙盒来写输出结果。
+- en: Collecting Coverage Counts
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 收集覆盖计数
+- en: 'We count *read depth*, or coverage, over a series of intervals. Here we use
+    exome capture targets because we’re analyzing exomes, but if we were analyzing
+    whole genomes, we would switch to using bins of arbitrary length. For exomes,
+    we take the interval list that corresponds to the capture targets (specific to
+    every manufacturer’s exome prep kit) and first add some padding:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们计算一系列间隔的*读深度*或覆盖度。在这里，我们使用外显子捕获靶向区域，因为我们正在分析外显子，但如果我们分析整个基因组，我们将切换到使用任意长度的区间。对于外显子，我们使用与捕获靶向区域对应的间隔列表，并首先添加一些填充物。
+- en: '[PRE16]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: In this command, the `--interval-merging-rule` argument controls whether the
+    GATK engine should merge adjacent intervals for processing. In some contexts,
+    it makes sense to merge them, but in this context, we prefer to keep them separate
+    in order to have more fine-grained resolution, and we’ll merge only intervals
+    that actually overlap.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此命令中，`--interval-merging-rule` 参数控制 GATK 引擎是否应合并相邻的间隔以进行处理。在某些情况下，合并它们是有意义的，但在这种情况下，我们更喜欢将它们保持分开，以获得更细粒度的分辨率，并且我们仅合并实际重叠的间隔。
+- en: Note
+  id: totrans-112
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If we wanted to generate an intervals list for whole genome data, we would run
+    the same tool but without the targets file, and with the `--bin-length` argument
+    set to the length of bin we want to use (set to 100 bases by default).
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想为整个基因组数据生成一个区间列表，我们将运行相同的工具，但不使用目标文件，并将`--bin-length`参数设置为我们想要使用的bin的长度（默认设置为100个碱基）。
+- en: 'When we have the analysis-ready intervals list, we can run the read count collection
+    tool, which operates by counting how many reads start within each interval. By
+    default, the tool writes data in [HDF5 format](https://oreil.ly/uP_J4), which
+    is handled more efficiently by downstream tools, but here we change the output
+    format to tab-separated values (TSV) because it is easier to peek into:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们有了分析就绪的区间列表时，我们可以运行读取计数收集工具，该工具通过计算每个区间内的起始读取数来运行。默认情况下，该工具以[HDF5格式](https://oreil.ly/uP_J4)写入数据，后续工具更高效地处理，但这里我们将输出格式更改为制表符分隔值（TSV），因为这样更容易查看：
+- en: '[PRE17]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'The output file includes a header that recapitulates the sequence dictionary,
+    followed by a table of counts for each target:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出文件包括一个头部，重复列出了序列字典，然后是每个目标的计数表：
+- en: '[PRE18]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'Annoyingly, the sequence dictionary for the hg38 reference build is extremely
+    long because of the presence of all the *ALT contigs* (explained in the genomics
+    primer in [Chapter 2](ch02.xhtml#genomics_in_a_nutshell_a_primer_for_new)). So,
+    to peek into our file, it’s better to use `tail` instead of `head`:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 令人讨厌的是，hg38参考构建的序列字典非常长，因为存在所有的*ALT contigs*（在第2章的基因组入门中解释）。因此，要查看我们的文件，最好使用`tail`而不是`head`：
+- en: '[PRE19]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Ah, that’s more helpful, isn’t it? The first column is the chromosome or contig,
+    the second and third are the start and stop of the target region we’re looking
+    at, and the fourth is the count of reads overlapping the target. [Figure 7-8](#read_counts_in_each_genomic_target_or_b)
+    provides an example of what this looks like visualized.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 啊，这样更有帮助，不是吗？第一列是染色体或contig，第二列和第三列是我们查看的目标区域的起始和结束，第四列是重叠目标的读取计数。[图7-8](#read_counts_in_each_genomic_target_or_b)提供了这种可视化的示例。
+- en: '![Read counts in each genomic target or bin form the basis for estimating segmented
+    copy ratio.](Images/gitc_0708.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![每个基因组目标或区段中的读取计数形成估算分段复制比率的基础。](Images/gitc_0708.png)'
+- en: Figure 7-8\. Read counts in each genomic target or bin form the basis for estimating
+    segmented copy ratio, and each dot is the value for a single target or bin.
+  id: totrans-122
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-8. 每个基因组目标或区段中的读取计数形成估算分段复制比率的基础，每个点表示单个目标或区段的值。
+- en: Each dot in the figure represents one of the intervals for which we collected
+    coverage, arranged in the order of their position on the genome. The gray and
+    white stripes in the background represent alternating chromosomes, and the dotted
+    lines represent the position of their centromeres. Notice how the dots form a
+    wavy smear because of the huge variability in the amount of coverage present from
+    one to the next. At this point, it’s impossible to identify any CNAs with any
+    kind of confidence.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图中的每个点代表我们收集覆盖度的区间之一，按其在基因组上的位置排列。背景中的灰白条纹代表交替的染色体，虚线表示它们的着丝点位置。请注意，由于从一个到另一个的覆盖量存在巨大变异，点形成波浪状的模糊。此时，无法确信地识别任何CNAs。
+- en: Creating a Somatic CNA PoN
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 创建一个体细胞CNA PoN
+- en: As we discussed in [Chapter 2](ch02.xhtml#genomics_in_a_nutshell_a_primer_for_new),
+    a lot of technical variability affects the sequencing process, and some of it
+    is fairly systematic—some regions will produce more sequence data than others,
+    mainly because of chemistry. We can establish a baseline of what normal variability
+    looks like by using an algorithm called singular value decomposition, which is
+    conceptually similar to principal component analysis and aims to capture systematic
+    noise from a panel of normals that were sequenced and processed the same way.
+    The minimum number of samples in a CNA PoN should be at least 10 normal samples
+    for the tools to work properly, but the Best Practices recommendation is to use
+    40 or more normal samples if possible.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在[第2章](ch02.xhtml#genomics_in_a_nutshell_a_primer_for_new)中讨论的那样，许多技术变异影响了测序过程，其中一些是相当系统化的——某些区域将会产生比其他区域更多的序列数据，主要是因为化学因素。我们可以通过使用一种称为奇异值分解的算法来建立正常变异看起来像什么的基线，这在概念上类似于主成分分析，并旨在从以相同方式测序和处理的正常面板中捕获系统噪声。CNA
+    PoN中的最小样本数应至少为10个正常样本，以确保工具正常运行，但最佳实践建议尽可能使用40个或更多的正常样本。
+- en: Creating the PoN is a lot of work, so we provide one for you made from 40 samples
+    from the 1000 Genomes Project. Each of the 40 samples was run individually through
+    the `CollectReadCounts` tool, as described earlier (but leaving the default output
+    format set to HDF5; hence, the *.hdf5* extension in the command line, shown in
+    the next code snippet). Then the panel was created by running the command that
+    follows on all the read count files. To be clear, we’re just showing this as an
+    example, so don’t try to run it; it won’t work with the data we’ve provided for
+    the book. for the book; we’re just showing it as an example.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建PoN是一项艰巨的工作，因此我们为您提供了一个，该PoN是从1000基因组计划的40个样本中制作的。这40个样本中的每一个都是通过像之前描述的那样单独运行`CollectReadCounts`工具，并且将默认输出格式设置为HDF5来生成的（因此在命令行中显示了*.hdf5*扩展名，在下一个代码段中显示）。然后通过对所有读数文件运行以下命令来创建面板。明确地说，我们只是以示例的形式展示这一点，因此不要尝试运行它；它不适用于我们为本书提供的数据。
+- en: '[PRE20]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: The PoN produced by this command is completely different from the one we created
+    for the short variant section earlier in this chapter. For the short variants
+    pipeline, the PoN was just a kind of VCF file with annotated variant calls. In
+    this case, however, the file produced by aggregating the read count data from
+    the 40 normals is not meaningfully readable by the naked eye.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令生成的PoN与我们之前在本章节中为短变异部分创建的PoN完全不同。对于短变异流水线，PoN只是带有注释的变异调用VCF文件的一种类型。然而，在这种情况下，通过聚合40个正常样本的读数数据生成的文件对于肉眼来说没有意义。
+- en: Applying Denoising
+  id: totrans-129
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 应用去噪
+- en: 'With our sample read counts in hand and the PoN ready to go, we have everything
+    we need to run the most important step in this workflow: denoising the case sample
+    read counts:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了我们手头的样本读数和准备好的PoN，我们可以运行此工作流程中最重要的一步：去噪病例样本读数。
+- en: '[PRE21]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Even though we’re running only a single command, internally the tool is performing
+    two successive data transformations. First, it standardizes the read counts by
+    the median counts recorded in the PoN, which involves a base-2 log transformation
+    and normalization of the distribution to center around one, to produce *copy ratios*.
+    Then, it applies the denoising algorithm to these standardized copy ratios using
+    the principal components of the PoN.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管我们只运行了一个命令，但工具在内部执行了两次连续的数据转换。首先，它通过对PoN中记录的中位数计数进行标准化，这涉及到一个以2为底的对数转换，并将分布归一化到中心值为一，从而生成*拷贝比率*。然后，它利用PoN的主成分对这些标准化的拷贝比率应用去噪算法。
+- en: Note
+  id: totrans-133
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: You can tune the denoising tool to be more or less aggressive by adjusting the
+    `--number-of-eigensamples` parameter, which affects the resolution of results;
+    that is, how smooth the resulting segments will be. Using a larger number will
+    produce a higher level of denoising but can reduce the sensitivity of the analysis.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过调整`--number-of-eigensamples`参数来调节去噪工具的侵略程度，这会影响结果的分辨率；也就是说，生成的片段平滑度如何。使用较大的数字将产生更高程度的去噪，但可能会降低分析的灵敏度。
+- en: 'Again, the output files are not really human readable, so let’s plot their
+    contents to get a sense of what the data shows at this point:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次说明，输出文件实际上不太适合人类阅读，因此让我们绘制它们的内容，以了解此时数据显示的内容：
+- en: '[PRE22]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The resulting plot includes both the standardized copy ratios produced by the
+    first internal step and the final denoised copy ratios ([Figure 7-9](#copy_number_alteration_analysis_plots_s)).
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终的图包括第一个内部步骤产生的标准化拷贝比率和最终的去噪拷贝比率（[图 7-9](#copy_number_alteration_analysis_plots_s)）。
+- en: 'You can use `gsutil` to copy the output plots from your VM to your Google bucket
+    and then view them (or download them) from the GCP console. If you need a refresher
+    on this, see [Chapter 4](ch04.xhtml#first_steps_in_the_cloud). The following is
+    done from your VM (which has the `gsutil` tool installed and configured in [Chapter 4](ch04.xhtml#first_steps_in_the_cloud))
+    rather than the Docker container you’ve run the `gatk` commands in, and uploads
+    to the bucket that you specify (`my-bucket`) in this example:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用`gsutil`将输出的图表从您的VM复制到Google存储桶，然后从GCP控制台查看（或下载）它们。如果您需要关于此的复习，请参阅[第4章](ch04.xhtml#first_steps_in_the_cloud)。以下操作是从您的VM执行的（该VM已安装并配置了`gsutil`工具，并且在[第4章](ch04.xhtml#first_steps_in_the_cloud)中运行了`gatk`命令而不是您运行`gatk`命令的Docker容器），并将上传到您在此示例中指定的存储桶（`my-bucket`）：
+- en: '[PRE23]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: '![Copy-number alteration analysis plots showing the standardized copy ratios
+    after the first step of denoising (top) and the fully denoised copy ratios after
+    the second round (bottom).](Images/gitc_0709.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![拷贝数变异分析图表，显示第一步去噪后的标准化拷贝比（顶部）和第二轮完全去噪后的完全去噪拷贝比（底部）。](Images/gitc_0709.png)'
+- en: Figure 7-9\. Copy-number alteration analysis plots showing the standardized
+    copy ratios after the first step of denoising (top) and the fully denoised copy
+    ratios after the second round (bottom).
+  id: totrans-141
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-9。在第一轮去噪之后显示标准化拷贝比的拷贝数变异分析图（顶部）和在第二轮完全去噪之后显示的完全去噪拷贝比（底部）。
+- en: It can be difficult to see very clearly in the book version of these images,
+    but if you zoom in on the plots you generated yourself, you should be able to
+    see that the range of values in the second-round image is tighter than in the
+    first round, which shows the improvement from one step to the next. In any case,
+    we can agree that these show much better resolution compared to the raw read counts
+    shown in [Figure 7-8](#read_counts_in_each_genomic_target_or_b), and we can already
+    discern some probable CNAs.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这些图像的书籍版本中，可能很难清楚地看到，但如果您放大您自己生成的图表，您应该能够看到第二轮图像中的数值范围比第一轮更紧凑，这显示了从一步到下一步的改进。无论如何，我们可以认为这些与在[图7-8](#read_counts_in_each_genomic_target_or_b)中显示的原始读数相比，分辨率更高。我们已经能够辨认出一些可能的拷贝数变异。
+- en: Performing Segmentation and Call CNAs
+  id: totrans-143
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 执行分割并调用CNAs
+- en: Now that we have our lovingly denoised copy ratios, all we need to do is identify
+    exactly which regions demonstrate evidence of CNA. To do that, we’re going to
+    group neighboring intervals that have similar copy ratios into segments. Then,
+    we should be able to determine which segments have an overall copy ratio that
+    supports the presence of an amplification or deletion relative to the rest.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们已经拥有了精心去噪的拷贝比，我们唯一需要做的就是确定哪些区域确实显示了CNAs的证据。为此，我们将分组具有相似拷贝比的相邻区间成为片段。然后，我们应该能够确定哪些片段的整体拷贝比支持存在与其余部分的扩增或删除。
+- en: We do this using the `ModelSegments` tool, which uses a Gaussian-kernel binary-segmentation
+    algorithm to perform multidimensional kernel segmentation.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用`ModelSegments`工具完成此操作，该工具使用高斯核二元分割算法执行多维核分割。
+- en: '[PRE24]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'As for the previous plots, the easiest way to view these is to transfer them
+    to your Google bucket and open (or download) them from the GCP console. This command
+    produces multiple files, so the output name we provide is simply the name that
+    we want to give to the new directory that will contain them. Again, the outputs
+    are not particularly user friendly, so we’re going to make some plots to visualize
+    the results. We provide the plotting tool with the denoised copy ratios (from
+    `DenoiseReadCounts`), the segments (from `ModelSegments`), and the reference sequence
+    dictionary:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就前面的图表而言，查看它们的最简单方法是将它们转移到您的Google存储桶中，并从GCP控制台打开（或下载）它们。此命令生成多个文件，因此我们提供的输出名称仅是我们要给将包含这些文件的新目录的名称。再次强调，输出结果并不特别用户友好，因此我们将制作一些图表来可视化结果。我们向绘图工具提供了经去噪的拷贝比（来自`DenoiseReadCounts`）、片段（来自`ModelSegments`）和参考序列字典：
+- en: '[PRE25]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: '[Figure 7-10](#plot_of_segments_modeled_based_on_denoi) shows the segments
+    identified by the `PlotModelSegments` tool. The dots representing targets or bins
+    on alternate segments are colored in either blue and orange, whereas segment medians
+    are drawn in black. Most segments have a copy ratio of approximately 1, which
+    constitutes the baseline. Against that backdrop, we can observe multiple amplifications
+    and deletions of different sizes and different copy ratios. You might notice that
+    most of these don’t correspond to the numbers that you would expect if you had,
+    for example, four copies instead of two for a given segment. That is because some
+    of the CNAs occur in subclonal populations, meaning that only part of the sampled
+    tissue is affected. As a result, the effect is diluted and you might see a copy
+    ratio of 1.8 instead of 2.'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图7-10](#plot_of_segments_modeled_based_on_denoi)显示由`PlotModelSegments`工具识别的片段。代表交替片段上的靶或箱柱的点着色为蓝色和橙色，而片段中位数则用黑色绘制。大多数片段的拷贝比约为1，构成基线。在此背景下，我们可以观察到多个不同大小和不同拷贝比的扩增和缺失。您可能会注意到，大多数这些不符合您对于给定片段有四个拷贝而不是两个的预期数字。这是因为某些拷贝数变异发生在亚克隆群体中，这意味着只有部分取样组织受到影响。因此，效果被稀释，您可能会看到拷贝比为1.8而不是2。'
+- en: '![Plot of segments modeled based on denoised copy ratios.](Images/gitc_0710.png)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![基于去噪拷贝比建模的片段图表。](Images/gitc_0710.png)'
+- en: Figure 7-10\. Plot of segments modeled based on denoised copy ratios.
+  id: totrans-151
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-10\. 基于去噪复制比例建模的分段图。
+- en: More generally, it seems like a lot is going on in this sample; in fact, we
+    can look in the segmentation file in the output directory and see that we’ve predicted
+    235 segments for this sample. This isn’t typical of regular tumor samples, although
+    some can be pretty messed up; what’s going on here is that we’re looking at a
+    sample taken from a cell line. Cancer cell lines are convenient for teaching and
+    testing software because the data can easily be made open access, but biologically
+    they tend to have accumulated very high numbers of alterations. So this represents
+    an extreme situation. On the bright side, most samples that you’ll encounter in
+    the real world are likely to be cleaner (and easier to interpret) than this. So
+    you have something to look forward to!
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更一般地说，这个样本中似乎发生了很多事情；事实上，我们可以查看输出目录中的分割文件，看到我们为这个样本预测了235个分段。这在常规肿瘤样本中并不典型，尽管有些可能相当混乱；这里发生的情况是，我们正在查看从细胞系中取样的样本。癌细胞系对于教学和测试软件很方便，因为数据可以很容易地公开获取，但从生物学上讲，它们往往积累了非常高的变异数量。因此，这代表了一个极端情况。值得一提的是，您在现实世界中遇到的大多数样本可能会比这个更干净（更容易解释）。所以您有一些期待的事情！
+- en: 'That being said, the software can still help us get a bit more clarity even
+    on a messy sample like this. We can get final CNA calls—that is, a determination
+    of which segments we can consider to have significant evidence of amplification
+    or deletion—by running the last tool in this workflow, as follows:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 话虽如此，即使在这样一个混乱的样本中，软件仍然可以帮助我们更清晰地了解情况。我们可以通过运行工作流程中的最后一个工具来获得最终的CNA调用，即确定哪些分段我们可以认为具有扩增或缺失的显著证据，具体操作如下：
+- en: '[PRE26]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'This tool adds a column to the segmented copy-ratio *.cr.seg* file from `ModelSegments`,
+    marking amplifications (`+`), deletions (`-`), and neutral segments (`0`):'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个工具向由`ModelSegments`生成的分段复制比例*.cr.seg*文件添加了一列，标记了扩增（`+`）、缺失（`-`）和中性分段（`0`）：
+- en: '[PRE27]'
+  id: totrans-156
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: And there you have it; this shows you the output of the somatic copy-number
+    workflow. If we look at the full progression, you can see that we went from raw
+    coverage counts all the way to having identified specific regions of deletion
+    or amplification, as illustrated in [Figure 7-11](#full_progression_from_raw_data_to_resul)
+    (using different data and only a subset of chromosomes).
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就是这样；这展示了体细胞拷贝数工作流的输出。如果我们看完整的进展，您会看到我们从原始覆盖计数一直到识别出特定的缺失或扩增区域，如[图 7-11](#full_progression_from_raw_data_to_resul)所示（使用不同的数据和仅一部分染色体）。
+- en: '![Full progression from raw data to results.](Images/gitc_0711.png)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_IMG
+  zh: '![从原始数据到结果的完整进展。](Images/gitc_0711.png)'
+- en: Figure 7-11\. Full progression from raw data to results.
+  id: totrans-159
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-11\. 从原始数据到结果的完整进展。
+- en: Copy ratio counts in [Figure 7-11](#full_progression_from_raw_data_to_resul)
+    are calculated and processed as shown in previous figures, rotated 90° to the
+    right. The leftmost panel shows raw copy ratio counts calculated per target or
+    genomic bin. The second and third panels show standardized and denoised counts,
+    respectively. The fourth panel shows segmentation and calling results, including
+    one whole chromosome amplification (AMP) and one deletion (DEL). The rightmost
+    panel shows a minor allele fraction calculated using the procedure outlines in
+    the next section.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 7-11](#full_progression_from_raw_data_to_resul)中计算和处理的复制比例计数如前面的图所示，向右旋转90°。最左边的面板显示了每个目标或基因组区段计算的原始复制比例计数。第二和第三个面板分别显示了标准化和去噪后的计数。第四个面板显示了分割和调用结果，包括一个整体染色体扩增（AMP）和一个缺失（DEL）。最右边的面板显示了使用下一节中概述的程序计算的次等位基因分数。
+- en: Ironically, these results don’t include an actual copy number, just the boundaries
+    of each segment, its copy ratio, and the final call. To get the copy number, you
+    will need to do some additional work that is beyond the scope of this chapter.
+    See the [documentation](https://oreil.ly/NXTuz) for more information and next
+    steps.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有讽刺意味的是，这些结果并不包括实际的拷贝数，只包括每个分段的边界、其复制比例和最终调用。要获得拷贝数，您需要进行一些超出本章范围的额外工作。有关更多信息和下一步，请参阅[文档](https://oreil.ly/NXTuz)。
+- en: Additional Analysis Options
+  id: totrans-162
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 附加分析选项
+- en: We’ve just covered the standard workflow that is most commonly used for performing
+    copy-number analysis with GATK tools. This involved collecting coverage counts,
+    using a PoN to apply denoising, and performing segmentation in order to model
+    and finally call copy-number–altered segments on the tumor case sample. However,
+    you can apply two additional options to further beef up the quality of the results.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们刚刚介绍了使用GATK工具执行拷贝数分析的标准工作流程。这包括收集覆盖计数，使用PoN进行去噪，执行分割以对肿瘤案例样本建模并最终调用拷贝数改变片段。然而，你可以应用两个额外选项以进一步提高结果的质量。
+- en: Tumor-Normal pair analysis
+  id: totrans-164
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 肿瘤-正常对分析
+- en: The Tumor-only workflow gets you decent, usable results for somatic CNA discovery.
+    But if you have a matched normal available, you can gain additional benefits!
+    For one thing, you can run the workflow, as described earlier on the normal sample,
+    which is helpful for understanding the baseline that you’re working with. In many
+    cases, having the matched normal can also help the denoising process.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tumor-only workflow 可以为体细胞CNAs的发现提供不错且可用的结果。但是，如果你有配对的正常样本，你可以获得额外的好处！首先，你可以按照之前描述的流程在正常样本上运行工作流程，这有助于理解你正在处理的基线。在许多情况下，有配对的正常样本还可以帮助去噪过程。
+- en: Feel free to run through the commands on your own. In the final segmentation
+    results, notice the probable CNAs on chromosome 2 and chromosome 6\. This matched
+    normal is itself from a cell line, albeit derived from healthy tissue instead
+    of a tumor. It’s not uncommon to see some background alterations occur even in
+    normal tissue when it’s been propagated as a cell line.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 欢迎自行运行这些命令。在最终的分割结果中，请注意染色体2和染色体6上可能的CNAs。这个配对的正常样本本身来自细胞系，尽管是从健康组织而不是肿瘤中衍生出来的。即使在正常组织被作为细胞系传播时，也不罕见看到一些背景改变发生。
+- en: Note
+  id: totrans-167
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: This concludes the exercises for this chapter, so once again, remember to stop
+    your VM if you’re taking a break before moving on to the next chapter.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这结束了本章的练习，所以再次，记得在进入下一章之前暂停你的VM。
+- en: Allelic copy ratio analysis
+  id: totrans-169
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 等位复制比分析
+- en: 'So far, we’ve used only read coverage as evidence for CNAs, but we can also
+    include *allelic copy ratio*: the copy ratio for different alleles at sites with
+    heterozygous SNVs. This can reveal interesting things about the heterozygosity
+    of our case sample, which can have important biological consequences—especially
+    when there is a *loss of heterozygosity*.'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们仅使用读深度作为CNAs的证据，但我们也可以包括*等位复制比*：在具有杂合SNV的位点上，不同等位基因的复制比。这可以揭示我们案例样本的杂合性的有趣信息，这可能对生物学有重要影响，尤其是在存在*等位基因丧失*时。
+- en: We can detect imbalances in the heterozygosity of segments by looking at the
+    allelic counts (i.e., the read counts for different alleles at each site) in the
+    case sample at sites that are commonly variant in the population. For a diploid
+    organism, we expect to see any heterozygous SNV manifest as two different alleles
+    present in equal proportions. Suppose that we have an A/T variant; we expect to
+    see approximately 50% A and 50% T in the sequence reads (give or take some technical
+    variability). We can detect those sites on the fly when we’re counting the reads
+    in the first step of the workflow. Then, we can use those sites as markers; if
+    we look at those sites in the tumor and find that their allelic ratios are significantly
+    skewed, that gives us additional information about the degree of CNA that affects
+    the segments of which these sites are part.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过观察案例样本中常见变异群体中的等位计数（即每个位点不同等位基因的读数），我们可以检测段的杂合性失衡。对于二倍体生物，我们预期任何杂合SNV表现为两种不同等位基因以相等比例存在。假设我们有A/T变异体；我们预期在序列读数中看到大约50%的A和50%的T（加上一些技术变异）。在工作流程的第一步中计数读数时，我们可以实时检测这些位点。然后，我们可以将这些位点用作标记；如果我们在肿瘤中观察到这些位点并发现它们的等位比例显著偏斜，这就为我们提供了关于影响这些位点所在片段的CNA程度的额外信息。
+- en: If you’re interested in exploring this additional analysis mode, have a look
+    at the [somatic copy-number documentation](https://oreil.ly/NXTuz) on the GATK
+    website.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你对探索这种额外的分析模式感兴趣，请查看GATK网站上的[somatic copy-number documentation](https://oreil.ly/NXTuz)。
+- en: Wrap-Up and Next Steps
+  id: totrans-173
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结和下一步
+- en: Well then, between the germline workflow and these two somatic analysis workflows,
+    we’ve already run a lot of genomics commands. So, does that mean we’re ready to
+    run full-scale genomic analyses?
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，在配对的正常工作流程和这两种体细胞分析工作流程之间，我们已经运行了大量的基因组学命令。那么，这是否意味着我们准备好进行全面的基因组分析了？
+- en: Hah, no. At this point you can run individual tools one by one—which is going
+    to be useful at various stages of your work, especially for initial testing/evaluation
+    as well as troubleshooting failures—but you also know that the variant discovery
+    Best Practices are composed of multiple tasks involving various tools. Trust us,
+    you don’t want to be running each task manually for each sample or set of samples
+    that you need to process. You’re going to want to chain these tasks into scripts
+    that automate the bulk of the work to cut down on the mindless tedium as well
+    as to reduce the chance of human error. So in [Chapter 8](ch08.xhtml#automating_analysis_execution_with_work),
+    we show you how to write workflow scripts using WDL, which automates calling each
+    step in the overall analysis pipeline. Then, we run them using a workflow management
+    system called Cromwell that is equally comfortable running on your laptop, cluster,
+    or cloud platform.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Hah, no. 现在你可以逐个运行各个工具——这在工作的不同阶段特别有用，尤其是在初始测试/评估以及故障排除时，但你也知道变异发现的最佳实践包括多个任务，涉及各种工具。相信我们，你不想为需要处理的每个样本或样本集手动运行每个任务。你会希望将这些任务串联成脚本，自动化大部分工作，以减少单调的枯燥工作以及降低人为错误的几率。所以在[第8章](ch08.xhtml#automating_analysis_execution_with_work)，我们向你展示如何使用WDL编写工作流脚本，该脚本自动调用整个分析管道中的每个步骤。然后，我们使用一个名为Cromwell的工作流管理系统来运行它们，这个系统同样适用于你的笔记本电脑、集群或云平台。

@@ -1,0 +1,1346 @@
+- en: Chapter 11\. Join Design Patterns
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 11 章 连接设计模式
+- en: In this chapter we will examine practical design patterns for joining datasets.
+    As in the previous chapters, I will focus on patterns that are useful in real-world
+    environments. PySpark supports a basic join operation for RDDs (`pyspark.RDD.join()`)
+    and DataFrames (`pyspark.sql.DataFrame.join()`) that will be sufficient for most
+    use cases. However, there are circumstances where this join can be costly, so
+    I’ll also show you some special join algorithms that may prove useful.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨连接数据集的实用设计模式。与前几章一样，我将专注于在实际环境中有用的模式。PySpark 支持 RDD 和 DataFrames 的基本连接操作（`pyspark.RDD.join()`和`pyspark.sql.DataFrame.join()`），这将适用于大多数用例。但是，在某些情况下，这种连接可能会很昂贵，因此我还将展示一些特殊的连接算法，这些算法可能会很有用。
+- en: This chapter introduces the basic concept of joining two datasets, and provides
+    examples of some useful and practical join design patterns. I’ll show you how
+    the join operation is implemented in the MapReduce paradigm and how to use Spark’s
+    transformations to perform a join. You’ll see how to perform map-side joins with
+    RDDs and DataFrames, and how to perform an efficient join using a Bloom filter.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了连接两个数据集的基本概念，并提供了一些有用和实用的连接设计模式示例。我将展示如何在 MapReduce 范式中实现连接操作以及如何使用 Spark
+    的转换来执行连接。您将看到如何使用 RDD 和 DataFrames 执行映射端连接，以及如何使用布隆过滤器执行高效连接。
+- en: Introduction to the Join Operation
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 连接操作介绍
+- en: In the relational database world, joining two tables (aka “relations”) with
+    a common key—that is, an attribute or set of attributes in one or more columns
+    that allow the unique identification of each record (tuple or row) in the table—is
+    a frequent operation.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在关系数据库世界中，连接两个具有共同键的表（也称为“关系”）——即一个或多个列中的属性或一组属性，这些属性允许唯一标识表中每个记录（元组或行）——是一个频繁的操作。
+- en: 'Consider the following two tables, `T1` and `T2`:'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑以下两个表，`T1` 和 `T2`：
+- en: '[PRE0]'
+  id: totrans-6
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'where:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中：
+- en: k1 is the key for T1 and v1 are the associated attributes.
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: k1 是 T1 的键，v1 是关联的属性。
+- en: k2 is the key for T2 and v2 are the associated attributes.
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: k2 是 T2 的键，v2 是关联的属性。
+- en: 'A simple inner join, which creates a new table by combining rows that have
+    matching keys in two or more tables, can be defined as:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简单内连接会通过合并两个或多个表中具有匹配键的行来创建新表，定义如下：
+- en: '[PRE1]'
+  id: totrans-11
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'where:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其中：
+- en: k = k1 = k2.
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: k = k1 = k2。
+- en: (k, v1) is in T1.
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (k, v1) 存在于 T1 中。
+- en: (k, v2) is in T2.
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: (k, v2) 存在于 T2 中。
+- en: 'To illustrate how this works, let’s create two tables, populating them with
+    some sample data, and then join them. First we’ll create our tables, `T1` and
+    `T2`:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明其工作原理，让我们创建两个表，填充一些示例数据，然后进行连接。首先我们将创建我们的表，`T1` 和 `T2`：
+- en: '[PRE2]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Then we’ll join them with an inner join (the default join type in Spark). Notice
+    that the rows with an `id` of `c` (from `T1`) and `d` (from `T2`) are dropped,
+    since there are no matching rows for these in the other table:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们将使用内连接将它们连接起来（Spark 中的默认连接类型）。请注意，由于在另一张表中找不到匹配行，具有`id`为`c`（来自`T1`）和`d`（来自`T2`）的行被丢弃：
+- en: '[PRE3]'
+  id: totrans-19
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'There are many types of joins that can be performed on two tables with a common
+    key, but in practice, three types of join are the most common:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以对具有共同键的两个表执行许多类型的连接操作，但在实践中，三种连接类型最为常见：
+- en: '`INNER` `JOIN(T1, T2)`'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`INNER` `JOIN(T1, T2)`'
+- en: Combines records from two tables, T1 and T2, whenever there are matching values
+    in a key common to both tables.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在两个表 T1 和 T2 中结合记录，只要这些记录在两个表中具有匹配值的键。
+- en: '`LEFT` `JOIN(T1, T2)`'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`LEFT` `JOIN(T1, T2)`'
+- en: Returns all records from the left table (T1) and the matched records from the
+    right table (T2) table. If there is no match for a specific record, you’ll get
+    `NULL`s in the corresponding columns of the right table.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 返回左表（T1）的所有记录以及右表（T2）中匹配的记录。如果某个特定记录没有匹配项，则右表相应列中将会有`NULL`值。
+- en: '`RIGHT` `JOIN(T1, T2)`'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RIGHT` `JOIN(T1, T2)`'
+- en: Returns all the rows of the table on the right side of the join (T2) and matching
+    rows for the table on the left side (T1) of the join. The rows for which there
+    is no matching row on left side, the result-set will contain null.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 返回连接右侧表（T2）的所有行，并且左侧表（T1）中有匹配行的行。对于左侧没有匹配行的行，结果集将包含空值。
+- en: All of these join types are supported in PySpark, as well as some other types
+    that are less frequently used. For an introduction to the different types of joins
+    PySpark supports, see the tutorial [“PySpark Join Types”](https://oreil.ly/JoIUD)
+    on the Spark by {Examples} website.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些连接类型都受到 PySpark 的支持，以及一些其他不常用的类型。有关 PySpark 支持的不同连接类型的介绍，请参阅 Spark by {Examples}
+    网站上的教程[“PySpark Join Types”](https://oreil.ly/JoIUD)。
+- en: 'Joining two tables is potentially an expensive operation, as it can require
+    finding the Cartesian product (for two sets A and B, the set of all ordered pairs
+    (x, y) where x is in A and y is in B). In the example just shown this would not
+    be problematic, but consider a big data example: if table `T1` has three billion
+    rows and table `T2` has one million rows, then the Cartesian product of these
+    two tables will have three quadrillion (3 followed by 15 zeros) data points. In
+    this chapter, I cover some basic design patterns that can help to simplify the
+    join operation, to reduce this cost. As usual, when it comes to selecting and
+    using join design patterns, there is no silver bullet: be sure to test your proposed
+    solution for performance and scalability using real data.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连接两个表可能是一个昂贵的操作，因为它可能需要找到笛卡尔积（对于两个集合 A 和 B，所有有序对 (x, y) 其中 x 在 A 中且 y 在 B 中）。在刚刚展示的示例中，这不会成为问题，但考虑一个大数据示例：如果表
+    `T1` 有三十亿行，表 `T2` 有一百万行，那么这两个表的笛卡尔积将有三千兆（3 后跟 15 个零）个数据点。在本章中，我介绍了一些基本的设计模式，可以帮助简化连接操作，以降低这种成本。通常情况下，在选择和使用连接设计模式时，并没有银弹：务必使用真实数据测试您提出的解决方案的性能和可扩展性。
+- en: Join in MapReduce
+  id: totrans-29
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在 MapReduce 中进行连接
+- en: 'This section is presented for pedagogical purposes, to show you how a `join()`
+    function can be implemented in a distributed computing environment. Suppose we
+    have two relations, `R(k, b)` and `S(k, c)`, where `k` is a common key and `b`
+    and `c` represent attributes of `R` and `S`, respectively. How do we find the
+    join of `R` and `S`? The goal of the join operation is to find tuples that agree
+    on their key `k`. A MapReduce implementation of the natural join for `R` and `S`
+    can implemented as follows. First, in the map phase:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一节是为了教学目的而呈现的，展示了在分布式计算环境中如何实现 `join()` 函数。假设我们有两个关系，`R(k, b)` 和 `S(k, c)`，其中
+    `k` 是一个公共键，`b` 和 `c` 分别表示 `R` 和 `S` 的属性。我们如何找到 `R` 和 `S` 的连接？连接操作的目标是找到在它们的键 `k`
+    上一致的元组。`R` 和 `S` 的自然连接的 MapReduce 实现可以如下实现。首先，在映射阶段：
+- en: For a tuple `(k, b)` in `R`, emit a (key, value) pair as `(k, ("R", b))`.
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于在 `R` 中的元组   对于元组 `(k, b)` 在 `R` 中，以 `(k, ("R", b))` 的形式发出一个 (键, 值) 对。
+- en: For a tuple `(k, c)` in `S`, emit a (key, value) pair as `(k, ("S", c))`.
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于元组 `(k, c)` 在 `S` 中，以 `(k, ("S", c))` 的形式发出一个 (键, 值) 对。
+- en: 'Then, in the reduce phase:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在减少阶段：
+- en: If a reducer key `k` has the value list `[("R", v),("S", w)]`, then emit a single
+    (key, value) pair as `(k, (v, w))`. Note that `join(R, S)` will produce `(k, (v,
+    w))`, while `join(S, R)` will produce `(k, (w, v))`.
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果一个 reducer 键 `k` 有值列表 `[("R", v),("S", w)]`，那么以 `(k, (v, w))` 的形式发出一个 (键,
+    值) 对。请注意，`join(R, S)` 将产生 `(k, (v, w))`，而 `join(S, R)` 将产生 `(k, (w, v))而 `join(S,
+    R)` 将产生 `(k, (w, v))`。
+- en: 'So, if a reducer key `k` has the value list `[("R", v1), ("R", v2), ("S", w1),
+    ("S", w2)]`, then we will emit four (key, value) pairs:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，如果一个 reducer 键 `k` 有值列表 `[("R", v1), ("R", v2), ("S", w1), ("S", w2)]`，那么我们将发出四个
+    (键, 值) 对：
+- en: '[PRE4]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Therefore, to perform a natural join between two relations `R` and `S`, we need
+    two map functions and one reducer function.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，要在两个关系 `R` 和 `S` 之间执行自然连接，我们需要两个映射函数和一个 reducer 函数。
+- en: Map Phase
+  id: totrans-38
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 映射阶段
+- en: 'The map phase has two steps:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 映射阶段有两个步骤：
+- en: 'Map relation `R`:'
+  id: totrans-40
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 映射关系 `R`：
+- en: '[PRE5]'
+  id: totrans-41
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Map relation `S`:'
+  id: totrans-42
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 映射关系 `S`：
+- en: '[PRE6]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The output of the mappers (provided as input to the sort and shuffle phase)
+    will be:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 映射器的输出（作为排序和洗牌阶段的输入）将是：
+- en: '[PRE7]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Reducer Phase
+  id: totrans-46
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 减少器阶段
+- en: Before, we write a reducer function, we need to understand the magic of MapReduce,
+    which occurs in the sort and shuffle phase. This is similar to SQL’s `GROUP BY`
+    function; once all the mappers are done, their output is sorted and shuffled and
+    sent to the reducer(s) as input.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在编写一个 reducer 函数之前，我们需要理解 MapReduce 的神奇之处，这发生在排序和洗牌阶段。这类似于 SQL 的 `GROUP BY`
+    函数；一旦所有的映射器完成，它们的输出会被排序、洗牌，并作为输入发送给 reducer(s)。
+- en: 'In our example, the output of the sort and shuffle phase will be:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例中，排序和洗牌阶段的输出将是：
+- en: '[PRE8]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'The reducer function is presented next. For each key `k`, we build two lists:
+    `list_R` (which will hold the values/attributes from relation `R`) and `list_S`
+    (which will hold the values/attributes from relation `S`). Then we identify the
+    Cartesian product of `list_R` and `list_S` to find the join tuples (pseudocode):'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来是 reducer 函数。对于每个键 `k`，我们构建两个列表：`list_R`（将保存来自关系 `R` 的值/属性）和 `list_S`（将保存来自关系
+    `S` 的值/属性）。然后我们确定 `list_R` 和 `list_S` 的笛卡尔积，以找到连接元组（伪代码）：
+- en: '[PRE9]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Implementation in PySpark
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在 PySpark 中的实现
+- en: This section shows how to implement the natural join of two datasets (with some
+    common keys) in PySpark without using the `join()` function. I present this solution
+    to show the power of Spark, and how it can be used to perform custom joins if
+    required.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节展示了如何在PySpark中实现两个数据集的自然连接（带有一些共同的键），而不使用`join()`函数。我提出这个解决方案是为了展示Spark的强大之处，以及如何在需要时执行自定义连接。
+- en: 'Suppose we have the following datasets, `T1` and `T2`:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们有以下数据集，`T1`和`T2`：
+- en: '[PRE10]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'First, we map these RDDs to include the name of the relation:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们将这些RDDs映射到包含关系名称的形式：
+- en: '[PRE11]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'Next, in order to perform a reduction on the generated (key, value) pairs by
+    mappers, we combine these two datasets into a single dataset:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，为了对mapper生成的（键，值）对执行缩减操作，我们将这两个数据集组合成单个数据集：
+- en: '[PRE12]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'Then we perform the `groupByKey()` transformation on a single combined dataset:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们在一个单一的组合数据集上执行`groupByKey()`转换：
+- en: '[PRE13]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'And finally, we find the Cartesian product of the values of each `grouped`
+    entry:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们找到每个`grouped`条目的值的笛卡尔积：
+- en: '[PRE14]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Map-Side Join Using RDDs
+  id: totrans-64
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用RDD进行Map-Side Join
+- en: 'As we’ve seen, a join is a potentially expensive operation used to combine
+    records from two (or more) datasets based on a common key between them. In a relational
+    database, indexing can help to reduce the cost of a join operation; however, big
+    data engines like Hadoop and Spark do not support indexing of data. So what can
+    we do to minimize the cost of a join between two distributed datasets? Here, I’ll
+    introduce a design pattern that can completely eliminate the need for the shuffle
+    and sort phase in the MapReduce paradigm: the *map-side join*.'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如我们所见，连接是一种可能昂贵的操作，用于基于它们之间的共同键组合来自两个（或更多）数据集的记录。在关系数据库中，索引可以帮助减少连接操作的成本；然而，像Hadoop和Spark这样的大数据引擎不支持数据索引。那么，我们可以做些什么来最小化两个分布式数据集之间连接的成本？在这里，我将介绍一种设计模式，它可以完全消除MapReduce范式中的洗牌和排序阶段：*map-side
+    join*。
+- en: A map-side join is a process where two datasets are joined by the mapper rather
+    than using the actual join function (which is performed by a combination of a
+    mapper and a reducer). In addition to decreasing the cost incurred for sorting
+    and merging in the shuffle and reduce stages, this can speed up the execution
+    of the task, improving performance.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Map-side join是一个过程，其中两个数据集由mapper而不是实际的连接函数（由mapper和reducer的组合执行）连接。除了减少洗牌和减少阶段中的排序和合并成本外，这还可以加快任务的执行速度，提高性能。
+- en: 'To help you understand how this works, let’s start with a SQL example. Suppose
+    we have two tables in a MySQL database, `EMP` and `DEPT`, and we want to perform
+    a join between them. The two tables are defined as follows:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要帮助你理解这是如何运作的，我们从一个SQL示例开始。假设我们在MySQL数据库中有两个表，`EMP`和`DEPT`，我们想要对它们进行连接操作。这两个表的定义如下：
+- en: '[PRE15]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'Next, we join two tables (using an `INNER JOIN`) on the `dept_id` key:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们使用`INNER JOIN`在`dept_id`键上连接两个表：
+- en: '[PRE16]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: A map-side join is similar to an inner join in SQL, but the task is performed
+    by the mapper alone (note that the result of an inner join and a map-side join
+    must be identical).
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Map-side join类似于SQL中的内连接，但任务仅由mapper执行（请注意，内连接和map-side join的结果必须相同）。
+- en: In general, joins on large datasets are expensive, but rarely do you want to
+    join the entire contents of one large table `A` with the entire contents of another
+    large table `B`. Given two tables `A` and `B`, a map-side join will be most suitable
+    when table `A` (called the *fact table*) is large and table `B` (the *dimension
+    table*) is small to medium. To perform this type of join, we first create a hash
+    table from `B` and broadcast it to all nodes. Next, we iterate all elements of
+    table `A` with a mapper and then access the relevant information from table `B`
+    through the broadcasted hash table.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般来说，在大数据集上进行连接是昂贵的，但很少希望将一个大表`A`的全部内容与另一个大表`B`的全部内容连接起来。给定两个表`A`和`B`，当表`A`（称为*事实表*）很大而表`B`（*维度表*）是小到中等规模时，map-side
+    join将是最合适的。为了执行这种类型的连接，我们首先从`B`创建一个哈希表，并将其广播到所有节点。接下来，我们通过mapper迭代表`A`的所有元素，然后通过广播的哈希表访问表`B`中的相关信息。
+- en: 'Two demonstrate, we’ll create two RDDs from our `EMP` and `DEPT` tables. First,
+    we create `EMP` as an `RDD[(dept_id, (emp_id, emp_name))]`:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了演示，我们将从我们的`EMP`和`DEPT`表创建两个RDDs。首先，我们将`EMP`创建为`RDD[(dept_id, (emp_id, emp_name))]`：
+- en: '[PRE17]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Next, we create `DEPT` as an `RDD[(dept_id, (dept_name, dept_location))]`:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将`DEPT`创建为`RDD[(dept_id, (dept_name, dept_location))]`：
+- en: '[PRE18]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: '`EMP` and `DEPT` have a common key, `dept_id`, so we can join the two RDDs
+    as follows:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`EMP`和`DEPT`具有共同的键`dept_id`，所以我们可以如下连接这两个RDDs：'
+- en: '[PRE19]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'How does a map-side join optimize this task? Suppose `EMP` is a large dataset
+    and `DEPT` is a relatively small dataset. Using a map-side join to join `EMP`
+    with `DEPT` on `dept_id`, we will create a broadcast variable from the small table
+    (using the custom function `to_hash_table()`):'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 地图端连接如何优化此任务？假设`EMP`是一个大数据集，而`DEPT`是一个相对较小的数据集。使用地图端连接在`dept_id`上将`EMP`与`DEPT`连接时，我们将从小表创建广播变量（使用自定义函数`to_hash_table()`）：
+- en: '[PRE20]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'Alternatively, you may build the hash table using the Spark action `collectAsMap()`,
+    which returns the (key, value) pairs in this RDD (`DEPT`) to the master as a dictionary:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，您可以使用Spark操作`collectAsMap()`构建哈希表，该操作将此RDD（`DEPT`）中的（键，值）对作为字典返回到主节点：
+- en: '[PRE21]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Now, using `pyspark.SparkContext.broadcast()`, we can broadcast the read-only
+    variable `dept_hash_table` to the Spark cluster, making it available for all kinds
+    of transformations (including mappers and reducers):'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，使用`pyspark.SparkContext.broadcast()`，我们可以将只读变量`dept_hash_table`广播到Spark集群，使其在各种转换（包括mapper和reducer）中可用：
+- en: '[PRE22]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'To perform the map-side join, in the mapper we can access this variable via:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了执行地图端连接，在mapper中我们可以通过以下方式访问此变量：
+- en: '[PRE23]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Using the function `map_side_join()`, defined as follows:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用如下定义的`map_side_join()`函数：
+- en: '[PRE24]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'we can then perform the join using a `map()` transformation:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们可以使用`map()`转换执行连接：
+- en: '[PRE25]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: This allows us to not shuffle the dimension table (i.e., `DEPT`) and to get
+    quite good join performance.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使我们能够不洗牌维度表（即`DEPT`），并获得相当良好的连接性能。
+- en: With a map-side join, we just use the `map()` function to iterate through each
+    row of the `EMP` table, and retrieve the dimension values (such as `dept_name`
+    and `dept_location`) from the broadcasted hash table. The `map()` function will
+    be executed concurrently for each partition, which will have its own copy of the
+    hash table.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过地图端连接，我们只需使用`map()`函数迭代`EMP`表的每一行，并从广播的哈希表中检索维度值（如`dept_name`和`dept_location`）。`map()`函数将并行执行每个分区，每个分区将拥有自己的哈希表副本。
+- en: 'To recap, the map-side join approach has the following important advantages:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结一下，地图端连接方法具有以下重要优势：
+- en: It reduces the cost of the join operation by minimizing the amount of data that
+    needs to be sorted and merged in the shuffle and reduce stages. We do this by
+    making the smaller RDD/table a broadcast variable and thus avoiding a shuffle.
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过将较小的RDD/表作为广播变量，从而避免洗牌，减少连接操作的成本，最小化需要在洗牌和减少阶段进行排序和合并的数据量。
+- en: It improves the performance of the join operation by avoiding significant network
+    I/O. The main disadvantage is that the map-side join design pattern is appropriate
+    only when one of the RDDs/tables on which you wish to perform the join operation
+    is small enough to fit into memory. If both tables are large, it’s not a suitable
+    choice.
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过避免大量网络I/O来提高连接操作的性能。其主要缺点是，地图端连接设计模式仅在希望执行连接操作的RDD/表之一足够小，可以放入内存时才适合使用。如果两个表都很大，则不适合选择此方法。
+- en: Map-Side Join Using DataFrames
+  id: totrans-96
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用DataFrame进行地图端连接
+- en: As I discussed in the preceding section, a map-side join makes sense when one
+    of the tables (the fact table) is large and the other (the dimension table) is
+    small enough to be broadcast.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我在前面的部分中讨论的那样，当其中一个表（事实表）很大而另一个（维度表）足够小以广播时，地图端连接是有意义的。
+- en: In the following example (inspired by Dmitry Tolpeko’s article [“Map-Side Join
+    in Spark”](https://oreil.ly/2sHBy)), I will show how to use DataFrames along with
+    broadcast variables to implement a map-side join. Suppose we have the fact table
+    shown in [Table 11-1](#table_1101), and the two dimension tables shown in Tables
+    [11-2](#table_1102) and [11-3](#table_1103).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下示例中（受到Dmitry Tolpeko文章[“Spark中的地图端连接”](https://oreil.ly/2sHBy)的启发），我将展示如何使用DataFrame与广播变量实现地图端连接。假设我们有表11-1所示的事实表，以及表11-2和表11-3所示的两个维度表。
+- en: Table 11-1\. `Flights` (fact table)
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表11-1\. `航班`（事实表）
+- en: '| from | to | airline | flight_number | departure |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| from | to | airline | flight_number | departure |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-101
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| DTW | ORD | SW | 225 | 17:10 |'
+  id: totrans-102
+  prefs: []
+  type: TYPE_TB
+  zh: '| DTW | ORD | SW | 225 | 17:10 |'
+- en: '| DTW | JFK | SW | 355 | 8:20 |'
+  id: totrans-103
+  prefs: []
+  type: TYPE_TB
+  zh: '| DTW | JFK | SW | 355 | 8:20 |'
+- en: '| SEA | JFK | DL | 418 | 7:00 |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '| SEA | JFK | DL | 418 | 7:00 |'
+- en: '| SFO | LAX | AA | 1250 | 7:05 |'
+  id: totrans-105
+  prefs: []
+  type: TYPE_TB
+  zh: '| SFO | LAX | AA | 1250 | 7:05 |'
+- en: '| SFO | JFK | VX | 12 | 7:05 |'
+  id: totrans-106
+  prefs: []
+  type: TYPE_TB
+  zh: '| SFO | JFK | VX | 12 | 7:05 |'
+- en: '| JFK | LAX | DL | 424 | 7:10 |'
+  id: totrans-107
+  prefs: []
+  type: TYPE_TB
+  zh: '| JFK | LAX | DL | 424 | 7:10 |'
+- en: '| LAX | SEA | DL | 5737 | 7:10 |'
+  id: totrans-108
+  prefs: []
+  type: TYPE_TB
+  zh: '| LAX | SEA | DL | 5737 | 7:10 |'
+- en: Table 11-2\. `Airports` (dimension table)
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表11-2\. `机场`（维度表）
+- en: '| code | name | city | state |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '| code | name | city | state |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-111
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| DTW | Detroit Airport | Detroit | MI |'
+  id: totrans-112
+  prefs: []
+  type: TYPE_TB
+  zh: '| DTW | 底特律机场 | 底特律 | 密歇根州 |'
+- en: '| ORD | Chicago O’Hare | Chicago | IL |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '| ORD | 芝加哥奥黑尔 | 芝加哥 | 伊利诺伊州 |'
+- en: '| JFK | John F. Kennedy Airport | New York | NY |'
+  id: totrans-114
+  prefs: []
+  type: TYPE_TB
+  zh: '| JFK | 约翰·肯尼迪机场 | 纽约 | 纽约州 |'
+- en: '| LAX | Los Angeles Airport | Los Angeles | CA |'
+  id: totrans-115
+  prefs: []
+  type: TYPE_TB
+  zh: '| LAX | 洛杉矶机场 | 洛杉矶 | 加利福尼亚州 |'
+- en: '| SEA | Seattle-Tacoma Airport | Seattle | WA |'
+  id: totrans-116
+  prefs: []
+  type: TYPE_TB
+  zh: '| SEA | 西雅图-塔科马机场 | 西雅图 | 华盛顿州 |'
+- en: '| SFO | San Francisco Airport | San Francisco | CA |'
+  id: totrans-117
+  prefs: []
+  type: TYPE_TB
+  zh: '| SFO | 旧金山机场 | 旧金山 | 加利福尼亚州 |'
+- en: Table 11-3\. `Airlines` (dimension table)
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 11-3\. `Airlines`（维度表）
+- en: '| code | airline_name |'
+  id: totrans-119
+  prefs: []
+  type: TYPE_TB
+  zh: '| 代码 | 航空公司名称 |'
+- en: '| --- | --- |'
+  id: totrans-120
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| SW | Southwest Airlines |'
+  id: totrans-121
+  prefs: []
+  type: TYPE_TB
+  zh: '| SW | 西南航空 |'
+- en: '| AA | American Airlines |'
+  id: totrans-122
+  prefs: []
+  type: TYPE_TB
+  zh: '| AA | 美国航空 |'
+- en: '| DL | Delta Airlines |'
+  id: totrans-123
+  prefs: []
+  type: TYPE_TB
+  zh: '| DL | 三角洲航空 |'
+- en: '| VX | Virgin America |'
+  id: totrans-124
+  prefs: []
+  type: TYPE_TB
+  zh: '| VX | 维珍美国航空 |'
+- en: Our goal is to expand the `Flights` table, replacing the airline codes with
+    the actual airline names and the airport codes with the actual airport names.
+    This operation requires a join of `Flights`—the facts table—with two dimension
+    tables (`Airports` and `Airlines`). Since the dimension tables are small enough
+    to fit in memory, we can broadcast these to all the mappers in all the worker
+    nodes. [Table 11-4](#table_1104) shows the desired joined output.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的目标是扩展`Flights`表，用实际的航空公司名称替换航空公司代码，并用实际的机场名称替换机场代码。这一操作需要将事实表`Flights`与两个维度表（`Airports`和`Airlines`）进行连接。由于维度表足够小以适应内存，我们可以将其广播到所有工作节点的所有映射器上。[Table 11-4](#table_1104)
+    显示了所需的连接输出。
+- en: Table 11-4\. Joined table
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 11-4\. 连接后的表
+- en: '| from city | to city | airline | flight number | departure |'
+  id: totrans-127
+  prefs: []
+  type: TYPE_TB
+  zh: '| 出发城市 | 到达城市 | 航空公司 | 航班号 | 出发时间 |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-128
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| Detroit | Chicago | Southwest Airlines | 225 | 17:10 |'
+  id: totrans-129
+  prefs: []
+  type: TYPE_TB
+  zh: '| 底特律 | 芝加哥 | 西南航空 | 225 | 17:10 |'
+- en: '| Detroit | New York | Southwest Airlines | 355 | 8:20 |'
+  id: totrans-130
+  prefs: []
+  type: TYPE_TB
+  zh: '| 底特律 | 纽约 | 西南航空 | 355 | 8:20 |'
+- en: '| Seattle | New York | Delta Airlines | 418 | 7:00 |'
+  id: totrans-131
+  prefs: []
+  type: TYPE_TB
+  zh: '| 西雅图 | 纽约 | 三角洲航空 | 418 | 7:00 |'
+- en: '| San Francisco | Los Angeles | American Airlines | 1250 | 7:05 |'
+  id: totrans-132
+  prefs: []
+  type: TYPE_TB
+  zh: '| 旧金山 | 洛杉矶 | 美国航空 | 1250 | 7:05 |'
+- en: '| San Francisco | New York | Virgin America | 12 | 7:05 |'
+  id: totrans-133
+  prefs: []
+  type: TYPE_TB
+  zh: '| 旧金山 | 纽约 | 维珍美国航空 | 12 | 7:05 |'
+- en: '| New York | Los Angeles | Delta Airlines | 424 | 7:10 |'
+  id: totrans-134
+  prefs: []
+  type: TYPE_TB
+  zh: '| 纽约 | 洛杉矶 | 三角洲航空 | 424 | 7:10 |'
+- en: '| Los Angeles | Seattle | Delta Airlines | 5737 | 7:10 |'
+  id: totrans-135
+  prefs: []
+  type: TYPE_TB
+  zh: '| 洛杉矶 | 西雅图 | 三角洲航空 | 5737 | 7:10 |'
+- en: 'To achieve this result, we need to do the following:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现这个结果，我们需要执行以下步骤：
+- en: Create a broadcast variable for `Airports`. First, we create an RDD from the
+    `Airports` table and save it as a `dict[(key, value)]`, where the key is an airport
+    code and the value is the name of the airport.
+  id: totrans-137
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为`Airports`创建广播变量。首先，我们从`Airports`表创建一个RDD，并将其保存为`dict[(key, value)]`，其中key是机场代码，value是机场名称。
+- en: Create a broadcast variable for `Airlines`. Next, we create an RDD from the
+    `Airlines` table and save it as a `dict[(key, value)]`, where the key is an airline
+    code and the value is the name of the airline.
+  id: totrans-138
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为`Airlines`创建广播变量。接下来，我们从`Airlines`表创建一个RDD，并将其保存为`dict[(key, value)]`，其中key是航空公司代码，value是航空公司名称。
+- en: Create a DataFrame from the `Flights` table, to be joined with the cached broadcast
+    variables created in steps 1 and 2.
+  id: totrans-139
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从`Flights`表创建一个DataFrame，以与步骤1和2中创建的缓存广播变量进行连接。
+- en: Map each record of the `Flights` DataFrame and perform a simple join by looking
+    up values in the cached dictionaries created in steps 1 and 2.
+  id: totrans-140
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 映射`Flights` DataFrame的每条记录，并通过在步骤1和2中创建的缓存字典中查找值进行简单连接。
+- en: Next, I’ll discuss another design pattern, joining using Bloom filters, that
+    can be used for efficient joining of two tables.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我将讨论另一种设计模式，使用布隆过滤器进行连接，可用于高效地连接两个表。
+- en: 'Step 1: Create Cache for Airports'
+  id: totrans-142
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: '-   创建机场缓存的步骤'
+- en: 'This step creates a broadcast variable from the `Airports` table (as a dictionary)
+    to be cached on all worker nodes:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一步将`Airports`表（作为字典）创建为广播变量，并缓存在所有工作节点上：
+- en: '[PRE26]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'Step 2: Create Cache for Airlines'
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 'Step 2: 为航空公司创建缓存'
+- en: 'This step creates a broadcast variable from the `Airlines` table to be cached
+    on all worker nodes:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一步将`Airlines`表创建为广播变量，并缓存在所有工作节点上：
+- en: '[PRE27]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'Step 3: Create Facts Table'
+  id: totrans-148
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 'Step 3: 创建事实表'
+- en: 'This step creates a DataFrame from the `Flights` table to be used as a fact
+    table and joined with the cached dictionaries created in steps 1 and 2:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一步将`Flights`表创建为DataFrame，并将其用作事实表，与步骤1和2中创建的缓存字典进行连接：
+- en: '[PRE28]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'Step 4: Apply Map-Side Join'
+  id: totrans-151
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 'Step 4: 应用映射端连接'
+- en: 'Finally, we iterate the fact table and perform the map-side join:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们迭代事实表并执行映射端连接：
+- en: '[PRE29]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: '[![1](Images/1.png)](#co_join_design_patterns_CO1-1)'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](Images/1.png)](#co_join_design_patterns_CO1-1)'
+- en: Map-side join for airport
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机场的映射端连接
+- en: '[![2](Images/2.png)](#co_join_design_patterns_CO1-2)'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](Images/2.png)](#co_join_design_patterns_CO1-2)'
+- en: Map-side join for airport
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机场的地图端连接
+- en: '[![3](Images/3.png)](#co_join_design_patterns_CO1-3)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](Images/3.png)](#co_join_design_patterns_CO1-3)'
+- en: Map-side join for airline
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 航空公司的地图端连接
+- en: Efficient Joins Using Bloom Filters
+  id: totrans-160
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用布隆过滤器进行高效连接
+- en: 'Given two RDDs, a larger `RDD[(K, V)]` and a smaller `RDD[(K, W)]`, Spark enables
+    us to perform a join operation on the key `K`. Joining two RDDs is a common operation
+    when working with Spark. In some cases, a join is used as a form of filtering:
+    for example, if you want to perform an operation on a subset of the records in
+    the `RDD[(K, V)]`, represented by entities in another `RDD[(K, W)]` you can use
+    an inner join to achieve that effect. However, you may prefer to avoid the shuffle
+    that the join operation introduces, especially if the `RDD[(K, W)]` you want to
+    use for filtering is significantly smaller than the main `RDD[(K, V)]` on which
+    you will perform your further computation.'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定两个RDD，一个较大的`RDD[(K, V)]`和一个较小的`RDD[(K, W)]`，Spark允许我们在键`K`上执行连接操作。在使用Spark时，连接两个RDD是一种常见操作。在某些情况下，连接被用作过滤的一种形式：例如，如果您想对`RDD[(K,
+    V)]`中的记录子集执行操作，这些记录由另一个`RDD[(K, W)]`中的实体表示，您可以使用内连接来实现这种效果。然而，您可能更喜欢避免连接操作引入的洗牌，特别是如果您想要用于过滤的`RDD[(K,
+    W)]`显著小于您将对其进行进一步计算的主要`RDD[(K, V)]`。
+- en: You could do a broadcast join using a set (as a Bloom filter) constructed by
+    collecting the smaller RDD you wish to filter by, but this requires collecting
+    the entire `RDD[(K, W)]` in driver memory, and even if it is relatively small
+    (several thousand or million records) that can still lead to some undesirable
+    memory pressure. If you want to avoid the shuffle introduced by the join operation,
+    then you may use the Bloom filter. This reduces the problem of joining the `RDD[(K,
+    V)]` with the `RDD[(K, W)]` into a simple `map()` transformation, where we check
+    the key `K` against the Bloom filter constructed from the smaller `RDD[(K, W)]`.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用广播连接（使用作为布隆过滤器的集合）来执行过滤，但这需要将希望按其收集的较小RDD整体收集到驱动程序内存中，即使它相对较小（几千或几百万条记录），这仍可能导致一些不希望的内存压力。如果要避免连接操作引入的洗牌，则可以使用布隆过滤器。这将连接`RDD[(K,
+    V)]`与从较小的`RDD[(K, W)]`构建的布隆过滤器之间的问题简化为一个简单的`map()`转换，其中我们检查键`K`是否存在于布隆过滤器中。
+- en: Introduction to Bloom Filters
+  id: totrans-163
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 布隆过滤器介绍
+- en: A [Bloom filter](https://oreil.ly/sFnRT) is a space-efficient probabilistic
+    data structure that can be used to test whether an element is a member of a set.
+    It may return true for elements that are not actually members of the set (i.e.,
+    false positives are possible), but it will never return false for elements that
+    are in the set; queries return either “possibly in set” or “definitely not in
+    set.” Elements can be added to the set, but not removed. The more elements that
+    are added to the set, the larger the probability of false positives.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[布隆过滤器](https://oreil.ly/sFnRT)是一种空间高效的概率数据结构，可用于测试元素是否为集合的成员。它可能对不实际为集合成员的元素返回true（即可能存在误报），但对于确实在集合中的元素，它不会返回false；查询将返回“可能在集合中”或“绝对不在集合中”。可以向集合添加元素，但不能删除。随着向集合添加的元素越来越多，误报的概率就越大。'
+- en: 'In a nutshell, we can summarize the Bloom filter’s properties as follows:'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，我们可以总结布隆过滤器的属性如下：
+- en: Given a large set `S = {x[1], x[2], …, x[n]}`, a Bloom filter is a probabilistic,
+    fast, and space-efficient cache builder. It does not store the items in the set
+    itself, and uses less space than is theoretically required to store the data correctly;
+    this is the source of its potential inaccuracy.
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 给定一个大集合`S = {x[1], x[2], …, x[n]}`，布隆过滤器是一种概率、快速且空间高效的缓存生成器。它不会存储集合中的项本身，并且使用的空间比理论上正确存储数据所需的空间少；这是其潜在不准确性的根源。
+- en: It basically approximates the set membership operation and tries to answer questions
+    of the form “Does item `x` exist in set `S`?
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它基本上近似于集合成员操作，并尝试回答“项目`x`是否存在于集合`S`中？”的问题。
+- en: It allows false positive errors. This means that for some `x` that is not in
+    the set, a Bloom filter might indicate that `x` is in the set.
+  id: totrans-168
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它允许误报。这意味着对于某些不在集合中的`x`，布隆过滤器可能会指示`x`在集合中。
+- en: It does not allow false negative errors. This means that if `x` is in the set,
+    the Bloom filter will never indicate that `x` is not in the set.
+  id: totrans-169
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它不允许误报。这意味着如果`x`在集合中，布隆过滤器永远不会指示`x`不在集合中。
+- en: 'To make this clearer, let’s look at a simple join example between two relations,
+    or tables. Suppose we want to join `R=RDD(K, V)` and `S=RDD(K, W)` on a common
+    key `K`. Further assume that the following is true:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了更清晰地表达，让我们看一个简单的关系或表之间的连接示例。假设我们想要在共同键 `K` 上连接 `R=RDD(K, V)` 和 `S=RDD(K, W)`。进一步假设以下内容为真：
+- en: '[PRE30]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: To do a basic join, we would need to check 10 trillion (10^(12)) records, which
+    is a huge and time-consuming process. One way to reduce the required time and
+    the complexity of the join operation between `R` and `S` is to use a Bloom filter
+    on relation `S` (the smaller dataset) and then use the built Bloom filter data
+    structure on relation `R`. This can eliminate the unneeded records from `R` (perhaps
+    reducing its size to 20,000,000 records), making the join faster and more efficient.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要进行基本连接，我们需要检查 10 万亿（10^(12)）条记录，这是一个庞大且耗时的过程。减少连接操作所需的时间和复杂性的一种方法是在关系 `S` 上使用布隆过滤器（较小的数据集），然后在关系
+    `R` 上使用构建好的布隆过滤器数据结构。这可以消除 `R` 中不必要的记录（可能将其大小减少到 20,000,000 条记录），使连接更快速和高效。
+- en: 'Now, let’s semi-formalize the Bloom filter data structure. How do we construct
+    one? What is the probability of false positive errors, and how we can decrease
+    their probability? This is how a Bloom filter works. Given a set `S = {x[1], x[2],
+    …, x[n]}`:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们半正式地定义布隆过滤器数据结构。我们如何构建一个？假阳性错误的概率是多少，以及我们如何降低其概率？这就是布隆过滤器的工作原理。给定集合 `S
+    = {x[1], x[2], …, x[n]}`：
+- en: Let `B` be an `m`-bit array (`m` > 1), initialized with 0s. `B`’s elements are
+    `B[0]`, `B[1]`, `B[2]`, …, `B[m-1]`. The amount of memory required for storing
+    array `B` is only a fraction of that needed for storing the whole set `S`. The
+    probability of false positives is inversely proportional to the size of the bit
+    vector (the array `B`).
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 让 `B` 成为一个 `m` 位数组（`m` > 1），初始化为 0。`B` 的元素是 `B[0]`, `B[1]`, `B[2]`, …, `B[m-1]`。存储数组
+    `B` 所需的内存量仅为存储整个集合 `S` 所需内存量的一小部分。假阳性的概率与位向量（数组 `B`）的大小成反比。
+- en: 'Let `{H[1], H[2], …, H[k]}` be a set of `k` hash functions. If `H[i](x[j])
+    = a`, then set `B[a] = 1`. You may use SHA1, MD5, and Murmer as hash functions.
+    For example:'
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 让 `{H[1], H[2], …, H[k]}` 成为一组 `k` 个哈希函数。如果 `H[i](x[j]) = a`，则设置 `B[a] = 1`。您可以使用
+    SHA1、MD5 和 Murmer 作为哈希函数。例如：
+- en: '`H[i](x) = MD5(x+i)`'
+  id: totrans-176
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`H[i](x) = MD5(x+i)`'
+- en: '`H[i](x) = MD5(x || i)`'
+  id: totrans-177
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`H[i](x) = MD5(x || i)`'
+- en: To check if `x` <math alttext="element-of"><mo>∈</mo></math> `S`, check `B`
+    at `H[i](x)`. All `k` values must be `1`.
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要检查 `x` 是否 <math alttext="element-of"><mo>∈</mo></math> `S`，检查 `H[i](x)` 的 `B`。所有
+    `k` 值必须为 `1`。
+- en: 'It is possible to have a false positive, where all `k` values are `1`, but
+    `x` is not in `S`. The probability of false positives is:'
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可能会出现假阳性，其中所有 `k` 值均为 `1`，但 `x` 不在 `S` 中。假阳性的概率为：
+- en: <math alttext="dollar-sign left-parenthesis 1 minus left-bracket 1 minus StartFraction
+    1 Over m EndFraction right-bracket Superscript k n Baseline right-parenthesis
+    Superscript k Baseline almost-equals left-parenthesis 1 minus e Superscript minus
+    k n slash m Baseline right-parenthesis Superscript k dollar-sign"><mrow><msup><mfenced
+    separators="" open="(" close=")"><mn>1</mn> <mo>-</mo> <msup><mfenced separators=""
+    open="[" close="]"><mn>1</mn> <mo>-</mo> <mfrac><mn>1</mn> <mi>m</mi></mfrac></mfenced>
+    <mrow><mi>k</mi><mi>n</mi></mrow></msup></mfenced> <mi>k</mi></msup> <mo>≈</mo>
+    <msup><mfenced separators="" open="(" close=")"><mn>1</mn> <mo>-</mo> <msup><mi>e</mi>
+    <mrow><mo>-</mo><mi>k</mi><mi>n</mi><mo>/</mo><mi>m</mi></mrow></msup></mfenced>
+    <mi>k</mi></msup></mrow></math>
+  id: totrans-180
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: <math alttext="dollar-sign left-parenthesis 1 minus left-bracket 1 minus StartFraction
+    1 Over m EndFraction right-bracket Superscript k n Baseline right-parenthesis
+    Superscript k Baseline almost-equals left-parenthesis 1 minus e Superscript minus
+    k n slash m Baseline right-parenthesis Superscript k dollar-sign"><mrow><msup><mfenced
+    separators="" open="(" close=")"><mn>1</mn> <mo>-</mo> <msup><mfenced separators=""
+    open="[" close="]"><mn>1</mn> <mo>-</mo> <mfrac><mn>1</mn> <mi>m</mi></mfrac></mfenced>
+    <mrow><mi>k</mi><mi>n</mi></mrow></msup></mfenced> <mi>k</mi></msup> <mo>≈</mo>
+    <msup><mfenced separators="" open="(" close=")"><mn>1</mn> <mo>-</mo> <msup><mi>e</mi>
+    <mrow><mo>-</mo><mi>k</mi><mi>n</mi><mo>/</mo><mi>m</mi></mrow></msup></mfenced>
+    <mi>k</mi></msup></mrow></math>
+- en: 'What is the optimal number of hash functions? For a given *m* (number of bits
+    selected for the Bloom filter) and *n* (size of the dataset), the value of *k*
+    (the number of hash functions) that minimizes the probability of false positives
+    is (*ln* stands for “natural logarithm”):'
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 什么是最优的哈希函数数量？对于给定的 *m*（选择用于布隆过滤器的位数）和 *n*（数据集的大小），使假阳性概率最小的 *k* 值（哈希函数的数量）是（*ln*
+    代表“自然对数”）：
+- en: <math alttext="dollar-sign k equals StartFraction m Over n EndFraction l n left-parenthesis
+    2 right-parenthesis dollar-sign"><mrow><mi>k</mi> <mo>=</mo> <mfrac><mi>m</mi>
+    <mi>n</mi></mfrac> <mi>l</mi> <mi>n</mi> <mrow><mo>(</mo> <mn>2</mn> <mo>)</mo></mrow></mrow></math><math
+    alttext="dollar-sign m equals minus StartFraction n l n left-parenthesis p right-parenthesis
+    Over left-parenthesis l n left-parenthesis 2 right-parenthesis right-parenthesis
+    squared EndFraction dollar-sign"><mrow><mi>m</mi> <mo>=</mo> <mo>-</mo> <mfrac><mrow><mi>n</mi><mi>l</mi><mi>n</mi><mo>(</mo><mi>p</mi><mo>)</mo></mrow>
+    <msup><mrow><mo>(</mo><mi>l</mi><mi>n</mi><mrow><mo>(</mo><mn>2</mn><mo>)</mo></mrow><mo>)</mo></mrow>
+    <mn>2</mn></msup></mfrac></mrow></math>
+  id: totrans-182
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: <math alttext="dollar-sign k equals StartFraction m Over n EndFraction l n left-parenthesis
+    2 right-parenthesis dollar-sign"><mrow><mi>k</mi> <mo>=</mo> <mfrac><mi>m</mi>
+    <mi>n</mi></mfrac> <mi>l</mi> <mi>n</mi> <mrow><mo>(</mo> <mn>2</mn> <mo>)</mo></mrow></mrow></math><math
+    alttext="dollar-sign m equals minus StartFraction n l n left-parenthesis p right-parenthesis
+    Over left-parenthesis l n left-parenthesis 2 right-parenthesis right-parenthesis
+    squared EndFraction dollar-sign"><mrow><mi>m</mi> <mo>=</mo> <mo>-</mo> <mfrac><mrow><mi>n</mi><mi>l</mi><mi>n</mi><mo>(</mo><mi>p</mi><mo>)</mo></mrow>
+    <msup><mrow><mo>(</mo><mi>l</mi><mi>n</mi><mrow><mo>(</mo><mn>2</mn><mo>)</mo></mrow><mo>)</mo></mrow>
+    <mn>2</mn></msup></mfrac></mrow></math>
+- en: 'Therefore, the probability that a specific bit has been flipped to 1 is:'
+  id: totrans-183
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 因此，特定位被翻转为 1 的概率是：
+- en: <math alttext="dollar-sign 1 minus left-parenthesis 1 minus StartFraction 1
+    Over m EndFraction right-parenthesis Superscript k n Baseline almost-equals 1
+    minus e Superscript minus StartFraction k n Over m EndFraction dollar-sign"><mrow><mn>1</mn>
+    <mo>-</mo> <msup><mfenced separators="" open="(" close=")"><mn>1</mn> <mo>-</mo>
+    <mfrac><mn>1</mn> <mi>m</mi></mfrac></mfenced> <mrow><mi>k</mi><mi>n</mi></mrow></msup>
+    <mo>≈</mo> <mn>1</mn> <mo>-</mo> <msup><mi>e</mi> <mrow><mo>-</mo><mfrac><mrow><mi>k</mi><mi>n</mi></mrow>
+    <mi>m</mi></mfrac></mrow></msup></mrow></math>
+  id: totrans-184
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: <math alttext="dollar-sign 1 minus left-parenthesis 1 minus StartFraction 1
+    Over m EndFraction right-parenthesis Superscript k n Baseline almost-equals 1
+    minus e Superscript minus StartFraction k n Over m EndFraction dollar-sign"><mrow><mn>1</mn>
+    <mo>-</mo> <msup><mfenced separators="" open="(" close=")"><mn>1</mn> <mo>-</mo>
+    <mfrac><mn>1</mn> <mi>m</mi></mfrac></mfenced> <mrow><mi>k</mi><mi>n</mi></mrow></msup>
+    <mo>≈</mo> <mn>1</mn> <mo>-</mo> <msup><mi>e</mi> <mrow><mo>-</mo><mfrac><mrow><mi>k</mi><mi>n</mi></mrow>
+    <mi>m</mi></mfrac></mrow></msup></mrow></math>
+- en: Next, let’s take a look at a Bloom filter example.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看一个布隆过滤器的例子。
+- en: A Simple Bloom Filter Example
+  id: totrans-186
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 一个简单的布隆过滤器示例
+- en: 'This example shows how to insert elements into and perform queries on a Bloom
+    filter of size 10 (`m = 10`) with three hash functions `H = {H[1], H[2], H[3]}`,
+    where `H(x)` denotes the result of these three hash functions. We start with a
+    10-bit-long array `B` initialized to `0`:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个示例展示了如何在大小为10的布隆过滤器（`m = 10`）上插入元素并执行查询，使用三个哈希函数 `H = {H[1], H[2], H[3]}`，其中
+    `H(x)` 表示这三个哈希函数的结果。我们从一个初始化为 `0` 的长度为10位的数组 `B` 开始：
+- en: '[PRE31]'
+  id: totrans-188
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: Bloom Filters in Python
+  id: totrans-189
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Python中的布隆过滤器
+- en: 'The following code segment shows how to create and use a Bloom filter in Python
+    (you may roll your own Bloom filter library, but as a general rule if a library
+    already exists, you should use it):'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码段展示了如何在Python中创建和使用布隆过滤器（您可以自己编写布隆过滤器库，但通常情况下，如果已经存在库，则应该使用它）：
+- en: '[PRE32]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Using Bloom Filters in PySpark
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在PySpark中使用布隆过滤器
+- en: A Bloom filter is a small, compact, and fast data structure for set membership
+    testing. It can be used to facilitate the join of two RDDs/relations/tables such
+    as `R(K, V)` and `S(K, W)` where one of the relations has huge number of records
+    and the other relation has a smaller number of records (for example, `R` might
+    have 1,000,000,000 records and `S` might have 10,000,000 records).
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 布隆过滤器是一种小型、紧凑且快速的用于集合成员测试的数据结构。它可以用于促进两个RDD/关系/表的连接，如 `R(K, V)` 和 `S(K, W)`，其中一个关系具有大量记录，而另一个关系具有较少的记录（例如，`R`
+    可能有10亿条记录，而 `S` 可能有1000万条记录）。
+- en: 'Performing a traditional join on the key field `K` between `R` and `S` would
+    take a long time and be inefficient. We can speed things up by building a Bloom
+    filter out of relation `S(K, W)`, and then testing the values in `R(K, V)` for
+    membership using the built data structure (with Spark’s broadcast mechanism).
+    Note that for reduce-side join optimization we use a Bloom filter in the map tasks,
+    which will force an I/O cost reduction for the PySpark job. How do we do this?
+    The following steps show how to use a Bloom filter (representation of `S`) in
+    mappers, which will be a substitute for the join operation between `R` and `S`:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在键字段 `K` 上执行传统的 `R` 和 `S` 的连接操作将花费很长时间且效率低下。我们可以通过将关系 `S(K, W)` 构建为布隆过滤器，并使用构建的数据结构（使用Spark的广播机制）来测试
+    `R(K, V)` 中的值是否属于其中来加快速度。请注意，为了减少PySpark作业的I/O成本，我们在映射任务中使用布隆过滤器来进行减少端连接优化。如何实现呢？以下步骤展示了如何在映射器中使用布隆过滤器（表示
+    `S` 的数据结构），来替代 `R` 和 `S` 之间的连接操作：
+- en: Build the Bloom filter, using the smaller of the two relations/tables. Initialize
+    the Bloom filter (create an instance of `BloomFilter`), then build the data structure
+    with `BloomFilter.add()`. We’ll call the built Bloom filter `the_bloom_filter`.
+  id: totrans-195
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 构建布隆过滤器，使用两个关系/表中较小的一个。初始化布隆过滤器（创建 `BloomFilter` 的实例），然后使用 `BloomFilter.add()`
+    来构建数据结构。我们将构建好的布隆过滤器称为 `the_bloom_filter`。
+- en: 'Broadcast the built Bloom filter. Use `SparkContext.broadcast()` to broadcast
+    `the_bloom_filter` to all worker nodes, so that it’s available to all Spark transformations
+    (including mappers):'
+  id: totrans-196
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 广播构建好的布隆过滤器。使用 `SparkContext.broadcast()` 将 `the_bloom_filter` 广播到所有工作节点，这样它就可以在所有Spark转换（包括映射器）中使用：
+- en: '[PRE33]'
+  id: totrans-197
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'Use the broadcasted object in mappers. Now, we can use the Bloom filter to
+    get rid of the unneeded elements in `R`:'
+  id: totrans-198
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在映射器中使用广播对象。现在，我们可以使用布隆过滤器来消除 `R` 中不需要的元素：
+- en: '[PRE34]'
+  id: totrans-199
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'We use the `bloom_filter_function()` for `R=RDD[(K, V)]` to keep the elements
+    if and only if the key is in `S=RDD[(K, W)]`:'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用 `bloom_filter_function()` 对 `R=RDD[(K, V)]` 进行处理，只保留键在 `S=RDD[(K, W)]`
+    中的元素：
+- en: '[PRE35]'
+  id: totrans-201
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: Summary
+  id: totrans-202
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: This chapter introduced some design patterns that can be used in situations
+    where optimizing the cost of a join operation is essential. I showed you how joins
+    are implemented in the MapReduce paradigm and presented the map-side join, which
+    reduces the join operation to a simple mapper with a lookup operation to a built
+    dictionary (avoiding the actual `join()` function). This design pattern completely
+    eliminates the need to shuffle any data to the reduce phase. Then I showed you
+    a more efficient alternative to using a join as a filter operation. As you saw,
+    by using a Bloom filter you can avoid the shuffle that the join operation results
+    in. Next, we’ll wrap up the book with a look at design patterns for feature engineering.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了在优化连接操作成本至关重要的情况下可以使用的一些设计模式。我向您展示了如何在MapReduce范式中实现连接，并呈现了映射端连接，它将连接操作简化为一个简单的映射器和一个对构建字典的查找操作（避免了实际的
+    `join()` 函数）。这种设计模式完全消除了将任何数据洗牌到减少阶段的需要。然后我向您展示了使用布隆过滤器作为过滤操作的更有效替代方法。正如您所见，通过使用布隆过滤器，可以避免连接操作所导致的洗牌操作。接下来，我们将通过查看特征工程的设计模式来结束本书。
