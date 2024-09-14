@@ -1,4 +1,4 @@
-# 第 12 章 pandas 高级应用
+# 第十二章 pandas 高级应用
 
 前面的章节关注于不同类型的数据规整流程和 NumPy、pandas 与其它库的特点。随着时间的发展，pandas 发展出了更多适合高级用户的功能。本章就要深入学习 pandas 的高级功能。
 
@@ -460,7 +460,7 @@ Categories (2, object): [a, b]
 In [73]: cat_s = pd.Series(['a', 'b', 'c', 'd'] * 2, dtype='category')
 ```
 
-前面的第 7 章提到过，`pandas.get_dummies`函数可以转换这个分类数据为包含虚拟变量的`DataFrame`：
+前面的第七章提到过，`pandas.get_dummies`函数可以转换这个分类数据为包含虚拟变量的`DataFrame`：
 
 ```python
 In [74]: pd.get_dummies(cat_s)
@@ -478,11 +478,11 @@ Out[74]:
 
 # 12.2 `GroupBy`高级应用
 
-尽管我们在第 10 章已经深度学习了`Series`和`DataFrame`的`Groupby`方法，还有一些方法也是很有用的。
+尽管我们在第十章已经深度学习了`Series`和`DataFrame`的`Groupby`方法，还有一些方法也是很有用的。
 
 ## 分组转换和“解封”`GroupBy`
 
-在第 10 章，我们在分组操作中学习了`apply`方法，进行转换。还有另一个`transform`方法，它与`apply`很像，但是对使用的函数有一定限制：
+在第十章，我们在分组操作中学习了`apply`方法，进行转换。还有另一个`transform`方法，它与`apply`很像，但是对使用的函数有一定限制：
 
 - 它可以产生向分组形状广播标量值
 - 它可以产生一个和输入组形状相同的对象

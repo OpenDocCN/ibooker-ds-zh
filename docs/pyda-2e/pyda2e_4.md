@@ -1,4 +1,4 @@
-# 第 4 章 NumPy 基础：数组和向量计算
+# 第四章 NumPy 基础：数组和向量计算
 
 NumPy（Numerical Python 的简称）是 Python 数值计算最重要的基础包。大多数提供科学计算的包都是用 NumPy 的数组作为构建基础。
 
@@ -970,7 +970,7 @@ Out[154]: array([    nan,     nan,     nan,  2.318 ,  1.9022,  1.8574,  2.2378])
 
 NumPy 数组使你可以将许多种数据处理任务表述为简洁的数组表达式（否则需要编写循环）。用数组表达式代替循环的做法，通常被称为向量化。一般来说，向量化数组运算要比等价的纯 Python 方式快上一两个数量级（甚至更多），尤其是各种数值计算。在后面内容中（见附录 A）我将介绍广播，这是一种针对向量化计算的强大手段。
 
-作为简单的例子，假设我们想要在一组值（网格型）上计算函数``sqrt(x^2+y^2)``。`np.meshgrid`函数接受两个一维数组，并产生两个二维矩阵（对应于两个数组中所有的`(x,y)`对）：
+作为简单的例子，假设我们想要在一组值（网格型）上计算函数``sqrt(x²+y²)``。`np.meshgrid`函数接受两个一维数组，并产生两个二维矩阵（对应于两个数组中所有的`(x,y)`对）：
 
 ```python
 In [155]: points = np.arange(-5, 5, 0.01) # 1000 equally spaced points
@@ -1003,7 +1003,7 @@ array([[ 7.0711,  7.064 ,  7.0569, ...,  7.0499,  7.0569,  7.064 ],
        [ 7.064 ,  7.0569,  7.0499, ...,  7.0428,  7.0499,  7.0569]])
 ```
 
-作为第 9 章的先导，我用 matplotlib 创建了这个二维数组的可视化：
+作为第九章的先导，我用 matplotlib 创建了这个二维数组的可视化：
 
 ```python
 In [160]: import matplotlib.pyplot as plt
@@ -1011,7 +1011,7 @@ In [160]: import matplotlib.pyplot as plt
 In [161]: plt.imshow(z, cmap=plt.cm.gray); plt.colorbar()
 Out[161]: <matplotlib.colorbar.Colorbar at 0x7f715e3fa630>
 
-In [162]: plt.title("Image plot of $\sqrt{x^2 + y^2}$ for a grid of values")
+In [162]: plt.title("Image plot of $\sqrt{x² + y²}$ for a grid of values")
 Out[162]: <matplotlib.text.Text at 0x7f715d2de748>
 ```
 
@@ -1285,7 +1285,7 @@ NumPy 中的集合函数请参见表 4-6。
 
 # 4.4 用于数组的文件输入输出
 
-NumPy 能够读写磁盘上的文本数据或二进制数据。这一小节只讨论 NumPy 的内置二进制格式，因为更多的用户会使用 pandas 或其它工具加载文本或表格数据（见第 6 章）。
+NumPy 能够读写磁盘上的文本数据或二进制数据。这一小节只讨论 NumPy 的内置二进制格式，因为更多的用户会使用 pandas 或其它工具加载文本或表格数据（见第六章）。
 
 `np.save`和`np.load`是读写磁盘数组数据的两个主要函数。默认情况下，数组是以未压缩的原始二进制格式保存在扩展名为`.npy`的文件中的：
 

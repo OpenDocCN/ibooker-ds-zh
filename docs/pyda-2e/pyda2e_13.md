@@ -1,4 +1,4 @@
-# 第 13 章 Python 建模库介绍
+# 第十三章 Python 建模库介绍
 
 本书中，我已经介绍了 Python 数据分析的编程基础。因为数据分析师和科学家总是在数据规整和准备上花费大量时间，这本书的重点在于掌握这些功能。
 
@@ -101,7 +101,7 @@ array([[ 1.  ,  0.01],
 
 一些库原生支持 pandas，会自动完成工作：从`DataFrame`转换到 NumPy，将模型的参数名添加到输出表的列或`Series`。其它情况，你可以手工进行“元数据管理”。
 
-在第 12 章，我们学习了 pandas 的`Categorical`类型和`pandas.get_dummies`函数。假设数据集中有一个非数值列：
+在第十二章，我们学习了 pandas 的`Categorical`类型和`pandas.get_dummies`函数。假设数据集中有一个非数值列：
 
 ```python
 In [24]: data['category'] = pd.Categorical(['a', 'b', 'a', 'a', 'b'],

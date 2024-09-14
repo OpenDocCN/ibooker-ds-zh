@@ -1,6 +1,6 @@
 # 附录 B 更多关于 IPython 的内容
 
-第 2 章中，我们学习了 IPython shell 和 Jupyter 笔记本的基础。本章中，我们会探索 IPython 更深层次的功能，可以从控制台或在 jupyter 使用。
+第二章中，我们学习了 IPython shell 和 Jupyter 笔记本的基础。本章中，我们会探索 IPython 更深层次的功能，可以从控制台或在 jupyter 使用。
 
 # B.1 使用命令历史
 
