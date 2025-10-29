@@ -1,4 +1,4 @@
-# 8 使用 Streamlit 构建 CRUD 应用程序
+# 第八章：8 使用 Streamlit 构建 CRUD 应用程序
 
 ### 本章涵盖
 
