@@ -40,4 +40,6 @@
 +   [R 数据科学第二版](docs/r-ds-2e/README.md)
 +   [可复现的 Python 生物信息学指南](docs/rprd-bioinfo-py/README.md)
 +   [SQL 数据分析](docs/sql-dt-anls/README.md)
++   [Streamlit 实战](docs/stlt-ia/README.md)
 +   [Tableau 策略指南](docs/tbl-stg/README.md)
++   [数据分析落地指南](docs/wlgrd-dtanls/README.md)
