@@ -1,0 +1,1848 @@
+- en: 10 Refactoring
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 10 重构
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Determining when to refactor IaC to avoid impacting systems
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确定何时重构IaC以避免影响系统
+- en: Applying feature flagging to change infrastructure attributes mutably
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将功能标志应用于可变地更改基础设施属性
+- en: Explaining rolling updates to complete in-place updates
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 解释滚动更新以完成就地更新
+- en: Over time, you might outgrow the patterns and practices you use to collaborate
+    on infrastructure as code. Even change techniques like blue-green deployment cannot
+    solve conflicts in configuration or changes as your team works on some IaC. You
+    must deliver a series of major changes to your IaC and address problems with scaling
+    the practice.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间的推移，您可能会超出您用于协作基础设施代码的模式和实践。即使是像蓝绿部署这样的变更技术也无法解决在您的团队处理某些IaC时的配置或更改冲突。您必须对IaC进行一系列重大更改，并解决实践扩展中的问题。
+- en: For example, the sundew team for Datacenter for Carnivorous Plants expresses
+    that it can no longer comfortably and confidently roll out new changes to its
+    system. The team puts all infrastructure resources in one repository (as per the
+    singleton pattern) to quickly deliver the system and just kept adding new updates
+    on top of it.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，食肉植物数据中心团队表示，它不能再轻松自信地推出其系统的新更改。团队将所有基础设施资源放在一个仓库中（按照单例模式），以快速交付系统，并且只是不断地在上面添加新的更新。
+- en: The sundew team outlines a few problems with its system. First, the team finds
+    its updates to infrastructure configuration constantly overlapping. One teammate
+    works on updating servers, only to find another teammate has updated the network
+    and will affect their changes.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: sundew团队概述了其系统的一些问题。首先，团队发现其对基础设施配置的更新不断重叠。一位队友正在更新服务器，却发现另一位队友已经更新了网络，这将影响他们的更改。
+- en: Second, it takes more than 30 minutes to run a single change. One change makes
+    hundreds of calls to your infrastructure API to retrieve the state of resources,
+    which slows the feedback cycle.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，运行单个更改需要超过30分钟。一个更改会对您的基础设施API进行数百次调用以检索资源状态，这会减慢反馈周期。
+- en: Finally, the security team expresses concern that the sundew infrastructure
+    may have an insecure configuration. The current configuration does not use standardized,
+    hardened company infrastructure modules.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，安全团队表示担忧，sundew基础设施可能存在不安全的配置。当前的配置没有使用标准化的、加固的公司基础设施模块。
+- en: You realize you need to change the sundew team’s configuration. The configuration
+    should use an existing server module approved by the security team. You also need
+    to break the configuration into separate resources to minimize the blast radius
+    of changes.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您意识到需要更改sundew团队的配置。配置应使用安全团队批准的现有服务器模块。您还需要将配置分解为单独的资源，以最小化更改的影响范围。
+- en: This chapter discusses some IaC patterns and techniques to break down large
+    singleton repositories with hundreds of resources. As the IaC helper on the sundew
+    team, you’ll refactor the system’s singleton configuration into separate repositories
+    and structure the server configurations to use modules to avoid conflicts and
+    comply with security standards.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章讨论了一些IaC模式和技巧，用于分解具有数百个资源的大型单例仓库。作为sundew团队的IaC助手，您将重构系统的单例配置到单独的仓库中，并将服务器配置结构化以使用模块，以避免冲突并符合安全标准。
+- en: Note Demonstrating refactoring requires a sufficiently large (and complex) example.
+    If you run the complete example, you will incur a cost that exceeds the GCP free
+    tier. This book includes only the relevant lines of code and omits the rest for
+    readability. For complete listings, refer to the book’s code repository at [https://github.com/joatmon08/manning-book/tree/main/ch10](https://github.com/joatmon08/manning-book/tree/main/ch10).
+    If you convert these examples for AWS and Azure, you will also incur a cost. When
+    possible, I offer notations on converting the examples to the cloud provider of
+    your choice.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：演示重构需要足够大（且复杂）的示例。如果您运行完整示例，您将承担超出GCP免费层的费用。本书仅包含相关的代码行，为了可读性省略了其余部分。对于完整的列表，请参考本书的代码仓库[https://github.com/joatmon08/manning-book/tree/main/ch10](https://github.com/joatmon08/manning-book/tree/main/ch10)。如果您将这些示例转换为AWS和Azure，您也将产生费用。在可能的情况下，我提供将示例转换为所选云提供商的注释。
+- en: 10.1 Minimizing the refactoring impact
+  id: totrans-13
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.1 最小化重构影响
+- en: The sundew team needs help breaking down its infrastructure configuration. You
+    decide to refactor the IaC to isolate conflicts better, reduce the amount of time
+    to apply changes to production, and secure them according to company standards.
+    *Refactoring* IaC involves restructuring configuration or code without impacting
+    existing infrastructure resources.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 捕蝇草团队需要帮助分解其基础设施配置。你决定重构基础设施即代码（IaC），以更好地隔离冲突，减少将更改应用到生产所需的时间，并按照公司标准进行安全加固。重构IaC涉及重新构建配置或代码，而不影响现有的基础设施资源。
+- en: Definition *Refactoring* IaC is the practice of restructuring configuration
+    or code without impacting existing infrastructure resources.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义重构IaC是指在不对现有基础设施资源造成影响的情况下重新构建配置或代码的实践。
+- en: 'You communicate to the sundew team that its configuration needs to undergo
+    a refactor to fix the problems. While the team members support your effort, they
+    challenge you to minimize the impact of your refactor. Challenge accepted: you
+    apply a few techniques to reduce the potential blast radius as you refactor IaC.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你向捕蝇草团队传达，其配置需要进行重构以修复问题。虽然团队成员支持你的努力，但他们要求你尽量减少重构的影响。接受挑战：你在重构IaC时应用了一些技术来减少潜在的破坏范围。
+- en: Technical debt
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 技术债务
+- en: Refactoring often resolves technical debt. Technical debt began as a metaphor
+    to describe the cost of any code or approach that makes the overall system challenging
+    to change or extend.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重构通常可以解决技术债务。技术债务最初是一个隐喻，用来描述任何使整体系统难以更改或扩展的代码或方法的成本。
+- en: To understand technical debt applied to IaC, recall that the sundew team put
+    all its infrastructure resources into one repository. The sundew team accumulates
+    debt in time and effort. A change to a server that *should* take a day takes four
+    days because the team needs to resolve conflicts with another change and wait
+    for hundreds of requests to the infrastructure API. Note that you’ll always have
+    some technical debt in complex systems, but you need continuous efforts to minimize
+    it.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了理解应用于IaC的技术债务，回想一下捕蝇草团队将所有基础设施资源放入了一个仓库。捕蝇草团队在时间和精力上积累债务。一个本应花费一天的服务器更改需要四天，因为团队需要解决与其他更改的冲突并等待数百次对基础设施API的请求。请注意，在复杂的系统中，你总是会有些技术债务，但你需要持续的努力来最小化它。
+- en: A management team dreads hearing that you need to address technical debt because
+    you don’t work on features. I argue that the technical debt you accumulate in
+    infrastructure will always come back to haunt you. The gremlin of technical debt
+    comes in the form of someone changing infrastructure and causing application downtime,
+    or worse, a security breach that exposes personal information and incurs a monetary
+    cost. Assessing the impact of *not* fixing technical debt helps justify the effort.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管理团队害怕听到你需要解决技术债务，因为你没有在开发新功能。我争辩说，你在基础设施中积累的技术债务总是会回来困扰你。技术债务的鬼魂以某人更改基础设施并导致应用程序停机，或者更糟糕的是，导致个人信息泄露并产生货币成本的安全漏洞的形式出现。评估不修复技术债务的影响有助于证明努力的合理性。
+- en: 10.1.1 Reduce blast radius with rolling updates
+  id: totrans-21
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.1 通过滚动更新减少破坏范围
+- en: The Datacenter for Carnivorous Plants platform and security team offer a server
+    module with secure configurations, which you can use for the sundew system. The
+    sundew team’s infrastructure configuration has three server configurations but
+    no usage of the secure module. How do you change the sundew IaC to use the module?
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 食肉植物数据中心和安全团队提供了一个具有安全配置的服务器模块，你可以用它来构建捕蝇草系统。捕蝇草团队的基础设施配置有三个服务器配置，但没有使用安全模块。你如何更改捕蝇草的IaC以使用该模块？
+- en: Imagine you create three new servers together and immediately send traffic to
+    them. If the applications do not run correctly on the server, you could disrupt
+    the sundew system entirely, and the poor plants do not get watered! Instead, you
+    might reduce the blast radius of your server module refactor by gradually changing
+    the servers one by one.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，你一起创建了三个新的服务器，并立即向它们发送流量。如果应用程序在服务器上运行不正确，你可能会完全破坏捕蝇草系统，而这些可怜的植物得不到浇水！相反，你可能通过逐个逐步更改服务器来减少服务器模块重构的破坏范围。
+- en: In figure 10.1, you create one server configuration using the module, deploy
+    the application to the new server, validate that the application works, and delete
+    the old server. You repeat the process two more times for each server. You gradually
+    roll out the change to one server before updating the next one.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图10.1中，你使用模块创建一个服务器配置，将应用程序部署到新服务器，验证应用程序是否正常工作，然后删除旧服务器。你为每个服务器重复此过程两次。你逐渐将更改推广到一台服务器，然后再更新下一台。
+- en: '![](../../OEBPS/Images/CH10_F01_Wang.png)'
+  id: totrans-25
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F01_Wang.png)'
+- en: Figure 10.1 Use rolling updates to create each new server, deploy the application,
+    and test its functionality while minimizing disruption to other resources.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1 使用滚动更新创建每个新服务器，部署应用程序，并测试其功能，同时最大限度地减少对其他资源的干扰。
+- en: A *rolling update* gradually changes similar resources one by one and tests
+    *each* one before continuing the update.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**滚动更新**逐个逐渐更改相似资源，并在继续更新之前测试**每个**资源。'
+- en: Definition A *rolling update* is a practice of changing a group of similar resources
+    one by one and testing them before implementing the change to the next one.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义：**滚动更新**是一种逐个更改一组相似资源并测试它们，然后再将更改实施到下一个资源中的实践。
+- en: Applying a rolling update to the sundew team’s configuration isolates failures
+    to individual servers each time you make the update and allows you to test the
+    server’s functionality before proceeding to the next one.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将滚动更新应用于雾水团队配置，每次更新时都会将故障隔离到单个服务器，并允许你在进行下一个更新之前测试服务器的功能。
+- en: The practice of rolling updates can save you the pain of detangling a large
+    set of failed changes or incorrectly configured IaC. For example, if the Datacenter
+    for Carnivorous Plants module doesn’t work on one server, you have not yet rolled
+    it out and affected the remaining servers. A rolling update lets you check that
+    you have the proper IaC for each server before continuing to the next one. A gradual
+    approach also mitigates any downtime in the applications or failures in updating
+    the servers.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 滚动更新的实践可以让你避免处理大量失败更改或错误配置的IaC（基础设施即代码）带来的痛苦。例如，如果食肉植物数据中心模块在一台服务器上不起作用，你还没有将其推广出去并影响到其他服务器。滚动更新让你在继续下一个服务器之前检查每个服务器是否都有适当的IaC。渐进的方法还可以减轻应用程序的任何停机时间或服务器更新中的故障。
+- en: Note I borrowed *rolling updates* for refactoring from workload orchestrators,
+    like Kubernetes. When you need to update new nodes (virtual machines) for a workload
+    orchestrator, you may find it uses an automated rolling update mechanism. The
+    orchestrator cordons the old node, prevents new workloads from running on it,
+    starts all of the running processes on a new node, drains all of the processes
+    on the old node, and sends workloads and requests to the new node. You should
+    mimic the workflow when you refactor!
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我借鉴了来自工作负载协调器（如Kubernetes）的**滚动更新**方法进行重构。当你需要为工作负载协调器更新新的节点（虚拟机）时，你可能发现它使用了一个自动化的滚动更新机制。协调器隔离旧节点，防止新的工作负载在其上运行，然后在新的节点上启动所有运行中的进程，将旧节点上的所有进程移除，并将工作负载和请求发送到新节点。当你重构时，你应该模仿这个工作流程！
+- en: Thanks to the rolling update and incremental testing, you know that the servers
+    can run with the secure module. You tell the team that you finished refactoring
+    the servers and confirmed that they work with internal services. The sundew team
+    can now send all customer traffic to the newly secured servers. However, the team
+    members tell you that they need to update the customer-facing load balancer first!
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多亏了滚动更新和增量测试，你知道服务器可以与安全模块一起运行。你告诉团队你已经完成了服务器的重构，并确认它们可以与内部服务一起工作。雾水团队现在可以将所有客户流量发送到新安全服务器。然而，团队成员告诉你，他们需要首先更新面向客户的负载均衡器！
+- en: 10.1.2 Stage refactoring with feature flags
+  id: totrans-33
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.2 使用功能标志进行阶段重构
+- en: You need a way to hide the new servers from the customer-facing load balancer
+    for a few days and attach them when the team approves. However, you have all the
+    configurations ready! You want to hide the server attachments with a single variable
+    to simplify for the sundew team. When the team members complete their load balancer
+    update, they need to update only one variable to add the new servers to the load
+    balancer.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你需要一种方法在几天内将新服务器从面向客户的负载均衡器中隐藏，并在团队批准后将其附加。然而，你已经有所有配置就绪！你希望用一个变量来隐藏服务器附加，以简化雾水团队的工作。当团队成员完成负载均衡器更新后，他们只需要更新一个变量，将新服务器添加到负载均衡器中。
+- en: Figure 10.2 outlines how you set up the variable to add new servers created
+    by the module. You create a Boolean to enable or disable the new server module,
+    using `True` or `False`. Then, you add an `if` statement to IaC that references
+    the Boolean value. A `True` variable adds the new servers to the load balancer.
+    A `False` variable removes the servers from the load balancer.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.2 概述了如何设置变量以添加由模块创建的新服务器。您创建一个布尔值来启用或禁用新服务器模块，使用 `True` 或 `False`。然后，您在
+    IaC 中添加一个引用布尔值的 `if` 语句。`True` 变量将新服务器添加到负载均衡器。`False` 变量从负载均衡器中删除服务器。
+- en: '![](../../OEBPS/Images/CH10_F02_Wang.png)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F02_Wang.png)'
+- en: Figure 10.2 Feature flags in IaC involve a process of creation, management,
+    and removal.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.2 概述了在基础设施即代码（IaC）中特性标志的创建、管理和删除过程。
+- en: The Boolean variable helps with the composability or evolvability of IaC. A
+    single change to the variable adds, removes, or updates a configuration. The variable,
+    called a *feature flag* (or *feature toggle*), is used to enable or disable infrastructure
+    resources, dependencies, and attributes. You often find feature flags in software
+    development with a trunk-based development model (these work only on the main
+    branch).
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 布尔变量有助于 IaC 的可组合性或可进化性。对变量的单个更改会添加、删除或更新配置。这个变量被称为 *特性标志*（或 *特性开关*），用于启用或禁用基础设施资源、依赖项和属性。您通常在基于主干的开发模型（这些只在主分支上工作）的软件开发中找到特性标志。
+- en: Definition *Feature flags* (also known as *feature toggles*) enable or disable
+    infrastructure resources, dependences, or attributes by using a Boolean.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 *特性标志*（也称为 *特性开关*）通过布尔值启用或禁用基础设施资源、依赖项或属性。
+- en: Flags hide certain features or code and prevent them from impacting the rest
+    of the team on the main branch. For the sundew team, you hide the new servers
+    from the load balancer until the team completes the load balancer change. Similarly,
+    you can use feature flags in IaC to stage configuration and push the update with
+    a single variable.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 标志隐藏某些特性或代码，并防止它们影响主分支上的其他团队。对于捕蝇草团队，您将新服务器从负载均衡器中隐藏，直到团队完成负载均衡器更改。同样，您可以在 IaC
+    中使用特性标志进行配置阶段，并通过单个变量推送更新。
+- en: Set up the flag
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设置标志。
+- en: To start implementing a feature flag and stage changes for the new servers,
+    you add a flag and set it to `False`. You default a feature flag to `False` to
+    preserve the original infrastructure state, as shown in figure 10.3\. The sundew
+    configuration disables the server module by default so that nothing happens to
+    the original servers.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始实施特性标志并为新服务器进行阶段更改，您添加一个标志并将其设置为 `False`。您将特性标志默认设置为 `False` 以保留原始基础设施状态，如图
+    10.3 所示。捕蝇草配置默认禁用服务器模块，因此原始服务器不会受到影响。
+- en: 'Let’s implement the feature flag in Python. You set the server module flag’s
+    default to `False` in a separate file called flags.py. The file defines the flag,
+    `ENABLE_ SERVER_MODULE`, and sets it to `False`:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们在 Python 中实现特性标志。您在名为 flags.py 的单独文件中将服务器模块标志的默认值设置为 `False`。该文件定义了标志 `ENABLE_SERVER_MODULE`
+    并将其设置为 `False`：
+- en: '[PRE0]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '![](../../OEBPS/Images/CH10_F03_Wang.png)'
+  id: totrans-45
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F03_Wang.png)'
+- en: Figure 10.3 Set the feature flag to `False` by default to preserve the infrastructure
+    resources’ original state and dependencies.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.3 通过将特性标志默认设置为 `False` 来保留基础设施资源的原始状态和依赖项。
+- en: You could also embed feature flags as variables in other files, but you might
+    lose track of them! You decide to put them in a separate Python file.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您也可以在其他文件中嵌入特性标志作为变量，但您可能会失去对它们的跟踪！您决定将它们放在一个单独的 Python 文件中。
+- en: Note I always define feature flags in a file to identify and change them in
+    one place.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我总是在一个文件中定义特性标志，以便在一个地方识别和更改它们。
+- en: The following listing imports the feature flag in main.py and adds the logic
+    to generate a list of servers to add to the load balancer.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表在 main.py 中导入特性标志，并添加生成要添加到负载均衡器的服务器列表的逻辑。
+- en: Listing 10.1 Including the feature flag to add servers to the load balancer
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.1 包含将服务器添加到负载均衡器的特性标志。
+- en: '[PRE1]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Imports the file that defines all of the feature flags
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入定义所有特性标志的文件。
+- en: ❷ Defines a list of existing Google compute instances (servers) by using a Terraform
+    resource in the system
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用系统中的 Terraform 资源定义现有 Google 计算实例（服务器）列表。
+- en: ❸ Uses a conditional statement to evaluate the feature flag and adds the server
+    module’s resources to the load balancer
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用条件语句评估特性标志，并将服务器模块的资源添加到负载均衡器。
+- en: ❹ A feature flag set to True will attach the servers created by the module to
+    the load balancer. Otherwise, it will keep the original servers
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 将功能标志设置为 `True` 将会将模块创建的服务器附加到负载均衡器。否则，它将保持原始服务器
+- en: AWS and Azure equivalents
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AWS 和 Azure 的等效功能
+- en: To convert listing 10.1 to AWS or Azure, use the AWS EC2 Terraform resource
+    ([http://mng.bz/VMMr](http://mng.bz/VMMr)) or the Azure Linux virtual machine
+    Terraform resource ([http://mng.bz/xnnq](http://mng.bz/xnnq)). You will need to
+    update only the references within the list of instances.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将列表 10.1 转换为 AWS 或 Azure，请使用 AWS EC2 Terraform 资源（[http://mng.bz/VMMr](http://mng.bz/VMMr)）或
+    Azure Linux 虚拟机 Terraform 资源（[http://mng.bz/xnnq](http://mng.bz/xnnq)）。您只需更新实例列表中的引用即可。
+- en: Run Python with the feature flag toggled off to generate a JSON configuration.
+    The resulting JSON configuration adds only the original servers to the load balancer,
+    which preserves the existing state of infrastructure resources.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关闭功能标志运行 Python 生成 JSON 配置。生成的 JSON 配置仅将原始服务器添加到负载均衡器，从而保留现有基础设施资源的状态。
+- en: Listing 10.2 JSON configuration with feature flag disabled
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.2 禁用功能标志的 JSON 配置
+- en: '[PRE2]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Creates a Google compute instance group using a Terraform resource to attach
+    to the load balancer
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 Terraform 资源创建一个 Google 计算实例组，并将其附加到负载均衡器
+- en: ❷ Configuration includes a list of the original Google compute instances, preserving
+    the current state of infrastructure resources
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 配置包括原始 Google 计算实例的列表，保留基础设施资源的当前状态
+- en: AWS and Azure equivalents
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AWS 和 Azure 的等效功能
+- en: A Google Compute instance group has no straightforward equivalent in AWS or
+    Azure. Instead, you will need to replace the compute instance group with a resource
+    definition for an AWS Target Group ([http://mng.bz/AyyE](http://mng.bz/AyyE))
+    for a load balancer. For Azure, you will need a backend address pool and three
+    addresses to the virtual machine instances ([http://mng.bz/ZAAj](http://mng.bz/ZAAj)).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google 计算实例组在 AWS 或 Azure 中没有直接的等效功能。相反，您需要将计算实例组替换为 AWS Target Group 的资源定义，以用于负载均衡器。对于
+    Azure，您需要一个后端地址池和三个虚拟机实例的地址（[http://mng.bz/ZAAj](http://mng.bz/ZAAj)）。
+- en: The feature flag set to `False` by default uses the principle of idempotency.
+    When you run the IaC, your infrastructure state should not change. Setting the
+    flag ensures that you do not accidentally change existing infrastructure. Preserving
+    the original state of the existing servers minimizes disruption to dependent applications.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，功能标志设置为 `False` 使用幂等原则。当您运行 IaC 时，您的基础设施状态不应发生变化。设置标志确保您不会意外更改现有基础设施。保留现有服务器的原始状态，最小化对依赖应用程序的干扰。
+- en: Enable the flag
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启用标志
+- en: The sundew team made its changes and provided approval to add the new servers
+    created by the module to the load balancer. You set the feature flag to `True`,
+    as shown in figure 10.4\. When you deploy the change, you attach servers from
+    a module to the load balancer and remove the old servers.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Sundew 团队对其更改进行了修改，并批准将模块创建的新服务器添加到负载均衡器。您将功能标志设置为 `True`，如图 10.4 所示。当您部署更改时，您将模块创建的服务器附加到负载均衡器，并移除旧服务器。
+- en: '![](../../OEBPS/Images/CH10_F04_Wang.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F04_Wang.png)'
+- en: Figure 10.4 Set the feature flag to `True`, attach the three new servers created
+    by the module to the load balancer, and detach the old servers.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.4 将功能标志设置为 `True`，将模块创建的三个新服务器附加到负载均衡器，并断开旧服务器的连接。
+- en: 'Let’s examine the updated feature flag in action. You start by setting the
+    feature flag for the servers to `True`:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看看更新后的功能标志在实际操作中的效果。您首先将服务器的功能标志设置为 `True`：
+- en: '[PRE3]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Run Python to generate a new JSON configuration. The configuration in the following
+    listing now includes the servers created by the module that you will attach to
+    the load balancer.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行 Python 生成新的 JSON 配置。以下列表中的配置现在包括您将附加到负载均衡器的模块创建的服务器。
+- en: Listing 10.3 JSON configuration with feature flag enabled
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.3 启用功能标志的 JSON 配置
+- en: '[PRE4]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ The new servers created by the module replace the old servers because you
+    enabled the feature flag.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 由于您启用了功能标志，模块创建的新服务器替换了旧服务器。
+- en: The feature flag allows you to stage the module’s low-level server resources
+    without affecting the load balancer’s high-level dependency. You can rerun the
+    code with the feature toggle off to reattach the old servers.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 功能标志允许您在不影响负载均衡器高级依赖的情况下，分阶段部署模块的低级服务器资源。您可以通过关闭功能切换重新运行代码，以重新附加旧服务器。
+- en: Why use the feature flag to switch to the server module? A feature flag hides
+    functionality from production until you feel ready to deploy resources associated
+    with it. You offer one variable to add, remove, or update a set of resources.
+    You can also use the same variable to revert changes.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么使用功能标志来切换到服务器模块？功能标志在准备好部署与其相关的资源之前，将功能隐藏在生产环境中。你提供一个变量来添加、删除或更新一组资源。你还可以使用相同的变量来撤销更改。
+- en: Remove the flag
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 移除标志
+- en: After running the servers for some time, the sundew team reports that the new
+    server module works. You can now remove the old servers in listing 10.4\. You
+    no longer need the feature flag, and you don’t want to confuse another team member
+    when they read the code. You refactor the Python code for the load balancer to
+    remove the old servers and delete the feature flag.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行服务器一段时间后，sundew 团队报告称新的服务器模块工作正常。你现在可以移除列表10.4中的旧服务器。你不再需要功能标志，并且你不想在团队成员阅读代码时造成混淆。你重构负载均衡器的
+    Python 代码以移除旧服务器和删除功能标志。
+- en: Listing 10.4 Removing the feature flag after the change completes
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.4：更改完成后移除功能标志
+- en: '[PRE5]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ You can remove the import for the feature flags because you no longer need
+    it for your servers.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 你可以移除功能标志的导入，因为你不再需要它来配置你的服务器。
+- en: ❷ Permanently attaches the servers created by the module to the load balancer
+    and removes the feature flag
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 永久地将模块创建的服务器附加到负载均衡器并移除功能标志
+- en: Domain-specific languages
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 领域特定语言
+- en: 'Listing 10.4 shows a feature flag in a programming language. You can also use
+    feature flags in DSLs, although you must adapt them based on your tool’s syntax.
+    In Terraform, you can mimic a feature flag by using a variable and the `count`
+    meta-argument ([http://mng.bz/R44n](http://mng.bz/R44n)):'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.4展示了编程语言中的功能标志。你还可以在 DSL 中使用功能标志，尽管你必须根据你的工具语法进行适配。在 Terraform 中，你可以通过使用变量和
+    `count` 元参数来模拟功能标志([http://mng.bz/R44n](http://mng.bz/R44n))：
+- en: '[PRE6]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'In AWS CloudFormation, you can pass a parameter and set a condition ([http://mng.bz/2nnN](http://mng.bz/2nnN))
+    to enable or disable resource creation:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 AWS CloudFormation 中，你可以传递一个参数并设置一个条件([http://mng.bz/2nnN](http://mng.bz/2nnN))来启用或禁用资源创建：
+- en: '[PRE7]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Besides feature flags to enable and disable entire resources, you can use conditional
+    statements to enable or disable specific attributes for a resource.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了使用功能标志来启用和禁用整个资源外，你还可以使用条件语句来启用或禁用资源的特定属性。
+- en: As a general rule, *remove* the feature flag after you finish the change. Too
+    many feature flags can clutter your IaC with complicated logic, making it hard
+    to troubleshoot infrastructure configuration.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一般规则，在完成更改后*移除*功能标志。过多的功能标志会使你的基础设施配置逻辑变得复杂，难以排查问题。
+- en: Use cases
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用例
+- en: 'The example uses feature flags to *refactor singleton configurations into infrastructure
+    modules*. I often apply feature flags to this use case to simplify the creation
+    and removal of infrastructure resources. Other use cases for feature flags include
+    the following:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该示例使用功能标志将*单例配置重构为基础设施模块*。我经常将功能标志应用于此用例以简化基础设施资源的创建和删除。功能标志的其他用例包括以下内容：
+- en: Collaborating and avoiding change conflicts on the *same infrastructure* resources
+    or dependencies
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在*相同基础设施*资源或依赖项上进行协作并避免更改冲突
+- en: Staging a *group of changes* and rapidly deploying them with a single update
+    to the flag
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预先准备*一系列更改*，并通过更新标志进行快速部署
+- en: '*Testing* a change and quickly disabling it on failure'
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*测试*更改并在失败时快速禁用'
+- en: A feature flag offers a technique to hide or isolate infrastructure resource,
+    attribute, and dependency changes during the refactoring of infrastructure configuration.
+    However, changing the toggle can still disrupt a system. In the example of the
+    sundew team’s servers, we cannot simply toggle the feature flag to `True` and
+    expect the servers to run the application. Instead, we combine the feature flag
+    with other techniques like rolling updates to minimize disruption to the system.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 功能标志提供了一种在重构基础设施配置时隐藏或隔离基础设施资源、属性和依赖项更改的技术。然而，更改切换仍然可能破坏系统。在 sundew 团队服务器的例子中，我们不能简单地切换功能标志为
+    `True` 并期望服务器运行应用程序。相反，我们结合功能标志和其他技术，如滚动更新，以最小化对系统的影响。
+- en: 10.2 Breaking down monoliths
+  id: totrans-97
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.2 分解单体
+- en: The sundew team members express that they still have a problem with their system.
+    You identify the singleton configuration with hundreds of resources and attributes
+    as the root cause. Whenever someone makes a change, the teammate must resolve
+    conflicts with another person. They also have to wait 30 minutes to make a change.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 雨燕团队成员表示，他们仍然在系统中遇到问题。您将具有数百个资源和属性的单一配置识别为根本原因。每当有人进行更改时，团队成员必须与其他人解决冲突。他们还必须等待30分钟才能进行更改。
+- en: A *monolithic architecture* for IaC means defining all infrastructure resources
+    in one place. You need to break the monolith of IaC into smaller, modular components
+    to minimize working conflicts between teammates and speed up the deployment of
+    changes.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于基础设施即代码（IaC）的单体架构意味着在同一个地方定义所有基础设施资源。您需要将IaC的单体分解成更小的、模块化的组件，以最小化团队成员之间的工作冲突并加快更改的部署速度。
+- en: Definition A *monolithic architecture* for IaC defines all infrastructure resources
+    in a single configuration and the same state.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义A单体架构的IaC定义了单个配置和相同状态下的所有基础设施资源。
+- en: In this section, we’ll walk through a refactor of the sundew team’s monolith.
+    The most crucial step begins with identifying and grouping high-level infrastructure
+    resources and dependencies. We complete the refactor with the low-level infrastructure
+    resources.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将逐步介绍对雨燕团队单体架构的重构。最关键的一步是从识别和分组高级基础设施资源和依赖关系开始。我们通过完成对低级基础设施资源的重构来完成重构工作。
+- en: Monolith vs. monorepository
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单体与单仓库
+- en: Recall that you can put your infrastructure configuration into a single repository
+    (chapter 5). Does a single repository mean you have a monolithic architecture?
+    Not necessarily. You can subdivide a single repository into separate subdirectories.
+    Each subdirectory contains separate IaC.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，您可以将您的基础设施配置放入单个存储库（第5章）。单个存储库是否意味着您有一个单体架构？不一定。您可以将单个存储库细分为单独的子目录。每个子目录包含独立的IaC。
+- en: A monolithic architecture means you manage many resources together and tightly
+    couple them, making it difficult to change a subset in isolation. The monolith
+    usually results from an initial singleton pattern (all configurations in one place)
+    that expands over time.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单体架构意味着您需要一起管理许多资源，并将它们紧密耦合在一起，这使得单独更改子集变得困难。单体通常是由一个初始的单例模式（所有配置都在一个地方）随着时间的推移而扩展形成的。
+- en: You might have noticed that I started immediately with patterns for modularizing
+    infrastructure resources and dependencies in chapters 3 and 4\. Why not present
+    this chapter on refactoring earlier? If you can identify and apply some of the
+    patterns early in IaC development, you can avoid the monolithic architecture.
+    However, you sometimes inherit a monolith and often need to refactor it.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能已经注意到，我在第3章和第4章中立即开始使用模块化基础设施资源和依赖关系的模式。为什么不在更早的时候介绍这一章关于重构的内容？如果您能在IaC开发早期识别并应用一些模式，您就可以避免单体架构。然而，您有时会继承一个单体，并且通常需要对其进行重构。
+- en: 10.2.1 Refactor high-level resources
+  id: totrans-106
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.1 重构高级资源
+- en: The sundew team manages hundreds of resources in one set of configuration files.
+    Where should you start breaking down the IaC? You decide to look for *high-level
+    infrastructure resources* that do not depend on other resources.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 雨燕团队在一组配置文件中管理数百个资源。您应该从哪里开始分解IaC？您决定寻找不依赖于其他资源的*高级基础设施资源*。
+- en: The sundew team has one set of high-level infrastructure in GCP project-level
+    IAM service accounts and roles. The IAM service accounts and roles don’t need
+    to create a network or server before setting user and service account rules on
+    the project. None of the other resources depend on the IAM roles and service accounts.
+    You can group and extract them first.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 雨燕团队在GCP项目级IAM服务账户和角色中有一套高级基础设施。IAM服务账户和角色在设置项目中的用户和服务账户规则之前不需要创建网络或服务器。其他资源都不依赖于IAM角色和服务账户。您可以首先对它们进行分组和提取。
+- en: You cannot use a blue-green deployment approach because GCP does not allow duplicate
+    policies. However, you cannot simply delete roles and accounts from the monolithic
+    configuration and copy them to a new repository. Deleting them prevents everyone
+    from logging into the project! How can you extract them?
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于GCP不允许重复策略，因此您不能使用蓝绿部署方法。然而，您不能简单地从单体配置中删除角色和账户并将它们复制到新的存储库中。删除它们会阻止所有人登录项目！您该如何提取它们？
+- en: You can copy and paste the configuration into its separate repository or directory,
+    initialize the state for the separated configuration, and import the resources
+    into the infrastructure state associated with the new configuration. Then, you
+    delete the IAM configuration in the monolithic configuration. As with the rolling
+    update, you gradually change each set of infrastructure resources, test the changes,
+    and proceed to the next one.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将配置复制粘贴到其单独的存储库或目录中，初始化分离配置的状态，并将资源导入与新的配置相关联的基础设施状态。然后，您删除单体配置中的 IAM 配置。与滚动更新一样，您逐步更改每一组基础设施资源，测试更改，然后进行下一步。
+- en: Figure 10.5 outlines the solution to refactoring a monolith for high-level resources.
+    You copy the code from the monolith to a new folder and import the live infrastructure
+    resource into the state of the code in the new folder. You redeploy the code to
+    make sure it does not change existing infrastructure. Finally, remove the high-level
+    resources from the monolith.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.5 概述了重构单体以处理高级资源的解决方案。您将代码从单体复制到新文件夹，并将实时基础设施资源导入新文件夹中的代码状态。您重新部署代码以确保它不会更改现有基础设施。最后，从单体中删除高级资源。
+- en: '![](../../OEBPS/Images/CH10_F05_Wang.png)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F05_Wang.png)'
+- en: Figure 10.5 The sundew system’s IAM policies for the GCP project have no dependencies,
+    and you can easily refactor them without disrupting other infrastructure.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.5 Sundew 系统的 GCP 项目 IAM 策略没有依赖关系，您可以轻松重构而不会干扰其他基础设施。
+- en: As with feature flags, we use the principle of idempotency to run IaC and verify
+    that we do not affect the active infrastructure state. Anytime you refactor, make
+    sure you deploy the changes and check the dry run. You do not want to accidentally
+    change an existing resource and affect its dependencies.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与功能标志一样，我们使用幂等性原则来运行基础设施即代码（IaC）并验证我们不会影响活动基础设施状态。每次重构时，确保您部署更改并检查预览运行。您不希望意外更改现有资源并影响其依赖项。
+- en: We will refactor the example in the following few sections. Stay with it! I
+    know refactoring tends to feel tedious, but a gradual approach ensures that you
+    do not introduce widespread failures into your system.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在接下来的几节中重构示例。请继续关注！我知道重构往往感觉枯燥，但逐步的方法可以确保您不会将广泛的故障引入您的系统。
+- en: Copy from the monolith to a separate state
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从单体复制到单独的状态
+- en: Your initial refactor begins by copying the code to create the IAM roles and
+    service accounts to a new directory. The sundew team wants to keep a single repository
+    structure that stores all the IaC in one source control repository but separates
+    the configurations into folders.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的初始重构开始于将代码复制到新目录以创建 IAM 角色和服务账户。Sundew 团队希望保持单个存储库结构，该结构存储所有 IaC 在一个源代码控制存储库中，但将配置分离到文件夹中。
+- en: You identify the IAM roles and service accounts to copy the team’s code to a
+    new folder, as shown in figure 10.6\. The active IAM policies and their infrastructure
+    state in GCP do not change.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您确定要复制的 IAM 角色和服务账户，并将团队的代码复制到新文件夹，如图 10.6 所示。GCP 中的活动 IAM 策略及其基础设施状态保持不变。
+- en: Why reproduce the IaC for the IAM policies in a separate folder? You want to
+    split up your monolithic IaC without affecting any of the active resources. The
+    most important practice when refactoring involves preserving idempotency. Your
+    active state should never change when you move your IaC.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么要在单独的文件夹中重现 IAM 策略的 IaC？您希望分割您的单体 IaC 而不影响任何活动资源。重构时最重要的实践是保持幂等性。当您移动 IaC
+    时，您的活动状态不应发生变化。
+- en: '![](../../OEBPS/Images/CH10_F06_Wang.png)'
+  id: totrans-120
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F06_Wang.png)'
+- en: Figure 10.6 Copy the files for the IAM policies into a new directory for the
+    `sundew-production-iam` configuration, and avoid changing the live infrastructure
+    resources in GCP.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 IAM 策略的文件复制到新的目录以用于 `sundew-production-iam` 配置，并避免更改 GCP 中的实时基础设施资源。
+- en: 'Let’s start refactoring the IAM policies out of the monolith. Create a new
+    directory that manages only the IAM policies for the GCP project:'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们开始从单体中重构 IAM 策略。创建一个仅管理 GCP 项目 IAM 策略的新目录：
+- en: '[PRE8]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Copy the IAM configuration from the monolith into the new directory:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 IAM 配置从单体复制到新目录：
+- en: '[PRE9]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: You don’t need to change anything since the IAM policies do not depend on other
+    infrastructure. The file iam.py in the following listing separates the creation
+    and role assignment for a set of users.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您不需要更改任何内容，因为 IAM 策略不依赖于其他基础设施。以下列表中的文件 iam.py 分离了用户集合的创建和角色分配。
+- en: Listing 10.5 IAM configuration separated from the monolith
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.5 从单体中分离的 IAM 配置
+- en: '[PRE10]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Sets the resource types that Terraform uses as constants so you can reference
+    them later if needed
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将 Terraform 使用的资源类型设置为常量，以便您在需要时可以引用它们
+- en: ❷ Keeps all of the users you added to the project as part of the monolith
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将您添加到项目中的所有用户作为单体的一部分保留
+- en: ❸ Uses the module to create the JSON configuration for the IAM policies outside
+    the monolith
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用模块创建 IAM 策略的 JSON 配置，这些配置位于单体之外
+- en: ❹ Creates a GCP service account for the project for each user in the sundew
+    production project
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 为 sundew 生产项目中的每个用户创建一个 GCP 服务账户
+- en: ❺ Assigns the specific role defined for each service account, such as viewer,
+    editor, or owner
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 分配为每个服务账户定义的特定角色，例如查看者、编辑器或所有者
+- en: AWS and Azure equivalents
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AWS 和 Azure 的等效功能
+- en: Listing 10.5 creates all users and groups as service accounts in GCP so you
+    can run the example to completion. You typically use service accounts for automation.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.5 创建所有用户和组作为 GCP 中的服务账户，以便您可以完成示例。您通常使用服务账户进行自动化。
+- en: A service account in GCP is similar to an AWS IAM user dedicated to service
+    automation or Azure Active Directory application registered with a client secret.
+    To rebuild the code in AWS or Azure, adjust the roles for viewer, editor, and
+    owner to fit AWS or Azure roles.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GCP 中的服务账户类似于 AWS IAM 用户，专门用于服务自动化或与客户端密钥注册的 Azure Active Directory 应用。为了在 AWS
+    或 Azure 中重建代码，调整查看者、编辑器和所有者角色以适应 AWS 或 Azure 角色。
+- en: Set constants and create methods that output resource types and identifiers
+    when separating configuration. You can always use them for other automation and
+    continued system maintenance, especially as you continue to refactor the monolith!
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分离配置时设置常量并创建输出资源类型和标识符的方法。您始终可以使用它们进行其他自动化和持续的系统维护，尤其是在您继续重构单体时！
+- en: In the following listing, create a main.py file in the sundew_production_iam
+    folder that references the IAM configuration and outputs the Terraform JSON for
+    it.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下列表中，在 sundew_production_iam 文件夹中创建一个 main.py 文件，该文件引用 IAM 配置并输出其 Terraform
+    JSON。
+- en: Listing 10.6 Entry point to build the separate JSON configuration for IAM
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.6 构建单独 IAM JSON 配置的入口点
+- en: '[PRE11]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Imports the IAM configuration code and builds the IAM policies
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入 IAM 配置代码并构建 IAM 策略
+- en: ❷ Writes the Python dictionary out to a JSON file to be executed by Terraform
+    later
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将 Python 字典写入 JSON 文件，稍后由 Terraform 执行
+- en: 'Do not run Python yet to create the Terraform JSON or deploy the IAM policies!
+    You already have IAM policies defined as part of GCP. If you run `python` `main.py`
+    and apply the Terraform JSON with the separated IAM configuration, GCP throws
+    an error that the user account and assignment already exists:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要运行 Python 来创建 Terraform JSON 或部署 IAM 策略！您已经将 IAM 策略定义为 GCP 的一部分。如果您运行 `python`
+    `main.py` 并使用分离的 IAM 配置应用 Terraform JSON，GCP 会抛出一个错误，指出用户账户和分配已存在：
+- en: '[PRE12]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: The sundew team members do not want you to remove and create new accounts and
+    roles. If you delete and create new accounts, they cannot log into their GCP project.
+    You need a way to migrate the existing resources defined in the monolith and link
+    them to code defined in its own folder.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 雨燕团队成员不希望您删除并创建新的账户和角色。如果您删除并创建新账户，他们将无法登录到他们的 GCP 项目。您需要一种方法来迁移单体中定义的现有资源并将它们链接到其自己的文件夹中定义的代码。
+- en: Import the resources to the new state
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将资源导入新状态
+- en: Sometimes creating new resources with your refactored IaC will disrupt development
+    teams and business-critical systems. You cannot use the principle of immutability
+    to delete the old resources and create new ones. Instead, you must migrate active
+    resources from one IaC definition to another.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时使用重构后的 IaC 创建新资源可能会干扰开发团队和业务关键系统。您不能使用不可变性的原则来删除旧资源并创建新资源。相反，您必须将活动资源从一个 IaC
+    定义迁移到另一个。
+- en: '![](../../OEBPS/Images/CH10_F07_Wang.png)'
+  id: totrans-148
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F07_Wang.png)'
+- en: Figure 10.7 Get the current state of the separated resources from the infrastructure
+    provider and import the identifiers before reapplying IaC.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.7 从基础设施提供者获取分离资源的当前状态并在重新应用 IaC 之前导入标识符。
+- en: In the case of the sundew team, you extract the identifiers for each service
+    account from the monolithic configuration and “move” them to the new state. Figure
+    10.7 demonstrates how to detach each service account and its role assignments
+    from the monolith and attach them to the IaC in the sundew_production_iam directory.
+    You call the GCP API for the current state of the IAM policies and *import* the
+    live infrastructure resources into the separated configuration and state. Running
+    the IaC should reveal no changes to its dry run.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在雾莲团队的情况下，你从单体配置中提取每个服务帐户的标识符，并将它们“移动”到新的状态中。图10.7演示了如何从单体中分离每个服务帐户及其角色分配，并将它们附加到sundew_production_iam目录中的IaC。你调用GCP
+    API以获取IAM策略的当前状态，并将实时基础设施资源导入到分离的配置和状态中。运行IaC应该不会显示任何干燥运行的变化。
+- en: Why import the IAM policy information with the GCP API? You want to import the
+    updated, active state of the resource. A cloud provider’s API offers the most
+    up-to-date configuration for resources. You can call the GCP API to retrieve the
+    user emails, roles, and identifiers for the sundew team.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么使用GCP API导入IAM策略信息？你想要导入资源的更新、活动状态。云提供商的API提供了资源的最最新配置。你可以调用GCP API来检索雾莲团队的用户电子邮件、角色和标识符。
+- en: Rather than write your own import capability and save the identifiers in a file,
+    you decide to use Terraform’s import capability to add existing resources to the
+    state. You write some Python code in the following listing that wraps around Terraform
+    to automate a batch import of IAM resources so that the sundew team can reuse
+    it.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是编写自己的导入功能并将标识符保存到文件中，你决定使用Terraform的导入功能将现有资源添加到状态中。你编写了一些Python代码，以下列表展示了如何封装Terraform来自动化IAM资源的批量导入，以便雾莲团队能够重用它。
+- en: Listing 10.7 File import.py separately imports sundew IAM resources
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.7 文件import.py单独导入雾莲IAM资源
+- en: '[PRE13]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Retrieves the list of sundew users from iam.py in sundew_production_iam
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从sundew_production_iam中的iam.py检索雾莲用户列表
+- en: ❷ Uses the Google Cloud Client Libraries for Python to get a list of members
+    assigned to a role in the GCP project
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用Google Cloud Client Libraries for Python获取分配给GCP项目中角色的成员列表
+- en: ❸ Retrieves the GCP project ID from the CLOUDSDK_CORE_PROJECT environment variable
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 从CLOUDSDK_CORE_PROJECT环境变量中检索GCP项目ID
+- en: ❹ Gets the email and user IDs for the sundew IAM members only
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 仅获取雾莲IAM成员的电子邮件和用户ID
+- en: ❺ Imports the service account to the sundew_production_iam state based on project
+    and user email, using the resource type constant you set in iam.py
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 根据项目和使用者电子邮件，将服务帐户导入到sundew_production_iam状态中，使用你在iam.py中设置的资源类型常量
+- en: ❻ Imports a role assignment to the sundew_production_iam state based on project,
+    role, and user email, using the resource type constant you set in iam.py
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 根据项目、角色和使用者电子邮件，将角色分配导入到sundew_production_iam状态中，使用你在iam.py中设置的资源类型常量
+- en: ❼ Both import methods wrap around the Terraform CLI command and return any errors
+    and output.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 两种导入方法都封装了Terraform CLI命令，并返回任何错误和输出。
+- en: ❽ Retrieves the list of sundew users from iam.py in sundew_production_iam
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 从sundew_production_iam中的iam.py检索雾莲用户列表
+- en: ❾ Uses the Google Cloud Client Libraries for Python to get a list of members
+    assigned to a role in the GCP project
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❾ 使用Google Cloud Client Libraries for Python获取分配给GCP项目中角色的成员列表
+- en: ❿ Gets the email and user IDs for the sundew IAM members only
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❿ 仅获取雾莲IAM成员的电子邮件和用户ID
+- en: ⓫ If the import fails and it did not already import the resource, outputs the
+    error
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⓫ 如果导入失败且资源尚未导入，则输出错误
+- en: Libcloud vs. Cloud Provider SDKs
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Libcloud与云提供商SDKs的比较
+- en: The examples in this chapter need to use the Google Cloud Client Library for
+    Python instead of Apache Libcloud, which I showed in chapter 4\. While Apache
+    Libcloud works for retrieving information about virtual machines, it does not
+    work for other resources in GCP. For more information about the Google Cloud Client
+    Library for Python, review [http://mng.bz/1ooZ](https://shortener.manning.com/1ooZ).
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中的示例需要使用Google Cloud Client Library for Python而不是我在第4章中展示的Apache Libcloud。虽然Apache
+    Libcloud可以用于检索虚拟机信息，但它不适用于GCP中的其他资源。有关Google Cloud Client Library for Python的更多信息，请参阅[http://mng.bz/1ooZ](https://shortener.manning.com/1ooZ)。
+- en: You can update listing 10.7 to use the Azure libraries for Python ([http://mng.bz/Pnn2](https://shortener.manning.com/Pnn2))
+    or AWS SDK for Python ([https://aws.amazon.com/sdk-for-python/](https://aws.amazon.com/sdk-for-python/))
+    to retrieve information about users. These would replace the GCP API client library.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将列表 10.7 更新为使用 Python 的 Azure 库([http://mng.bz/Pnn2](https://shortener.manning.com/Pnn2))或
+    AWS SDK for Python([https://aws.amazon.com/sdk-for-python/](https://aws.amazon.com/sdk-for-python/))来检索有关用户的信息。这些将替换
+    GCP API 客户端库。
+- en: As with defining dependencies, you want to *dynamically retrieve identifiers*
+    from the infrastructure provider API for your resources to import. You never know
+    when someone will change the resource, and the identifier you thought you needed
+    no longer exists! Use your tags and naming conventions to search the API response
+    for the resources you need.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与定义依赖关系一样，您希望从基础设施提供者 API 动态检索您要导入的资源标识符。您永远不知道何时有人会更改资源，您认为需要的标识符可能不再存在！使用您的标签和命名约定在
+    API 响应中搜索所需的资源。
+- en: 'When you run `python import.py` and perform a dry run of the Terraform JSON
+    with the separated IAM configuration, you get a message that you do not have to
+    make any changes. You successfully imported the existing IAM resources into their
+    separate configuration and state:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您运行 `python import.py` 并使用分离的 IAM 配置对 Terraform JSON 进行干运行时，您会收到一条消息，表明您不需要做出任何更改。您已成功将现有的
+    IAM 资源导入到其单独的配置和状态中：
+- en: '[PRE14]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Sometimes your dry run indicates drift between the active resource state and
+    the separated configuration. Your copied configuration does not match the active
+    state of the resource. The differences often come from someone changing the active
+    state of an infrastructure resource during a manual change or during updates to
+    the default value for an attribute. Update your separated IaC to *match the attributes
+    of the active infrastructure* *resource*.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时您的干运行指示活动资源状态和分离配置之间的漂移。您复制的配置与资源的活动状态不匹配。差异通常来自有人在手动更改期间或更改属性默认值时更改基础设施资源的活动状态。更新您的分离
+    IaC 以**匹配活动基础设施资源**的属性。
+- en: Import with and without a provisioning tool
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 带和不带配置工具导入
+- en: Many provisioning tools have a function for importing resources. For example,
+    AWS CloudFormation uses the `resource import` command. The example uses Python
+    wrapped around `terraform` `import` to move service accounts. Breaking down monolithic
+    configuration will become tedious without it.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多配置工具都有一个导入资源的函数。例如，AWS CloudFormation 使用 `resource import` 命令。示例使用 Python
+    包装 `terraform import` 命令来移动服务账户。没有它，分解单体配置将变得繁琐。
+- en: 'If you write IaC without a tool, you do not need a direct import capability.
+    Instead, you need logic to check that the resources exist. The sundew service
+    accounts and role assignments can work without Terraform or IaC import capability:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您没有使用工具编写 IaC，则不需要直接导入功能。相反，您需要逻辑来检查资源是否存在。露水服务账户和角色分配可以在没有 Terraform 或 IaC
+    导入功能的情况下工作：
+- en: Call the GCP API to check whether the sundew team’s service accounts and role
+    attachments exist.
+  id: totrans-176
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调用 GCP API 检查露水团队的服务账户和角色附件是否存在。
+- en: If they do, check whether the API response for the service account attributes
+    matches your desired configuration. Update the service account as needed.
+  id: totrans-177
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果它们存在，检查服务账户属性的 API 响应是否与您期望的配置匹配。根据需要更新服务账户。
+- en: If they do not, create the service accounts and role attachments.
+  id: totrans-178
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果它们不存在，则创建服务账户和角色附件。
+- en: Remove the refactored resources from the monolith
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从单体中移除重构的资源
+- en: You managed to extract and move the sundew team’s service accounts and role
+    assignments to separate IaC. However, you don’t want the resources to stay in
+    the monolith. You remove the resources from the monolith’s *state and configuration*
+    before reapplying and updating your tool, as shown in figure 10.8.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您成功提取并移动了露水团队的服务账户和角色分配到单独的 IaC。然而，您不希望资源留在单体中。在重新应用和更新工具之前，您从单体状态和配置中移除了资源，如图
+    10.8 所示。
+- en: '![](../../OEBPS/Images/CH10_F08_Wang.png)'
+  id: totrans-181
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F08_Wang.png)'
+- en: Figure 10.8 Remove the policies from the monolith’s state and configuration
+    before applying the updates and completing the refactor.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在应用更新并完成重构之前，从单体状态和配置中移除策略 10.8。
+- en: This step helps maintain IaC hygiene. Remember from chapter 2 that our IaC should
+    serve as the *source of truth*. You do not want to manage one resource with two
+    sets of IaC. If they conflict, the two IaC definitions for the resource may affect
+    dependencies and the configuration of the system.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此步骤有助于维护 IaC 卫生。记得从第 2 章中，我们的 IaC 应该作为**真相来源**。您不希望用两套 IaC 管理一个资源。如果它们冲突，资源可能影响依赖关系和系统的配置的两个
+    IaC 定义。
+- en: You want the IAM policy directory to serve as the source of truth. Going forward,
+    the sundew team needs to declare changes to its IAM policy in the separate directory
+    and not in the monolith. To avoid confusion, let’s remove the IAM resources from
+    the IaC monolith.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您希望 IAM 策略目录作为真相来源。从现在起，sundew 团队需要在单独的目录中声明其 IAM 策略的更改，而不是在单体中。为了避免混淆，让我们从
+    IaC 单体中删除 IAM 资源。
+- en: To start, you must remove the sundew IAM resources from Terraform state, represented
+    in a JSON file. Terraform includes a state removal command that you can use to
+    take out portions of the JSON based on the resource identifier. Listing 10.8 uses
+    Python code to wrap around the Terraform command. The code allows you to pass
+    any resource type and identifier you want to remove from the infrastructure state.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始，您必须从 Terraform 状态中删除 sundew IAM 资源，表示为 JSON 文件。Terraform 包含一个状态删除命令，您可以使用它根据资源标识符从
+    JSON 中取出部分内容。列表 10.8 使用 Python 代码包装 Terraform 命令。该代码允许您传递您想要从基础设施状态中删除的任何资源类型和标识符。
+- en: Listing 10.8 File remove.py removes resources from the monolith's state
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.8 文件 remove.py 从单体状态中删除资源。
+- en: '[PRE15]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Retrieves the list of sundew users from iam.py in sundew_production_iam. Referencing
+    the variable from the separated IaC allows you to run the removal automation for
+    future refactoring efforts.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从 sundew_production_iam 中的 sundew_users.py 获取 sundew 用户列表。通过引用分离的 IaC 中的变量，您可以运行未来重构努力的删除自动化。
+- en: ❷ If the removal failed and did not already remove the resource, outputs the
+    error
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果删除失败且尚未删除资源，则输出错误。
+- en: ❸ Creates a method that wraps around Terraform’s state removal command. The
+    command passes the resource type, such as service account and identifier to remove.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建了一个围绕 Terraform 状态删除命令的方法。该命令传递资源类型，例如服务账户和标识符以进行删除。
+- en: ❹ Opens a subprocess that runs the Terraform command to remove the resource
+    from the state
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 打开一个子进程，运行 Terraform 命令以从状态中删除资源。
+- en: ❺ For each user in sundew_production_iam, removes their service account and
+    role assignment from the monolith’s state
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 从 sundew_production_iam 中的每个用户中删除他们的服务账户和角色分配。
+- en: ❻ Removes the GCP service account from the monolith’s Terraform state based
+    on its user identifier
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 根据 GCP 服务账户的用户标识符从单体 Terraform 状态中删除 GCP 服务账户。
+- en: ❼ Checks that the subprocess’s Terraform command successfully removed the resource
+    from the monolith’s state
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 检查子进程的 Terraform 命令是否成功从单体状态中删除了资源。
+- en: ❽ Removes the GCP role assignment from the monolith’s Terraform state based
+    on its user identifier
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 根据 GCP 角色标识符从单体 Terraform 状态中删除 GCP 角色分配。
+- en: Do not run `python remove.py` yet! Your monolith still contains a definition
+    of the IAM policies. Open your monolithic IaC’s main.py. In the following listing,
+    remove the code that builds the IAM service accounts and role assignments for
+    the sundew team.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要运行 `python remove.py`！您的单体仍然包含 IAM 策略的定义。打开您的单体 IaC 的 main.py。在以下列表中，删除为 sundew
+    团队构建 IAM 服务账户和角色分配的代码。
+- en: Listing 10.9 Removing the IAM policies from the monolith’s code
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.9 从单体代码中删除 IAM 策略
+- en: '[PRE16]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Removes the import for the IAM policies
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 删除 IAM 策略的导入。
+- en: ❷ Removes the code to build the IAM policies within the monolith and leaves
+    the other resources
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 删除在单体中构建 IAM 策略的代码，并保留其他资源。
+- en: ❸ Writes the configuration out to a JSON file to be executed by Terraform later.
+    The configuration does not include the IAM policies.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将配置写入 JSON 文件，供 Terraform 后续执行。配置不包括 IAM 策略。
+- en: 'You can now update your monolith. First, use `python remove.py` to delete the
+    IAM resources from the monolith’s state:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以更新您的单体。首先，使用 `python remove.py` 从单体状态中删除 IAM 资源：
+- en: '[PRE17]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: This step signals that your monolith no longer serves as the source of truth
+    for the IAM policies and service accounts. You *do not* delete the IAM resources!
+    You can imagine this as handing over ownership of the IAM resources to the new
+    IaC in a separate folder.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此步骤表示单体不再作为 IAM 策略和服务账户的真相来源。您**不**删除 IAM 资源！您可以想象这是将 IAM 资源的所有权移交给单独文件夹中的新
+    IaC。
+- en: 'In your terminal, you can finally update the monolith. Generate a new Terraform
+    JSON without the IAM policies and apply the updates; you should not have any changes:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的终端中，你最终可以更新单体。生成一个不带 IAM 策略的新 Terraform JSON 并应用更新；你应该没有任何更改：
+- en: '[PRE18]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: If your dry run *includes* a resource you refactored, you know that you did
+    not remove it from the monolith’s state or configuration. You need to examine
+    the resources and identify whether to remove them manually.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的 dry run *包括* 你重构的资源，你知道你没有从单体状态或配置中删除它。你需要检查资源并确定是否需要手动删除它们。
+- en: 10.2.2 Refactor resources with dependencies
+  id: totrans-208
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.2 重构具有依赖关系的资源
+- en: You can now work on the lower-level infrastructure resources with dependencies,
+    such as the sundew team’s container orchestrator. The sundew team members ask
+    you to avoid creating a new orchestrator and destroying the old one since they
+    do not want to disrupt applications. You need to refactor and extract the low-level
+    container orchestrator in place.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以开始处理具有依赖关系的低级基础设施资源，例如 sundew 团队的容器编排器。sundew 团队成员要求你避免创建新的编排器并销毁旧的编排器，因为他们不想中断应用程序。你需要重构并提取现有的低级容器编排器。
+- en: 'Start copying the container configuration out of the monolith, repeating the
+    same process you used for refactoring the IAM service accounts and roles. You
+    create a separate folder labeled sundew_production_orchestrator:'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开始从单体中复制容器配置，重复你在重构 IAM 服务帐户和角色时使用的相同过程。你创建一个名为 sundew_production_orchestrator
+    的单独文件夹：
+- en: '[PRE19]'
+  id: totrans-211
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: You select and copy the method to create the cluster into sundew_production_orchestrator/cluster.py.
+    However, you have a problem. The container orchestrator *needs the network and
+    subnet names*. How do you get the name of the network and subnet when the container
+    orchestrator cannot reference the monolith?
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你选择并复制创建集群的方法到 sundew_production_orchestrator/cluster.py。然而，你遇到了一个问题。容器编排器 *需要网络和子网名称*。当容器编排器无法引用单体时，你如何获取网络和子网名称？
+- en: Figure 10.9 implements dependency injection with an existing monolith using
+    the infrastructure provider’s API as the abstraction layer. The IaC to create
+    the cluster calls the GCP API to get network information. You pass the network
+    ID to the cluster to use.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.9 实现了使用基础设施提供者 API 作为抽象层的现有单体依赖注入。创建集群的 IaC 调用 GCP API 获取网络信息。你将网络 ID 传递给集群以使用。
+- en: '![](../../OEBPS/Images/CH10_F09_Wang.png)'
+  id: totrans-214
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F09_Wang.png)'
+- en: Figure 10.9 Copy the infrastructure and add new methods to call the GCP API
+    and get the network ID for the cluster.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.9 复制基础设施并添加新方法以调用 GCP API 并获取集群的网络 ID。
+- en: A monolith passes the dependency explicitly between resources. When you create
+    a new folder, your separated resources need information about its low-level dependencies.
+    Recall that you can decouple infrastructure modules with the *dependency injection*
+    (previously in chapter 4). A high-level module calls an abstraction layer to get
+    identifiers for low-level dependencies.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个单体通过资源显式传递依赖。当你创建一个新文件夹时，你的分离资源需要关于其低级依赖的信息。回想一下，你可以通过 *依赖注入*（之前在第 4 章中介绍）解耦基础设施模块。一个高级模块调用抽象层以获取低级依赖的标识符。
+- en: When you start refactoring resources with dependencies, you must implement an
+    interface for dependency injection. In the sundew team’s code for listing 10.10,
+    update sundew_production_orchestrator/cluster.py to use the Google Cloud Client
+    Library and retrieve the subnet and network names for the cluster configuration.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你开始重构具有依赖关系的资源时，你必须实现一个用于依赖注入的接口。在 sundew 团队的代码列表 10.10 中，更新 sundew_production_orchestrator/cluster.py
+    以使用 Google Cloud Client Library 并检索集群配置的子网和网络名称。
+- en: Note Several dependencies, variables, and imports have been removed from listing
+    10.10 for additional clarity. Refer to the book’s code repository at [https://github.com/joatmon08/manning-book/tree/main/ch10/s03/s02](https://github.com/joatmon08/manning-book/tree/main/ch10/s03/s02)
+    for the full example.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：为了增加清晰度，列表 10.10 中已删除一些依赖项、变量和导入。有关完整示例，请参阅书籍的代码仓库 [https://github.com/joatmon08/manning-book/tree/main/ch10/s03/s02](https://github.com/joatmon08/manning-book/tree/main/ch10/s03/s02)。
+- en: Listing 10.10 Using dependency inversion for the network name in the cluster
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.10 使用依赖反转在集群中处理网络名称
+- en: '[PRE20]'
+  id: totrans-220
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Sets up access to the GCP API using the Google Cloud Client Library for Python
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 Python 的 Google Cloud Client Library 设置对 GCP API 的访问
+- en: ❷ Creates a method that retrieves the network information from GCP and implements
+    dependency injection
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建一个方法，从 GCP 获取网络信息并实现依赖注入
+- en: ❸ Queries the GCP API for a list of subnetworks with names that start with sundew-production
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 查询 GCP API 以获取以 sundew-production 开头的子网名称列表
+- en: ❹ Throws an error if the GCP API did not find the subnetwork
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果 GCP API 未找到子网，则抛出错误
+- en: ❺ Returns the network name and subnetwork name
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 返回网络名称和子网名称
+- en: ❻ Several dependencies, variables, and imports have been removed from the code
+    listing for additional clarity. Refer to the book’s code repository for the full
+    example.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 已从代码列表中删除了几个依赖项、变量和导入，以增加清晰度。请参阅书籍的代码存储库以获取完整示例。
+- en: ❼ Applies the dependency inversion principle and calls the GCP API to retrieve
+    the network and subnet names
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 应用依赖倒置原则并调用 GCP API 以检索网络和子网名称
+- en: ❽ Creates the Google container cluster, node pool, and service account by using
+    a Terraform resource
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 通过使用 Terraform 资源创建 Google 容器集群、节点池和服务帐户
+- en: ❾ Uses the network and subnet names to update the container cluster
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❾ 使用网络和子网名称更新容器集群
+- en: AWS and Azure equivalents
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AWS 和 Azure 等效
+- en: You can update listing 10.10 to use the Azure libraries for Python ([http://mng.bz/Pnn2](https://shortener.manning.com/Pnn2))
+    or AWS SDK for Python ([https://aws.amazon.com/sdk-for-python/](https://aws.amazon.com/sdk-for-python/))
+    to replace the GCP API client library.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将列表 10.10 更新为使用 Azure Python 库([http://mng.bz/Pnn2](https://shortener.manning.com/Pnn2))或
+    AWS SDK for Python([https://aws.amazon.com/sdk-for-python/](https://aws.amazon.com/sdk-for-python/))来替换
+    GCP API 客户端库。
+- en: Next, update the resources. Create an Amazon VPC and Azure virtual network for
+    the Kubernetes node pools (also called *groups*). Then, switch the Google container
+    cluster to an Amazon EKS cluster or AKS cluster.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，更新资源。为 Kubernetes 节点池（也称为 *groups*）创建一个 Amazon VPC 和 Azure 虚拟网络。然后，将 Google
+    容器集群切换到 Amazon EKS 集群或 AKS 集群。
+- en: When refactoring an infrastructure resource with dependencies, you must implement
+    dependency injection to retrieve the low-level resource attributes. Listing 10.10
+    uses an infrastructure provider’s API, but you can use any abstraction layer you
+    choose. An infrastructure provider’s API often provides the most straightforward
+    abstraction. You can use it to avoid implementing your own.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当重构具有依赖关系的资源时，您必须实现依赖注入以检索低级资源属性。列表 10.10 使用了基础设施提供者的 API，但您可以使用您选择的任何抽象层。基础设施提供者的
+    API 通常提供了最直接的抽象。您可以使用它来避免实现自己的。
+- en: After copying and updating the container cluster to reference network and subnet
+    names from the GCP API, you repeat the refactoring workflow shown in figure 10.10\.
+    You import the live infrastructure resource into sundew_production_orchestrator,
+    apply the separate configuration, check for any drift between the active state
+    and the IaC, and remove the resource’s configuration and reference in the monolith’s
+    state.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将容器集群复制并更新以引用来自 GCP API 的网络和子网名称后，您将重复图 10.10 中显示的重构工作流程。您将实时基础设施资源导入 sundew_production_orchestrator，应用单独的配置，检查活动状态和
+    IaC 之间的任何偏差，并从单体状态中删除资源的配置和引用。
+- en: The main difference between refactoring a high-level resource versus a lower-level
+    resource out of a monolith involves the implementation of dependency injection.
+    You can choose the type of dependency injection you want to use, such as the infrastructure
+    provider’s API, module outputs, or infrastructure state. Note that you might need
+    to change the monolithic IaC to output the attributes if you do not use the infrastructure
+    provider’s API.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将高级资源重构与从单体中重构低级资源的主要区别在于依赖注入的实现。您可以选择要使用的依赖注入类型，例如基础设施提供者的 API、模块输出或基础设施状态。请注意，如果您不使用基础设施提供者的
+    API，可能需要更改单体 IaC 以输出属性。
+- en: Otherwise, ensure that you apply idempotency by rerunning your IaC after refactoring.
+    You want to avoid affecting the active resources and isolate all changes to the
+    IaC. If your dry run reflects changes, you must fix the drift between your refactored
+    code and infrastructure state before moving forward with other resources.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 否则，确保通过在重构后重新运行 IaC 来应用幂等性。您希望避免影响活动资源并将所有更改隔离到 IaC 中。如果您的 dry run 反映了更改，您必须在继续其他资源之前修复重构代码与基础设施状态之间的偏差。
+- en: '![](../../OEBPS/Images/CH10_F10_Wang.png)'
+  id: totrans-237
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F10_Wang.png)'
+- en: Figure 10.10 Refactor higher-level resources to get low-level identifiers with
+    the GCP API before continuing to refactor low-level resources.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.10 在继续重构低级资源之前，使用 GCP API 重构高级资源以获取低级标识符。
+- en: 10.2.3 Repeat refactoring workflow
+  id: totrans-239
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.3 重复重构工作流程
+- en: After you extract the IAM service accounts and roles and the container orchestrator,
+    you can continue to break down the sundew system’s monolithic IaC configuration.
+    The workflow in figure 10.11 summarizes the general pattern for breaking down
+    monolithic IaC. You identify which resources depend on each other, extract their
+    configuration, and update their dependencies to use dependency injection.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你提取了 IAM 服务账户和角色以及容器编排器之后，你可以继续分解雨燕系统的单体 IaC 配置。图 10.11 中的工作流程总结了分解单体 IaC 的一般模式。你确定哪些资源相互依赖，提取它们的配置，并更新它们的依赖关系以使用依赖注入。
+- en: '![](../../OEBPS/Images/CH10_F11_Wang.png)'
+  id: totrans-241
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F11_Wang.png)'
+- en: Figure 10.11 The workflow for refactoring an IaC monolith starts by identifying
+    high-level resources with no dependencies.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.11 重构 IaC 单体的工作流程首先识别没有依赖关系的顶层资源。
+- en: Identify the high-level infrastructure resources that do not depend on anything
+    or have anything depending on them. I use the high-level resources to test the
+    workflow of copying, separating, importing, and deleting them from the monolith.
+    Next, I identify the higher-level resources that depend on other resources. During
+    the copying, I refactor them to reference attributes through dependency injection.
+    I identify and repeat the process through the system, eventually concluding with
+    the lowest-level resources that do not have any dependencies.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 识别不依赖于任何事物或没有事物依赖于它们的顶层基础设施资源。我使用顶层资源来测试复制、分离、导入和从单体中删除它们的流程。接下来，我识别依赖于其他资源的更高层资源。在复制过程中，我将它们重构为通过依赖注入引用属性。我通过系统识别并重复此过程，最终得出没有依赖关系的最低层资源。
+- en: Configuration management
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置管理
+- en: 'While this chapter focused primarily on IaC provisioning tools, configuration
+    management can also turn into a monolith of automation and result in the same
+    challenges, including taking a long time to run or having conflicting changes
+    to parts of the configuration. You can apply a similar refactoring workflow to
+    monolithic configuration management:'
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然本章主要关注 IaC 部署工具，但配置管理也可能变成自动化单体，并导致相同的挑战，包括运行时间过长或配置部分有冲突的更改。你可以应用类似的重构工作流程来处理单体配置管理：
+- en: Extract the most independent parts of the automation with no dependencies and
+    separate them into a module.
+  id: totrans-246
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 提取没有依赖关系的最独立的部分，并将它们分离成模块。
+- en: Run the configuration manager and make sure you did not change your resource
+    state.
+  id: totrans-247
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行配置管理器并确保你没有更改你的资源状态。
+- en: Identify configuration that depends on the outputs or existence of lower-level
+    automation. Extract them and apply dependency injection to retrieve any required
+    values for the configuration.
+  id: totrans-248
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 识别依赖于较低级别自动化输出或存在性的配置。提取它们，并应用依赖注入以检索配置所需的任何值。
+- en: Run the configuration manager and make sure you did not change your resource
+    state.
+  id: totrans-249
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行配置管理器并确保你没有更改你的资源状态。
+- en: Repeat the process until you effectively reach your configuration manager’s
+    first step.
+  id: totrans-250
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 重复此过程，直到你有效地达到配置管理器的第一步。
+- en: As you refactor IaC monoliths, identify ways to decouple the resources from
+    one another. I find refactoring a challenge and rarely without some failures and
+    mistakes. Isolating individual components and carefully testing them will help
+    identify problems and minimize disruption to the system. If I do encounter failures,
+    I use the techniques in chapter 11 to fix them.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你重构 IaC 单体时，确定将资源相互解耦的方法。我发现重构是一个挑战，并且很少没有一些失败和错误。隔离单个组件并仔细测试它们将有助于识别问题并最小化对系统的影响。如果我真的遇到失败，我会使用第
+    11 章中的技术来修复它们。
+- en: Exercise 10.1
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 练习 10.1
+- en: Given the following code, what order and grouping of resources would you use
+    to refactor and break down the monolith?
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定以下代码，你会使用什么顺序和资源分组来重构和分解单体？
+- en: '[PRE21]'
+  id: totrans-254
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: A) DNS, load balancer, servers, database, network + subnets, project
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: A) DNS，负载均衡器，服务器，数据库，网络 + 子网，项目
+- en: B) Load balancer + DNS, database, servers, network + subnets, project
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: B) 负载均衡器 + DNS，数据库，服务器，网络 + 子网，项目
+- en: C) Project, network + subnets, servers, database, load balancer + DNS
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: C) 项目，网络 + 子网，服务器，数据库，负载均衡器 + DNS
+- en: D) Database, load balancer + DNS, servers, network + subnets, project
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: D) 数据库，负载均衡器 + DNS，服务器，网络 + 子网，项目
+- en: See appendix B for answers to exercises.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请参阅附录 B 以获取练习答案。
+- en: Summary
+  id: totrans-260
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Refactoring IaC involves restructuring configuration or code without impacting
+    existing infrastructure resources.
+  id: totrans-261
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 重构 IaC 涉及在不影响现有基础设施资源的情况下重构配置或代码。
+- en: Refactoring resolves technical debt, a metaphor to describe the cost of changing
+    code.
+  id: totrans-262
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 重构解决了技术债务，这是一个描述更改代码成本的隐喻。
+- en: A rolling update changes similar infrastructure resources one by one and tests
+    each resource before moving to the next one.
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 滚动更新会逐个更改相似的基础设施资源，并在移动到下一个资源之前测试每个资源。
+- en: Rolling updates allow you to implement and troubleshoot changes incrementally.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 滚动更新允许你增量地实施和调试更改。
+- en: Feature flags (also known as *feature toggles*) enable or disable infrastructure
+    resources, dependencies, or attributes.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 功能标志（也称为*功能开关*）可以启用或禁用基础设施资源、依赖项或属性。
+- en: Apply feature flags to test, stage, and hide changes before applying them to
+    production.
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在将更改应用到生产之前，应用功能标志以测试、预览和隐藏更改。
+- en: Define feature flags in one place (such as a file or configuration manager)
+    to identify their values at a glance.
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在一个地方（例如文件或配置管理器）定义功能标志，以便一目了然地识别它们的值。
+- en: Remove feature flags when you do not need them anymore.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当你不再需要功能标志时，请将其移除。
+- en: Monolithic IaC happens when you define all of your infrastructure resources
+    in one place, and removing one resource causes the entire configuration to fail.
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当你在同一个地方定义所有的基础设施资源时，就会发生单体IaC，移除一个资源会导致整个配置失败。
+- en: Refactoring a resource out of a monolith involves separating and copying the
+    configuration into a new directory or repository, importing it into a new separate
+    state, and removing the resources from the monolithic configuration and state.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将资源重构出单体架构涉及将配置分离并复制到新的目录或仓库中，将其导入新的独立状态，并从单体配置和状态中移除资源。
+- en: If your resource depends on another resource, update your separated resource
+    configuration to use dependency injection and retrieve identifiers from an infrastructure
+    provider API.
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你的资源依赖于另一个资源，请更新你的分离资源配置以使用依赖注入并从基础设施提供者API检索标识符。
+- en: Breaking down a monolith starts by refactoring high-level resources or configurations
+    with no dependencies, then resources or configurations with dependencies, and
+    concluding with low-level resources or configurations with no dependencies.
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将单体拆分首先从重构无依赖的高层资源或配置开始，然后是具有依赖的资源或配置，最后是低层资源或无依赖的配置。

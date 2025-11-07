@@ -1,0 +1,2993 @@
+- en: Chapter 6\. Developing business logic with event sourcing
+  id: totrans-0
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第6章\. 使用事件源开发业务逻辑
+- en: '*This chapter covers*'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*本章涵盖*'
+- en: Using the Event sourcing pattern to develop business logic
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用事件源模式开发业务逻辑
+- en: Implementing an event store
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实现事件存储库
+- en: Integrating sagas and event sourcing-based business logic
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 集成剧情和基于事件源的业务逻辑
+- en: Implementing saga orchestrators using event sourcing
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用事件源实现剧情协调器
+- en: Mary liked the idea, described in [chapter 5](kindle_split_013.xhtml#ch05),
+    of structuring business logic as a collection of DDD aggregates that publish domain
+    events. She could imagine the use of those events being extremely useful in a
+    microservice architecture. Mary planned to use events to implement choreography-based
+    sagas, which maintain data consistency across services and are described in [chapter
+    4](kindle_split_012.xhtml#ch04). She also expected to use CQRS views, replicas
+    that support efficient querying that are described in [chapter 7](kindle_split_015.xhtml#ch07).
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 玛丽喜欢第5章中描述的想法，即把业务逻辑结构化为发布领域事件的DDD聚合体的集合。她可以想象这些事件在微服务架构中的使用将非常有用。玛丽计划使用事件来实现基于剧情的剧情协调器，这些协调器在服务之间维护数据一致性，并在第4章中描述。她还预计将使用CQRS视图，这些视图是支持高效查询的副本，在第7章中描述。
+- en: She was, however, worried that the event publishing logic might be error prone.
+    On one hand, the event publishing logic is reasonably straightforward. Each of
+    an aggregate’s methods that initializes or changes the state of the aggregate
+    returns a list of events. The domain service then publishes those events. But
+    on the other hand, the event publishing logic is bolted on to the business logic.
+    The business logic continues to work even when the developer forgets to publish
+    an event. Mary was concerned that this way of publishing events might be a source
+    of bugs.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，她担心事件发布逻辑可能存在错误。一方面，事件发布逻辑相对直接。聚合体中每个初始化或更改聚合体状态的方法的返回值都是一个事件列表。领域服务随后发布这些事件。但另一方面，事件发布逻辑是附加到业务逻辑上的。即使开发者忘记发布事件，业务逻辑仍然可以继续工作。玛丽担心这种发布事件的方式可能成为错误源。
+- en: Many years ago, Mary had learned about *event sourcing*, an event-centric way
+    of writing business logic and persisting domain objects. At the time she was intrigued
+    by its numerous benefits, including how it preserves the complete history of the
+    changes to an aggregate, but it remained a curiosity. Given the importance of
+    domain events in microservice architecture, she now wonders whether it would be
+    worthwhile to explore using event sourcing in the FTGO application. After all,
+    event sourcing eliminates a source of programming errors by guaranteeing that
+    an event will be published whenever an aggregate is created or updated.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多年前，玛丽了解到*事件源*，这是一种以事件为中心编写业务逻辑和持久化领域对象的方法。当时她对其众多好处感到好奇，包括它如何保留聚合体变更的完整历史，但它仍然是一个谜。鉴于领域事件在微服务架构中的重要性，她现在想知道在FTGO应用程序中使用事件源是否值得探索。毕竟，事件源通过保证在创建或更新聚合体时将发布事件，从而消除了编程错误的一个来源。
+- en: I begin this chapter by describing how event sourcing works and how you can
+    use it to write business logic. I describe how event sourcing persists each aggregate
+    as a sequence of events in what is known as an *event store*. I discuss the benefits
+    and drawbacks of event sourcing and cover how to implement an event store. I describe
+    a simple framework for writing event sourcing-based business logic. After that,
+    I discuss how event sourcing is a good foundation for implementing sagas. Let’s
+    start by looking at how to develop business logic with event sourcing.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在本章开始时将描述事件源的工作原理以及如何使用它来编写业务逻辑。我描述了事件源如何在所谓的*事件存储*中将每个聚合体持久化为一系列事件。我讨论了事件源的好处和缺点，并涵盖了如何实现事件存储库。我描述了一个编写基于事件源的业务逻辑的简单框架。之后，我讨论了事件源是如何成为实现剧情的良好基础的。让我们先看看如何使用事件源开发业务逻辑。
+- en: 6.1\. Developing business logic using event sourcing
+  id: totrans-10
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1\. 使用事件源开发业务逻辑
+- en: Event sourcing is a different way of structuring the business logic and persisting
+    aggregates. It persists an aggregate as a sequence of events. Each event represents
+    a state change of the aggregate. An application recreates the current state of
+    an aggregate by replaying the events.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件源是一种不同的业务逻辑结构和聚合体持久化的方式。它将聚合体持久化为一系列事件。每个事件代表聚合体的状态变化。应用程序通过重放事件来重新创建聚合体的当前状态。
+- en: '|  |'
+  id: totrans-12
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '**Pattern: Event sourcing**'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**模式：事件源**'
+- en: Persist an aggregate as a sequence of domain events that represent state changes.
+    See [http://microservices.io/patterns/data/event-sourcing.html](http://microservices.io/patterns/data/event-sourcing.html).
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将聚合持久化为一系列表示状态变化的领域事件序列。参见[http://microservices.io/patterns/data/event-sourcing.html](http://microservices.io/patterns/data/event-sourcing.html)。
+- en: '|  |'
+  id: totrans-15
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Event sourcing has several important benefits. For example, it preserves the
+    history of aggregates, which is valuable for auditing and regulatory purposes.
+    And it reliably publishes domain events, which is particularly useful in a microservice
+    architecture. Event sourcing also has drawbacks. It involves a learning curve,
+    because it’s a different way to write your business logic. Also, querying the
+    event store is often difficult, which requires you to use the CQRS pattern, described
+    in [chapter 7](kindle_split_015.xhtml#ch07).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源有几个重要的优点。例如，它保留了聚合的历史，这对于审计和监管目的非常有价值。它还可靠地发布领域事件，这在微服务架构中特别有用。事件溯源也有一些缺点。它涉及一个学习曲线，因为这是一种编写业务逻辑的不同方式。此外，查询事件存储通常很困难，这需要你使用第7章中描述的CQRS模式，[第7章](kindle_split_015.xhtml#ch07)。
+- en: I begin this section by describing the limitations of traditional persistence.
+    I then describe event sourcing in detail and talk about how it overcomes those
+    limitations. After that, I show how to implement the `Order` aggregate using event
+    sourcing. Finally, I describe the benefits and drawbacks of event sourcing.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在本节开始时描述了传统持久化的局限性。然后，我详细介绍了事件溯源，并讨论了它如何克服这些局限性。之后，我展示了如何使用事件溯源实现`Order`聚合。最后，我描述了事件溯源的优点和缺点。
+- en: Let’s first look at the limitations of the traditional approach to persistence.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看看传统持久化方法的局限性。
+- en: 6.1.1\. The trouble with traditional persistence
+  id: totrans-19
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.1\. 传统持久化的麻烦
+- en: The traditional approach to persistence maps classes to database tables, fields
+    of those classes to table columns, and instances of those classes to rows in those
+    tables. For example, [figure 6.1](#ch06fig01) shows how the `Order` aggregate,
+    described in [chapter 5](kindle_split_013.xhtml#ch05), is mapped to the `ORDER`
+    table. Its `OrderLineItems` are mapped to the `ORDER_LINE_ITEM` table.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传统持久化方法将类映射到数据库表，将这些类的字段映射到表列，并将这些类的实例映射到表中的行。例如，[图6.1](#ch06fig01)显示了第5章中描述的`Order`聚合如何映射到`ORDER`表。它的`OrderLineItems`映射到`ORDER_LINE_ITEM`表。
+- en: Figure 6.1\. The traditional approach to persistence maps classes to tables
+    and objects to rows in those tables.
+  id: totrans-21
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.1\. 传统持久化方法将类映射到表，并将对象映射到这些表中的行。
+- en: '![](Images/06fig01_alt.jpg)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/06fig01_alt.jpg)'
+- en: The application persists an order instance as rows in the `ORDER` and `ORDER_LINE_ITEM`
+    tables. It might do that using an ORM framework such as JPA or a lower-level framework
+    such as MyBATIS.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序将订单实例持久化为`ORDER`和`ORDER_LINE_ITEM`表中的行。它可能使用ORM框架，如JPA，或更低级别的框架，如MyBATIS来实现这一点。
+- en: 'This approach clearly works well because most enterprise applications store
+    data this way. But it has several drawbacks and limitations:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法显然效果很好，因为大多数企业应用程序都是这样存储数据的。但它有几个缺点和局限性：
+- en: Object-Relational impedance mismatch.
+  id: totrans-25
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对象-关系阻抗不匹配。
+- en: Lack of aggregate history.
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缺乏聚合历史。
+- en: Implementing audit logging is tedious and error prone.
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实现审计日志既繁琐又容易出错。
+- en: Event publishing is bolted on to the business logic.
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件发布被附加到业务逻辑上。
+- en: Let’s look at each of these problems, starting with the Object-Relational impedance
+    mismatch problem.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐一分析这些问题，首先是对象-关系阻抗不匹配问题。
+- en: Object-Relational impedance mismatch
+  id: totrans-30
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 对象-关系阻抗不匹配
+- en: One age-old problem is the so-called *Object-Relational impedance mismatch*
+    problem. There’s a fundamental conceptual mismatch between the tabular relational
+    schema and the graph structure of a rich domain model with its complex relationships.
+    Some aspects of this problem are reflected in polarized debates over the suitability
+    of Object/Relational mapping (ORM) frameworks. For example, Ted Neward has said
+    that “Object-Relational mapping is the Vietnam of Computer Science” ([http://blogs.tedneward.com/post/the-vietnam-of-computer-science/](http://blogs.tedneward.com/post/the-vietnam-of-computer-science/)).
+    To be fair, I’ve used Hibernate successfully to develop applications where the
+    database schema has been derived from the object model. But the problems are deeper
+    than the limitations of any particular ORM framework.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个古老的难题是所谓的*对象-关系阻抗不匹配*问题。在表格关系模式与具有复杂关系的丰富领域模型的图结构之间存在根本的概念不匹配。这个问题的某些方面反映在关于对象/关系映射（ORM）框架适用性的两极分化辩论中。例如，Ted
+    Neward曾经说过：“对象-关系映射是计算机科学的越南”（[http://blogs.tedneward.com/post/the-vietnam-of-computer-science/](http://blogs.tedneward.com/post/the-vietnam-of-computer-science/))。公平地说，我已经成功地使用Hibernate开发了一些应用程序，其中数据库模式是从对象模型派生出来的。但问题比任何特定ORM框架的限制要深。
+- en: Lack of aggregate history
+  id: totrans-32
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 缺乏聚合历史记录
+- en: Another limitation of traditional persistence is that it only stores the current
+    state of an aggregate. Once an aggregate has been updated, its previous state
+    is lost. If an application must preserve the history of an aggregate, perhaps
+    for regulatory purposes, then developers must implement this mechanism themselves.
+    It is time consuming to implement an aggregate history mechanism and involves
+    duplicating code that must be synchronized with the business logic.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传统持久化的另一个局限性是它只存储聚合的当前状态。一旦聚合被更新，其先前状态就会丢失。如果一个应用程序必须保留聚合的历史记录，可能出于监管目的，那么开发人员必须自己实现这个机制。实现聚合历史记录机制既耗时又涉及复制必须与业务逻辑同步的代码。
+- en: Implementing audit logging is tedious and error prone
+  id: totrans-34
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 实施审计日志记录是繁琐且容易出错的
+- en: Another issue is audit logging. Many applications must maintain an audit log
+    that tracks which users have changed an aggregate. Some applications require auditing
+    for security or regulatory purposes. In other applications, the history of user
+    actions is an important feature. For example, issue trackers and task-management
+    applications such as Asana and JIRA display the history of changes to tasks and
+    issues. The challenge of implementing auditing is that besides being a time-consuming
+    chore, the auditing logging code and the business logic can diverge, resulting
+    in bugs.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个问题也是审计日志。许多应用程序必须维护一个审计日志，以追踪哪些用户更改了聚合数据。一些应用程序需要出于安全或监管目的进行审计。在其他应用程序中，用户行为的历史记录是一个重要的功能。例如，问题跟踪器和任务管理应用程序，如Asana和JIRA，会显示任务和问题的更改历史。实施审计的挑战在于，除了是一个耗时的工作外，审计日志代码和业务逻辑可能会出现分歧，从而导致错误。
+- en: Event publishing is bolted on to the business logic
+  id: totrans-36
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 事件发布被附加到业务逻辑上
+- en: 'Another limitation of traditional persistence is that it usually doesn’t support
+    publishing domain events. Domain events, discussed in [chapter 5](kindle_split_013.xhtml#ch05),
+    are events that are published by an aggregate when its state changes. They’re
+    a useful mechanism for synchronizing data and sending notifications in microservice
+    architecture. Some ORM frameworks, such as Hibernate, can invoke application-provided
+    callbacks when data objects change. But there’s no support for automatically publishing
+    messages as part of the transaction that updates the data. Consequently, as with
+    history and auditing, developers must bolt on event-generation logic, which risks
+    not being synchronized with the business logic. Fortunately, there’s a solution
+    to these issues: event sourcing.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传统持久化的另一个局限性是它通常不支持发布领域事件。领域事件在第5章（[kindle_split_013.xhtml#ch05](kindle_split_013.xhtml#ch05)）中讨论过，是聚合状态改变时发布的事件。它们是同步数据和在微服务架构中发送通知的有用机制。一些ORM框架，如Hibernate，可以在数据对象更改时调用应用程序提供的回调。但是，没有支持作为更新数据的交易的一部分自动发布消息。因此，与历史和审计一样，开发人员必须附加事件生成逻辑，这可能导致与业务逻辑不同步。幸运的是，这些问题有解决方案：事件源。
+- en: 6.1.2\. Overview of event sourcing
+  id: totrans-38
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.2\. 事件源概述
+- en: Event sourcing is an event-centric technique for implementing business logic
+    and persisting aggregates. An aggregate is stored in the database as a series
+    of events. Each event represents a state change of the aggregate. An aggregate’s
+    business logic is structured around the requirement to produce and consume these
+    events. Let’s see how that works.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件源是一种以事件为中心的技术，用于实现业务逻辑和持久化聚合。聚合作为一系列事件存储在数据库中。每个事件代表聚合的状态变化。聚合的业务逻辑围绕产生和消费这些事件的要求来构建。让我们看看它是如何工作的。
+- en: Event sourcing persists aggregates using events
+  id: totrans-40
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 事件源使用事件持久化聚合
+- en: Earlier, in [section 6.1.1](#ch06lev2sec1), I discussed how traditional persistence
+    maps aggregates to tables, their fields to columns, and their instances to rows.
+    Event sourcing is a very different approach to persisting aggregates that builds
+    on the concept of domain events. It persists each aggregate as a sequence of events
+    in the database, known as an event store.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的[6.1.1节](#ch06lev2sec1)中，我讨论了传统持久化如何将聚合映射到表，将它们的字段映射到列，将它们的实例映射到行。事件源是一种非常不同的持久化聚合的方法，它建立在领域事件的概念之上。它将每个聚合作为一系列事件持久化到数据库中，称为事件存储。
+- en: Consider, for example, the `Order` aggregate. As [figure 6.2](#ch06fig02) shows,
+    rather than store each `Order` as a row in an `ORDER` table, event sourcing persists
+    each `Order` aggregate as one or more rows in an `EVENTS` table. Each row is a
+    domain event, such as `Order Created`, `Order Approved`, `Order Shipped`, and
+    so on.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑`Order`聚合。如图6.2所示，事件源不是将每个`Order`存储在`ORDER`表中的一行，而是将每个`Order`聚合持久化为`EVENTS`表中的一行或多行。每一行都是一个领域事件，例如`Order
+    Created`、`Order Approved`、`Order Shipped`等。
+- en: Figure 6.2\. Event sourcing persists each aggregate as a sequence of events.
+    A RDBMS-based application can, for example, store the events in an `EVENTS` table.
+  id: totrans-43
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.2\. 事件源将每个聚合持久化为一系列事件。基于RDBMS的应用程序可以将事件存储在`EVENTS`表中。
+- en: '![](Images/06fig02_alt.jpg)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/06fig02_alt.jpg)'
+- en: 'When an application creates or updates an aggregate, it inserts the events
+    emitted by the aggregate into the `EVENTS` table. An application loads an aggregate
+    from the event store by retrieving its events and replaying them. Specifically,
+    loading an aggregate consists of the following three steps:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个应用程序创建或更新一个聚合时，它会将聚合发出的事件插入到`EVENTS`表中。应用程序通过检索其事件并重新播放它们来从事件存储中加载聚合。具体来说，加载聚合包括以下三个步骤：
+- en: Load the events for the aggregate.
+  id: totrans-46
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 加载聚合的事件。
+- en: Create an aggregate instance by using its default constructor.
+  id: totrans-47
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用其默认构造函数创建聚合实例。
+- en: Iterate through the events, calling `apply()`.
+  id: totrans-48
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 遍历事件，调用`apply()`。
+- en: 'For example, the Eventuate Client framework, covered later in [section 6.2.2](#ch06lev2sec11),
+    uses code similar to the following to reconstruct an aggregate:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，Eventuate客户端框架（在[6.2.2节](#ch06lev2sec11)中介绍）使用类似于以下代码来重建一个聚合：
+- en: '[PRE0]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: It creates an instance of the class and iterates through the events, calling
+    the aggregate’s `applyEvent()` method. If you’re familiar with functional programming,
+    you may recognize this as a *fold or reduce* operation.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它创建类的实例，并遍历事件，调用聚合的`applyEvent()`方法。如果你熟悉函数式编程，你可能认识这作为一个*折叠或归约*操作。
+- en: It may be strange and unfamiliar to reconstruct the in-memory state of an aggregate
+    by loading the events and replaying events. But in some ways, it’s not all that
+    different from how an ORM framework such as JPA or Hibernate loads an entity.
+    An ORM framework loads an object by executing one or more `SELECT` statements
+    to retrieve the current persisted state, instantiating objects using their default
+    constructors. It uses reflection to initialize those objects. What’s different
+    about event sourcing is that the reconstruction of the in-memory state is accomplished
+    using events.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过加载事件并重新播放事件来重建聚合的内存状态可能显得奇怪且不熟悉。但以某种方式，这并不完全不同于ORM框架（如JPA或Hibernate）加载实体的方式。ORM框架通过执行一个或多个`SELECT`语句来检索当前持久化状态，使用它们的默认构造函数实例化对象。它使用反射来初始化这些对象。事件源的不同之处在于，内存状态的重建是通过使用事件来完成的。
+- en: Let’s now look at the requirements event sourcing places on domain events.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看事件源对领域事件提出的要求。
+- en: Events represent state changes
+  id: totrans-54
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 事件表示状态变化
+- en: '[Chapter 5](kindle_split_013.xhtml#ch05) defines domain events as a mechanism
+    for notifying subscribers of changes to aggregates. Events can either contain
+    minimal data, such as just the aggregate ID, or can be enriched to contain data
+    that’s useful to a typical consumer. For example, the `Order Service` can publish
+    an `OrderCreated` event when an order is created. An `OrderCreated` event may
+    only contain the `orderId`. Alternatively, the event could contain the complete
+    order so consumers of that event don’t have to fetch the data from the `Order
+    Service`. Whether events are published and what those events contain are driven
+    by the needs of the consumers. With event sourcing, though, it’s primarily the
+    aggregate that determines the events and their structure.'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第5章](kindle_split_013.xhtml#ch05)定义了领域事件为通知订阅者聚合变化的一种机制。事件可以包含最小数据，例如仅包含聚合ID，或者可以扩展以包含对典型消费者有用的数据。例如，当创建订单时，`Order
+    Service`可以发布`OrderCreated`事件。`OrderCreated`事件可能仅包含`orderId`。或者，事件可以包含完整的订单，这样该事件的消费者就不需要从`Order
+    Service`获取数据。事件是否发布以及事件包含的内容是由消费者的需求驱动的。然而，在使用事件溯源时，主要是聚合决定了事件及其结构。'
+- en: Events aren’t optional when using event sourcing. Every state change of an aggregate,
+    including its creation, is represented by a domain event. Whenever the aggregate’s
+    state changes, it must emit an event. For example, an `Order` aggregate must emit
+    an `OrderCreated` event when it’s created, and an `Order*` event whenever it is
+    updated. This is a much more stringent requirement than before, when an aggregate
+    only emitted events that were of interest to consumers.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用事件溯源时，事件不是可选的。聚合的每个状态变化，包括其创建，都由领域事件表示。每当聚合的状态发生变化时，它必须发出一个事件。例如，当创建时，`Order`聚合必须发出`OrderCreated`事件，每次更新时发出`Order*`事件。这是一个比以前更严格的要求，当时聚合只发出对消费者感兴趣的事件。
+- en: What’s more, an event must contain the data that the aggregate needs to perform
+    the state transition. The state of an aggregate consists of the values of the
+    fields of the objects that comprise the aggregate. A state change might be as
+    simple as changing the value of the field of an object, such as `Order.state`.
+    Alternatively, a state change can involve adding or removing objects, such as
+    revising an `Order`’s line items.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更重要的是，事件必须包含聚合执行状态转换所需的数据。聚合的状态由构成聚合的对象的字段值组成。状态变化可能只是简单地更改对象的字段值，例如更改`Order.state`的值。或者，状态变化可以涉及添加或删除对象，例如修改`Order`的行项目。
+- en: Suppose, as [figure 6.3](#ch06fig03) shows, that the current state of the aggregate
+    is `S` and the new state is `S'`. An event `E` that represents the state change
+    must contain the data such that when an `Order` is in state `S`, calling `order.apply(E)`
+    will update the `Order` to state `S'`. In the next section you’ll see that `apply()`
+    is a method that performs the state change represented by an event.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设，如图6.3所示，聚合的当前状态是`S`，新状态是`S'`。表示状态变化的事件`E`必须包含数据，使得当`Order`处于状态`S`时，调用`order.apply(E)`将更新`Order`到状态`S'`。在下一节中，您将看到`apply()`是一个执行事件表示的状态变化的方法。
+- en: Figure 6.3\. Applying event `E` when the `Order` is in state `S` must change
+    the `Order` state to `S'`. The event must contain the data necessary to perform
+    the state change.
+  id: totrans-59
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 当`Order`处于状态`S`时，应用事件`E`必须将`Order`状态更改为`S'`。事件必须包含执行状态转换所需的数据。
+- en: '![](Images/06fig03_alt.jpg)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/06fig03_alt.jpg)'
+- en: Some events, such as the `Order Shipped` event, contain little or no data and
+    just represent the state transition. The `apply()` method handles an `Order Shipped`
+    event by changing the `Order`’s status field to `SHIPPED`. Other events, however,
+    contain a lot of data. An `OrderCreated` event, for example, must contain all
+    the data needed by the `apply()` method to initialize an `Order`, including its
+    line items, payment information, delivery information, and so on. Because events
+    are used to persist an aggregate, you no longer have the option of using a minimal
+    `OrderCreated` event that contains the `orderId`.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些事件，例如`Order Shipped`事件，包含很少或没有数据，仅仅表示状态转换。`apply()`方法通过将`Order`的状态字段更改为`SHIPPED`来处理`Order
+    Shipped`事件。然而，其他事件包含大量数据。例如，`OrderCreated`事件必须包含`apply()`方法初始化`Order`所需的所有数据，包括其行项目、支付信息、配送信息等。由于事件用于持久化聚合，因此不再有使用仅包含`orderId`的最小`OrderCreated`事件的选项。
+- en: Aggregate methods are all about events
+  id: totrans-62
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 聚合方法都是关于事件的
+- en: The business logic handles a request to update an aggregate by calling a command
+    method on the aggregate root. In a traditional application, a command method typically
+    validates its arguments and then updates one or more of the aggregate’s fields.
+    Command methods in an event sourcing-based application work because they must
+    generate events. As [figure 6.4](#ch06fig04) shows, the outcome of invoking an
+    aggregate’s command method is a sequence of events that represent the state changes
+    that must be made. These events are persisted in the database and applied to the
+    aggregate to update its state.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 业务逻辑通过在聚合根上调用命令方法来处理更新聚合的请求。在传统应用中，命令方法通常验证其参数，然后更新聚合的一个或多个字段。基于事件源的应用中的命令方法之所以有效，是因为它们必须生成事件。如图
+    [6.4](#ch06fig04) 所示，调用聚合的命令方法会产生一系列事件，这些事件代表了必须进行的州变化。这些事件被保存在数据库中，并应用于聚合以更新其状态。
+- en: Figure 6.4\. Processing a command generates events without changing the state
+    of the aggregate. An aggregate is updated by applying an event.
+  id: totrans-64
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 6.4\. 处理命令生成事件，而不改变聚合的状态。聚合通过应用事件来更新。
+- en: '![](Images/06fig04.jpg)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/06fig04.jpg)'
+- en: The requirement to generate events and apply them requires a restructuring—albeit
+    mechanical—of the business logic. Event sourcing refactors a command method into
+    two or more methods. The first method takes a command object parameter, which
+    represents the request, and determines what state changes need to be performed.
+    It validates its arguments, and without changing the state of the aggregate, returns
+    a list of events representing the state changes. This method typically throws
+    an exception if the command cannot be performed.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成事件并将它们应用的要求需要对业务逻辑进行重构——尽管是机械的。事件源将命令方法重构为两个或更多方法。第一个方法接受一个表示请求的命令对象参数，并确定需要执行哪些状态变化。它验证其参数，并在不改变聚合状态的情况下返回表示状态变化的事件列表。如果命令无法执行，此方法通常抛出异常。
+- en: The other methods each take a particular event type as a parameter and update
+    the aggregate. There’s one of these methods for each event. It’s important to
+    note that these methods can’t fail, because an event represents a state change
+    that *has* happened. Each method updates the aggregate based on the event.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他方法各自接受特定的事件类型作为参数并更新聚合。对于每个事件都有一个这样的方法。重要的是要注意，这些方法不能失败，因为事件代表了一个已经发生的状态变化。每个方法根据事件更新聚合。
+- en: 'The Eventuate Client framework, an event-sourcing framework described in more
+    detail in [section 6.2.2](#ch06lev2sec11), names these methods `process()` and
+    `apply()`. A `process()` method takes a command object, which contains the arguments
+    of the update request, as a parameter and returns a list of events. An `apply()`
+    method takes an event as a parameter and returns void. An aggregate will define
+    multiple overloaded versions of these methods: one `process()` method for each
+    command class and one `apply()` method for each event type emitted by the aggregate.
+    [Figure 6.5](#ch06fig05) shows an example.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Eventuate 客户端框架，一个在[第 6.2.2 节](#ch06lev2sec11)中更详细描述的事件源框架，将这些方法命名为 `process()`
+    和 `apply()`。一个 `process()` 方法接受一个命令对象作为参数，该对象包含更新请求的参数，并返回一个事件列表。一个 `apply()`
+    方法接受一个事件作为参数并返回空值。聚合将定义这些方法的多个重载版本：每个命令类一个 `process()` 方法，以及每个由聚合发出的事件类型一个 `apply()`
+    方法。[图 6.5](#ch06fig05) 展示了一个示例。
+- en: Figure 6.5\. Event sourcing splits a method that updates an aggregate into a
+    `process()` method, which takes a command and returns events, and one or more
+    `apply()` methods, which take an event and update the aggregate.
+  id: totrans-69
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 6.5\. 事件源将更新聚合的方法拆分为一个 `process()` 方法，它接受一个命令并返回事件，以及一个或多个 `apply()` 方法，它们接受一个事件并更新聚合。
+- en: '![](Images/06fig05_alt.jpg)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/06fig05_alt.jpg)'
+- en: In this example, the `reviseOrder()` method is replaced by a `process()` method
+    and an `apply()` method. The `process()` method takes a `ReviseOrder` command
+    as a parameter. This command class is defined by applying *Introduce Parameter
+    Object* refactoring ([https://refactoring.com/catalog/introduceParameterObject.html](https://refactoring.com/catalog/introduceParameterObject.html))
+    to the `reviseOrder()` method. The `process()` method either returns an `OrderRevisionProposed`
+    event, or throws an exception if it’s too late to revise the `Order` or if the
+    proposed revision doesn’t meet the order minimum. The `apply()` method for the
+    `OrderRevisionProposed` event changes the state of the `Order` to `REVISION_PENDING`.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，`reviseOrder()`方法被一个`process()`方法和一个`apply()`方法所取代。`process()`方法接受一个`ReviseOrder`命令作为参数。这个命令类是通过将*引入参数对象*重构([https://refactoring.com/catalog/introduceParameterObject.html](https://refactoring.com/catalog/introduceParameterObject.html))应用到`reviseOrder()`方法中定义的。`process()`方法要么返回一个`OrderRevisionProposed`事件，要么在修改`Order`太晚或提议的修订不符合订单最低要求时抛出异常。`OrderRevisionProposed`事件的`apply()`方法将`Order`的状态更改为`REVISION_PENDING`。
+- en: 'An aggregate is created using the following steps:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用以下步骤创建聚合：
+- en: Instantiate aggregate root using its default constructor.
+  id: totrans-73
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用默认构造函数实例化聚合根。
+- en: Invoke `process()` to generate the new events.
+  id: totrans-74
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调用`process()`以生成新事件。
+- en: Update the aggregate by iterating through the new events, calling its `apply()`.
+  id: totrans-75
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过遍历新事件并调用其`apply()`来更新聚合。
+- en: Save the new events in the event store.
+  id: totrans-76
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将新事件保存到事件存储中。
+- en: 'An aggregate is updated using the following steps:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用以下步骤更新聚合：
+- en: Load aggregate’s events from the event store.
+  id: totrans-78
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从事件存储中加载聚合的事件。
+- en: Instantiate the aggregate root using its default constructor.
+  id: totrans-79
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用默认构造函数实例化聚合根。
+- en: Iterate through the loaded events, calling `apply()` on the aggregate root.
+  id: totrans-80
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 遍历加载的事件，在聚合根上调用`apply()`。
+- en: Invoke its `process()` method to generate new events.
+  id: totrans-81
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调用其`process()`方法以生成新事件。
+- en: Update the aggregate by iterating through the new events, calling `apply()`.
+  id: totrans-82
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过遍历新事件并调用`apply()`来更新聚合。
+- en: Save the new events in the event store.
+  id: totrans-83
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将新事件保存到事件存储中。
+- en: To see this in action, let’s now look at the event sourcing version of the `Order`
+    aggregate.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了看到这个动作，现在让我们看看`Order`聚合的事件源版本。
+- en: Event sourcing-based Order aggregate
+  id: totrans-85
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 基于事件源技术的订单聚合
+- en: '[Listing 6.1](#ch06ex01) shows the `Order` aggregate’s fields and the methods
+    responsible for creating it. The event sourcing version of the `Order` aggregate
+    has some similarities to the JPA-based version shown in [chapter 5](kindle_split_013.xhtml#ch05).
+    Its fields are almost identical, and it emits similar events. What’s different
+    is that its business logic is implemented in terms of processing commands that
+    emit events and applying those events, which updates its state. Each method that
+    creates or updates the JPA-based aggregate, such as `createOrder()` and `reviseOrder()`,
+    is replaced in the event sourcing version by `process()` and `apply()` methods.'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[列表6.1](#ch06ex01) 展示了`Order`聚合的字段以及负责创建它的方法。`Order`聚合的事件源版本与第5章中展示的基于JPA的版本有一些相似之处。它们的字段几乎相同，并且发出类似的事件。不同之处在于，其业务逻辑是通过处理发出事件和应用的命令来实现的，这更新了其状态。每个创建或更新基于JPA的聚合的方法，如`createOrder()`和`reviseOrder()`，在事件源版本中被`process()`和`apply()`方法所取代。'
+- en: Listing 6.1\. The `Order` aggregate’s fields and its methods that initialize
+    an instance
+  id: totrans-87
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.1\. `Order`聚合的字段及其初始化实例的方法
+- en: '[PRE1]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '***1* Validates the command and returns an OrderCreatedEvent**'
+  id: totrans-89
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 验证命令并返回一个OrderCreatedEvent**'
+- en: '***2* Apply the OrderCreatedEvent by initializing the fields of the Order.**'
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 通过初始化订单的字段来应用OrderCreatedEvent。**'
+- en: This class’s fields are similar to those of the JPA-based `Order`. The only
+    difference is that the aggregate’s `id` isn’t stored in the aggregate. The `Order`’s
+    methods are quite different. The `createOrder()` factory method has been replaced
+    by `process()` and `apply()` methods. The `process()` method takes a `CreateOrder`
+    command and emits an `OrderCreated` event. The `apply()` method takes the `OrderCreated`
+    and initializes the fields of the `Order`.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个类的字段与基于JPA的`Order`类似。唯一的区别是聚合的`id`不存储在聚合中。`Order`的方法相当不同。`createOrder()`工厂方法已被`process()`和`apply()`方法所取代。`process()`方法接受一个`CreateOrder`命令并发出一个`OrderCreated`事件。`apply()`方法接受`OrderCreated`并初始化`Order`的字段。
+- en: 'We’ll now look at the slightly more complex business logic for revising an
+    order. Previously this business logic consisted of three methods: `reviseOrder()`,
+    `confirmRevision()`, and `rejectRevision()`. The event sourcing version replaces
+    these three methods with three `process()` methods and some `apply()` methods.
+    The following listing shows the event sourcing version of `reviseOrder()` and
+    `confirmRevision()`.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们将探讨修改订单的稍微复杂一些的业务逻辑。之前这个业务逻辑由三个方法组成：`reviseOrder()`、`confirmRevision()`
+    和 `rejectRevision()`。事件溯源版本用三个 `process()` 方法和一些 `apply()` 方法替换了这三个方法。以下列表展示了
+    `reviseOrder()` 和 `confirmRevision()` 的事件溯源版本。
+- en: Listing 6.2\. The `process()` and `apply()` methods that revise an `Order` aggregate
+  id: totrans-93
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 6.2\. 修改 `Order` 聚合的 `process()` 和 `apply()` 方法
+- en: '[PRE2]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: '***1* Verify that the Order can be revised and that the revised order meets
+    the order minimum.**'
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 验证订单是否可以修改，并且修改后的订单符合订单最低要求。**'
+- en: '***2* Change the state of the Order to REVISION_PENDING.**'
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 将订单状态更改为 REVISION_PENDING。**'
+- en: '***3* Verify that the revision can be confirmed and return an OrderRevised
+    event.**'
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***3* 验证修订是否可以确认，并返回一个 OrderRevised 事件。**'
+- en: '***4* Revise the Order.**'
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***4* 修改订单。**'
+- en: As you can see, each method has been replaced by a `process()` method and one
+    or more `apply()` methods. The `reviseOrder()` method has been replaced by `process
+    (ReviseOrder)` and `apply(OrderRevisionProposed)`. Similarly, `confirmRevision()`
+    has been replaced by `process(ConfirmReviseOrder)` and `apply(OrderRevised)`.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，每个方法都被替换为一个 `process()` 方法和一个或多个 `apply()` 方法。`reviseOrder()` 方法被替换为 `process
+    (ReviseOrder)` 和 `apply(OrderRevisionProposed)`。同样，`confirmRevision()` 被替换为 `process(ConfirmReviseOrder)`
+    和 `apply(OrderRevised)`。
+- en: 6.1.3\. Handling concurrent updates using optimistic locking
+  id: totrans-100
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.3\. 使用乐观锁处理并发更新
+- en: 'It’s not uncommon for two or more requests to simultaneously update the same
+    aggregate. An application that uses traditional persistence often uses optimistic
+    locking to prevent one transaction from overwriting another’s changes. *Optimistic
+    locking* typically uses a version column to detect whether an aggregate has changed
+    since it was read. The application maps the aggregate root to a table that has
+    a `VERSION` column, which is incremented whenever the aggregate is updated. The
+    application updates the aggregate using an `UPDATE` statement like this:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同时更新同一个聚合体的两个或多个请求并不少见。使用传统持久化的应用程序通常使用乐观锁来防止一个事务覆盖另一个事务的更改。*乐观锁*通常使用一个版本列来检测聚合体自读取以来是否已更改。应用程序将聚合根映射到一个具有
+    `VERSION` 列的表，每当聚合体更新时，该列都会递增。应用程序使用如下 `UPDATE` 语句更新聚合体：
+- en: '[PRE3]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: This `UPDATE` statement will only succeed if the version is unchanged from when
+    the application read the aggregate. If two transactions read the same aggregate,
+    the first one that updates the aggregate will succeed. The second one will fail
+    because the version number has changed, so it won’t accidentally overwrite the
+    first transaction’s changes.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有当版本号自应用程序读取聚合体以来未更改时，此 `UPDATE` 语句才会成功。如果有两个事务读取相同的聚合体，第一个更新聚合体的交易将成功。第二个将失败，因为版本号已更改，所以它不会意外地覆盖第一个事务的更改。
+- en: An event store can also use optimistic locking to handle concurrent updates.
+    Each aggregate instance has a version that’s read along with the events. When
+    the application inserts events, the event store verifies that the version is unchanged.
+    A simple approach is to use the number of events as the version number. Alternatively,
+    as you’ll see below in [section 6.2](#ch06lev1sec2), an event store could maintain
+    an explicit version number.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件存储库也可以使用乐观锁来处理并发更新。每个聚合实例都有一个版本号，在读取事件时一起读取。当应用程序插入事件时，事件存储库会验证版本号是否未更改。一种简单的方法是将事件的数量作为版本号。或者，如您在下面的[第
+    6.2 节](#ch06lev1sec2)中看到的，事件存储库可以维护一个显式的版本号。
+- en: 6.1.4\. Event sourcing and publishing events
+  id: totrans-105
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.4\. 事件溯源和发布事件
+- en: Strictly speaking, event sourcing persists aggregates as events and reconstructs
+    the current state of an aggregate from those events. You can also use event sourcing
+    as a reliable event publishing mechanism. Saving an event in the event store is
+    an inherently atomic operation. We need to implement a mechanism to deliver all
+    persisted events to interested consumers.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 严格来说，事件溯源将聚合体持久化为事件，并从这些事件中重建聚合体的当前状态。您还可以将事件溯源用作可靠的事件发布机制。在事件存储中保存事件是一个本质上原子的操作。我们需要实现一个机制来将所有持久化的事件传递给感兴趣的消费者。
+- en: '[Chapter 3](kindle_split_011.xhtml#ch03) describes a couple of different mechanisms—polling
+    and transaction log tailing—for publishing messages that are inserted into the
+    database as part of a transaction. An event sourcing-based application can publish
+    events using one of these mechanisms. The main difference is that it permanently
+    stores events in an `EVENTS` table rather than temporarily saving events in an
+    `OUTBOX` table and then deleting them. Let’s take a look at each approach, starting
+    with polling.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第3章](kindle_split_011.xhtml#ch03)描述了几种不同的机制——轮询和事务日志尾部——用于发布作为事务一部分插入数据库的消息。基于事件源的应用可以使用这些机制之一来发布事件。主要区别在于它永久地将事件存储在`EVENTS`表中，而不是临时将事件存储在`OUTBOX`表中然后删除它们。让我们看看每种方法，从轮询开始。'
+- en: Using polling to publish events
+  id: totrans-108
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用轮询来发布事件
+- en: 'If events are stored in the `EVENTS` table shown in [figure 6.6](#ch06fig06),
+    an event publisher can poll the table for new events by executing a `SELECT` statement
+    and publish the events to a message broker. The challenge is determining which
+    events are new. For example, imagine that `eventIds` are monotonically increasing.
+    The superficially appealing approach is for the event publisher to record the
+    last `eventId` that it has processed. It would then retrieve new events using
+    a query like this: `SELECT * FROM EVENTS where event_id > ? ORDER BY event_id
+    ASC`.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果事件存储在[图6.6](#ch06fig06)中显示的`EVENTS`表中，事件发布者可以通过执行一个`SELECT`语句来轮询表以获取新事件，并将事件发布到消息代理。挑战在于确定哪些事件是新的。例如，假设`eventIds`是单调递增的。表面上吸引人的方法是让事件发布者记录它最后处理过的`eventId`。然后，它会使用如下查询来检索新事件：`SELECT
+    * FROM EVENTS where event_id > ? ORDER BY event_id ASC`。
+- en: Figure 6.6\. A scenario where an event is skipped because its transaction *A*
+    commits after transaction *B*. Polling sees `eventId=1020` and then later skips
+    `eventId=1010`.
+  id: totrans-110
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.6\. 一个事件被跳过的情况，因为其事务*A*在事务*B*提交之后提交。轮询看到`eventId=1020`，然后后来跳过`eventId=1010`。
+- en: '![](Images/06fig06_alt.jpg)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/06fig06_alt.jpg)'
+- en: The problem with this approach is that transactions can commit in an order that’s
+    different from the order in which they generate events. As a result, the event
+    publisher can accidentally skip over an event. [Figure 6.6](#ch06fig06) shows
+    such as a scenario.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的缺点是事务可以以不同于它们生成事件的顺序提交。因此，事件发布者可能会意外地跳过一个事件。[图6.6](#ch06fig06)展示了这种情况。
+- en: In this scenario, Transaction *A* inserts an event with an `EVENT_ID` of 1010\.
+    Next, transaction *B* inserts an event with an `EVENT_ID` of 1020 and then commits.
+    If the event publisher were now to query the `EVENTS` table, it would find event
+    1020\. Later on, after transaction *A* committed and event 1010 became visible,
+    the event publisher would ignore it.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个场景中，事务*A*插入一个`EVENT_ID`为1010的事件。接下来，事务*B*插入一个`EVENT_ID`为1020的事件，然后提交。如果事件发布者现在查询`EVENTS`表，它会找到事件1020。稍后，在事务*A*提交并且事件1010变得可见之后，事件发布者会忽略它。
+- en: 'One solution to this problem is to add an extra column to the `EVENTS` table
+    that tracks whether an event has been published. The event publisher would then
+    use the following process:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决这个问题的一个方案是在`EVENTS`表中添加一个额外的列来跟踪事件是否已发布。然后事件发布者将使用以下过程：
+- en: 'Find unpublished events by executing this SELECT statement: `SELECT * FROM
+    EVENTS where PUBLISHED = 0 ORDER BY event_id ASC`.'
+  id: totrans-115
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过执行以下SELECT语句来查找未发布的事件：`SELECT * FROM EVENTS where PUBLISHED = 0 ORDER BY event_id
+    ASC`。
+- en: Publish events to the message broker.
+  id: totrans-116
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将事件发布到消息代理。
+- en: 'Mark the events as having been published: `UPDATE EVENTS SET PUBLISHED = 1
+    WHERE EVENT_ID in`.'
+  id: totrans-117
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将事件标记为已发布：`UPDATE EVENTS SET PUBLISHED = 1 WHERE EVENT_ID in`。
+- en: This approach prevents the event publisher from skipping events.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法防止事件发布者跳过事件。
+- en: Using transaction log tailing to reliably publish events
+  id: totrans-119
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用事务日志尾部可靠地发布事件
+- en: More sophisticated event stores use *transaction log tailing*, which, as [chapter
+    3](kindle_split_011.xhtml#ch03) describes, guarantees that events will be published
+    and is also more performant and scalable. For example, Eventuate Local, an open
+    source event store, uses this approach. It reads events inserted into an `EVENTS`
+    table from the database transaction log and publishes them to the message broker.
+    [Section 6.2](#ch06lev1sec2) discusses how Eventuate Local works in more detail.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更复杂的事件存储使用*事务日志尾部*，正如[第3章](kindle_split_011.xhtml#ch03)所描述的，这保证了事件将被发布，并且性能更高，可扩展性更好。例如，开源事件存储Eventuate
+    Local就使用这种方法。它从数据库事务日志中读取插入到`EVENTS`表中的事件，并将它们发布到消息代理。[第6.2节](#ch06lev1sec2)详细讨论了Eventuate
+    Local的工作原理。
+- en: 6.1.5\. Using snapshots to improve performance
+  id: totrans-121
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.5\. 使用快照提高性能
+- en: An `Order` aggregate has relatively few state transitions, so it only has a
+    small number of events. It’s efficient to query the event store for those events
+    and reconstruct an `Order` aggregate. Long-lived aggregates, though, can have
+    a large number of events. For example, an `Account` aggregate potentially has
+    a large number of events. Over time, it would become increasingly inefficient
+    to load and fold those events.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “订单”聚合具有相对较少的状态转换，因此它只有少量的事件。查询事件存储以获取这些事件并重建“订单”聚合是高效的。然而，长期存在的聚合可以具有大量的事件。例如，“账户”聚合可能具有大量的事件。随着时间的推移，加载和折叠这些事件将变得越来越低效。
+- en: A common solution is to periodically persist a snapshot of the aggregate’s state.
+    [Figure 6.7](#ch06fig07) shows an example of using a snapshot. The application
+    restores the state of an aggregate by loading the most recent snapshot and only
+    those events that have occurred since the snapshot was created.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种常见的解决方案是定期持久化聚合状态的快照。[图6.7](#ch06fig07)展示了使用快照的示例。应用程序通过加载最近的快照以及自快照创建以来发生的事件来恢复聚合的状态。
+- en: Figure 6.7\. Using a snapshot improves performance by eliminating the need to
+    load all events. An application only needs to load the snapshot and the events
+    that occur after it.
+  id: totrans-124
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.7\. 使用快照通过消除加载所有事件的必要性来提高性能。应用程序只需要加载快照以及之后发生的事件。
+- en: '![](Images/06fig07_alt.jpg)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/06fig07_alt.jpg)'
+- en: In this example, the snapshot version is *N*. The application only needs to
+    load the snapshot and the two events that follow it in order to restore the state
+    of the aggregate. The previous *N* events are not loaded from the event store.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此示例中，快照版本为*N*。应用程序只需要加载快照以及紧随其后的两个事件，以便恢复聚合的状态。之前的*N*个事件不需要从事件存储中加载。
+- en: 'When restoring the state of an aggregate from a snapshot, an application first
+    creates an aggregate instance from the snapshot and then iterates through the
+    events, applying them. For example, the Eventuate Client framework, described
+    in [section 6.2.2](#ch06lev2sec11), uses code similar to the following to reconstruct
+    an aggregate:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当从快照恢复聚合的状态时，应用程序首先从快照创建一个聚合实例，然后遍历事件，应用它们。例如，在[第6.2.2节](#ch06lev2sec11)中描述的Eventuate
+    Client框架，使用类似于以下代码来重建一个聚合：
+- en: '[PRE4]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: When using snapshots, the aggregate instance is recreated from the snapshot
+    instead of being created using its default constructor. If an aggregate has a
+    simple, easily serializable structure, the snapshot can be, for example, its JSON
+    serialization. More complex aggregates can be snapshotted using the Memento pattern
+    ([https://en.wikipedia.org/wiki/Memento_pattern](https://en.wikipedia.org/wiki/Memento_pattern)).
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用快照时，聚合实例是从快照重新创建的，而不是使用其默认构造函数创建。如果一个聚合具有简单且易于序列化的结构，快照可以是其JSON序列化。更复杂的聚合可以使用备忘录模式([https://en.wikipedia.org/wiki/Memento_pattern](https://en.wikipedia.org/wiki/Memento_pattern))进行快照。
+- en: 'The `Customer` aggregate in the online store example has a very simple structure:
+    the customer’s information, their credit limit, and their credit reservations.
+    A snapshot of a `Customer` is the JSON serialization of its state. [Figure 6.8](#ch06fig08)
+    shows how to recreate a `Customer` from a snapshot corresponding to the state
+    of a `Customer` as of event #103\. The `Customer Service` needs to load the snapshot
+    and the events that have occurred after event #103.'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在在线商店示例中，“客户”聚合具有非常简单的结构：客户信息、信用额度以及信用预留。一个“客户”的快照是其状态的JSON序列化。[图6.8](#ch06fig08)展示了如何从对应于事件#103时“客户”状态的快照中重新创建一个“客户”。客户服务需要加载快照以及事件#103之后发生的事件。
+- en: 'Figure 6.8\. The `Customer Service` recreates the `Customer` by deserializing
+    the snapshot’s JSON and then loading and applying events #104 through #106.'
+  id: totrans-131
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.8\. “客户服务”通过反序列化快照的JSON，然后加载并应用事件#104至#106来重新创建“客户”。
+- en: '![](Images/06fig08_alt.jpg)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/06fig08_alt.jpg)'
+- en: 'The `Customer Service` recreates the `Customer` by deserializing the snapshot’s
+    JSON and then loading and applying events #104 through #106.'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “客户服务”通过反序列化快照的JSON，然后加载并应用事件#104至#106来重新创建“客户”。
+- en: 6.1.6\. Idempotent message processing
+  id: totrans-134
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.6\. 幂等消息处理
+- en: Services often consume messages from other applications or other services. A
+    service might, for example, consume domain events published by aggregates or command
+    messages sent by a saga orchestrator. As described in [chapter 3](kindle_split_011.xhtml#ch03),
+    an important issue when developing a message consumer is ensuring that it’s idempotent,
+    because a message broker might deliver the same message multiple times.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务通常从其他应用程序或其他服务中消费消息。例如，一个服务可能会消费由聚合体发布的领域事件或由叙事编排器发送的命令消息。如[第3章](kindle_split_011.xhtml#ch03)所述，开发消息消费者时的重要问题是确保它是幂等的，因为消息代理可能会多次投递相同的消息。
+- en: A message consumer is idempotent if it can safely be invoked with the same message
+    multiple times. The Eventuate Tram framework, for example, implements idempotent
+    message handling by detecting and discarding duplicate messages. It records the
+    *ids* of processed messages in a `PROCESSED_MESSAGES` table as part of the local
+    ACID transaction used by the business logic to create or update aggregates. If
+    the ID of a message is in the `PROCESSED_MESSAGES` table, it’s a duplicate and
+    can be discarded. Event sourcing-based business logic must implement an equivalent
+    mechanism. How this is done depends on whether the event store uses an RDBMS or
+    a NoSQL database.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果消息消费者可以安全地多次使用相同的消息调用，则它是幂等的。例如，Eventuate Tram框架通过检测和丢弃重复消息来实现幂等消息处理。它将处理消息的`ids`记录在业务逻辑创建或更新聚合体时使用的本地ACID事务的`PROCESSED_MESSAGES`表中。如果消息的ID在`PROCESSED_MESSAGES`表中，则它是重复的，可以被丢弃。基于事件源的业务逻辑必须实现等效机制。如何实现取决于事件存储使用的是RDBMS还是NoSQL数据库。
+- en: Idempotent message processing with an RDBMS-based event store
+  id: totrans-137
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用基于RDBMS的事件存储进行幂等消息处理
+- en: If an application uses an RDBMS-based event store, it can use an identical approach
+    to detect and discard duplicates messages. It inserts the message ID into the
+    `PROCESSED_MESSAGES` table as part of the transaction that inserts events into
+    the `EVENTS` table.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果应用程序使用基于RDBMS的事件存储，它可以使用相同的方法来检测和丢弃重复消息。它在将事件插入`EVENTS`表的事务中将消息ID插入到`PROCESSED_MESSAGES`表中。
+- en: Idempotent message processing when using a NoSQL-based event store
+  id: totrans-139
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用基于NoSQL的事件存储进行幂等消息处理
+- en: A NoSQL-based event store, which has a limited transaction model, must use a
+    different mechanism to implement idempotent message handling. A message consumer
+    must somehow atomically persist events and record the message ID. Fortunately,
+    there’s a simple solution. A message consumer stores the message’s ID in the events
+    that are generated while processing it. It detects duplicates by verifying that
+    none of an aggregate’s events contains the message ID.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于NoSQL的事件存储，由于具有有限的交易模型，必须使用不同的机制来实现幂等消息处理。消息消费者必须以某种方式原子性地持久化事件并记录消息ID。幸运的是，有一个简单的解决方案。消息消费者在处理消息时将其ID存储在生成的事件中。它通过验证聚合体的事件中不包含消息ID来检测重复项。
+- en: 'One challenge with using this approach is that processing a message might not
+    generate any events. The lack of events means there’s no record of a message having
+    been processed. A subsequent redelivery and reprocessing of the same message might
+    result in incorrect behavior. For example, consider the following scenario:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种方法的一个挑战是处理消息可能不会生成任何事件。没有事件意味着没有记录消息已被处理。对同一消息的后续重新投递和重新处理可能会导致不正确的行为。例如，考虑以下场景：
+- en: Message A is processed but doesn’t update an aggregate.
+  id: totrans-142
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 消息A被处理，但没有更新聚合体。
+- en: Message B is processed, and the message consumer updates the aggregate.
+  id: totrans-143
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 消息B被处理，并且消息消费者更新了聚合体。
+- en: Message A is redelivered, and because there’s no record of it having been processed,
+    the message consumer updates the aggregate.
+  id: totrans-144
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 消息A被重新投递，因为没有记录它已被处理，消息消费者更新了聚合体。
+- en: Message B is processed again....
+  id: totrans-145
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 消息B再次被处理...
+- en: In this scenario, the redelivery of events results in a different and possibly
+    erroneous outcome.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，事件的重新投递会导致不同的结果，可能是错误的结果。
+- en: One way to avoid this problem is to always publish an event. If an aggregate
+    doesn’t emit an event, an application saves a pseudo event solely to record the
+    message ID. Event consumers must ignore these pseudo events.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 避免这种问题的方法之一是始终发布一个事件。如果一个聚合体没有发出事件，应用程序将保存一个伪事件仅用于记录消息ID。事件消费者必须忽略这些伪事件。
+- en: 6.1.7\. Evolving domain events
+  id: totrans-148
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.7. 领域事件的演变
+- en: Event sourcing, at least conceptually, stores events forever—which is a double-edged
+    sword. On one hand, it provides the application with an audit log of changes that’s
+    guaranteed to be accurate. It also enables an application to reconstruct the historical
+    state of an aggregate. On the other hand, it creates a challenge, because the
+    structure of events often changes over time.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件源，至少从概念上讲，永久存储事件——这是一把双刃剑。一方面，它为应用程序提供了一个保证准确性的变更审计日志。它还使应用程序能够重建聚合的历史状态。另一方面，它也带来了挑战，因为事件的结构通常会随时间而变化。
+- en: An application must potentially deal with multiple versions of events. For example,
+    a service that loads an `Order` aggregate could potentially need to fold multiple
+    versions of events. Similarly, an event subscriber might potentially see multiple
+    versions.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序可能需要处理多个事件版本。例如，加载 `Order` 聚合的服务可能需要合并多个事件版本。同样，事件订阅者可能看到多个版本。
+- en: Let’s first look at the different ways that events can change, and then I’ll
+    describe a commonly used approach for handling changes.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先看看事件可以以哪些不同的方式改变，然后我将描述一种常用的处理变更的方法。
+- en: Event schema evolution
+  id: totrans-152
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 事件模式演进
+- en: 'Conceptually, an event sourcing application has a schema that’s organized into
+    three levels:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从概念上讲，事件源应用程序有一个分为三个级别的架构：
+- en: Consists of one or more aggregates
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由一个或多个聚合组成
+- en: Defines the events that each aggregate emits
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义每个聚合发出的事件
+- en: Defines the structure of the events
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义事件的架构
+- en: '[Table 6.1](#ch06table01) shows the different types of changes that can occur
+    at each level.'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 6.1](#ch06table01) 展示了在每个级别可能发生的不同类型的变更。'
+- en: Table 6.1\. The different ways that an application’s events can evolve
+  id: totrans-158
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 表 6.1\. 应用程序事件演变的多种方式
+- en: '| Level | Change | Backward compatible |'
+  id: totrans-159
+  prefs: []
+  type: TYPE_TB
+  zh: '| 级别 | 变更 | 向后兼容 |'
+- en: '| --- | --- | --- |'
+  id: totrans-160
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Schema | Define a new aggregate type | Yes |'
+  id: totrans-161
+  prefs: []
+  type: TYPE_TB
+  zh: '| 架构 | 定义一个新的聚合类型 | 是 |'
+- en: '| Remove aggregate | Remove an existing aggregate | No |'
+  id: totrans-162
+  prefs: []
+  type: TYPE_TB
+  zh: '| 移除聚合 | 移除现有的聚合 | 否 |'
+- en: '| Rename aggregate | Change the name of an aggregate type | No |'
+  id: totrans-163
+  prefs: []
+  type: TYPE_TB
+  zh: '| 重命名聚合 | 更改聚合类型的名称 | 否 |'
+- en: '| Aggregate | Add a new event type | Yes |'
+  id: totrans-164
+  prefs: []
+  type: TYPE_TB
+  zh: '| 聚合 | 添加一个新的事件类型 | 是 |'
+- en: '| Remove event | Remove an event type | No |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| 移除事件 | 移除一个事件类型 | 否 |'
+- en: '| Rename event | Change the name of an event type | No |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| 重命名事件 | 更改事件类型的名称 | 否 |'
+- en: '| Event | Add a new field | Yes |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| 事件 | 添加一个新的字段 | 是 |'
+- en: '| Delete field | Delete a field | No |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| 删除字段 | 删除一个字段 | 否 |'
+- en: '| Rename field | Rename a field | No |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| 重命名字段 | 重命名一个字段 | 否 |'
+- en: '| Change type of field | Change the type of a field | No |'
+  id: totrans-170
+  prefs: []
+  type: TYPE_TB
+  zh: '| 更改字段类型 | 更改字段的类型 | 否 |'
+- en: These changes occur naturally as a service’s domain model evolves over time—for
+    example, when a service’s requirements change or as its developers gain deeper
+    insight into a domain and improve the domain model. At the schema level, developers
+    add, remove, and rename aggregate classes. At the aggregate level, the types of
+    events emitted by a particular aggregate can change. Developers can change the
+    structure of an event type by adding, removing, and changing the name or type
+    of a field.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些变更随着服务领域模型随时间演变而自然发生——例如，当服务的需求发生变化或其开发者对领域有更深入的了解并改进领域模型时。在架构级别，开发者添加、删除和重命名聚合类。在聚合级别，特定聚合发出的事件类型可能会改变。开发者可以通过添加、删除、更改字段名称或类型来更改事件类型的结构。
+- en: Fortunately, many of these types of changes are backward-compatible changes.
+    For example, adding a field to an event is unlikely to impact consumers. A consumer
+    ignores unknown fields. Other changes, though, aren’t backward compatible. For
+    example, changing the name of an event or the name of a field requires consumers
+    of that event type to be changed.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，许多这类变更都是向后兼容的。例如，向事件添加字段不太可能影响消费者。消费者会忽略未知字段。然而，其他变更则不是向后兼容的。例如，更改事件或字段的名称需要更改该事件类型的消费者。
+- en: Managing schema changes through upcasting
+  id: totrans-173
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 通过向上转换管理架构变更
+- en: In the SQL database world, changes to a database schema are commonly handled
+    using schema migrations. Each schema change is represented by a *migration*, a
+    SQL script that changes the schema and migrates the data to a new schema. The
+    schema migrations are stored in a version control system and applied to a database
+    using a tool such as Flyway.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 SQL 数据库世界中，数据库架构的变更通常通过架构迁移来处理。每个架构变更都由一个 *迁移* 表示，这是一个更改架构并将数据迁移到新架构的 SQL
+    脚本。架构迁移存储在版本控制系统，并使用如 Flyway 这样的工具应用到数据库中。
+- en: An event sourcing application can use a similar approach to handle non-backward-compatible
+    changes. But instead of migrating events to the new schema version in situ, event
+    sourcing frameworks transform events when they’re loaded from the event store.
+    A component commonly called an *upcaster* updates individual events from an old
+    version to a newer version. As a result, the application code only ever deals
+    with the current event schema.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源应用程序可以使用类似的方法来处理不向后兼容的更改。但是，与在原地迁移事件到新架构版本不同，事件溯源框架在从事件存储加载事件时转换事件。一个通常称为*升级器*的组件将单个事件从旧版本更新到新版本。因此，应用程序代码始终只处理当前的事件架构。
+- en: Now that we’ve looked at how event sourcing works, let’s consider its benefits
+    and drawbacks.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了事件溯源的工作原理，让我们考虑其优点和缺点。
+- en: 6.1.8\. Benefits of event sourcing
+  id: totrans-177
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.8\. 事件溯源的优点
+- en: 'Event sourcing has both benefits and drawbacks. The benefits include the following:'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源既有优点也有缺点。其优点包括以下内容：
+- en: Reliably publishes domain events
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可靠发布领域事件
+- en: Preserves the history of aggregates
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 保留聚合的历史
+- en: Mostly avoids the O/R impedance mismatch problem
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 主要避免了O/R阻抗不匹配问题
+- en: Provides developers with a time machine
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为开发者提供时间机器
+- en: Let’s examine each benefit in more detail.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更详细地考察每个好处。
+- en: Reliably publishes domain events
+  id: totrans-184
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 可靠发布领域事件
+- en: A major benefit of event sourcing is that it reliably publishes events whenever
+    the state of an aggregate changes. That’s a good foundation for an event-driven
+    microservice architecture. Also, because each event can store the identity of
+    the user who made the change, event sourcing provides an audit log that’s guaranteed
+    to be accurate. The stream of events can be used for a variety of other purposes,
+    including notifying users, application integration, analytics, and monitoring.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源的一个主要好处是它可以在聚合状态改变时可靠地发布事件。这对于事件驱动的微服务架构是一个良好的基础。此外，由于每个事件都可以存储更改用户的身份，事件溯源提供了一个保证准确性的审计日志。事件流可以用作各种其他目的，包括通知用户、应用程序集成、分析和监控。
+- en: Preserves the history of aggregates
+  id: totrans-186
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 保留聚合的历史
+- en: Another benefit of event sourcing is that it stores the entire history of each
+    aggregate. You can easily implement temporal queries that retrieve the past state
+    of an aggregate. To determine the state of an aggregate at a given point in time,
+    you fold the events that occurred up until that point. It’s straightforward, for
+    example, to calculate the available credit of a customer at some point in the
+    past.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源的另一个好处是它存储了每个聚合的整个历史。你可以轻松实现时间查询，以检索聚合的过去状态。例如，要确定某个过去时刻聚合的状态，你可以折叠直到那个时刻发生的事件。例如，计算客户在某个过去时刻的可用信用额度是直接的。
+- en: Mostly avoids the O/R impedance mismatch problem
+  id: totrans-188
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 主要避免了O/R阻抗不匹配问题
+- en: Event sourcing persists events rather than aggregating them. Events typically
+    have a simple, easily serializable structure. As mentioned earlier, a service
+    can snapshot a complex aggregate by serializing a memento of its state, which
+    adds a level of indirection between an aggregate and its serialized representation.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源是持久化事件而不是聚合它们。事件通常具有简单、易于序列化的结构。如前所述，一个服务可以通过序列化其状态的备忘录来快照一个复杂的聚合，这会在聚合及其序列化表示之间增加一个间接层。
+- en: Provides developers with a time machine
+  id: totrans-190
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 为开发者提供时间机器
+- en: Event sourcing stores a history of everything that’s happened in the lifetime
+    of an application. Imagine that the FTGO developers need to implement a new requirement
+    to customers who added an item to their shopping cart and then removed it. A traditional
+    application wouldn’t preserve this information, so could only market to customers
+    who add and remove items after the feature is implemented. In contrast, an event
+    sourcing-based application can immediately market to customers who have done this
+    in the past. It’s as if event sourcing provides developers with a time machine
+    for traveling to the past and implementing unanticipated requirements.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源存储了一个应用程序在其生命周期中发生的所有事情的历史。想象一下，FTGO的开发者需要实现一个新需求，即向那些将商品添加到购物车后又删除它们的客户进行营销。传统的应用程序不会保留这些信息，因此只能在功能实现后向添加和删除商品的客户进行营销。相比之下，基于事件溯源的应用程序可以立即向那些过去做过这件事的客户进行营销。这就像事件溯源为开发者提供了一个时间机器，可以回到过去并实现未预见的需求。
+- en: 6.1.9\. Drawbacks of event sourcing
+  id: totrans-192
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.9\. 事件溯源的缺点
+- en: 'Event sourcing isn’t a silver bullet. It has the following drawbacks:'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源不是万能的。它有以下缺点：
+- en: It has a different programming model that has a learning curve.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它具有具有学习曲线的不同编程模型。
+- en: It has the complexity of a messaging-based application.
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它具有基于消息的应用程序的复杂性。
+- en: Evolving events can be tricky.
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件演变可能很棘手。
+- en: Deleting data is tricky.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 删除数据很棘手。
+- en: Querying the event store is challenging.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 查询事件存储具有挑战性。
+- en: Let’s look at each drawback.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看看每个缺点。
+- en: Different programming model that has a learning curve
+  id: totrans-200
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 具有学习曲线的不同编程模型
+- en: It’s a different and unfamiliar programming model, and that means a learning
+    curve. In order for an existing application to use event sourcing, you must rewrite
+    its business logic. Fortunately, that’s a fairly mechanical transformation that
+    you can do when you migrate your application to microservices.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它是一个不同且不熟悉的编程模型，这意味着有一个学习曲线。为了使现有应用程序使用事件溯源，你必须重写其业务逻辑。幸运的是，这是一个相当机械的转换，你可以在将应用程序迁移到微服务时进行。
+- en: Complexity of a messaging-based application
+  id: totrans-202
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 基于消息的应用程序的复杂性
+- en: Another drawback of event sourcing is that message brokers usually guarantee
+    at-least-once delivery. Event handlers that aren’t idempotent must detect and
+    discard duplicate events. The event sourcing framework can help by assigning each
+    event a monotonically increasing ID. An event handler can then detect duplicate
+    events by tracking the highest-seen event ID. This even happens automatically
+    when event handlers update aggregates.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源的另一个缺点是消息代理通常保证至少一次投递。非幂等的事件处理器必须检测并丢弃重复的事件。事件溯源框架可以通过为每个事件分配一个单调递增的ID来帮助。事件处理器可以通过跟踪最高已见事件ID来检测重复事件。当事件处理器更新聚合时，这甚至可以自动发生。
+- en: Evolving events can be tricky
+  id: totrans-204
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 事件演变可能很棘手
+- en: With event sourcing, the schema of events (and snapshots!) will evolve over
+    time. Because events are stored forever, aggregates potentially need to fold events
+    corresponding to multiple schema versions. There’s a real risk that aggregates
+    may become bloated with code to deal with all the different versions. As mentioned
+    in [section 6.1.7](#ch06lev2sec7), a good solution to this problem is to upgrade
+    events to the latest version when they’re loaded from the event store. This approach
+    separates the code that upgrades events from the aggregate, which simplifies the
+    aggregates because they only need to apply the latest version of the events.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用事件溯源时，事件的模式（以及快照！）会随着时间的推移而演变。因为事件是永久存储的，聚合可能需要折叠对应多个模式版本的事件。确实存在这样的风险，即聚合可能会因为处理所有不同版本而变得臃肿。如[第6.1.7节](#ch06lev2sec7)所述，解决这个问题的一个好方法是当从事件存储中加载事件时将事件升级到最新版本。这种方法将升级事件的代码与聚合分离，从而简化了聚合，因为它们只需要应用事件的最新版本。
+- en: Deleting data is tricky
+  id: totrans-206
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 删除数据很棘手
+- en: Because one of the goals of event sourcing is to preserve the history of aggregates,
+    it intentionally stores data forever. The traditional way to delete data when
+    using event sourcing is to do a soft delete. An application deletes an aggregate
+    by setting a *deleted* flag. The aggregate will typically emit a `Deleted` event,
+    which notifies any interested consumers. Any code that accesses that aggregate
+    can check the flag and act accordingly.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为事件溯源的一个目标是为了保留聚合的历史，它故意永久存储数据。在事件溯源中使用传统方式删除数据时，通常会进行软删除。应用程序通过设置一个*已删除*标志来删除聚合。聚合通常会发出一个`Deleted`事件，通知任何感兴趣的消费者。任何访问该聚合的代码都可以检查该标志并相应地操作。
+- en: Using a soft delete works well for many kinds of data. One challenge, however,
+    is complying with the General Data Protection Regulation (GDPR), a European data
+    protection and privacy regulation that grants individuals the right to erasure
+    ([https://gdpr-info.eu/art-17-gdpr/](https://gdpr-info.eu/art-17-gdpr/)). An application
+    must have the ability to forget a user’s personal information, such as their email
+    address. The issue with an event sourcing-based application is that the email
+    address might either be stored in an `AccountCreated` event or used as the primary
+    key of an aggregate. The application somehow must forget about the user without
+    deleting the events.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用软删除对于许多类型的数据来说效果很好。然而，一个挑战是遵守通用数据保护条例（GDPR），这是一项欧洲数据保护和隐私法规，赋予个人删除权([https://gdpr-info.eu/art-17-gdpr/](https://gdpr-info.eu/art-17-gdpr/))。应用程序必须有能力忘记用户的个人信息，例如他们的电子邮件地址。基于事件溯源的应用程序的问题是电子邮件地址可能存储在`AccountCreated`事件中或用作聚合的主键。应用程序必须以某种方式忘记用户，而不删除事件。
+- en: Encryption is one mechanism you can use to solve this problem. Each user has
+    an encryption key, which is stored in a separate database table. The application
+    uses that encryption key to encrypt any events containing the user’s personal
+    information before storing them in an event store. When a user requests to be
+    erased, the application deletes the encryption key record from the database table.
+    The user’s personal information is effectively deleted, because the events can
+    no longer be decrypted.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加密是你可以用来解决这个问题的一种机制。每个用户都有一个加密密钥，该密钥存储在单独的数据库表中。应用程序使用该加密密钥在将事件存储在事件存储之前加密包含用户个人信息的任何事件。当用户请求被删除时，应用程序会从数据库表中删除加密密钥记录。由于事件无法再被解密，因此用户的个人信息实际上被删除了。
+- en: Encrypting events solves most problems with erasing a user’s personal information.
+    But if some aspect of a user’s personal information, such as email address, is
+    used as an aggregate ID, throwing away the encryption key may not be sufficient.
+    For example, [section 6.2](#ch06lev1sec2) describes an event store that has an
+    `entities` table whose primary key is the aggregate ID. One solution to this problem
+    is to use the technique of *pseudonymization*, replacing the email address with
+    a UUID token and using that as the aggregate ID. The application stores the association
+    between the UUID token and the email address in a database table. When a user
+    requests to be erased, the application deletes the row for their email address
+    from that table. This prevents the application from mapping the UUID back to the
+    email address.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加密事件可以解决删除用户个人信息的大部分问题。但如果用户的某些个人信息，例如电子邮件地址，被用作聚合ID，仅仅丢弃加密密钥可能就不够了。例如，[第6.2节](#ch06lev1sec2)描述了一个事件存储，它有一个`entities`表，其主键是聚合ID。解决这个问题的一个方案是使用*匿名化*技术，用UUID令牌替换电子邮件地址，并将其用作聚合ID。应用程序将UUID令牌与电子邮件地址之间的关联存储在数据库表中。当用户请求被删除时，应用程序会从该表中删除其电子邮件地址的行。这防止了应用程序将UUID映射回电子邮件地址。
+- en: Querying the event store is challenging
+  id: totrans-211
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 查询事件存储具有挑战性
+- en: Imagine you need to find customers who have exhausted their credit limit. Because
+    there isn’t a column containing the credit, you can’t write `SELECT * FROM CUSTOMER
+    WHERE CREDIT_LIMIT = 0`. Instead, you must use a more complex and potentially
+    inefficient query that has a nested `SELECT` to compute the credit limit by folding
+    events that set the initial credit and adjusting it. To make matters worse, a
+    NoSQL-based event store will typically only support primary key-based lookup.
+    Consequently, you must implement queries using the CQRS approach described in
+    [chapter 7](kindle_split_015.xhtml#ch07).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你需要找到已经耗尽信用额的客户。由于没有包含信用的列，你不能写`SELECT * FROM CUSTOMER WHERE CREDIT_LIMIT
+    = 0`。相反，你必须使用一个更复杂且可能效率不高的查询，该查询包含嵌套的`SELECT`来通过折叠设置初始信用额并调整它来计算信用额。更糟糕的是，基于NoSQL的事件存储通常只支持基于主键的查找。因此，你必须使用[第7章](kindle_split_015.xhtml#ch07)中描述的CQRS方法来实现查询。
+- en: 6.2\. Implementing an event store
+  id: totrans-213
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2\. 实现事件存储
+- en: An application that uses event sourcing stores its events in an event store.
+    An *event store* is a hybrid of a database and a message broker. It behaves as
+    a database because it has an API for inserting and retrieving an aggregate’s events
+    by primary key. And it behaves as a message broker because it has an API for subscribing
+    to events.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用事件源的应用程序将事件存储在事件存储中。*事件存储*是数据库和消息代理的混合体。它作为数据库，因为它有一个API，可以通过主键插入和检索聚合的事件。它作为消息代理，因为它有一个API，可以订阅事件。
+- en: There are a few different ways to implement an event store. One option is to
+    implement your own event store and event sourcing framework. You can, for example,
+    persist events in an RDBMS. A simple, albeit low-performance, way to publish events
+    is for subscribers to poll the `EVENTS` table for events. But, as noted in [section
+    6.1.4](#ch06lev2sec4), one challenge is ensuring that a subscriber processes all
+    events in order.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现事件存储有几种不同的方法。一种选择是自行实现事件存储和事件源框架。例如，你可以在关系型数据库管理系统（RDBMS）中持久化事件。发布事件的一个简单但性能较低的方法是让订阅者轮询`EVENTS`表以获取事件。但是，如[第6.1.4节](#ch06lev2sec4)所述，一个挑战是确保订阅者按顺序处理所有事件。
+- en: 'Another option is to use a special-purpose event store, which typically provides
+    a rich set of features and better performance and scalability. There are several
+    of these to chose from:'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种选择是使用专用的事件存储，这通常提供了一组丰富的功能，以及更好的性能和可扩展性。有几种可供选择：
+- en: '***Event Store*—** A .NET-based open source event store developed by Greg Young,
+    an event sourcing pioneer ([https://eventstore.org](https://eventstore.org)).'
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***事件存储*—** 由事件溯源先驱Greg Young开发的一个基于.NET的开源事件存储。[事件存储官网](https://eventstore.org)。'
+- en: '***Lagom*—** A microservices framework developed by Lightbend, the company
+    formerly known as Typesafe ([www.lightbend.com/lagom-framework](http://www.lightbend.com/lagom-framework)).'
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***Lagom*—** 由公司Lightbend（原名Typesafe）开发的微服务框架。[Lagom框架官网](http://www.lightbend.com/lagom-framework)。'
+- en: '***Axon*—** An open source Java framework for developing event-driven applications
+    that use event sourcing and CQRS ([www.axonframework.org](http://www.axonframework.org)).'
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***Axon*—** 开源Java框架，用于开发使用事件溯源和CQRS的事件驱动应用程序。[Axon框架官网](http://www.axonframework.org)。'
+- en: '***Eventuate*—** Developed by my startup, Eventuate ([http://eventuate.io](http://eventuate.io)).
+    There are two versions of Eventuate: Eventuate SaaS, a cloud service, and Eventuate
+    Local, an Apache Kafka/RDBMS-based open source project.'
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***Eventuate*—** 由我的初创公司Eventuate([http://eventuate.io](http://eventuate.io))开发。Eventuate有两个版本：Eventuate
+    SaaS，一个云服务，以及Eventuate Local，一个基于Apache Kafka/RDBMS的开源项目。'
+- en: Although these frameworks differ in the details, the core concepts remain the
+    same. Because Eventuate is the framework I’m most familiar with, that’s the one
+    I cover here. It has a straightforward, easy-to-understand architecture that illustrates
+    event sourcing concepts. You can use it in your applications, reimplement the
+    concepts yourself, or apply what you learn here to build applications with one
+    of the other event sourcing frameworks.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这些框架在细节上有所不同，但核心概念保持不变。因为Eventuate是我最熟悉的框架，所以我在这里介绍它。它具有简单、易于理解的架构，可以说明事件溯源的概念。您可以在应用程序中使用它，自己重新实现这些概念，或者将在这里学到的知识应用于构建使用其他事件溯源框架的应用程序。
+- en: I begin the following sections by describing how the Eventuate Local event store
+    works. Then I describe the Eventuate Client framework for Java, an easy-to-use
+    framework for writing event sourcing-based business logic that uses the Eventuate
+    Local event store.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在以下章节的开头描述了Eventuate Local事件存储的工作原理。然后我描述了Eventuate Client框架，这是一个用于Java的简单易用的框架，用于编写基于事件存储的业务逻辑，并使用Eventuate
+    Local事件存储。
+- en: 6.2.1\. How the Eventuate Local event store works
+  id: totrans-223
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.2.1\. Eventuate Local本地事件存储的工作原理
+- en: Eventuate Local is an open source event store. [Figure 6.9](#ch06fig09) shows
+    the architecture. Events are stored in a database, such as MySQL. Applications
+    insert and retrieve aggregate events by primary key. Applications consume events
+    from a message broker, such as Apache Kafka. A transaction log tailing mechanism
+    propagates events from the database to the message broker.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Eventuate Local是一个开源事件存储。图6.9([#ch06fig09](#ch06fig09))显示了其架构。事件存储在数据库中，如MySQL。应用程序通过主键插入和检索聚合事件。应用程序从消息代理，如Apache
+    Kafka，消费事件。事务日志跟踪机制将事件从数据库传播到消息代理。
+- en: Figure 6.9\. The architecture of Eventuate Local. It consists of an event database
+    (such as MySQL) that stores the events, an event broker (like Apache Kafka) that
+    delivers events to subscribers, and an event relay that publishes events stored
+    in the event database to the event broker.
+  id: totrans-225
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.9\. Eventuate Local的架构。它由一个事件数据库（如MySQL）组成，用于存储事件，一个事件代理（如Apache Kafka），用于将事件传递给订阅者，以及一个事件中继，将存储在事件数据库中的事件发布到事件代理。
+- en: '![](Images/06fig09_alt.jpg)'
+  id: totrans-226
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/06fig09_alt.jpg)'
+- en: Let’s look at the different Eventuate Local components, starting with the database
+    schema.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看不同的Eventuate Local组件，从数据库模式开始。
+- en: The schema of Eventuate Local’s event database
+  id: totrans-228
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Eventuate Local事件数据库的模式
+- en: 'The event database consists of three tables:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件数据库由三个表组成：
+- en: '**`events`—** Stores the events'
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`events`—** 存储事件'
+- en: '**`entities`—** One row per entity'
+  id: totrans-231
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`entities`—** 每个实体一行'
+- en: '**`snapshots`—** Stores snapshots'
+  id: totrans-232
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`snapshots`—** 存储快照'
+- en: 'The central table is the `events` table. The structure of this table is very
+    similar to the table shown in [figure 6.2](#ch06fig02). Here’s its definition:'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 核心表是`events`表。这个表的结构与[图6.2](#ch06fig02)中显示的表非常相似。以下是它的定义：
+- en: '[PRE5]'
+  id: totrans-234
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The `triggering_event` column is used to detect duplicate events/messages. It
+    stores the ID of the message/event whose processing generated this event.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`triggering_event`列用于检测重复的事件/消息。它存储了生成此事件的已处理消息/事件的ID。'
+- en: 'The `entities` table stores the current version of each entity. It’s used to
+    implement optimistic locking. Here’s the definition of this table:'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`entities`表存储每个实体的当前版本。它用于实现乐观锁。以下是该表的定义：'
+- en: '[PRE6]'
+  id: totrans-237
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: When an entity is created, a row is inserted into this table. Each time an entity
+    is updated, the `entity_version` column is updated.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当实体被创建时，此表中插入一行。每次实体被更新时，`entity_version` 列都会更新。
+- en: 'The `snapshots` table stores the snapshots of each entity. Here’s the definition
+    of this table:'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`snapshots` 表存储每个实体的快照。以下是此表的定义：'
+- en: '[PRE7]'
+  id: totrans-240
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: The `entity_type` and `entity_id` columns specify the snapshot’s entity. The
+    `snapshot_json` column is the serialized representation of the snapshot, and the
+    `snapshot_type` is its type. The `entity_version` specifies the version of the
+    entity that this is a snapshot of.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`entity_type` 和 `entity_id` 列指定快照的实体。`snapshot_json` 列是快照的序列化表示，`snapshot_type`
+    是其类型。`entity_version` 指定这是快照的实体的版本。'
+- en: The three operations supported by this schema are `find()`, `create()`, and
+    `update()`. The `find()` operation queries the `snapshots` table to retrieve the
+    latest snapshot, if any. If a snapshot exists, the `find()` operation queries
+    the `events` table to find all events whose `event_id` is greater than the snapshot’s
+    `entity_version`. Otherwise, `find()` retrieves all events for the specified entity.
+    The `find()` operation also queries the `entity` table to retrieve the entity’s
+    current version.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此架构支持的三种操作是 `find()`、`create()` 和 `update()`。`find()` 操作查询 `snapshots` 表以检索最新的快照（如果有的话）。如果存在快照，`find()`
+    操作将查询 `events` 表以找到所有 `event_id` 大于快照的 `entity_version` 的事件。否则，`find()` 检索指定实体的所有事件。`find()`
+    操作还查询 `entity` 表以检索实体的当前版本。
+- en: 'The `create()` operation inserts a row into the `entity` table and inserts
+    the events into the `events` table. The `update()` operation inserts events into
+    the `events` table. It also performs an optimistic locking check by updating the
+    entity version in the `entities` table using this `UPDATE` statement:'
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`create()` 操作在 `entity` 表中插入一行，并将事件插入到 `events` 表中。`update()` 操作将事件插入到 `events`
+    表中。它还通过使用此 `UPDATE` 语句在 `entities` 表中更新实体版本来执行乐观锁定检查：'
+- en: '[PRE8]'
+  id: totrans-244
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: This statement verifies that the version is unchanged since it was retrieved
+    by the `find()` operation. It also updates the `entity_version` to the new version.
+    The `update()` operation performs these updates within a transaction in order
+    to ensure atomicity.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此语句验证自 `find()` 操作检索以来版本未更改。它还更新 `entity_version` 到新版本。`update()` 操作在事务中执行这些更新，以确保原子性。
+- en: Now that we’ve looked at how Eventuate Local stores an aggregate’s events and
+    snapshots, let’s see how a client subscribes to events using Eventuate Local’s
+    event broker.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了 Eventuate Local 如何存储聚合的事件和快照，让我们看看客户端如何使用 Eventuate Local 的事件代理订阅事件。
+- en: Consuming events by subscribing to Eventuate Local’s event broker
+  id: totrans-247
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 通过订阅 Eventuate Local 的事件代理来消费事件
+- en: Services consume events by subscribing to the event broker, which is implemented
+    using Apache Kafka. The event broker has a topic for each aggregate type. As described
+    in [chapter 3](kindle_split_011.xhtml#ch03), a *topic* is a partitioned message
+    channel. This enables consumers to scale horizontally while preserving message
+    ordering. The aggregate ID is used as the partition key, which preserves the ordering
+    of events published by a given aggregate. To consume an aggregate’s events, a
+    service subscribes to the aggregate’s topic.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务通过订阅事件代理来消费事件，该代理使用 Apache Kafka 实现。事件代理为每种聚合类型有一个主题。如[第 3 章](kindle_split_011.xhtml#ch03)所述，*主题*是一个分区消息通道。这使消费者能够在保持消息顺序的同时水平扩展。聚合
+    ID 用作分区键，这保留了给定聚合发布的事件的顺序。为了消费聚合的事件，服务订阅了聚合的主题。
+- en: Let’s now look at the event relay—the glue between the event database and the
+    event broker.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看事件中继——事件数据库和事件代理之间的粘合剂。
+- en: The Eventuate Local event relay propagates events from the databa- ase to the
+    message broker
+  id: totrans-250
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Eventuate Local 事件中继将事件从数据库传播到消息代理
+- en: The event relay propagates events inserted into the event database to the event
+    broker. It uses transaction log tailing whenever possible and polling for other
+    databases. For example, the MySQL version of the event relay uses the MySQL master/slave
+    replication protocol. The event relay connects to the MySQL server as if it were
+    a slave and reads the MySQL binlog, a record of updates made to the database.
+    Inserts into the `EVENTS` table, which correspond to events, are published to
+    the appropriate Apache Kafka topic. The event relay ignores any other kinds of
+    changes.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件中继将插入到事件数据库中的事件传播到事件代理。它尽可能使用事务日志跟踪，对于其他数据库则进行轮询。例如，事件中继的MySQL版本使用MySQL主/从复制协议。事件中继连接到MySQL服务器，就像是一个从服务器一样，读取MySQL
+    binlog，这是对数据库进行的更新记录。对应于事件的`EVENTS`表中的插入被发布到适当的Apache Kafka主题。事件中继忽略任何其他类型的更改。
+- en: The event relay is deployed as a standalone process. In order to restart correctly,
+    it periodically saves the current position in the binlog—filename and offset—in
+    a special Apache Kafka topic. On startup, it first retrieves the last recorded
+    position from the topic. The event relay then starts reading the MySQL binlog
+    from that position.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件中继作为一个独立进程部署。为了正确重启，它定期将当前位置（binlog的文件名和偏移量）保存到一个特殊的Apache Kafka主题中。启动时，它首先从主题中检索最后记录的位置。然后事件中继从该位置开始读取MySQL
+    binlog。
+- en: The event database, message broker, and event relay comprise the event store.
+    Let’s now look at the framework a Java application uses to access the event store.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件数据库、消息代理和事件中继构成了事件存储。现在让我们看看Java应用程序使用该框架访问事件存储的方式。
+- en: 6.2.2\. The Eventuate client framework for Java
+  id: totrans-254
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.2.2\. Java的Eventuate客户端框架
+- en: The Eventuate client framework enables developers to write event sourcing-based
+    applications that use the Eventuate Local event store. The framework, shown in
+    [figure 6.10](#ch06fig10), provides the foundation for developing event sourcing-based
+    aggregates, services, and event handlers.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Eventuate客户端框架使开发者能够编写基于事件源的应用程序，这些应用程序使用Eventuate Local事件存储。该框架，如[图6.10](#ch06fig10)所示，为开发基于事件源的聚合、服务和事件处理器提供了基础。
+- en: Figure 6.10\. The main classes and interfaces provided by the Eventuate client
+    framework for Java
+  id: totrans-256
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.10\. Eventuate客户端框架为Java提供的主体类和接口
+- en: '![](Images/06fig10_alt.jpg)'
+  id: totrans-257
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Images/06fig10_alt.jpg]'
+- en: The framework provides base classes for aggregates, commands, and events. There’s
+    also an `AggregateRepository` class that provides CRUD functionality. And the
+    framework has an API for subscribing to events.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该框架为聚合、命令和事件提供了基类。还有一个`AggregateRepository`类，它提供了CRUD功能。框架还有一个用于订阅事件的API。
+- en: Let’s briefly look at each of the types shown in [figure 6.10](#ch06fig10).
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们简要地看看[图6.10](#ch06fig10)中显示的每个类型。
+- en: Defining aggregates with the ReflectiveMutableCommandProcessingAggregate class
+  id: totrans-260
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用ReflectiveMutableCommandProcessingAggregate类定义聚合
+- en: '`ReflectiveMutableCommandProcessingAggregate` is the base class for aggregates.
+    It’s a generic class that has two type parameters: the first is the concrete aggregate
+    class, and the second is the superclass of the aggregate’s command classes. As
+    its rather long name suggests, it uses reflection to dispatch command and events
+    to the appropriate method. Commands are dispatched to a `process()` method, and
+    events to an `apply()` method.'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ReflectiveMutableCommandProcessingAggregate`是聚合的基类。它是一个泛型类，有两个类型参数：第一个是具体的聚合类，第二个是聚合命令类的超类。正如其相当长的名字所暗示的，它使用反射将命令和事件调度到适当的方法。命令被调度到`process()`方法，事件被调度到`apply()`方法。'
+- en: The `Order` class you saw earlier extends `ReflectiveMutableCommandProcessingAggregate`.
+    The following listing shows the `Order` class.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你之前看到的`Order`类扩展了`ReflectiveMutableCommandProcessingAggregate`。下面的列表显示了`Order`类。
+- en: Listing 6.3\. The Eventuate version of the `Order` class
+  id: totrans-263
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.3\. Eventuate版本的`Order`类
+- en: '[PRE9]'
+  id: totrans-264
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: The two type parameters passed to `ReflectiveMutableCommandProcessingAggregate`
+    are `Order` and `OrderCommand`, which is the base interface for `Order`’s commands.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传递给`ReflectiveMutableCommandProcessingAggregate`的两个类型参数是`Order`和`OrderCommand`，这是`Order`命令的基接口。
+- en: Defining aggregate commands
+  id: totrans-266
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 定义聚合命令
+- en: 'An aggregate’s command classes must extend an aggregate-specific base interface,
+    which itself must extend the `Command` interface. For example, the `Order` aggregate’s
+    commands extend `OrderCommand`:'
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 聚合的命令类必须扩展一个特定于聚合的基接口，该接口本身必须扩展`Command`接口。例如，`Order`聚合的命令扩展了`OrderCommand`：
+- en: '[PRE10]'
+  id: totrans-268
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: The `OrderCommand` interface extends `Command`, and the `CreateOrderCommand`
+    command class extends `OrderCommand`.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`OrderCommand` 接口扩展了 `Command`，而 `CreateOrderCommand` 命令类扩展了 `OrderCommand`。'
+- en: Defining domain events
+  id: totrans-270
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 定义领域事件
+- en: 'An aggregate’s event classes must extend the `Event` interface, which is a
+    marker interface with no methods. It’s also useful to define a common base interface,
+    which extends `Event` for all of an aggregate’s event classes. For example, here’s
+    the definition of the `OrderCreated` event:'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个聚合的事件类必须扩展 `Event` 接口，这是一个没有方法的标记接口。同时，定义一个通用的基接口，用于扩展所有聚合的事件类，也是很有用的。例如，以下是
+    `OrderCreated` 事件的定义：
+- en: '[PRE11]'
+  id: totrans-272
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: The `OrderCreated` event class extends `OrderEvent`, which is the base interface
+    for the `Order` aggregate’s event classes. The `OrderEvent` interface extends
+    `Event`.
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`OrderCreated` 事件类扩展了 `OrderEvent`，这是 `Order` 聚合的事件类的基接口。`OrderEvent` 接口扩展了
+    `Event`。'
+- en: Creating, finding, and updating aggregates with the AggregateRepository class
+  id: totrans-274
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用 `AggregateRepository` 类创建、查找和更新聚合
+- en: 'The framework provides several ways to create, find, and update aggregates.
+    The simplest approach, which I describe here, is to use an `AggregateRepository`.
+    `AggregateRepository` is a generic class that’s parameterized by the aggregate
+    class and the aggregate’s base command class. It provides three overloaded methods:'
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 框架提供了多种创建、查找和更新聚合的方法。这里描述的最简单的方法是使用 `AggregateRepository`。`AggregateRepository`
+    是一个泛型类，它通过聚合类和聚合的基本命令类进行参数化。它提供了三个重载方法：
+- en: '**`save()`—** Creates an aggregate'
+  id: totrans-276
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`save()`—** 创建一个聚合'
+- en: '**`find()`—** Finds an aggregate'
+  id: totrans-277
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`find()`—** 查找一个聚合'
+- en: '**`update()`—** Updates an aggregate'
+  id: totrans-278
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`update()`—** 更新一个聚合'
+- en: 'The `save ()` and `update()` methods are particularly convenient because they
+    encapsulate the boilerplate code required for creating and updating aggregates.
+    For instance, `save()` takes a command object as a parameter and performs the
+    following steps:'
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`save()` 和 `update()` 方法尤其方便，因为它们封装了创建和更新聚合所需的基本代码。例如，`save()` 方法接受一个命令对象作为参数，并执行以下步骤：'
+- en: Instantiates the aggregate using its default constructor
+  id: totrans-280
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用其默认构造函数实例化聚合
+- en: Invokes `process()` to process the command
+  id: totrans-281
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调用 `process()` 方法来处理命令
+- en: Applies the generated events by calling `apply()`
+  id: totrans-282
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过调用 `apply()` 方法应用生成的事件
+- en: Saves the generated events in the event store
+  id: totrans-283
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在事件存储中保存生成的事件
+- en: 'The `update()` method is similar. It has two parameters, an aggregate ID and
+    a command, and performs the following steps:'
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`update()` 方法类似。它有两个参数，一个聚合 ID 和一个命令，并执行以下步骤：'
+- en: Retrieves the aggregate from the event store
+  id: totrans-285
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从事件存储中检索聚合数据
+- en: Invokes `process()` to process the command
+  id: totrans-286
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调用 `process()` 方法来处理命令
+- en: Applies the generated events by calling `apply()`
+  id: totrans-287
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过调用 `apply()` 方法应用生成的事件
+- en: Saves the generated events in the event store
+  id: totrans-288
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在事件存储中保存生成的事件
+- en: The `AggregateRepository` class is primarily used by services, which create
+    and update aggregates in response to external requests. For example, the following
+    listing shows how `OrderService` uses an `AggregateRepository` to create an `Order`.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`AggregateRepository` 类主要用于服务，这些服务根据外部请求创建和更新聚合。例如，以下列表展示了 `OrderService` 如何使用
+    `AggregateRepository` 创建一个 `Order`。'
+- en: Listing 6.4\. `OrderService` uses an `AggregateRepository`
+  id: totrans-290
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 6.4\. `OrderService` 使用 `AggregateRepository`
+- en: '[PRE12]'
+  id: totrans-291
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: '`OrderService` is injected with an `AggregateRepository` for `Orders`. Its
+    `create()` method invokes `AggregateRepository.save()` with a `CreateOrder` command.'
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`OrderService` 注入了 `Orders` 的 `AggregateRepository`。它的 `create()` 方法通过 `CreateOrder`
+    命令调用 `AggregateRepository.save()`。'
+- en: Subscribing to domain events
+  id: totrans-293
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 订阅领域事件
+- en: The Eventuate Client framework also provides an API for writing event handlers.
+    [Listing 6.5](#ch06ex05) shows an event handler for `CreditReserved` events. The
+    `@EventSubscriber` annotation specifies the ID of the durable subscription. Events
+    that are published when the subscriber isn’t running will be delivered when it
+    starts up. The `@EventHandlerMethod` annotation identifies the `creditReserved()`
+    method as an event handler.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Eventuate 客户端框架还提供了一个用于编写事件处理器的 API。[列表 6.5](#ch06ex05) 展示了 `CreditReserved`
+    事件的事件处理器。`@EventSubscriber` 注解指定了持久订阅的 ID。当订阅者未运行时发布的事件将在启动时传递。`@EventHandlerMethod`
+    注解将 `creditReserved()` 方法标识为事件处理器。
+- en: Listing 6.5\. An event handler for `OrderCreatedEvent`
+  id: totrans-295
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 6.5\. `OrderCreatedEvent` 的事件处理器
+- en: '[PRE13]'
+  id: totrans-296
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: An event handler has a parameter of type `EventHandlerContext`, which contains
+    the event and its metadata.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件处理器有一个类型为 `EventHandlerContext` 的参数，它包含事件及其元数据。
+- en: Now that we’ve looked at how to write event sourcing-based business logic using
+    the Eventuate client framework, let’s look at how to use event sourcing-based
+    business logic with sagas.
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了如何使用Eventuate客户端框架编写基于事件源的业务逻辑，接下来让我们看看如何使用saga结合事件源的业务逻辑。
+- en: 6.3\. Using sagas and event sourcing together
+  id: totrans-299
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3. 使用saga和事件源结合
+- en: Imagine you’ve implemented one or more services using event sourcing. You’ve
+    probably written services similar to the one shown in [listing 6.4](#ch06ex04).
+    But if you’ve read [chapter 4](kindle_split_012.xhtml#ch04), you know that services
+    often need to initiate and participate in *sagas*, sequences of local transactions
+    used to maintain data consistency across services. For example, `Order Service`
+    uses a saga to validate an `Order`. `Kitchen Service`, `Consumer Service`, and
+    `Accounting Service` participate in that saga. Consequently, you must integrate
+    sagas and event sourcing-based business logic.
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你已经使用事件源实现了一个或多个服务。你可能已经编写了类似于[列表6.4](#ch06ex04)中所示的服务。但如果你已经阅读了[第4章](kindle_split_012.xhtml#ch04)，你会知道服务通常需要启动并参与*saga*，即用于在服务之间维护数据一致性的本地事务序列。例如，`订单服务`使用saga来验证`订单`。`厨房服务`、`消费者服务`和`会计服务`参与该saga。因此，你必须将saga和基于事件源的业务逻辑集成在一起。
+- en: Event sourcing makes it easy to use choreography-based sagas. The participants
+    exchange the domain events emitted by their aggregates. Each participant’s aggregates
+    handle events by processing commands and emitting new events. You need to write
+    the aggregates and the event handler classes, which update the aggregates.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件源使得使用基于编排的saga变得容易。参与者交换它们聚合产生的领域事件。每个参与者的聚合通过处理命令和发出新事件来处理事件。您需要编写聚合和事件处理类，这些类会更新聚合。
+- en: 'But integrating event sourcing-based business logic with orchestration-based
+    sagas can be more challenging. That’s because the event store’s concept of a transaction
+    might be quite limited. When using some event stores, an application can only
+    create or update a single aggregate and publish the resulting event(s). But each
+    step of a saga consists of several actions that must be performed atomically:'
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但将基于事件源的业务逻辑与基于编排的saga集成可能更具挑战性。这是因为事件存储的事务概念可能相当有限。当使用某些事件存储时，应用程序只能创建或更新单个聚合并发布结果事件。但saga的每个步骤都由必须原子性执行的多项操作组成：
+- en: '***Saga creation*—** A service that initiates a saga must atomically create
+    or update an aggregate and create the saga orchestrator. For example, `Order Service`’s
+    `createOrder()` method must create an `Order` aggregate and a `CreateOrderSaga`.'
+  id: totrans-303
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*** Saga创建*—** 初始化saga的服务必须原子性地创建或更新聚合，并创建saga编排器。例如，`订单服务`的`createOrder()`方法必须创建一个`订单`聚合和一个`CreateOrderSaga`。'
+- en: '***Saga orchestration*—** A saga orchestrator must atomically consume replies,
+    update its state, and send command messages.'
+  id: totrans-304
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*** Saga编排*—** Saga编排器必须原子性地消费回复，更新其状态，并发送命令消息。'
+- en: '***Saga participants*—** Saga participants, such as `Kitchen Service` and `Order
+    Service`, must atomically consume messages, detect and discard duplicates, create
+    or update aggregates, and send reply messages.'
+  id: totrans-305
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*** Saga参与者*—** Saga参与者，如`厨房服务`和`订单服务`，必须原子性地消费消息，检测和丢弃重复项，创建或更新聚合，并发送回复消息。'
+- en: Because of this mismatch between these requirements and the transactional capabilities
+    of an event store, integrating orchestration-based sagas and event sourcing potentially
+    creates some interesting challenges.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些要求与事件存储的事务能力之间存在不匹配，因此将基于编排的saga和事件源集成可能会带来一些有趣的挑战。
+- en: A key factor in determining the ease of integrating event sourcing and orchestration-based
+    sagas is whether the event store uses an RDBMS or a NoSQL database. The Eventuate
+    Tram saga framework described in [chapter 4](kindle_split_012.xhtml#ch04) and
+    the underlying Tram messaging framework described in [chapter 3](kindle_split_011.xhtml#ch03)
+    rely on flexible ACID transactions provided by the RDBMS. The saga orchestrator
+    and the saga participants use ACID transactions to atomically update their databases
+    and exchange messages. If the application uses an RDBMS-based event store, such
+    as Eventuate Local, then it can *cheat* and invoke the Eventuate Tram saga framework
+    and update the event store within an ACID transaction. But if the event store
+    uses a NoSQL database, which can’t participate in the same transaction as the
+    Eventuate Tram saga framework, it will have to take a different approach.
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定事件溯源和基于编排的叙事法集成难易程度的关键因素是事件存储是否使用关系型数据库管理系统（RDBMS）或NoSQL数据库。在第4章中描述的Eventuate
+    Tram叙事法框架以及第3章中描述的底层Tram消息框架都依赖于RDBMS提供的灵活ACID事务。叙事法协调器和叙事法参与者使用ACID事务来原子性地更新其数据库并交换消息。如果应用程序使用基于RDBMS的事件存储，例如Eventuate
+    Local，那么它可以“作弊”并调用Eventuate Tram叙事法框架，并在ACID事务内更新事件存储。但如果事件存储使用无法与Eventuate Tram叙事法框架参与同一事务的NoSQL数据库，它将不得不采取不同的方法。
+- en: 'Let’s take a closer look at some of the different scenarios and issues you’ll
+    need to address:'
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更深入地看看一些不同的场景和需要解决的问题：
+- en: Implementing choreography-based sagas
+  id: totrans-309
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实现基于编排的叙事法
+- en: Creating an orchestration-based saga
+  id: totrans-310
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建基于编排的叙事法
+- en: Implementing an event sourcing-based saga participant
+  id: totrans-311
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用事件溯源实现基于事件溯源的叙事法参与者
+- en: Implementing saga orchestrators using event sourcing
+  id: totrans-312
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用事件溯源实现叙事法协调器
+- en: We’ll begin by looking at how to implement choreography-based sagas using event
+    sourcing.
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将首先探讨如何使用事件溯源来实现基于编排的叙事法。
+- en: 6.3.1\. Implementing choreography-based sagas using event sourcing
+  id: totrans-314
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.1. 使用事件溯源实现基于编排的叙事法
+- en: The event-driven nature of event sourcing makes it quite straightforward to
+    implement choreography-based sagas. When an aggregate is updated, it emits an
+    event. An event handler for a different aggregate can consume that event and update
+    its aggregate. The event sourcing framework automatically makes each event handler
+    idempotent.
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源的事件驱动特性使得实现基于编排的叙事法变得相当直接。当一个聚合被更新时，它会发出一个事件。不同聚合的事件处理器可以消费该事件并更新其聚合。事件溯源框架自动使每个事件处理器具有幂等性。
+- en: For example, [chapter 4](kindle_split_012.xhtml#ch04) discusses how to implement
+    `Create Order Saga` using choreography. `ConsumerService`, `KitchenService`, and
+    `AccountingService` subscribe to the `OrderService`’s events and vice versa. Each
+    service has an event handler similar to the one shown in [listing 6.5](#ch06ex05).
+    The event handler updates the corresponding aggregate, which emits another event.
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，[第4章](kindle_split_012.xhtml#ch04)讨论了如何使用编排来实现`创建订单叙事法`。`ConsumerService`、`KitchenService`和`AccountingService`订阅了`OrderService`的事件，反之亦然。每个服务都有一个类似于[列表6.5](#ch06ex05)中所示的事件处理器。事件处理器更新相应的聚合，从而发出另一个事件。
+- en: Event sourcing and choreography-based sagas work very well together. Event sourcing
+    provides the mechanisms that sagas need, including messaging-based IPC, message
+    de-duplication, and atomic updating of state and message sending. Despite its
+    simplicity, choreography-based sagas have several drawbacks. I talk about some
+    drawbacks in [chapter 4](kindle_split_012.xhtml#ch04), but there’s a drawback
+    that’s specific to event sourcing.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源和基于编排的叙事法非常配合。事件溯源提供了叙事法所需的各种机制，包括基于消息的进程间通信（IPC）、消息去重以及状态和消息发送的原子更新。尽管其简单性，基于编排的叙事法仍有几个缺点。我在[第4章](kindle_split_012.xhtml#ch04)中谈到了一些缺点，但还有一个特定于事件溯源的缺点。
+- en: The problem with using events for saga choreography is that events now have
+    a dual purpose. Event sourcing uses events to represent state changes, but using
+    events for saga choreography requires an aggregate to emit an event even if there
+    is no state change. For example, if updating an aggregate would violate a business
+    rule, then the aggregate must emit an event to report the error. An even worse
+    problem is when a saga participant can’t create an aggregate. There’s no aggregate
+    that can emit an error event.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用事件进行saga编排的问题在于，事件现在具有双重目的。事件溯源使用事件来表示状态变化，但使用事件进行saga编排需要聚合体即使没有状态变化也发出一个事件。例如，如果更新聚合体会违反业务规则，那么聚合体必须发出一个事件来报告错误。更糟糕的问题是，当saga参与者无法创建聚合体时。没有可以发出错误事件的聚合体。
+- en: Because of these kinds of issues, it’s best to implement more complex sagas
+    using orchestration. The following sections explain how to integrate orchestration-based
+    sagas and event sourcing. As you’ll see, it involves solving some interesting
+    problems.
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些问题，最好使用编排来实现更复杂的saga。以下各节将解释如何集成基于编排的saga和事件溯源。正如您将看到的，这涉及到解决一些有趣的问题。
+- en: Let’s first look at how a service method such as `OrderService.createOrder()`
+    creates a saga orchestrator.
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先看看服务方法，如`OrderService.createOrder()`，是如何创建saga编排器的。
+- en: 6.3.2\. Creating an orchestration-based saga
+  id: totrans-321
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.2\. 创建基于编排的saga
+- en: 'Saga orchestrators are created by some service methods. Other service methods,
+    such as `OrderService.createOrder()`, do two things: create or update an aggregate
+    *and* create a saga orchestrator. The service must perform both actions in a way
+    that guarantees that if it does the first action, then the second action will
+    be done eventually. How the service ensures that both of these actions are performed
+    depends on the kind of event store it uses.'
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Saga编排器是由某些服务方法创建的。其他服务方法，例如`OrderService.createOrder()`，执行两件事：创建或更新一个聚合体*并且*创建一个saga编排器。服务必须以保证如果它执行第一个动作，那么第二个动作最终会被执行的方式来执行这两个动作。服务如何确保这两个动作都得到执行取决于它使用的存储事件的类型。
+- en: Creating a saga orchestrator when using an RDBMS-based event store
+  id: totrans-323
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 在使用基于RDBMS的事件存储时创建saga编排器
+- en: 'If a service uses an RDBMS-based event store, it can update the event store
+    and create a saga orchestrator within the same ACID transaction. For example,
+    imagine that the `OrderService` uses Eventuate Local and the Eventuate Tram saga
+    framework. Its `createOrder()` method would look like this:'
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个服务使用基于关系数据库管理系统（RDBMS）的事件存储，它可以在同一个ACID事务中更新事件存储并创建一个saga编排器。例如，假设`OrderService`使用Eventuate
+    Local和Eventuate Tram saga框架。它的`createOrder()`方法看起来像这样：
+- en: '[PRE14]'
+  id: totrans-325
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: '***1* Ensure the createOrder() executes within a database transaction.**'
+  id: totrans-326
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 确保createOrder()在数据库事务中执行。**'
+- en: '***2* Create the Order aggregate.**'
+  id: totrans-327
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 创建Order聚合体。**'
+- en: '***3* Create the CreateOrderSaga.**'
+  id: totrans-328
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***3* 创建CreateOrderSaga。**'
+- en: It’s a combination of the `OrderService` in [listing 6.4](#ch06ex04) and the
+    `OrderService` described in [chapter 4](kindle_split_012.xhtml#ch04). Because
+    Eventuate Local uses an RDBMS, it can participate in the same ACID transaction
+    as the Eventuate Tram saga framework. But if a service uses a NoSQL-based event
+    store, creating a saga orchestrator isn’t as straightforward.
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是由[列表6.4](#ch06ex04)中的`OrderService`和[第4章](kindle_split_012.xhtml#ch04)中描述的`OrderService`的组合。因为Eventuate
+    Local使用RDBMS，它可以参与与Eventuate Tram saga框架相同的ACID事务。但如果一个服务使用基于NoSQL的事件存储，创建saga编排器就不那么直接了。
+- en: Creating a saga orchestrator when using a NoSQL-based event store
+  id: totrans-330
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 在使用基于NoSQL的事件存储时创建saga编排器
+- en: A service that uses a NoSQL-based event store will most likely be unable to
+    atomically update the event store and create a saga orchestrator. The saga orchestration
+    framework might use an entirely different database. Even if it uses the same NoSQL
+    database, the application won’t be able to create or update two different objects
+    atomically because of the NoSQL database’s limited transaction model. Instead,
+    a service must have an event handler that creates the saga orchestrator in response
+    to a domain event emitted by the aggregate.
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用基于NoSQL的事件存储的服务很可能会无法原子性地更新事件存储并创建一个saga编排器。saga编排框架可能使用一个完全不同的数据库。即使它使用相同的NoSQL数据库，由于NoSQL数据库有限的交易模型，应用程序也无法原子性地创建或更新两个不同的对象。相反，服务必须有一个事件处理器，该处理器在聚合体发出的领域事件响应中创建saga编排器。
+- en: For example, [figure 6.11](#ch06fig11) shows how `Order Service` creates a `CreateOrderSaga`
+    using an event handler for the `OrderCreated` event. `Order Service` first creates
+    an `Order` aggregate and persists it in the event store. The event store publishes
+    the `OrderCreated` event, which is consumed by the event handler. The event handler
+    invokes the Eventuate Tram saga framework to create a `CreateOrderSaga`.
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，[图 6.11](#ch06fig11) 展示了 `Order Service` 如何使用 `OrderCreated` 事件的处理器创建 `CreateOrderSaga`。`Order
+    Service` 首先创建一个 `Order` 聚合并将其持久化到事件存储库中。事件存储库发布 `OrderCreated` 事件，该事件被事件处理器消费。事件处理器调用
+    Eventuate Tram 编排器框架来创建 `CreateOrderSaga`。
+- en: Figure 6.11\. Using an event handler to reliably create a saga after a service
+    creates an event sourcing-based aggregate
+  id: totrans-333
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 6.11\. 使用事件处理器在服务创建基于事件源聚合后可靠地创建编排器
+- en: '![](Images/06fig11_alt.jpg)'
+  id: totrans-334
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 6.11](Images/06fig11_alt.jpg)'
+- en: One issue to keep in mind when writing an event handler that creates a saga
+    orchestrator is that it must handle duplicate events. At-least-once message delivery
+    means that the event handler that creates the saga might be invoked multiple times.
+    It’s important to ensure that only one saga instance is created.
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在编写创建一个编排器的事件处理器时需要记住的一个问题是它必须处理重复的事件。至少一次的消息投递意味着创建编排器的事件处理器可能会被多次调用。确保只创建一个编排器实例是很重要的。
+- en: A straightforward approach is to derive the ID of the saga from a unique attribute
+    of the event. There are a couple of different options. One is to use the ID of
+    the aggregate that emits the event as the ID of the saga. This works well for
+    sagas that are created in response to aggregate creation events.
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种简单的方法是从事件的唯一属性中派生出编排器的 ID。有几个不同的选项。一个是使用发出事件的聚合的 ID 作为编排器的 ID。这对于响应聚合创建事件的编排器来说效果很好。
+- en: Another option is to use the event ID as the saga ID. Because event IDs are
+    unique, this will guarantee that the saga ID is unique. If an event is a duplicate,
+    the event handler’s attempt to create the saga will fail because the ID already
+    exists. This option is useful when multiple instances of the same saga can exist
+    for a given aggregate instance.
+  id: totrans-337
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个选项是使用事件 ID 作为编排器 ID。因为事件 ID 是唯一的，这将保证编排器 ID 是唯一的。如果一个事件是重复的，由于 ID 已经存在，事件处理器尝试创建编排器的操作将失败。当给定聚合实例可以存在多个相同编排器的实例时，这个选项很有用。
+- en: A service that uses an RDBMS-based event store can also use the same event-driven
+    approach to create sagas. A benefit of this approach is that it promotes loose
+    coupling because services such as `OrderService` no longer explicitly instantiate
+    sagas.
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用基于关系数据库管理系统（RDBMS）的事件存储库的服务也可以使用相同的事件驱动方法来创建编排器。这种方法的一个好处是它促进了松散耦合，因为像`OrderService`这样的服务不再显式实例化编排器。
+- en: Now that we’ve looked at how to reliably create a saga orchestrator, let’s see
+    how event sourcing-based services can participate in orchestration-based sagas.
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了如何可靠地创建编排器编排器，让我们看看基于事件源的服务如何参与基于编排器的编排。
+- en: 6.3.3\. Implementing an event sourcing-based saga participant
+  id: totrans-340
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.3\. 实现基于事件源的编排器参与者
+- en: Imagine that you used event sourcing to implement a service that needs to participate
+    in an orchestration-based saga. Not surprisingly, if your service uses an RDBMS-based
+    event store such as Eventuate Local, you can easily ensure that it atomically
+    processes saga command messages and sends replies. It can update the event store
+    as part of the ACID transaction initiated by the Eventuate Tram framework. But
+    you must use an entirely different approach if your service uses an event store
+    that can’t participate in the same transaction as the Eventuate Tram framework.
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设您使用事件源实现了一个需要参与基于编排器编排的服务。不出所料，如果您的服务使用基于关系数据库管理系统（RDBMS）的事件存储库，例如 Eventuate
+    Local，您可以轻松确保它原子性地处理编排器命令消息并发送回复。它可以作为 Eventuate Tram 框架发起的 ACID 事务的一部分更新事件存储库。但是，如果您的服务使用无法与
+    Eventuate Tram 框架参与同一事务的事件存储库，您必须使用完全不同的方法。
+- en: 'You must address a couple of different issues:'
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您必须解决几个不同的问题：
+- en: Idempotent command message handling
+  id: totrans-343
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 幂等命令消息处理
+- en: Atomically sending a reply message
+  id: totrans-344
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 原子性地发送回复消息
+- en: Let’s first look at how to implement idempotent command message handlers.
+  id: totrans-345
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先看看如何实现幂等命令消息处理器。
+- en: Idempotent command message handling
+  id: totrans-346
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 幂等命令消息处理
+- en: The first problem to solve is how an event sourcing-based saga participant can
+    detect and discard duplicate messages in order to implement idempotent command
+    message handling. Fortunately, this is an easy problem to address using the idempotent
+    message handling mechanism described earlier. A saga participant records the message
+    ID in the events that are generated when processing the message. Before updating
+    an aggregate, the saga participant verifies that it hasn’t processed the message
+    before by looking for the message ID in the events.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个要解决的问题是如何使基于事件源的 saga 参与者能够检测和丢弃重复消息，以实现幂等命令消息处理。幸运的是，这是一个很容易解决的问题，可以使用前面描述的幂等消息处理机制来解决。saga
+    参与者在处理消息时生成的事件中记录消息 ID。在更新聚合体之前，saga 参与者通过在事件中查找消息 ID 来验证它之前是否已经处理了该消息。
+- en: Atomically sending reply messages
+  id: totrans-348
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 原子性地发送回复消息
+- en: The second problem to solve is how an event sourcing-based saga participant
+    can atomically send replies. In principle, a saga orchestrator could subscribe
+    to the events emitted by an aggregate, but there are two problems with this approach.
+    The first is that a saga command might not actually change the state of an aggregate.
+    In this scenario, the aggregate won’t emit an event, so no reply will be sent
+    to the saga orchestrator. The second problem is that this approach requires the
+    saga orchestrator to treat saga participants that use event sourcing differently
+    from those that don’t. That’s because in order to receive domain events, the saga
+    orchestrator must subscribe to the aggregate’s event channel in addition to its
+    own reply channel.
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个要解决的问题是如何使基于事件源的 saga 参与者能够原子性地发送回复。原则上，saga 调度器可以订阅聚合体发出的事件，但这种方法有两个问题。第一个问题是
+    saga 命令可能实际上并没有改变聚合体的状态。在这种情况下，聚合体不会发出事件，因此不会向 saga 调度器发送回复。第二个问题是这种方法要求 saga
+    调度器将使用事件源的 saga 参与者与其他参与者区别对待。这是因为为了接收领域事件，saga 调度器必须订阅聚合体的事件通道，除了自己的回复通道。
+- en: 'A better approach is for the saga participant to continue to send a reply message
+    to the saga orchestrator’s reply channel. But rather than send the reply message
+    directly, a saga participant uses a two-step process:'
+  id: totrans-350
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种更好的方法是让 saga 参与者继续向 saga 调度器的回复通道发送回复消息。但而不是直接发送回复消息，saga 参与者使用两步过程：
+- en: When a saga command handler creates or updates an aggregate, it arranges for
+    a `SagaReplyRequested` pseudo event to be saved in the event store along with
+    the real events emitted by the aggregate.
+  id: totrans-351
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当 saga 命令处理器创建或更新聚合体时，它会安排将一个 `SagaReplyRequested` 伪事件与聚合体发出的真实事件一起保存在事件存储中。
+- en: An event handler for the `SagaReplyRequested` pseudo event uses the data contained
+    in the event to construct the reply message, which it then writes to the saga
+    orchestrator’s reply channel.
+  id: totrans-352
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一个用于处理 `SagaReplyRequested` 伪事件的处理器使用事件中包含的数据来构建回复消息，然后将其写入 saga 调度器的回复通道。
+- en: Let’s look at an example to see how this works.
+  id: totrans-353
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过一个例子来看看它是如何工作的。
+- en: Example event sourcing-based saga participant
+  id: totrans-354
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 基于事件源的 saga 参与者示例
+- en: This example looks at `Accounting Service`, one of the participants of `Create
+    Order Saga`. [Figure 6.12](#ch06fig12) shows how `Accounting Service` handles
+    the `Authorize Command` sent by the saga. `Accounting Service` is implemented
+    using the Eventuate Saga framework. The Eventuate Saga framework is an open source
+    framework for writing sagas that use event sourcing. It’s built on the Eventuate
+    Client framework.
+  id: totrans-355
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此示例分析了 `Accounting Service`，它是 `Create Order Saga` 参与者之一。[图 6.12](#ch06fig12)
+    展示了 `Accounting Service` 如何处理 saga 发送的 `Authorize Command`。`Accounting Service`
+    是使用 Eventuate Saga 框架实现的。Eventuate Saga 框架是一个用于编写使用事件源的 sagas 的开源框架。它是基于 Eventuate
+    客户端框架构建的。
+- en: Figure 6.12\. How the event sourcing-based `Accounting Service` participates
+    in `Create Order Saga`
+  id: totrans-356
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 6.12\. 基于事件源 `Accounting Service` 如何参与 `Create Order Saga`
+- en: '![](Images/06fig12_alt.jpg)'
+  id: totrans-357
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/06fig12_alt.jpg)'
+- en: 'This figure shows how `Create Order Saga` and `AccountingService` interact.
+    The sequence of events is as follows:'
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此图展示了 `Create Order Saga` 和 `AccountingService` 之间的交互。事件发生的顺序如下：
+- en: '`Create Order Saga` sends an `AuthorizeAccount` command to `AccountingService`
+    via a messaging channel. The Eventuate Saga framework’s `SagaCommandDispatcher`
+    invokes `AccountingServiceCommandHandler` to handle the command message.'
+  id: totrans-359
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`Create Order Saga` 通过消息通道向 `AccountingService` 发送 `AuthorizeAccount` 命令。Eventuate
+    Saga 框架的 `SagaCommandDispatcher` 调用 `AccountingServiceCommandHandler` 来处理命令消息。'
+- en: '`AccountingServiceCommandHandler` sends the command to the specified `Account`
+    aggregate.'
+  id: totrans-360
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`AccountingServiceCommandHandler` 通过调用 `AggregateRepository.update()` 将命令发送到指定的
+    `Account` 聚合。'
+- en: The aggregate emits two events, `AccountAuthorized` and `SagaReplyRequestedEvent`.
+  id: totrans-361
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 聚合发出两个事件，`AccountAuthorized` 和 `SagaReplyRequestedEvent`。
+- en: '`SagaReplyRequestedEventHandler` handles `SagaReplyRequestedEvent` by sending
+    a reply message to `CreateOrderSaga`.'
+  id: totrans-362
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`SagaReplyRequestedEventHandler` 通过向 `CreateOrderSaga` 发送回复消息来处理 `SagaReplyRequestedEvent`。'
+- en: The `AccountingServiceCommandHandler` shown in the following listing handles
+    the `AuthorizeAccount` command message by calling `AggregateRepository.update()`
+    to update the `Account` aggregate.
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表中所示的 `AccountingServiceCommandHandler` 通过调用 `AggregateRepository.update()`
+    来处理 `AuthorizeAccount` 命令消息，以更新 `Account` 聚合。
+- en: Listing 6.6\. Handles command messages sent by sagas
+  id: totrans-364
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 6.6\. 处理由叙事发送的命令消息
+- en: '[PRE15]'
+  id: totrans-365
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'The `authorize()` method invokes an `AggregateRepository` to update the `Account`
+    aggregate. The third argument to `update()`, which is the `UpdateOptions`, is
+    computed by this expression:'
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`authorize()` 方法调用 `AggregateRepository` 来更新 `Account` 聚合。`update()` 方法的第三个参数，即
+    `UpdateOptions`，由以下表达式计算得出：'
+- en: '[PRE16]'
+  id: totrans-367
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'These `UpdateOptions` configure the `update()` method to do the following:'
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些 `UpdateOptions` 配置 `update()` 方法执行以下操作：
+- en: Use the *message id* as an idempotency key to ensure that the message is processed
+    exactly once. As mentioned earlier, the Eventuate framework stores the idempotency
+    key in all generated events, enabling it to detect and ignore duplicate attempts
+    to update an aggregate.
+  id: totrans-369
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '使用 *消息 ID* 作为幂等键以确保消息恰好处理一次。如前所述，Eventuate 框架将幂等键存储在所有生成的事件中，使其能够检测并忽略重复尝试更新聚合。 '
+- en: Add a `SagaReplyRequestedEvent` pseudo event to the list of events saved in
+    the event store. When `SagaReplyRequestedEventHandler` receives the `SagaReplyRequestedEvent`
+    pseudo event, it sends a reply to the `CreateOrderSaga`’s reply channel.
+  id: totrans-370
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将一个 `SagaReplyRequestedEvent` 伪事件添加到事件存储中保存的事件列表。当 `SagaReplyRequestedEventHandler`
+    接收到 `SagaReplyRequestedEvent` 伪事件时，它会向 `CreateOrderSaga` 的回复通道发送回复。
+- en: Send an `AccountDisabledReply` instead of the default error reply when the aggregate
+    throws an `AccountDisabledException`.
+  id: totrans-371
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当聚合抛出 `AccountDisabledException` 异常时，发送 `AccountDisabledReply` 而不是默认的错误回复。
+- en: Now that we’ve looked at how to implement saga participants using event sourcing,
+    let’s find out how to implement saga orchestrators.
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了如何使用事件溯源实现叙事参与者，让我们来看看如何实现叙事编排器。
+- en: 6.3.4\. Implementing saga orchestrators using event sourcing
+  id: totrans-373
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.4\. 使用事件溯源实现叙事编排器
+- en: So far in this section, I’ve described how event sourcing-based services can
+    initiate and participate in sagas. You can also use event sourcing to implement
+    saga orchestrators. This will enable you to develop applications that are entirely
+    based on an event store.
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，在本节中，我已描述了基于事件溯源的服务如何发起和参与叙事。您还可以使用事件溯源来实现叙事编排器。这将使您能够开发完全基于事件存储的应用程序。
+- en: 'There are three key design problems you must solve when implementing a saga
+    orchestrator:'
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实现叙事编排器时，你必须解决三个关键的设计问题：
+- en: How can you persist a saga orchestrator?
+  id: totrans-376
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 你如何持久化一个叙事编排器？
+- en: How can you atomically change the state of the orchestrator and send command
+    messages?
+  id: totrans-377
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 你如何原子性地更改编排器的状态并发送命令消息？
+- en: How can you ensure that a saga orchestrator processes reply messages exactly
+    once?
+  id: totrans-378
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 你如何确保叙事编排器恰好处理一次回复消息？
+- en: '[Chapter 4](kindle_split_012.xhtml#ch04) discusses how to implement an RDBMS-based
+    saga orchestrator. Let’s look at how to solve these problems when using event
+    sourcing.'
+  id: totrans-379
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第 4 章](kindle_split_012.xhtml#ch04) 讨论了如何实现基于 RDBMS 的叙事编排器。让我们看看在使用事件溯源时如何解决这些问题。'
+- en: Persisting a saga orchestrator using event sourcing
+  id: totrans-380
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 使用事件溯源持久化叙事编排器
+- en: 'A saga orchestrator has a very simple lifecycle. First, it’s created. Then
+    it’s updated in response to replies from saga participants. We can, therefore,
+    persist a saga using the following events:'
+  id: totrans-381
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 叙事编排器有一个非常简单的生命周期。首先，它被创建。然后，它根据叙事参与者的回复进行更新。因此，我们可以使用以下事件来持久化叙事：
+- en: '**`SagaOrchestratorCreated`—** The saga orchestrator has been created.'
+  id: totrans-382
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`SagaOrchestratorCreated`—** 叙事编排器已被创建。'
+- en: '**`SagaOrchestratorUpdated`—** The saga orchestrator has been updated.'
+  id: totrans-383
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`SagaOrchestratorUpdated`—** 叙事编排器已被更新。'
+- en: A saga orchestrator emits a `SagaOrchestratorCreated` event when it’s created
+    and a `SagaOrchestratorUpdated` event when it has been updated. These events contain
+    the data necessary to re-create the state of the saga orchestrator. For example,
+    the events for `CreateOrderSaga`, described in [chapter 4](kindle_split_012.xhtml#ch04),
+    would contain a serialized (for example, JSON) `CreateOrderSagaState`.
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当叙事协调器被创建时，它会发出一个 `SagaOrchestratorCreated` 事件，当它被更新时，会发出一个 `SagaOrchestratorUpdated`
+    事件。这些事件包含重新创建叙事协调器状态所需的数据。例如，[第 4 章](kindle_split_012.xhtml#ch04) 中描述的 `CreateOrderSaga`
+    的事件将包含序列化（例如，JSON）的 `CreateOrderSagaState`。
+- en: Sending command messages reliably
+  id: totrans-385
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 可靠地发送命令消息
+- en: Another key design issue is how to atomically update the state of the saga and
+    send a command. As described in [chapter 4](kindle_split_012.xhtml#ch04), the
+    Eventuate Tram-based saga implementation does this by updating the orchestrator
+    and inserting the command message into a `message` table as part of the same transaction.
+    An application that uses an RDBMS-based event store, such as Eventuate Local,
+    can use the same approach. An application that uses a NoSQL-based event store,
+    such as Eventuate SaaS, can use an analogous approach, despite having a very limited
+    transaction model.
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个关键的设计问题是如何原子地更新叙事的状态并发送命令。如[第 4 章](kindle_split_012.xhtml#ch04) 所述，基于 Eventuate
+    Tram 的叙事实现通过更新协调器并将命令消息插入到 `message` 表中作为同一事务的一部分来完成此操作。使用基于 RDBMS 的事件存储的应用程序，如
+    Eventuate Local，可以使用相同的方法。使用基于 NoSQL 的事件存储的应用程序，如 Eventuate SaaS，尽管具有非常有限的交易模型，也可以使用类似的方法。
+- en: The trick is to persist a `SagaCommandEvent`, which represents a command to
+    send. An event handler then subscribes to `SagaCommandEvents` and sends each command
+    message to the appropriate channel. [Figure 6.13](#ch06fig13) shows how this works.
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 技巧是持久化一个 `SagaCommandEvent`，它代表一个要发送的命令。然后事件处理器订阅 `SagaCommandEvents` 并将每个命令消息发送到适当的通道。[图
+    6.13](#ch06fig13) 展示了这是如何工作的。
+- en: Figure 6.13\. How an event sourcing-based saga orchestrator sends commands to
+    saga participants
+  id: totrans-388
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 6.13\. 基于事件源式的叙事协调器如何向叙事参与者发送命令
+- en: '![](Images/06fig13_alt.jpg)'
+  id: totrans-389
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/06fig13_alt.jpg)'
+- en: 'The saga orchestrator uses a two-step process to send commands:'
+  id: totrans-390
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 叙事协调器使用两步过程来发送命令：
+- en: A saga orchestrator emits a `SagaCommandEvent` for each command that it wants
+    to send. `SagaCommandEvent` contains all the data needed to send the command,
+    such as the destination channel and the command object. These events are persisted
+    in the event store.
+  id: totrans-391
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一个叙事协调器为它想要发送的每个命令发出一个 `SagaCommandEvent`。`SagaCommandEvent` 包含发送命令所需的所有数据，例如目标通道和命令对象。这些事件在事件存储中持久化。
+- en: An event handler processes these `SagaCommandEvents` and sends command messages
+    to the destination message channel.
+  id: totrans-392
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 事件处理器处理这些 `SagaCommandEvents` 并向目标消息通道发送命令消息。
+- en: This two-step approach guarantees that the command will be sent at least once.
+  id: totrans-393
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种两步方法保证了命令至少会被发送一次。
+- en: Because the event store provides at-least-once delivery, an event handler might
+    be invoked multiple times with the same event. That will cause the event handler
+    for `SagaCommandEvents` to send duplicate command messages. Fortunately, though,
+    a saga participant can easily detect and discard duplicate commands using the
+    following mechanism. The ID of `SagaCommandEvent`, which is guaranteed to be unique,
+    is used as the ID of the command message. As a result, the duplicate messages
+    will have the same ID. A saga participant that receives a duplicate command message
+    will discard it using the mechanism described earlier.
+  id: totrans-394
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于事件存储提供至少一次投递，事件处理器可能会多次以相同的事件被调用。这会导致 `SagaCommandEvents` 的事件处理器发送重复的命令消息。幸运的是，一个叙事参与者可以很容易地检测并丢弃重复的命令，使用以下机制。`SagaCommandEvent`
+    的 ID，保证是唯一的，被用作命令消息的 ID。因此，重复的消息将具有相同的 ID。收到重复命令消息的叙事参与者将使用前面描述的机制丢弃它。
+- en: Processing replies exactly once
+  id: totrans-395
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 精确一次处理回复
+- en: A saga orchestrator also needs to detect and discard duplicate reply messages,
+    which it can do using the mechanism described earlier. The orchestrator stores
+    the reply message’s ID in the events that it emits when processing the reply.
+    It can then easily determine whether a message is a duplicate.
+  id: totrans-396
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 叙事协调器还需要检测和丢弃重复的回复消息，它可以使用前面描述的机制来完成。协调器将回复消息的 ID 存储在它处理回复时发出的事件中。然后它可以很容易地确定消息是否是重复的。
+- en: 'As you can see, event sourcing is a good foundation for implementing sagas.
+    This is in addition to the other benefits of event sourcing, including the inherently
+    reliable generation of events whenever data changes, reliable audit logging, and
+    the ability to do temporal queries. Event sourcing isn’t a silver bullet, though.
+    It involves a significant learning curve. Evolving the event schema isn’t always
+    straightforward. But despite these drawbacks, event sourcing has a major role
+    to play in a microservice architecture. In the next chapter, we’ll switch gears
+    and look at how to tackle a different distributed data management challenge in
+    a microservice architecture: queries. I’ll describe how to implement queries that
+    retrieve data scattered across multiple services.'
+  id: totrans-397
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，事件溯源是实现叙事的好基础。这还包括事件溯源的其他好处，包括数据更改时事件固有的可靠生成、可靠的审计日志和执行时间查询的能力。尽管如此，事件溯源并不是万能的。它涉及一个重大的学习曲线。事件模式的演变并不总是直接的。但尽管有这些缺点，事件溯源在微服务架构中仍然扮演着重要的角色。在下一章中，我们将转换方向，探讨如何在微服务架构中解决不同的分布式数据管理挑战：查询。我将描述如何实现查询，以检索分散在多个服务中的数据。
+- en: Summary
+  id: totrans-398
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Event sourcing persists an aggregate as a sequence of events. Each event represents
+    either the creation of the aggregate or a state change. An application recreates
+    the state of an aggregate by replaying events. Event sourcing preserves the history
+    of a domain object, provides an accurate audit log, and reliably publishes domain
+    events.
+  id: totrans-399
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件溯源将聚合体持久化为一系列事件。每个事件代表聚合体的创建或状态变化。应用程序通过重放事件来重新创建聚合体的状态。事件溯源保留了领域对象的历史，提供了准确的审计日志，并可靠地发布领域事件。
+- en: Snapshots improve performance by reducing the number of events that must be
+    replayed.
+  id: totrans-400
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 快照通过减少必须重放的事件数量来提高性能。
+- en: Events are stored in an event store, a hybrid of a database and a message broker.
+    When a service saves an event in an event store, it delivers the event to subscribers.
+  id: totrans-401
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件存储在事件存储库中，它是数据库和消息代理的混合体。当服务在事件存储库中保存事件时，它将事件传递给订阅者。
+- en: Eventuate Local is an open source event store based on MySQL and Apache Kafka.
+    Developers use the Eventuate client framework to write aggregates and event handlers.
+  id: totrans-402
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Eventuate Local是一个基于MySQL和Apache Kafka的开源事件存储库。开发者使用Eventuate客户端框架来编写聚合体和事件处理器。
+- en: One challenge with using event sourcing is handling the evolution of events.
+    An application potentially must handle multiple event versions when replaying
+    events. A good solution is to use upcasting, which upgrades events to the latest
+    version when they’re loaded from the event store.
+  id: totrans-403
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用事件溯源的一个挑战是处理事件的演变。在重放事件时，应用程序可能必须处理多个事件版本。一个好的解决方案是使用向上转换，当事件从事件存储库加载时，将事件升级到最新版本。
+- en: Deleting data in an event sourcing application is tricky. An application must
+    use techniques such as encryption and pseudonymization in order to comply with
+    regulations like the European Union’s GDPR that requires an application to erase
+    an individual’s data.
+  id: totrans-404
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在事件溯源应用程序中删除数据是棘手的。应用程序必须使用加密和匿名化等技术来遵守像欧盟的GDPR这样的法规，该法规要求应用程序删除个人的数据。
+- en: Event sourcing is a simple way to implement choreography-based sagas. Services
+    have event handlers that listen to the events published by event sourcing-based
+    aggregates.
+  id: totrans-405
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件溯源是实现基于编排的叙事的一种简单方法。服务拥有事件处理器，它们监听基于事件溯源的聚合体发布的事件。
+- en: Event sourcing is a good way to implement saga orchestrators. As a result, you
+    can write applications that exclusively use an event store.
+  id: totrans-406
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件溯源是实现叙事协调器的好方法。因此，你可以编写仅使用事件存储的应用程序。

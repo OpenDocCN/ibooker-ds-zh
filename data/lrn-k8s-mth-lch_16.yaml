@@ -1,0 +1,986 @@
+- en: 13 Centralizing logs with Fluentd and Elasticsearch
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 13 使用 Fluentd 和 Elasticsearch 集中化日志
+- en: 'Applications generate lots of logs, which often aren’t very useful. As you
+    scale up your apps across multiple Pods running in a cluster, it’s difficult to
+    manage those logs using standard Kubernetes tooling. Organizations usually deploy
+    their own logging framework, which uses a collect-and-forward model to read container
+    logs and send them to a central store where they can be indexed, filtered, and
+    searched. You’ll learn how to do that in this chapter using the most popular technologies
+    in this space: Fluentd and Elasticsearch. Fluentd is the collector component,
+    and it has some nice integrations with Kubernetes; Elasticsearch is the storage
+    component and can run either as Pods in the cluster or as an external service.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序会产生大量的日志，这些日志往往并不很有用。当你将应用程序扩展到集群中多个运行的 Pod 时，使用标准的 Kubernetes 工具管理这些日志会变得困难。组织通常会部署自己的日志框架，该框架使用收集和转发模型来读取容器日志并将它们发送到中央存储，以便进行索引、过滤和搜索。在本章中，你将学习如何使用这个领域中最流行的技术：Fluentd
+    和 Elasticsearch。Fluentd 是收集组件，它与 Kubernetes 有一些很好的集成；Elasticsearch 是存储组件，它可以在集群中的
+    Pod 中运行，也可以作为外部服务运行。
+- en: You should be aware of a couple of points before we start. The first is that
+    this model assumes your application logs are written to the container’s standard
+    output streams so Kubernetes can find them. We covered that in chapter 7, with
+    sample apps that wrote to standard out directly or used a logging sidecar to relay
+    logs. The second is that the logging model in Kubernetes is very different from
+    Docker. Appendix D in the ebook shows you how to use Fluentd with Docker, but
+    with Kubernetes, we’ll take a different approach.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们开始之前，你应该注意几个要点。第一个是，这个模型假设你的应用程序日志被写入容器的标准输出流，这样 Kubernetes 就可以找到它们。我们在第
+    7 章中讨论了这一点，包括直接写入标准输出或使用日志边车来中继日志的示例应用程序。第二个是，Kubernetes 中的日志模型与 Docker 非常不同。电子书附录
+    D 展示了如何使用 Fluentd 与 Docker 一起使用，但与 Kubernetes 一起，我们将采取不同的方法。
+- en: 13.1 How Kubernetes stores log entries
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.1 Kubernetes 如何存储日志条目
+- en: 'Kubernetes has a very simplistic approach to log management: it collects log
+    entries from the container runtime and stores them as files on the node running
+    the container. If you want to do anything more advanced, then you need to deploy
+    your own log management system, and, fortunately, you have a world-class container
+    platform on which to run it. The moving pieces of the logging system collect logs
+    from the nodes, forward them to a centralized store, and provide a UI to search
+    and filter them. Figure 13.1 shows the technologies we’ll use in this chapter.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 对日志管理采用了一种非常简单的处理方法：它从容器运行时收集日志条目，并将它们作为文件存储在运行容器的节点上。如果你想要进行更高级的操作，那么你需要部署自己的日志管理系统，幸运的是，你有一个世界级的容器平台可以运行它。日志系统的各个组件从节点收集日志，将它们转发到集中存储，并提供一个用户界面用于搜索和过滤。图
+    13.1 展示了本章我们将使用的技术。
+- en: '![](../Images/13-1.jpg)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/13-1.jpg)'
+- en: Figure 13.1 Logging in Kubernetes uses a collector like Fluentd to read the
+    log files from the node.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.1 Kubernetes 中的日志使用 Fluentd 这样的收集器从节点读取日志文件。
+- en: Nodes store log entries exactly as they come from the container, using filenames
+    that include the namespace, Pod, and container names. The standard naming system
+    makes it easy for the log collector to add metadata to the log entries to identify
+    the source, and because the collector runs as a Pod itself, it can query the Kubernetes
+    API server to get even more details. Fluentd adds Pod labels and the image tag
+    as additional metadata, which you can use to filter or search the logs.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 节点以容器提供的原始形式存储日志条目，使用包含命名空间、Pod 和容器名称的文件名。标准的命名系统使得日志收集器很容易添加元数据到日志条目中，以识别来源，并且因为收集器本身作为一个
+    Pod 运行，它可以查询 Kubernetes API 服务器以获取更多详细信息。Fluentd 添加 Pod 标签和镜像标签作为额外的元数据，你可以使用这些元数据来过滤或搜索日志。
+- en: Deploying the log collector is straightforward. We’ll start by exploring the
+    raw log files on the node to see what we’re working with. The prerequisite for
+    any of this is to get application logs out of the container, whether the app writes
+    those logs directly or you use a sidecar container. Start by deploying the timecheck
+    app from chapter 7 in a couple of different configurations to generate some logs.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署日志收集器很简单。我们将首先探索节点上的原始日志文件，看看我们正在处理什么。所有这些的前提是从容器中提取应用程序日志，无论应用程序是否直接写入这些日志，或者你是否使用边车容器。首先，以几种不同的配置部署第
+    7 章中的 timecheck 应用程序，以生成一些日志。
+- en: Try it now Run the timecheck app using different setups in different namespaces,
+    and then check the logs to see how you work with them natively in kubectl.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 使用不同的命名空间运行 timecheck 应用程序，然后检查日志以查看你如何使用 kubectl 本地处理它们。
+- en: '[PRE0]'
+  id: totrans-10
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: You’ll see from that exercise that in a realistic cluster environment, it’s
+    hard to work with container logs directly, as shown in my output in figure 13.2\.
+    You have to use one namespace at a time, you can’t identify the Pod that logged
+    the message, and you can filter only by a number of log entries or a time period.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从这个练习中，你会看到在现实集群环境中，直接处理容器日志是困难的，正如我在图 13.2 中的输出所示。你必须一次使用一个命名空间，你不能识别记录消息的
+    Pod，你只能通过日志条目数量或时间段进行过滤。
+- en: '![](../Images/13-2.jpg)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 13.2](../Images/13-2.jpg)'
+- en: Figure 13.2 Kubectl is great for quickly checking logs, but it’s harder with
+    many Pods in many namespaces.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.2 Kubectl 对于快速检查日志来说很棒，但在许多命名空间中有许多 Pods 时会更困难。
+- en: Kubectl is the simplest option for reading logs, but ultimately the log entries
+    come from the files on each node, which means you have other options to work with
+    logs. The source for this chapter includes a simple sleep Deployment that mounts
+    the log path on the node as a `HostPath` volume, and you can use that to explore
+    the log files, even if you don’t have direct access to the nodes.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubectl 是读取日志最简单的选项，但最终日志条目来自每个节点上的文件，这意味着你有其他选项来处理日志。本章的源代码包括一个简单的 sleep 部署，它将节点上的日志路径挂载为
+    `HostPath` 卷，你可以使用它来探索日志文件，即使你没有直接访问节点。
+- en: Try it now Run a Pod with a volume mount for the host’s log directory, and explore
+    the files using the mount.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 运行一个挂载主机日志目录的 Pod，并使用挂载来探索文件。
+- en: '[PRE1]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Each Pod container has a file for its log output. The timecheck app uses a
+    sidecar container called `logger` to relay the logs from the application container,
+    and you can see in figure 13.3 the standard naming convention Kubernetes uses
+    for log files: `pod-name _namespace_container-name-container-id.log.` The filename
+    has enough data to identify the source of the logs, and the content of the file
+    is the raw JSON log output from the container runtime.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个 Pod 容器都有一个日志输出的文件。timecheck 应用程序使用一个名为 `logger` 的边车容器来中继应用程序容器的日志，你可以在图 13.3
+    中看到 Kubernetes 用于日志文件的标准命名约定：`pod-name _namespace_container-name-container-id.log.`
+    文件名包含足够的数据来识别日志的来源，文件内容是容器运行时的原始 JSON 日志输出。
+- en: '![](../Images/13-3.jpg)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 13.3](../Images/13-3.jpg)'
+- en: Figure 13.3 For a modern platform, Kubernetes has an old-school approach to
+    log storage.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.3 对于一个现代平台来说，Kubernetes 对日志存储的方法有点过时。
+- en: Log files are retained after a Pod restart, but most Kubernetes implementations
+    include a log rotation system running on the nodes—outside of Kubernetes—to prevent
+    logs from swallowing up all your disk space. Collecting and forwarding logs to
+    a central store lets you keep them for longer and isolate log storage in one place—that
+    also applies to logs from core Kubernetes components. The Kubernetes DNS server,
+    API server, and network proxy all run as Pods, and you can view and collect logs
+    from them in the same way as from application logs.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod 重启后，日志文件会被保留，但大多数 Kubernetes 实现都包括在节点上运行的日志轮转系统——在 Kubernetes 之外，以防止日志占用所有磁盘空间。收集并将日志转发到中央存储库可以让你保存更长时间，并将日志存储集中在一个地方——这也适用于核心
+    Kubernetes 组件的日志。Kubernetes DNS 服务器、API 服务器和网络代理都作为 Pods 运行，你可以像处理应用程序日志一样查看和收集它们的日志。
+- en: Try it now Not every Kubernetes node runs the same core components, but you
+    can use the sleep Pod to see which common components are running on your node.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 并非每个 Kubernetes 节点都运行相同的核心组件，但你可以使用 sleep Pod 来查看你的节点上运行哪些常见组件。
+- en: '[PRE2]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: You might get a different output from that exercise, depending on how your lab
+    cluster is set up. The network proxy Pod runs on every node, so you should see
+    those logs, but you’ll only see DNS logs if your cluster is using CoreDNS (which
+    is the default DNS plugin), and you’ll only see API server logs if your node is
+    running the API server. My output from Docker Desktop is shown in figure 13.4;
+    if you see something different, you can run `ls` `*.log` to see all the Pod log
+    files on your node.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据你的实验室集群的设置，你可能从那个练习中得到不同的输出。网络代理 Pod 在每个节点上运行，所以你应该能看到这些日志，但只有当你的集群使用 CoreDNS（这是默认的
+    DNS 插件）时，你才会看到 DNS 日志，只有当你的节点运行 API 服务器时，你才会看到 API 服务器日志。我的 Docker Desktop 输出显示在图
+    13.4 中；如果你看到不同的内容，你可以运行 `ls` `*.log` 来查看你节点上的所有 Pod 日志文件。
+- en: '![](../Images/13-4.jpg)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 13.4](../Images/13-4.jpg)'
+- en: Figure 13.4 Collecting and forwarding logs from the node will also include all
+    the system Pod logs.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.4 从节点收集和转发日志也将包括所有系统 Pod 的日志。
+- en: 'Now that you know how container logs are processed and stored by Kubernetes,
+    you can see how a centralized log system makes troubleshooting so much easier.
+    A collector runs on every node, grabbing entries from the log files and forwarding
+    them. In the rest of the chapter, you’ll learn how to implement that with the
+    EFK stack: Elasticsearch, Fluentd, and Kibana.'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您知道了Kubernetes如何处理和存储容器日志，您可以看到集中式日志系统如何使故障排除变得如此简单。在每个节点上运行一个收集器，从日志文件中抓取条目并转发它们。在本章的其余部分，您将学习如何使用EFK堆栈实现它：Elasticsearch、Fluentd和Kibana。
+- en: 13.2 Collecting logs from nodes with Fluentd
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.2 使用Fluentd收集节点日志
+- en: 'Fluentd is a CNCF project, so it has a sound foundation behind it and is a
+    mature and popular product. Alternative log collection components exist, but Fluentd
+    is a good choice because it has a powerful processing pipeline to manipulate and
+    filter log entries as well as a pluggable architecture, so it can forward logs
+    to different storage systems. It also comes in two variants: the full Fluentd
+    is fast and efficient and has more than 1,000 plugins, but we’ll be using the
+    minimal alternative, called Fluent Bit.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluentd是一个CNCF项目，因此它有一个坚实的后盾，是一个成熟且流行的产品。存在其他日志收集组件，但Fluentd是一个好的选择，因为它有一个强大的处理管道来操纵和过滤日志条目，以及一个可插拔的架构，因此它可以转发日志到不同的存储系统。它还有两个变体：完整的Fluentd速度快且效率高，有超过1,000个插件，但我们将使用最小化的替代品，称为Fluent
+    Bit。
+- en: 'Fluent Bit was originally developed as a lightweight version of Fluentd for
+    embedded applications like IoT devices, but it has all the functionality you need
+    for log aggregation in a full Kubernetes cluster. Every node will run a log collector,
+    so it makes sense to keep the impact of that component small, and Fluent Bit happily
+    runs in a few tens of megabytes of memory. The Fluent Bit architecture in Kubernetes
+    is straightforward: a DaemonSet runs a collector Pod on every node, which uses
+    a `HostPath` volume mount to access the log files, just like in the sleep example
+    we’ve used. Fluent Bit supports different outputs, so we’ll start simple and just
+    log to the console in the Fluent Bit Pod.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit最初被开发为一个用于嵌入式应用程序（如物联网设备）的轻量级Fluentd版本，但它具有在完整的Kubernetes集群中进行日志聚合所需的所有功能。每个节点都会运行一个日志收集器，因此保持该组件的影响很小是有意义的，Fluent
+    Bit可以在几十兆内存中愉快地运行。Kubernetes中的Fluent Bit架构很简单：一个DaemonSet在每台节点上运行一个收集器Pod，它使用`HostPath`卷挂载来访问日志文件，就像我们在sleep示例中所使用的那样。Fluent
+    Bit支持不同的输出，因此我们将从简单开始，只在Fluent Bit Pod的控制台中记录日志。
+- en: Try it now Deploy Fluent Bit with a configuration set up to read the timecheck
+    log files and write them to the standard output stream of the Fluent Bit container.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：部署Fluent Bit，配置为读取timecheck日志文件并将它们写入Fluent Bit容器的标准输出流。
+- en: '[PRE3]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: My output is shown in figure 13.5, where you can see the logs from the timecheck
+    containers being surfaced in the Fluent Bit container. The Pods creating the log
+    entries are in different namespaces, but Fluent Bit reads them from the files
+    on the node. The content is the raw JSON plus a more precise timestamp, which
+    Fluent Bit adds to each log entry.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出显示在图13.5中，您可以看到timecheck容器在Fluent Bit容器中暴露的日志。创建日志条目的Pod位于不同的命名空间中，但Fluent
+    Bit从节点的文件中读取它们。内容是原始JSON加上一个更精确的时间戳，这是Fluent Bit添加到每个日志条目的。
+- en: '![](../Images/13-5.jpg)'
+  id: totrans-33
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图13-5](../Images/13-5.jpg)'
+- en: Figure 13.5 A very basic Fluent Bit configuration can still aggregate log entries
+    from multiple Pods.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图13-5]([图13-5](../Images/13-5.jpg))'
+- en: There’s nothing in the DaemonSet spec for Fluent Bit that you haven’t already
+    seen. I’m using a separate namespace for logging because you typically want it
+    to run as a shared service used by all the applications running on the cluster,
+    and a namespace is a good way to isolate all the objects. It’s simple to run the
+    Fluent Bit Pods—the complexity comes in configuring the log-processing pipeline,
+    and we’ll need to dive into that to get the most out of the logging model. Figure
+    13.6 shows the stages of the pipeline and how you can use them.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit的DaemonSet规范中没有您之前没有见过的内容。我使用一个单独的命名空间进行日志记录，因为您通常希望它作为一个由集群上运行的所有应用程序使用的共享服务运行，而命名空间是隔离所有对象的好方法。运行Fluent
+    Bit Pods很简单——复杂性在于配置日志处理管道，我们需要深入研究以充分利用日志模型。图13.6显示了管道的阶段以及如何使用它们。
+- en: '![](../Images/13-6.jpg)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图13-6](../Images/13-6.jpg)'
+- en: Figure 13.6 Fluent Bit’s processing pipeline is super flexible and uses plugin
+    modules for every stage.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图13-6](../Images/13-6.jpg)'
+- en: 'We’re currently running a simple configuration with three stages: the *input*
+    stage reads log files, the *parser* stage deconstructs the JSON log entries, and
+    the *output* stage writes each log as a separate line to the standard output stream
+    in the Fluent Bit container. The JSON parser is standard for all container logs
+    and isn’t very interesting, so we’ll focus on the input and output configuration
+    in listing 13.1.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们目前运行的是一个简单的配置，包含三个阶段：*输入*阶段读取日志文件，*解析*阶段分解JSON日志条目，*输出*阶段将每个日志作为单独的行写入Fluent
+    Bit容器中的标准输出流。JSON解析器对所有容器日志都是标准的，并不很有趣，所以我们将在列表13.1中关注输入和输出配置。
+- en: Listing 13.1 fluentbit-config.yaml, a simple Fluent Bit pipeline
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.1 fluentbit-config.yaml，一个简单的Fluent Bit管道
+- en: '[PRE4]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Fluent Bit uses *tags* to identify the source of a log entry. The tag is added
+    at the input stage and can be used to route logs to other stages. In this configuration,
+    the log file name is used as the tag, prefixed with `kube`. The match rule routes
+    all the `kube` tagged entries to the output stage so every log is printed out,
+    but the input stage reads only the timecheck log files, so those are the only
+    log entries you see.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit使用*标签*来识别日志条目的来源。标签在输入阶段添加，可以用来将日志路由到其他阶段。在这个配置中，日志文件名用作标签，前面加上`kube`前缀。匹配规则将所有`kube`标签条目路由到输出阶段，因此每个日志都会打印出来，但输入阶段只读取timecheck日志文件，所以您只能看到这些日志条目。
+- en: You don’t really want to filter the input files—that’s just a quick way to get
+    started without flooding you with log entries. It’s better to read all the input
+    and then route logs based on tags, so you store only the entries you’re interested
+    in. Fluent Bit has built-in support for Kubernetes with a *filter* that can enrich
+    log entries with metadata to identify the Pod that created it. The filter can
+    also be configured to build a custom tag for each log that includes the namespace
+    and Pod name; using that, you can alter the pipeline so only the logs from the
+    test namespace are written to standard out.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您真的不想过滤输入文件——这只是一个快速开始的方法，避免因日志条目过多而让您感到困扰。最好读取所有输入，然后根据标签路由日志，这样您就只存储您感兴趣的条目。Fluent
+    Bit内置了对Kubernetes的支持，有一个*过滤器*可以丰富日志条目，用元数据来识别创建它的Pod。过滤器还可以配置为为每个日志构建一个包含命名空间和Pod名称的自定义标签；使用它，您可以修改管道，以便只有来自测试命名空间的日志写入标准输出。
+- en: Try it now Update the Fluent Bit ConfigMap to use the Kubernetes filter, restart
+    the DaemonSet to apply the configuration change, and then print the latest log
+    from the timecheck app to see what the filter does.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 更新Fluent Bit ConfigMap以使用Kubernetes过滤器，重启DaemonSet以应用配置更改，然后打印timecheck应用程序的最新日志以查看过滤器的作用。
+- en: '[PRE5]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: You can see from my output in figure 13.7 that a lot more data is coming through
+    Fluent Bit—the log entry is the same, but it’s been enriched with the details
+    of the source of the log. The Kubernetes filter fetches all that data from the
+    API server, which gives you the additional context you really need when you’re
+    analyzing logs to track down issues. Seeing the image hash for the container will
+    let you check the software version with complete certainty.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以从图13.7中的我的输出中看到，通过Fluent Bit传输的数据量要多得多——日志条目是相同的，但它已经丰富了日志来源的详细信息。Kubernetes过滤器从API服务器获取所有这些数据，这为您在分析日志以追踪问题时提供了真正需要的额外上下文。查看容器的图像哈希将让您能够完全确信地检查软件版本。
+- en: '![](../Images/13-7.jpg)'
+  id: totrans-46
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图13-7](../Images/13-7.jpg)'
+- en: Figure 13.7 Filters enrich log entries—the single log message now has 14 additional
+    metadata fields.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.7显示过滤器丰富了日志条目——单个日志消息现在有14个额外的元数据字段。
+- en: The Fluent Bit configuration for this is a little bit tricky. The Kubernetes
+    filter works out of the box to fetch all the Pod metadata, but building a custom
+    tag for routing needs some fiddly regular expressions. That’s all in the configuration
+    files in the ConfigMap you deployed in the previous exercise, but I’m not going
+    to focus on it because I really dislike regular expressions. There’s also no need—the
+    setup is completely generic, so you can plug the input, filter, and parser configurations
+    into your own cluster, and it will work for your apps without any changes.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个Fluent Bit的配置有点棘手。Kubernetes过滤器默认情况下可以获取所有Pod元数据，但为路由构建自定义标签需要一些繁琐的正则表达式。所有这些都在您在之前的练习中部署的ConfigMap的配置文件中，但我不打算关注它，因为我真的很不喜欢正则表达式。而且也没有必要——设置是完全通用的，所以您可以将输入、过滤器和解析配置插入到自己的集群中，它将为您的应用程序工作而无需任何更改。
+- en: The output configuration will be different because that’s how you configure
+    the targets. We’ll look at one more feature of Fluent Bit before we plug in the
+    log storage and search components-routing log entries to different outputs. The
+    regular expression in the input configuration sets a custom tag for entries in
+    the format `kube.namespace.container_name.pod_name`, and that can be used in matches
+    to route logs differently based on their namespace or pod name. Listing 13.2 shows
+    an updated output configuration with multiple destinations.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出配置将不同，因为那是你配置目标的方式。在我们连接日志存储和搜索组件之前，我们将查看Fluent Bit的另一个特性——将日志条目路由到不同的输出。输入配置中的正则表达式为格式为`kube.namespace.container_name.pod_name`的条目设置了一个自定义标签，这可以用于匹配，根据它们的命名空间或Pod名称将日志路由到不同的地方。列表13.2显示了一个具有多个目的地的更新输出配置。
+- en: Listing 13.2 fluentbit-config-match-multiple.yaml, routing to multiple outputs
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.2 fluentbit-config-match-multiple.yaml，路由到多个输出
+- en: '[PRE6]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Fluent Bit supports many output plugins, from plain TCP to Postgres and cloud
+    services like Azure Log Analytics. We’ve used the standard output stream so far,
+    which just relays log entries to the console. The counter plugin is a simple output
+    that just prints how many log entries have been collected. When you deploy the
+    new configuration, you’ll continue to see the log lines from the test namespace,
+    and you’ll also see a count of log entries from the dev namespace.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit支持许多输出插件，从简单的TCP到Postgres和云服务如Azure Log Analytics。我们迄今为止使用的是标准输出流，它只是将日志条目中继到控制台。计数器插件是一个简单的输出，仅显示已收集的日志条目数量。当你部署新的配置时，你将继续看到测试命名空间中的日志行，你还将看到来自开发命名空间的日志条目计数。
+- en: Try it now Update the configuration to use multiple outputs, and print the logs
+    from the Fluent Bit Pod.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 更新配置以使用多个输出，并从Fluent Bit Pod打印日志。
+- en: '[PRE7]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: The counter in this exercise isn’t especially useful, but it’s there to show
+    you that the complex bits in the early part of the pipeline make for easy routing
+    later in the pipeline. Figure 13.8 shows I have different output for logs in different
+    namespaces, and I can configure that purely using match rules in the output stages.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本练习中的计数器并不特别有用，但它存在是为了向你展示管道早期部分的复杂部分如何使管道后期的路由变得简单。图13.8显示了我对不同命名空间中的日志有不同的输出，并且我可以仅通过输出阶段的匹配规则来配置这一点。
+- en: '![](../Images/13-8.jpg)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图13-8](../Images/13-8.jpg)'
+- en: Figure 13.8 Different outputs in Fluent Bit can reshape the data—the counter
+    just shows a count.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.8 Fluent Bit中的不同输出可以重塑数据——计数器仅显示计数。
+- en: It should be clear how you can plug a sophisticated logging system on top of
+    the simple log files that Kubernetes writes. The data pipeline in Fluent Bit lets
+    you enrich log entries and route them to different outputs. If the output you
+    want to use isn’t supported by Fluent Bit, then you can switch to the parent Fluentd
+    project, which has a larger set of plugins (including MongoDB and AWS S3)—the
+    pipeline stages and configuration are very similar. We’ll be using Elasticsearch
+    for storage, which is perfect for high-performance search and simple to integrate
+    with Fluent Bit.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应该很清楚，你可以在Kubernetes写入的简单日志文件之上添加一个复杂的日志系统。Fluent Bit中的数据管道允许你丰富日志条目并将它们路由到不同的输出。如果你想要的输出不被Fluent
+    Bit支持，那么你可以切换到父Fluentd项目，该项目拥有更多的插件（包括MongoDB和AWS S3）——管道阶段和配置非常相似。我们将使用Elasticsearch进行存储，这对于高性能搜索来说非常完美，并且与Fluent
+    Bit的集成也很简单。
+- en: 13.3 Shipping logs to Elasticsearch
+  id: totrans-59
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.3 将日志发送到Elasticsearch
+- en: Elasticsearch is a production-grade open source database. It stores items as
+    *documents* in collections called *indexes*. It’s a very different storage model
+    from a relational database because it doesn’t support a fixed schema for every
+    document in an index—each data item can have its own set of fields. That works
+    nicely for centralized logging where the log items from different systems will
+    have different fields. Elasticsearch runs as a single component with a REST API
+    to insert and query data. A companion product called Kibana provides a very usable
+    frontend to query Elasticsearch. You can run both components in Kubernetes in
+    the same shared logging namespace as Fluent Bit.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Elasticsearch是一个生产级的开源数据库。它将项目作为*文档*存储在称为*索引*的集合中。它与关系型数据库的存储模型非常不同，因为它不支持索引中每个文档的固定模式——每个数据项都可以有自己的字段集。这对于集中式日志记录来说效果很好，因为来自不同系统的日志项将具有不同的字段。Elasticsearch作为一个单一组件运行，具有REST
+    API以插入和查询数据。一个名为Kibana的配套产品提供了一个非常实用的前端来查询Elasticsearch。你可以在与Fluent Bit相同的共享日志命名空间中运行这两个组件。
+- en: Try it now Deploy Elasticsearch and Kibana—the storage and frontend components
+    of the logging system.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 部署 Elasticsearch 和 Kibana——日志系统的存储和前端组件。
+- en: '[PRE8]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: This basic deployment of Elasticsearch and Kibana uses a single Pod for each,
+    as you see in figure 13.9\. Logs are important, so you’ll want to model for high
+    availability in production. Kibana is a stateless component so you can increase
+    the replica count to increase reliability. Elasticsearch works nicely as a StatefulSet
+    across multiple Pods using persistent storage, or you can use a managed Elasticsearch
+    service in the cloud. When you have Kibana running, you can browse to the URL.
+    We’ll be using it in the next exercise.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如图 13.9 所示，这种基本的 Elasticsearch 和 Kibana 部署使用每个服务一个 Pod。日志很重要，因此你希望在生产中为高可用性建模。Kibana
+    是一个无状态组件，因此你可以增加副本数量以提高可靠性。Elasticsearch 可以作为跨多个 Pod 的有状态集使用持久存储，或者你可以在云中使用托管
+    Elasticsearch 服务。当你运行 Kibana 时，你可以浏览到该 URL。我们将在下一个练习中使用它。
+- en: '![](../Images/13-9.jpg)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 13.9](../Images/13-9.jpg)'
+- en: Figure 13.9 Running Elasticsearch with a Service so Kibana and Fluent Bit can
+    use the REST API.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.9 使用服务运行 Elasticsearch，以便 Kibana 和 Fluent Bit 可以使用 REST API。
+- en: Fluent Bit has an Elasticsearch output plugin that creates a document for each
+    log entry using the Elasticsearch REST API. The plugin needs to be configured
+    with the domain name of the Elasticsearch server, and you can optionally specify
+    the index where documents should be created. That lets you isolate log entries
+    from different namespaces in different indexes, using multiple output stages.
+    Listing 13.3 separates log entries from Pods in the test namespace and Kubernetes
+    system Pods.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit 有一个 Elasticsearch 输出插件，它使用 Elasticsearch REST API 为每个日志条目创建一个文档。该插件需要配置
+    Elasticsearch 服务器的域名，并且你可以选择指定应创建文档的索引。这允许你使用多个输出阶段将不同命名空间的日志条目隔离到不同的索引中。列表 13.3
+    将测试命名空间中的 Pod 和 Kubernetes 系统Pod 的日志条目分开。
+- en: Listing 13.3 fluentbit-config-elasticsearch.yaml, storing logs in Elasticsearch
+    indexes
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.3 fluentbit-config-elasticsearch.yaml，将日志存储在 Elasticsearch 索引中
+- en: '[PRE9]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: If there are log entries that don’t match any output rules, they are discarded.
+    When you deploy this updated configuration, the Kubernetes system logs and the
+    test namespace logs are saved in Elasticsearch, but the logs from the dev namespace
+    aren’t saved.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果有不符合任何输出规则的日志条目，它们将被丢弃。当你部署此更新配置时，Kubernetes 系统日志和测试命名空间的日志将保存在 Elasticsearch
+    中，但开发命名空间的日志不会被保存。
+- en: Try it now Update the Fluent Bit configuration to send logs to Elasticsearch,
+    and then connect to Kibana and set up a search over the test index.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 更新 Fluent Bit 配置以将日志发送到 Elasticsearch，然后连接到 Kibana 并设置对测试索引的搜索。
+- en: '[PRE10]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: This process contains a few manual steps because Kibana isn’t a great product
+    to automate. My output in figure 13.10 shows the index pattern being created.
+    When you finish that exercise, you’ll have a powerful, fast, and easy-to-use search
+    engine for all the container logs in the test namespace. The Discover tab in Kibana
+    shows you the rate of documents stored over time—which is the rate that logs are
+    processed—and you can drill down into each document to see the log details.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此过程包含几个手动步骤，因为 Kibana 并不是一个易于自动化的产品。图 13.10 中的输出显示了正在创建的索引模式。当你完成这个练习后，你将拥有一个强大、快速且易于使用的搜索引擎，用于测试命名空间中所有容器的日志。Kibana
+    中的 Discover 选项卡会显示随时间存储的文档速率——这是处理日志的速率——你可以深入到每个文档中查看日志详情。
+- en: '![](../Images/13-10.jpg)'
+  id: totrans-73
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 13.10](../Images/13-10.jpg)'
+- en: Figure 13.10 Setting up Fluent Bit to send logs to Elasticsearch and Kibana
+    to search the test index
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.10 设置 Fluent Bit 将日志发送到 Elasticsearch，并设置 Kibana 搜索测试索引
+- en: Elasticsearch and Kibana are well-established technologies but if you’re new
+    to them, now is a good time to look around the Kibana UI. You’ll see a list of
+    fields on the left of the Discover page that you can use to filter the logs. Those
+    fields contain all the Kubernetes metadata, so you can filter by Pod name, host
+    node, container image, and more. You can build dashboards that show headline statistics
+    for logs split by application, which would be useful to show a sudden spike in
+    error logs. You can also search for specific values across all documents, which
+    is a good way to find application logs when a user gives you the ID from an error
+    message.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Elasticsearch 和 Kibana 是成熟的技术，但如果你是新手，现在是一个很好的时候浏览一下 Kibana 的用户界面。你会在 Discover
+    页面的左侧看到一个字段列表，你可以使用它来过滤日志。这些字段包含所有 Kubernetes 元数据，因此你可以通过 Pod 名称、主机节点、容器镜像等进行过滤。你可以构建显示按应用程序划分的日志摘要统计信息的仪表板，这对于显示错误日志的突然激增非常有用。你还可以在所有文档中搜索特定值，这是一种在用户给你错误消息的
+    ID 时查找应用程序日志的好方法。
+- en: I won’t spend too long on Kibana, but one more exercise will show how useful
+    it is to have a centralized logging system. We’ll deploy a new application into
+    the test namespace, and its logs will automatically get picked up by Fluent Bit
+    and flow through to Elasticsearch without any changes to configuration. When the
+    app shows an error to the user, we can track that down easily in Kibana.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我不会在 Kibana 上花费太多时间，但一个额外的练习将展示拥有一个集中式日志系统是多么有用。我们将向测试命名空间部署一个新的应用程序，并且它的日志将自动被
+    Fluent Bit 捕获，并通过 Elasticsearch 流转，而无需对配置进行任何更改。当应用程序向用户显示错误时，我们可以在 Kibana 中轻松追踪。
+- en: Try it now Deploy the random-number API we’ve used before—the one that crashes
+    after the first use—along with a proxy that caches the response and almost fixes
+    the problem. Try the API, and when you get an error, you can search for the failure
+    ID in Kibana.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：部署我们之前使用过的随机数 API——第一次使用后崩溃的那个——以及一个缓存响应并几乎解决问题的代理。尝试 API，当您收到错误时，您可以在
+    Kibana 中搜索故障 ID。
+- en: '[PRE11]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'My output in figure 13.11 is tiny, but you can see what’s happening: I got
+    a failure ID from the API, and I’ve pasted that into the search bar for Kibana,
+    which returns a single match. The log entry contains all the information I need
+    to investigate the Pod if I need to. Kibana also has a useful option to display
+    documents before and after a match, which I could use to show the log entries
+    surrounding the failure log.'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.11 中的我的输出很小，但你可以看到发生了什么：我从 API 获取了一个故障 ID，并将其粘贴到 Kibana 的搜索栏中，它返回了一个单一匹配项。日志条目包含了我需要调查
+    Pod 所需的所有信息。Kibana 还有一个有用的选项，可以在匹配前后显示文档，我可以使用它来显示围绕故障日志的日志条目。
+- en: '![](../Images/13-11.jpg)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 13.11](../Images/13-11.jpg)'
+- en: Figure 13.11 The logging system in action—tracking down failures from user-facing
+    error messages
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.11 日志系统运行中的情况——从用户界面错误消息追踪故障
+- en: Searchable, centralized logging removes a lot of the friction from troubleshooting,
+    with the bonus that these components are all open source so you can run the same
+    logging stack in every environment. Using the same diagnostic tools in the development
+    and test environments that you use in production should help product teams understand
+    the level of logging that’s useful and improve the quality of the system logs.
+    Good quality logging is important, but it seldom ranks highly in a product backlog,
+    so in some applications, you’re going to be stuck with logs that aren’t very useful.
+    Fluent Bit has a couple additional features that can help there, too.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可搜索的集中式日志消除了许多故障排除的摩擦，额外的好处是这些组件都是开源的，因此您可以在每个环境中运行相同的日志堆栈。在开发、测试环境和生产环境中使用相同的诊断工具应该有助于产品团队了解有用的日志级别，并提高系统日志的质量。高质量的日志很重要，但在产品待办事项列表中很少排名很高，因此在某些应用程序中，您可能会遇到不太有用的日志。Fluent
+    Bit 也有一些额外的功能可以帮助那里。
+- en: 13.4 Parsing and filtering log entries
+  id: totrans-83
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.4 解析和过滤日志条目
+- en: The ideal application would produce structured log data with fields for the
+    severity of the entry and the name of the class writing the output, along with
+    an ID for the type of event and the key data items of the event. You could use
+    the values of those fields in your Fluent Bit pipeline to filter messages, and
+    the fields would be surfaced in Elasticsearch so you can build more precise queries.
+    Most systems don’t produce logs like that—they just emit text—but if the text
+    uses a known format, then Fluent Bit can parse it into fields as it passes through
+    the pipeline.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想的应用程序会生成具有条目严重性字段、写入输出的类名称以及事件类型和事件关键数据项 ID 的结构化日志数据。您可以使用这些字段的值在 Fluent Bit
+    管道中过滤消息，并且这些字段会在 Elasticsearch 中显示，以便您可以构建更精确的查询。大多数系统不会生成这样的日志——它们只是发出文本，但如果文本使用已知格式，那么
+    Fluent Bit 可以在通过管道时将其解析为字段。
+- en: 'The random-number API is a simple example. Log entries are lines of text that
+    look like this: `<6>Microsoft.Hosting.Lifetime[0]` `Now` `listening` `on:` `http://[::]:80`.
+    The first part, in angle brackets, is the priority of the message, followed by
+    the name of the class and the event ID in square brackets, and then the actual
+    content of the log. The format is the same for every log entry, so a Fluent Bit
+    parser can split the log into individual fields. You have to use a regular expression
+    for that, and listing 13.4 shows my best effort, which extracts just the priority
+    field and leaves everything else in the message field.'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机数 API 是一个简单的例子。日志条目是看起来像这样的文本行：`<6>Microsoft.Hosting.Lifetime[0]` `Now` `listening`
+    `on:` `http://[::]:80`。第一部分，在尖括号内，是消息的优先级，后面跟着类名和事件 ID（方括号内），然后是日志的实际内容。每个日志条目的格式都是相同的，因此
+    Fluent Bit 解析器可以将日志分割成单独的字段。你必须使用正则表达式来做这件事，列表 13.4 显示了我的最佳尝试，它只提取了优先级字段，并将其他所有内容留在消息字段中。
+- en: Listing 13.4 fluentbit-config-parser.yaml, a custom parser for application logs
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.4 fluentbit-config-parser.yaml，应用程序日志的自定义解析器
+- en: '[PRE12]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: When you deploy this configuration, Fluent Bit will have a new custom parser
+    called `dotnet-syslog` available to use, but it won’t apply it to any logs. The
+    pipeline needs to know which log entries should use custom parsers, and Fluent
+    Bit lets you set that up with annotations in your Pods. These act like hints,
+    telling the pipeline to apply a named parser to any logs that have originated
+    from this Pod. Listing 13.5 shows the parser annotation for the random-number
+    API Pod—it’s as simple as that.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你部署此配置时，Fluent Bit 将提供一个名为 `dotnet-syslog` 的新自定义解析器可供使用，但它不会应用于任何日志。管道需要知道哪些日志条目应该使用自定义解析器，Fluent
+    Bit 允许你通过在 Pods 中的注释来设置这一点。这些注释就像提示一样，告诉管道将命名解析器应用于来自此 Pod 的任何日志。列表 13.5 显示了随机数
+    API Pod 的解析器注释——就这么简单。
+- en: Listing 13.5 api-with-parser.yaml, Pod spec with a custom Fluent Bit parser
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.5 api-with-parser.yaml，带有自定义 Fluent Bit 解析器的 Pod 规范
+- en: '[PRE13]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Parsers can be much more effective than my custom one, and the Fluent Bit team
+    have some sample parsers in their documentation, including one for Nginx. I’m
+    using Nginx as a proxy for the random-number API, and in the next exercise, we’ll
+    add parsers to each component with annotations and see how structured logging
+    makes for more targeted searching and filtering in Kibana.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解析器可以比我的自定义解析器更有效，Fluent Bit 团队在他们的文档中提供了一些示例解析器，包括一个用于 Nginx 的解析器。我正在使用 Nginx
+    作为随机数 API 的代理，在下一个练习中，我们将为每个组件添加解析器并带有注释，看看结构化日志如何在 Kibana 中实现更有针对性的搜索和过滤。
+- en: Try it now Update the Fluent Bit configuration to add parsers for the random-number
+    app and the Nginx proxy, and then update those deployments to add annotations
+    specifying the parser. Try the app, and check the logs in Kibana.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 更新 Fluent Bit 配置以添加随机数应用和 Nginx 代理的解析器，然后更新这些部署以添加指定解析器的注释。尝试该应用，并检查 Kibana
+    中的日志。
+- en: '[PRE14]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: You can see in figure 13.12 that the promoted fields from the parser are available
+    for Kibana to filter on, without me having to build up my own query. In my screenshot,
+    I’ve filtered to show logs from one Pod that have a priority value of 4 (which
+    is a warning level). When you run this yourself, you’ll see that you can also
+    filter for the API proxy Pod. The log entries include fields for the HTTP request
+    path and the response code, all parsed from Nginx text logs.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图 13.12 中看到，解析器提升的字段可供 Kibana 过滤，而无需我构建自己的查询。在我的屏幕截图中，我已经过滤以显示具有优先级值为 4（这是一个警告级别）的日志条目来自一个
+    Pod。当你自己运行时，你也会看到你可以过滤 API 代理 Pod。日志条目包括 HTTP 请求路径和响应代码字段，所有这些都是从 Nginx 文本日志中解析出来的。
+- en: '![](../Images/13-12.jpg)'
+  id: totrans-95
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/13-12.jpg)'
+- en: Figure 13.12 Parsed fields from the logs are indexed, so filters and searches
+    are faster and simpler.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.12 日志的解析字段被索引，因此过滤和搜索更快、更简单。
+- en: 'There’s one final benefit of the centralized logging system with Fluent Bit:
+    the data-processing pipeline is independent of the applications, and it can be
+    a better place to apply filtering. That mythical ideal app would be able to increase
+    or decrease logging levels on the fly, without an application restart. You know
+    from chapter 4, however, that many apps need a Pod restart to pick up the latest
+    configuration changes. That’s not good when you’re troubleshooting a live issue,
+    because it means restarting the affected app if you need to increase the logging
+    level.'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit 集中式日志系统的最后一个好处是：数据处理管道与应用程序独立，并且它是一个更好的应用过滤的地方。那个传说中的理想应用程序能够实时增加或减少日志级别，而无需重启应用程序。然而，您从第
+    4 章中知道，许多应用程序需要重启 Pod 才能获取最新的配置更改。当您正在处理实时问题时，这并不好，因为这意味着如果您需要提高日志级别，则需要重启受影响的应用程序。
+- en: Fluent Bit doesn’t support live configuration reloads itself, but restarting
+    the log collector Pods is less invasive than restarting application Pods, and
+    Fluent Bit will pick up where it left off, so you won’t miss any log entries.
+    With this approach, you can log at a more verbose level in your applications and
+    filter in the Fluent Bit pipeline. Listing 13.6 shows a filter that includes logs
+    from the random-number API only if the priority field has a value of 2, 3, or
+    4—it filters out lower priority entries.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fluent Bit 本身不支持实时配置重载，但重启日志收集器 Pod 比重启应用 Pod 更少侵入性，Fluent Bit 会从上次停止的地方继续，所以您不会错过任何日志条目。采用这种方法，您可以在应用程序中以更详细的级别进行日志记录，并在
+    Fluent Bit 管道中进行过滤。列表 13.6 展示了一个过滤器，只有当优先级字段值为 2、3 或 4 时才包含来自随机数 API 的日志——它会过滤掉优先级较低的条目。
+- en: Listing 13.6 fluentbit-config-grep.yaml, filtering logs based on field values
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.6 fluentbit-config-grep.yaml，基于字段值过滤日志
+- en: '[PRE15]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: More regular expression wrangling here, but you can see why it’s important to
+    have text log entries split into fields that the pipeline can access. The `grep`
+    filter can include or exclude logs by evaluating a regular expression over a field.
+    When you deploy this updated configuration, the API can happily write log entries
+    at level 6, but they are dropped by Fluent Bit, and only the more important entries
+    will make it to Elasticsearch.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一些正则表达式的处理，但您可以看到为什么将文本日志条目拆分成管道可以访问的字段很重要。`grep` 过滤器可以通过评估字段上的正则表达式来包含或排除日志。当您部署这个更新后的配置时，API
+    可以愉快地以级别 6 写入日志条目，但它们会被 Fluent Bit 丢弃，只有更重要的条目才会到达 Elasticsearch。
+- en: Try it now Deploy the updated configuration so only high-priority logs from
+    the random-number API are saved. Delete the API Pod, and in Kibana, you won’t
+    see any of the startup log entries, but they’re still there in the Pod logs.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：部署更新后的配置，以便只保存来自随机数 API 的高优先级日志。删除 API Pod，在 Kibana 中您将看不到任何启动日志条目，但它们仍然存在于
+    Pod 日志中。
+- en: '[PRE16]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: This exercise shows you how Fluent Bit can filter out logs effectively, forwarding
+    only log entries you care about to the target output. It also shows that the lower
+    level logging hasn’t disappeared—the raw container logs are all available to see
+    with kubectl. It’s only the subsequent log processing that stops them from going
+    to Elasticsearch. In a real troubleshooting scenario, you may be able to use Kibana
+    to identify the Pod causing the problem and then drill down with kubectl, as shown
+    in figure 13.13.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个练习展示了 Fluent Bit 如何有效地过滤日志，只将您关心的日志条目转发到目标输出。它还表明，低级别日志并没有消失——原始容器日志都可以通过
+    kubectl 查看。只是后续的日志处理阻止了它们进入 Elasticsearch。在实际的故障排除场景中，您可能能够使用 Kibana 识别导致问题的 Pod，然后使用
+    kubectl 进行深入调查，如图 13.13 所示。
+- en: '![](../Images/13-13.jpg)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/13-13.jpg)'
+- en: Figure 13.13 Filtering log entries in Fluent Bit saves on storage, and you can
+    easily change the filter.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.13 显示在 Fluent Bit 中过滤日志条目可以节省存储空间，并且您可以轻松更改过滤器。
+- en: 'There’s plenty more to Fluent Bit than we’ve covered in these simple pipelines:
+    you can modify log contents, throttle the rate of incoming logs, and even run
+    custom scripts triggered by log entries. But we’ve covered all the main features
+    you’re likely to need, and we’ll wrap up by looking at the collect-and-forward
+    logging model compared to other options.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了我们在这些简单管道中提到的内容，Fluent Bit 还有很多其他功能：你可以修改日志内容，限制传入日志的速率，甚至可以运行由日志条目触发的自定义脚本。但我们已经涵盖了您可能需要的所有主要功能，最后我们将通过比较收集和转发日志模型与其他选项来结束讨论。
+- en: 13.5 Understanding logging options in Kubernetes
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.5 理解 Kubernetes 中的日志选项
+- en: Kubernetes has an expectation that your application logs will come from the
+    container’s standard output streams. It collects and stores all the content from
+    those streams, and that powers the logging model we’ve covered in this chapter.
+    It’s a generic and flexible approach, and the technology stack we’ve used is reliable
+    and performant, but there are inefficiencies along the way. Figure 13.14 shows
+    some of the issues in getting logs from containers into searchable storage.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes期望您的应用程序日志来自容器的标准输出流。它收集并存储这些流中的所有内容，这就是我们本章中讨论的日志模型的基础。这是一个通用且灵活的方法，我们使用的技术堆栈是可靠且性能良好的，但在过程中存在一些低效。图13.14显示了将日志从容器传输到可搜索存储中的一些问题。
+- en: '![](../Images/13-14.jpg)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/13-14.jpg)'
+- en: Figure 13.14 The goal is to get application logs into Elasticsearch, but it
+    takes many steps to get there.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.14 目标是将应用程序日志放入Elasticsearch，但到达那里需要许多步骤。
+- en: You can use alternative architectures that are simpler and have fewer moving
+    pieces. You could write logs directly to Elasticsearch from your application code,
+    or you could run a sidecar in every application Pod that reads from whatever log
+    sink the app uses and pushes entries to Elasticsearch. That would give you a lot
+    more control over the log data you store, without resorting to regular expressions
+    to parse text strings. Doing this ties you to Elasticsearch (or whichever storage
+    system you use), but that may not be a big concern if that system provides all
+    you need.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用更简单且组件更少的替代架构。您可以直接从应用程序代码将日志写入Elasticsearch，或者在每个应用程序Pod中运行一个sidecar，从应用程序使用的任何日志接收器读取并推送条目到Elasticsearch。这将使您对存储的日志数据有更多的控制，而无需使用正则表达式来解析文本字符串。这样做会使您依赖于Elasticsearch（或您使用的任何存储系统），但如果该系统提供了您所需的一切，这可能不是一个大问题。
+- en: A custom logging framework might be appealing for the first app you run on Kubernetes,
+    but as you move more workloads to the cluster, it’s going to restrict you. Requiring
+    apps to log directly to Elasticsearch won’t fit for existing apps that write to
+    operating system logs, and you’ll soon find your logging sidecar isn’t flexible
+    enough and needs tweaking for every new application. The advantage of the Fluentd/Fluent
+    Bit model is that it’s a standard approach with a community behind it; fiddling
+    with regular expressions is much less hassle than writing and maintaining your
+    own log collection and forwarding code.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于在Kubernetes上运行的第一个应用程序，自定义日志框架可能很有吸引力，但随着您将更多工作负载移动到集群，它将限制您。要求应用程序直接将日志记录到Elasticsearch将不适合将日志写入操作系统日志的现有应用程序，并且您很快会发现您的日志sidecar不够灵活，需要为每个新应用程序进行调整。Fluentd/Fluent
+    Bit模型的优势在于它是一个有社区支持的标准方法；与编写和维护自己的日志收集和转发代码相比，调整正则表达式要容易得多。
+- en: That’s all for application logs, so we can clear down the cluster to get ready
+    for the lab.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是应用程序日志的全部内容，因此我们可以清理集群，为实验室做准备。
+- en: Try it now Remove this chapter’s namespaces and the remaining Deployment.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 移除本章的命名空间和剩余的Deployment。
+- en: '[PRE17]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 13.6 Lab
+  id: totrans-117
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.6 实验室
+- en: 'In this lab, you play the part of an operator who needs to deploy a new app
+    into a cluster that is using the logging model from this chapter. You’ll need
+    to check the Fluent Bit configuration to find the namespace you should use for
+    your app and then deploy the simple versioned website we’ve used before in the
+    book. Here are the parts to this lab:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个实验室中，您将扮演一个操作员的角色，需要将一个新应用程序部署到使用本章中日志模型的集群中。您需要检查Fluent Bit配置以找到您应该为您的应用程序使用的命名空间，然后部署我们在书中之前使用过的简单版本化网站。以下是实验室的各个部分：
+- en: Start by deploying the logging components in the `lab/logging` folder.
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 首先部署位于`lab/logging`文件夹中的日志组件。
+- en: Deploy the app from the `vweb` folder to the correct namespace so logs are collected,
+    and verify you can see the logs in Kibana.
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将`vweb`文件夹中的应用程序部署到正确的命名空间，以便收集日志，并验证您是否能在Kibana中看到日志。
+- en: You’ll see the logs are plain text, so the next step is to update your Deployment
+    to use the correct parser. The app runs on Nginx, and an Nginx parser is already
+    set up for you in the Fluent Bit configuration.
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您将看到日志是纯文本，因此下一步是更新您的Deployment以使用正确的解析器。应用程序运行在Nginx上，Fluent Bit配置中已经为您设置了一个Nginx解析器。
+- en: When you confirm the new logs in Kibana, you’ll see several for which the status
+    code is 304, which tells the browser to use its cached version of the page. Those
+    logs aren’t interesting, so the final task is to update the Fluent Bit configuration
+    to filter them out.
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当你在 Kibana 中确认新的日志时，你会看到其中一些状态码为 304 的日志，这表示浏览器应使用其缓存的页面版本。这些日志并不有趣，因此最终任务是更新
+    Fluent Bit 配置以过滤掉它们。
+- en: 'This is a very real-world task where you’ll need all the basic skills of navigating
+    around Kubernetes to find and update all the pieces. My solution is in the usual
+    place on GitHub for you to check: [https://github.com/sixeyed/kiamol/blob/master/ch13/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch13/lab/README.md).'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个非常贴近实际的任务，你需要掌握在 Kubernetes 中导航的所有基本技能来查找和更新所有相关部分。我的解决方案在 GitHub 的常规位置供你检查：[https://github.com/sixeyed/kiamol/blob/master/ch13/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch13/lab/README.md).

@@ -1,0 +1,1180 @@
+- en: 20 Controlling HTTP traffic to containers with a reverse proxy
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 20 使用反向代理控制容器的HTTP流量
+- en: Docker takes care of routing external traffic into your containers, but you
+    can only have one container listening on a network port. It’s fine to use any
+    old ports in your non-production environments--in some chapters of this book we’ve
+    used ten different ports to keep applications separate--but you can’t do that
+    when you go live. You’ll want lots of applications running on a single cluster,
+    but you need them all to be accessible on the standard HTTP and HTTPS ports, 80
+    and 443.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker负责将外部流量路由到您的容器中，但您只能有一个容器监听网络端口。在非生产环境中使用任何旧的端口都是可以的——在这本书的一些章节中，我们使用了十个不同的端口来保持应用程序的分离——但您在上线时不能这样做。您可能希望许多应用程序在单个集群上运行，但您需要它们都能通过标准的HTTP和HTTPS端口，即80和443进行访问。
+- en: That’s where a reverse proxy comes in. It’s a critical piece in the architecture
+    of a containerized environment, and in this chapter you’ll learn all about the
+    features it provides and the patterns it enables. We’ll use two of the most popular
+    technologies in this space--Nginx (pronounced “engine x”) and Traefik--running
+    in containers, of course.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是反向代理发挥作用的地方。它是容器化环境架构中的一个关键部分，在本章中，您将了解它提供的所有功能和它启用的模式。我们将使用这个领域中最受欢迎的两种技术——Nginx（发音为“engine
+    x”）和Traefik——当然是在容器中运行。
+- en: 20.1 What is a reverse proxy?
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 20.1 什么是反向代理？
+- en: A proxy is a network component that handles network traffic on behalf of some
+    other component. You might have a proxy in your corporate network that intercepts
+    your browser requests and decides whether you’re allowed to access certain sites,
+    logs all your activity, and caches the responses so other users of the same site
+    get a faster experience. A reverse proxy does something similar, but the other
+    way around. You run a reverse proxy as the gateway to several web applications;
+    all traffic goes to the reverse proxy, and it decides which app to get the content
+    from. It can cache responses and mutate them before sending them back to the client.
+    Figure 20.1 shows what a reverse proxy looks like in containers.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代理是一种网络组件，代表其他组件处理网络流量。您可能在公司网络中有一个代理，它会拦截您的浏览器请求并决定您是否允许访问某些网站，记录您的所有活动，并缓存响应，以便同一网站的其它用户获得更快的体验。反向代理做的是类似的事情，但方向相反。您运行反向代理作为多个Web应用的网关；所有流量都流向反向代理，它决定从哪个应用获取内容。它可以在发送回客户端之前缓存响应并对其进行修改。图20.1显示了容器中的反向代理看起来是什么样子。
+- en: '![](../Images/20-1.jpg)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图20.1](../Images/20-1.jpg)'
+- en: Figure 20.1 A reverse proxy is the gateway to your apps; application containers
+    are not publicly available.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.1 反向代理是您应用的网关；应用程序容器不公开。
+- en: A reverse proxy is the only container with published ports--it receives all
+    incoming requests and fetches the responses from other containers. That means
+    all your application containers become internal components, which can make it
+    easier to scale, update, and secure them. Reverse proxies are not a new technology,
+    but they’ve shifted left with the container revolution. They used to sit in production
+    and be managed by the ops team, without developers even knowing there was a proxy;
+    now they run in lightweight containers, and you can have the same proxy configuration
+    in every environment.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反向代理是唯一一个公开端口的容器——它接收所有传入的请求并从其他容器中获取响应。这意味着您所有的应用程序容器都变成了内部组件，这可以使它们更容易进行扩展、更新和保障安全。反向代理不是一项新技术，但随着容器革命的兴起，它们已经向左移动。它们过去位于生产环境中，由运维团队管理，甚至开发者都不知道存在代理；现在它们运行在轻量级容器中，您可以在每个环境中使用相同的代理配置。
+- en: 'Try it Now Nginx has been a popular reverse proxy choice for years--it powers
+    over 30% of the internet. It’s a very lightweight, fast, and powerful HTTP server
+    that can serve its own content as well as proxying other servers:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下Nginx多年来一直是一种流行的反向代理选择——它为互联网上的超过30%提供服务。它是一个非常轻量级、快速且强大的HTTP服务器，既可以提供自己的内容，也可以代理其他服务器：
+- en: '` # create a network for this chapter''s apps - for Linux containers:` ` docker
+    network create ch20`  ` # OR for Windows containers:` ` docker network create
+    --driver=nat ch20` ` cd ch20/exercises`  ` # run Nginx with a bind mount to a
+    local configuration folder - on` ` # Linux:` ` docker-compose -f nginx/docker-compose.yml
+    -f nginx/override-linux.yml up -d`  ` # OR on Windows containers:` ` docker-compose
+    -f nginx/docker-compose.yml -f nginx/override-windows.yml up -d`  ` # browse to
+    http://localhost`'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 为本章的应用创建一个网络 - 对于Linux容器:` ` docker network create ch20`  ` # 或者Windows容器:`
+    ` docker network create --driver=nat ch20` ` cd ch20/exercises`  ` # 在Linux上使用绑定挂载到本地配置文件夹运行Nginx
+    -` ` # Linux:` ` docker-compose -f nginx/docker-compose.yml -f nginx/override-linux.yml
+    up -d`  ` # 或者Windows容器:` ` docker-compose -f nginx/docker-compose.yml -f nginx/override-windows.yml
+    up -d`  ` # 浏览到http://localhost`'
+- en: Nginx uses a configuration file for each of the websites it serves. This container
+    has a bind mount to the local folder called `sites-enabled` , but there are no
+    config files in there yet. Nginx has a default site that is a simple HTML page--you
+    can see my output in figure 20.2.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Nginx为它服务的每个网站使用一个配置文件。这个容器有一个绑定挂载到名为`sites-enabled`的本地文件夹，但里面还没有配置文件。Nginx有一个默认网站，是一个简单的HTML页面--你可以在图20.2中看到我的输出。
+- en: '![](../Images/20-2.jpg)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-2.jpg)'
+- en: Figure 20.2 Nginx is an HTTP server--it can serve static content and run as
+    a reverse proxy
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.2 Nginx是一个HTTP服务器--它可以提供静态内容并作为反向代理运行
+- en: 'We’re not using Nginx as a reverse proxy yet, but we can set that up by adding
+    a configuration file for another website. When you host multiple apps on the same
+    port, you need a way to differentiate them, and that’s usually with the domain
+    name of the website. When you browse to a website like *[https://blog.sixeyed.com](https://blog.sixeyed.com)*
+    , the browser includes an HTTP header in the client request: `Host=blog.sixeyed.com`
+    . Nginx uses that host header to find the configuration file for the site to serve.
+    On your local machine you can add domains to your hosts file, which is a simple
+    DNS lookup, to serve different apps from your Nginx container.'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们目前还没有使用Nginx作为反向代理，但我们可以通过为另一个网站添加配置文件来设置它。当你在一个相同的端口上托管多个应用时，你需要一种方法来区分它们，通常是通过网站的域名。当你浏览到像*[https://blog.sixeyed.com](https://blog.sixeyed.com)*
+    这样的网站时，浏览器会在客户端请求中包含一个HTTP头：`Host=blog.sixeyed.com`。Nginx使用这个主机头找到要服务的网站的配置文件。在你的本地机器上，你可以向你的hosts文件添加域名，这是一个简单的DNS查找，以便从你的Nginx容器中提供不同的应用。
+- en: 'Try it Now We’ll run the simple who-am-I web app in a container without publishing
+    any ports and make it available through Nginx on the host domain whoami.local:'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 我们将在容器中运行简单的who-am-I网络应用，不发布任何端口，并通过主机域名whoami.local通过Nginx提供服务：
+- en: '` # add the who-am-I domain to local hosts file on Mac or Linux:` ` echo $''\n127.0.0.1
+    whoami.local'' | sudo tee -a /etc/hosts`  ` # OR on Windows:` ` Add-Content -Value
+    "127.0.0.1 whoami.local" -Path /windows/system32/drivers/etc/hosts`  ` # start
+    the who-am-I container:` ` docker-compose -f whoami/docker-compose.yml up -d`
+     ` # copy the app config to the Nginx configuration folder:` ` cp ./nginx/sites-available/whoami.local
+    ./nginx/sites-enabled/`  ` # and restart Nginx to load the config:` ` docker-compose
+    -f nginx/docker-compose.yml restart nginx`  ` # browse to http://whoami.local`'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在Mac或Linux上向本地hosts文件添加who-am-I域名:` ` echo $''\n127.0.0.1 whoami.local''
+    | sudo tee -a /etc/hosts`  ` # 或者Windows上:` ` Add-Content -Value "127.0.0.1 whoami.local"
+    -Path /windows/system32/drivers/etc/hosts`  ` # 启动who-am-I容器:` ` docker-compose
+    -f whoami/docker-compose.yml up -d`  ` # 将应用配置复制到Nginx配置文件夹:` ` cp ./nginx/sites-available/whoami.local
+    ./nginx/sites-enabled/`  ` # 并重新启动Nginx以加载配置:` ` docker-compose -f nginx/docker-compose.yml
+    restart nginx`  ` # 浏览到http://whoami.local`'
+- en: When you browse to http:/ /whoami.local, the entry in your hosts file directs
+    you to your local machine, and the Nginx container receives the request. It uses
+    the HTTP header `Host=whoami.local` to find the right website configuration, and
+    then it loads the content from the who-am-I container and sends it back. You’ll
+    see in figure 20.3 that the response is the same as if the response had come directly
+    from the who-am-I application container.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你浏览到http:/ /whoami.local时，你的hosts文件中的条目会把你引导到你的本地机器，Nginx容器接收这个请求。它使用HTTP头`Host=whoami.local`来找到正确的网站配置，然后从who-am-I容器加载内容并发送回来。你会在图20.3中看到，响应与直接从who-am-I应用容器返回的响应相同。
+- en: '![](../Images/20-3.jpg)'
+  id: totrans-17
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-3.jpg)'
+- en: Figure 20.3 The reverse proxy in action, loading content from an application
+    container behind the scenes
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.3 动态中的反向代理，从后台的应用容器加载内容
+- en: Nginx is a very powerful server with a huge feature set, but the basic configuration
+    file to proxy a web application is very simple. You need to specify the server’s
+    domain name and the location of the content, which can be an internal DNS name.
+    The Nginx container will fetch content from the app container over the Docker
+    network using the container name for DNS. Listing 20.1 shows the full configuration
+    file for the who-am-I site.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Nginx 是一个非常强大的服务器，具有庞大的功能集，但代理 Web 应用程序的基本配置文件非常简单。您需要指定服务器的域名和内容的位置，这可以是一个内部
+    DNS 名称。Nginx 容器将通过 Docker 网络使用容器名称作为 DNS 从应用容器获取内容。列表 20.1 显示了 who-am-I 网站的完整配置文件。
+- en: Listing 20.1 Nginx proxy configuration for the who-am-I website
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 20.1 who-am-I 网站的 Nginx 代理配置
+- en: '` server {` `       server_name whoami.local; # the domain host name` `       location
+    / {` `               proxy_pass http://whoami; # source address for content` `               proxy_set_header
+    Host $host; # set the host for the source` `               add_header X-Host $hostname;
+    # add proxy name in response` `       }` ` }`'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` server {` `       server_name whoami.local; # 域名主机名` `       location / {`
+    `               proxy_pass http://whoami; # 内容的源地址` `               proxy_set_header
+    Host $host; # 设置源的域名` `               add_header X-Host $hostname; # 在响应中添加代理名称`
+    `       }` ` }`'
+- en: Reverse proxies are not just for websites--they’re suitable for any HTTP content,
+    so REST APIs are good targets, and there may be support for other types of traffic
+    too (plain TCP/IP or gRPC). This simple configuration makes Nginx work like a
+    passthrough, so for every request it receives, it will call the source container
+    (called the “upstream”) and send the response back to the client (called the “downstream”).
+    If the upstream app fails, Nginx sends the failure response back to the downstream
+    client.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反向代理不仅适用于网站——它们适用于任何 HTTP 内容，因此 REST API 是很好的目标，也可能支持其他类型的流量（如纯 TCP/IP 或 gRPC）。这个简单的配置使
+    Nginx 的工作方式类似于透明代理，因此对于它收到的每个请求，它都会调用源容器（称为“上游”）并将响应发送回客户端（称为“下游”）。如果上游应用失败，Nginx
+    会将失败响应发送回下游客户端。
+- en: 'Try it now Add another domain to your hosts file, and run the API for the random-number
+    app, proxying it with Nginx. This is the API that fails after a few calls, and
+    you’ll see a 500 response from Nginx after you refresh:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：向您的 hosts 文件中添加另一个域名，并运行随机数应用的 API，使用 Nginx 进行代理。这是在几次调用后失败的 API，刷新后您会看到
+    Nginx 返回的 500 响应：
+- en: '` # add the API domain to local hosts file on Mac or Linux:` ` echo $''\n127.0.0.1
+    api.numbers.local'' | sudo tee -a /etc/hosts` ` # OR on Windows:` ` Add-Content
+    -Value "127.0.0.1 api.numbers.local" -Path /windows/system32/drivers/etc/hosts`
+    ` # run the API:` ` docker-compose -f numbers/docker-compose.yml up -d` ` # copy
+    the site config file and restart Nginx:` ` cp ./nginx/sites-available/api.numbers.local
+    ./nginx/sites-enabled/` ` docker-compose -f nginx/docker-compose.yml restart nginx`
+    ` # browse to http://api.numbers.local/rng & refresh until it breaks`'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在 Mac 或 Linux 上将 API 域名添加到本地 hosts 文件中：` ` echo $''\n127.0.0.1 api.numbers.local''
+    | sudo tee -a /etc/hosts` ` # 或者 Windows 上：` ` Add-Content -Value "127.0.0.1 api.numbers.local"
+    -Path /windows/system32/drivers/etc/hosts` ` # 运行 API：` ` docker-compose -f numbers/docker-compose.yml
+    up -d` ` # 复制站点配置文件并重启 Nginx：` ` cp ./nginx/sites-available/api.numbers.local
+    ./nginx/sites-enabled/` ` docker-compose -f nginx/docker-compose.yml restart nginx`
+    ` # 浏览到 http://api.numbers.local/rng 并刷新，直到它崩溃`'
+- en: You’ll see from this exercise that the user experience for an app is identical
+    whether they’re accessing it directly or through Nginx. You have two apps hosted
+    from Nginx, so it is managing the routing to upstream containers, but it doesn’t
+    manipulate the traffic, so the response bodies are exactly as they’re sent by
+    the app container. Figure 20.4 shows a failure response from the API coming back
+    through the reverse proxy.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您会从这次练习中看到，无论用户是直接访问应用还是通过 Nginx 访问，应用的用户体验都是相同的。您有两个由 Nginx 托管的 app，因此它正在管理到上游容器的路由，但它不处理流量，所以响应体与由应用容器发送的完全一样。图
+    20.4 展示了通过反向代理返回的 API 失败响应。
+- en: '![](../Images/20-4.jpg)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-4.jpg)'
+- en: Figure 20.4 In a simple proxy configuration, Nginx sends the response from the
+    app--even if it’s a failure.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 20.4 在简单的代理配置中，Nginx 会发送来自应用的响应——即使它是失败的。
+- en: Reverse proxies can do much more than this. All your application traffic comes
+    into the proxy, so it can be a central place for configuration, and you can keep
+    a lot of infrastructure-level concerns out of your application containers.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反向代理可以做得更多。所有应用流量都进入代理，因此它可以是一个配置的中心位置，并且您可以保持许多基础设施级别的关注点远离应用容器。
+- en: 20.2 Handling routing and SSL in the reverse proxy
+  id: totrans-29
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 20.2 在反向代理中处理路由和 SSL
+- en: The process we’ve been following to add new apps to Nginx is to start the app
+    container, copy in the config file, and restart Nginx. That order is important
+    because when Nginx starts, it reads all the server configuration and checks that
+    it can access all the upstreams. If any are unavailable, it exits; if they are
+    all available, it builds an internal routing list, linking host names to IP addresses.
+    That’s the first infrastructure concern that the proxy can take care of--it will
+    load-balance requests if there are multiple upstream containers.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们一直遵循的过程是将新应用程序添加到Nginx，即启动应用程序容器，复制配置文件，然后重启Nginx。这个顺序很重要，因为当Nginx启动时，它会读取所有的服务器配置并检查它是否可以访问所有上游服务。如果有任何服务不可用，它会退出；如果所有服务都可用，它会构建一个内部路由列表，将主机名链接到IP地址。这是代理可以处理的第一项基础设施问题——如果有多个上游容器，它将进行负载均衡。
+- en: 'Try it Now We’ll run the image gallery app now, proxying the main web app through
+    Nginx. We can scale up the web component, and Nginx will load-balance requests
+    between the containers:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 我们现在将运行图像库应用程序，通过Nginx代理主Web应用程序。我们可以扩展Web组件，Nginx将在容器之间进行负载均衡：
+- en: '` # add the domain to the local hosts file on Mac or Linux:` ` echo $''\n127.0.0.1
+    image-gallery.local'' | sudo tee -a /etc/hosts`  ` # OR on Windows:` ` Add-Content
+    -Value "127.0.0.1 image-gallery.local" -Path /windows/system32/drivers/etc/hosts`
+     ` # run the app with 3 web containers:` ` docker-compose -f ./image-gallery/docker-compose.yml
+    up -d --scale image-gallery=3`  ` # add the config file and restart Nginx:` ` cp
+    ./nginx/sites-available/image-gallery.local ./nginx/sites-enabled/` ` docker-compose
+    -f ./nginx/docker-compose.yml restart nginx`  ` # call the site a few times:`
+    ` curl -i --head http://image-gallery.local`'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在Mac或Linux上向本地hosts文件添加域名：` ` echo $''\n127.0.0.1 image-gallery.local''
+    | sudo tee -a /etc/hosts`  ` # 或者，在Windows上：` ` Add-Content -Value "127.0.0.1
+    image-gallery.local" -Path /windows/system32/drivers/etc/hosts`  ` # 使用3个Web容器运行应用程序：`
+    ` docker-compose -f ./image-gallery/docker-compose.yml up -d --scale image-gallery=3`
+     ` # 添加配置文件并重启Nginx：` ` cp ./nginx/sites-available/image-gallery.local ./nginx/sites-enabled/`
+    ` docker-compose -f ./nginx/docker-compose.yml restart nginx`  ` # 几次调用网站：` ` curl
+    -i --head http://image-gallery.local`'
+- en: The Nginx configuration for the image gallery website is the same proxy setup
+    as listing 20.1, using a different host name and upstream DNS name. It also adds
+    an extra response header, `X-Upstream` , which shows the IP address of the container
+    that Nginx fetched the response from. You see in figure 20.5 that the upstream
+    IP address is in the 172.20 range for me, which is the application container’s
+    IP address on the Docker network. If you repeat the curl call a few times, you’ll
+    see different IP addresses as Nginx load-balances between the web containers.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像库网站的Nginx配置与列表20.1中的代理设置相同，使用不同的主机名和上游DNS名称。它还添加了一个额外的响应头`X-Upstream`，显示Nginx获取响应的容器的IP地址。你在图20.5中可以看到，对于我来说，上游IP地址在172.20范围内，这是Docker网络上应用程序容器的IP地址。如果你多次重复curl调用，你会看到不同的IP地址，因为Nginx在Web容器之间进行负载均衡。
+- en: Now you can run your app with load-balancing on a single Docker machine--you
+    don’t need to switch to Swarm mode or spin up a Kubernetes cluster to test your
+    app in a production-like configuration. There are no code changes or config changes
+    to the app either; it’s all handled by the proxy.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以在单个Docker机器上运行你的应用程序，并启用负载均衡——你不需要切换到Swarm模式或启动一个Kubernetes集群来测试你的应用程序在类似生产环境的配置。应用程序本身也不需要任何代码或配置更改；所有这些操作都由代理处理。
+- en: '![](../Images/20-5.jpg)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-5.jpg)'
+- en: Figure 20.5 Nginx takes care of load-balancing so you can run app containers
+    at scale.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.5 Nginx负责负载均衡，因此你可以按比例运行应用程序容器。
+- en: So far we’ve used Nginx to route between containers using different host names,
+    which is how you run multiple apps in one environment. You can also configure
+    fine-grained paths for Nginx routing, so if you want to selectively expose parts
+    of your application, you can do that within the same domain name.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们使用Nginx通过不同的主机名在容器之间进行路由，这是在单个环境中运行多个应用程序的方法。你还可以为Nginx路由配置细粒度路径，所以如果你想选择性地公开应用程序的某些部分，你可以在同一个域名内做到这一点。
+- en: 'Try it now The image gallery app uses a REST API, and you can configure Nginx
+    to proxy the API using an HTTP request path. The API appears to be part of the
+    same application as the web UI, although it’s actually coming from a separate
+    container:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 图像库应用程序使用REST API，你可以配置Nginx使用HTTP请求路径代理API。API看起来是Web UI的一部分，尽管它实际上来自一个独立的容器：
+- en: '` # remove the original image-gallery configuration:` ` rm ./nginx/sites-enabled/image-gallery.local`
+     ` # copy in the new one, which adds the API, and restart Nginx:` ` cp ./nginx/sites-available/image-gallery-2.local
+    ./nginx/sites-enabled/image-gallery.local` ` docker-compose -f ./nginx/docker-compose.yml
+    restart nginx` ` curl -i http://image-gallery.local/api/image`'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 删除原始图像库配置：` ` rm ./nginx/sites-enabled/image-gallery.local`  ` # 复制新配置，其中包含API，并重新启动Nginx：`
+    ` cp ./nginx/sites-available/image-gallery-2.local ./nginx/sites-enabled/image-gallery.local`
+    ` docker-compose -f ./nginx/docker-compose.yml restart nginx` ` curl -i http://image-gallery.local/api/image`'
+- en: This is a very nice pattern for selectively exposing parts of your application
+    stack, assembling one app from many components under the same domain name. Figure
+    20.6 shows my output--the response is coming from the API container, but the client
+    is making a request on the same `image-gallery.local` domain that it uses for
+    the web UI.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个非常棒的用于选择性地公开应用堆栈部分的模式，在同一域名下组装一个由许多组件组成的应用。图20.6显示了我的输出——响应来自API容器，但客户端正在使用与Web
+    UI相同的`image-gallery.local`域名发起请求。
+- en: '![](../Images/20-6.jpg)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-6.jpg)'
+- en: Figure 20.6 Nginx can route requests to different containers, based on the domain
+    name or request path
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图20.6 Nginx可以根据域名或请求路径路由请求到不同的容器]'
+- en: Load-balancing and routing let you get close to the production environment on
+    a single developer or test machine, and one more infrastructure component that
+    the reverse proxy takes care of is SSL termination. If your apps are published
+    as HTTPS sites (which they should be), the configuration and certificates need
+    to live somewhere, and it’s far better to put that in your central proxy rather
+    than in every application component. Nginx can be configured with real certificates
+    that you get from a domain provider or a service like Let’s Encrypt, but for non-production
+    environments you can create your own self-signed certs and use them.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 负载均衡和路由功能让你可以在单个开发或测试机器上接近生产环境，并且反向代理还负责处理SSL终止。如果你的应用以HTTPS网站的形式发布（它们应该这样），配置和证书需要存储在某个地方，而且将它们放在你的中央代理中比放在每个应用组件中要好得多。Nginx可以配置使用从域名提供商或类似Let’s
+    Encrypt的服务获得的真实证书，但在非生产环境中，你可以创建自己的自签名证书并使用它们。
+- en: 'Try it now Generate an SSL certificate for the image gallery app, and proxy
+    it through Nginx, using the certificates to serve it as an HTTPS site:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：为图像库应用生成一个SSL证书，并通过Nginx代理它，使用证书将其作为HTTPS网站提供服务：
+- en: '` # generate a self-signed certificate for the app - on Linux:` ` docker container
+    run -v "$(pwd)/nginx/certs:/certs" -e HOST_NAME=image-gallery.local diamol/cert-generator`
+     ` # OR Windows containers:` ` docker container run -v "$(pwd)/nginx/certs:C:\certs"
+    -e HOST_NAME=image-gallery.local diamol/cert-generator`  ` # remove the existing
+    image-gallery configuration:` ` rm ./nginx/sites-enabled/image-gallery.local`
+     ` # copy in the new site configuration with SSL:` ` cp ./nginx/sites-available/image-gallery-3.local
+    ./nginx/sites-enabled/image-gallery.local`  ` # and restart Nginx:` ` docker-compose
+    -f nginx/docker-compose.yml restart nginx` ` #browse http://image-gallery.local`'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在Linux上为应用生成自签名证书：` ` docker container run -v "$(pwd)/nginx/certs:/certs"
+    -e HOST_NAME=image-gallery.local diamol/cert-generator`  ` # 或者Windows容器：` ` docker
+    container run -v "$(pwd)/nginx/certs:C:\certs" -e HOST_NAME=image-gallery.local
+    diamol/cert-generator`  ` # 删除现有的图像库配置：` ` rm ./nginx/sites-enabled/image-gallery.local`
+     ` # 复制包含SSL的新站点配置：` ` cp ./nginx/sites-available/image-gallery-3.local ./nginx/sites-enabled/image-gallery.local`
+     ` # 并重新启动Nginx：` ` docker-compose -f nginx/docker-compose.yml restart nginx`
+    ` # 浏览 http://image-gallery.local`'
+- en: There’s quite a bit going on in this exercise. The first container you run uses
+    the OpenSSL tool to generate self-signed certificates, and it copies them to your
+    local `certs` directory, which is also bind-mounted into the Nginx container.
+    Then you replace the image gallery configuration file with one that uses those
+    certs and restart Nginx. When you browse to the site using HTTP, you get redirected
+    to HTTPS, and you’ll get a browser warning because the self-signed certificate
+    isn’t trusted. In figure 20.7 you can see the warning from Firefox--I could click
+    the Advanced button to ignore the warning and go on to view the site.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中有很多事情要做。你运行的第一个容器使用OpenSSL工具生成自签名证书，并将它们复制到你的本地`certs`目录，该目录也被绑定挂载到Nginx容器中。然后你用使用这些证书的新配置文件替换图像库配置文件，并重新启动Nginx。当你使用HTTP浏览到该网站时，你会被重定向到HTTPS，并且你会收到浏览器的警告，因为自签名证书不受信任。在图20.7中，你可以看到Firefox的警告——我可以点击“高级”按钮忽略警告并继续查看网站。
+- en: '![](../Images/20-7.jpg)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-7.jpg)'
+- en: Figure 20.7 Nginx redirects HTTP requests to HTTPS and serves them with an SSL
+    certificate.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 20.7 Nginx 将 HTTP 请求重定向到 HTTPS，并使用 SSL 证书提供服务。
+- en: Nginx lets you configure all sorts of details for your SSL setup, down to the
+    protocols and ciphers you support (you can check your site and get a list of best
+    practices to apply from *[www.ssllabs.com](http://www.ssllabs.com)* ). I won’t
+    go into all that detail, but the core part of the HTTPS setup is in listing 20.2--you
+    can see the HTTP site listens on port 80 and returns an HTTP 301 response, which
+    redirects the client to the HTTPS site listening on port 443.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Nginx 允许您为您的 SSL 设置配置各种细节，包括您支持的协议和加密算法（您可以从 *[www.ssllabs.com](http://www.ssllabs.com)*
+    检查您的网站并获取应用最佳实践的列表）。我不会深入所有这些细节，但 HTTPS 设置的核心部分在列表 20.2 中——您可以看到 HTTP 网站监听端口 80
+    并返回 HTTP 301 响应，将客户端重定向到监听端口 443 的 HTTPS 网站。
+- en: Listing 20.2 Serving a site on HTTPS with an HTTP redirect
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 20.2 使用 HTTP 重定向在 HTTPS 上提供服务
+- en: '` server {` `       server_name image-gallery.local;` `       listen 80;` `       return
+    301 https://$server_name$request_uri;` ` }`  ` server {` `       server_name image-gallery.local;`
+    `       listen 443 ssl;` `       ssl_certificate /etc/nginx/certs/server-cert.pem;`
+    `       ssl_certificate_key /etc/nginx/certs/server-key.pem;` `       ssl_protocols
+    TLSv1 TLSv1.1 TLSv1.2;` ` ...`'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` server {` `       server_name image-gallery.local;` `       listen 80;` `       return
+    301 https://$server_name$request_uri;` ` }`  ` server {` `       server_name image-gallery.local;`
+    `       listen 443 ssl;` `       ssl_certificate /etc/nginx/certs/server-cert.pem;`
+    `       ssl_certificate_key /etc/nginx/certs/server-key.pem;` `       ssl_protocols
+    TLSv1 TLSv1.1 TLSv1.2;` ` ...`'
+- en: The configuration loads the certificate and key files from the container’s filesystem.
+    Each certificate and key pair is only good for one domain name, so you’ll have
+    one set of files for each application you use (although you can generate a certificate
+    that covers multiple subdomains). These are confidential files, so in production
+    you would use secrets in your cluster to store them. Keeping HTTPS out of your
+    app containers means less configuration and certificate management--it’s an infrastructure
+    concern that now lives in the proxy--and developers can spin up simple HTTP versions
+    for testing.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置从容器的文件系统中加载证书和密钥文件。每个证书和密钥对仅适用于一个域名，因此您将为每个应用程序使用一组文件（尽管您可以生成一个覆盖多个子域的证书）。这些是机密文件，因此在生产环境中，您会使用集群中的机密来存储它们。将
+    HTTPS 从您的应用程序容器中排除意味着更少的配置和证书管理——这是一个基础设施问题，现在它存在于代理中——并且开发者可以为测试启动简单的 HTTP 版本。
+- en: 'There’s one last feature of Nginx we’ll cover here, which can be a huge performance
+    boost: caching responses from upstream components, which are your own web applications.'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这里将介绍 Nginx 的最后一个特性，它可以大幅提升性能：缓存来自上游组件（即您的自己的网络应用程序）的响应。
+- en: 20.3 Improving performance and reliability with the proxy
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 20.3 使用代理提高性能和可靠性
+- en: Nginx is a very high performance HTTP server. You can use it to serve static
+    HTML for simple sites or single-page applications, and one container can comfortably
+    handle thousands of requests per second. You can use that performance to improve
+    your own applications too--Nginx can work as a caching proxy, so when it fetches
+    content from your application (called the “upstream”), it stores a copy in its
+    local disk or memory store. Subsequent requests for the same content get served
+    directly from the proxy, and the upstream is not used. Figure 20.8 shows how the
+    cache works.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Nginx 是一个非常高性能的 HTTP 服务器。您可以使用它来为简单的网站或单页应用程序提供静态 HTML，一个容器可以轻松处理每秒数千个请求。您也可以利用这种性能来提升您自己的应用程序——Nginx
+    可以作为一个缓存代理工作，因此当它从您的应用程序（称为“上游”）获取内容时，它会将其副本存储在本地磁盘或内存存储中。对于相同内容的后续请求将直接从代理服务器提供服务，而上游则不会被使用。图
+    20.8 展示了缓存的工作原理。
+- en: '![](../Images/20-8.jpg)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-8.jpg)'
+- en: Figure 20.8 Using Nginx as a caching proxy reduces the workload for application
+    containers.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 20.8 使用 Nginx 作为缓存代理可以减少应用程序容器的负载。
+- en: There are two benefits to this. First, you reduce the time taken to serve the
+    request, because whatever the application platform does to generate the response
+    is bound to take longer than Nginx takes to read the cached response from memory.
+    Second, you reduce the total amount of traffic to your application, so you should
+    be able to handle more users from the same infrastructure. You can only cache
+    content that is not user-specific, but that could be as simple as bypassing the
+    cache if an authentication cookie is present. Generic sites like the image gallery
+    app can be completely served by the cache.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样做有两个好处。首先，你减少了处理请求所需的时间，因为应用程序平台生成响应所需的时间肯定比Nginx从内存中读取缓存响应的时间要长。其次，你减少了发送到应用程序的总流量，因此你应该能够从相同的基础设施中处理更多的用户。你可以缓存非用户特定的内容，但这可能只是简单地绕过缓存，如果存在认证cookie的话。像图片库应用这样的通用站点可以完全由缓存提供服务。
+- en: 'Try it Now Use Nginx as a caching proxy for the image gallery app. This configuration
+    sets both the web app and the API to use the Nginx cache:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 使用Nginx作为图片库应用的缓存代理。此配置将Web应用程序和API都设置为使用Nginx缓存：
+- en: '` # remove the current site config:` ` rm ./nginx/sites-enabled/image-gallery.local`
+     ` # copy in the caching config and restart Nginx:` ` cp ./nginx/sites-available/image-gallery-4.local
+    ./nginx/sites-enabled/image-gallery.local` ` docker-compose -f ./nginx/docker-compose.yml
+    restart nginx`  ` # make some requests to the site:` ` curl -i --head --insecure
+    https://image-gallery.local` ` curl -i --head --insecure https://image-gallery.local`'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 删除当前站点配置：` ` rm ./nginx/sites-enabled/image-gallery.local`  ` # 复制缓存配置并重启Nginx：`
+    ` cp ./nginx/sites-available/image-gallery-4.local ./nginx/sites-enabled/image-gallery.local`
+    ` docker-compose -f ./nginx/docker-compose.yml restart nginx`  ` # 向站点发送一些请求：`
+    ` curl -i --head --insecure https://image-gallery.local` ` curl -i --head --insecure
+    https://image-gallery.local`'
+- en: The new proxy configuration sets a custom response header, `X-Cache` , that
+    Nginx populates with the result of the cache lookup. If there’s no match in the
+    cache--which will be the case for the first call you make to the site--the response
+    header is `X-Cache:` `MISS` , meaning there was no matching response in the cache,
+    and there’s an `X-Upstream` header with the IP address of the container where
+    Nginx fetched the content. When you repeat the call, the response does come from
+    the cache, so you’ll see `X-Cache:` `HIT` and no `X-Upstream` header, because
+    Nginx didn’t use an upstream. My output is in figure 20.9.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新的代理配置设置了一个自定义的响应头，`X-Cache`，Nginx会填充缓存查找的结果。如果没有匹配的缓存（这将是您第一次调用站点的情况），则响应头为`X-Cache:`
+    `MISS`，表示缓存中没有匹配的响应，并且有一个带有容器IP地址的`X-Upstream`头，其中Nginx从该容器中获取了内容。当您重复调用时，响应确实来自缓存，因此您会看到`X-Cache:`
+    `HIT`并且没有`X-Upstream`头，因为Nginx没有使用上游。我的输出在图20.9中。
+- en: '![](../Images/20-9.jpg)'
+  id: totrans-62
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-9.jpg)'
+- en: Figure 20.9 If the proxy has the response in its cache, it sends it without
+    using the upstream.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.9 如果代理在其缓存中有响应，它将发送它而不使用上游。
+- en: Nginx lets you fine-tune how you use the cache. In the latest configuration
+    I’ve set the API to use a short-lived cache, so responses are stale after one
+    minute and then Nginx fetches the latest content from the API container. That’s
+    a good setup for content that needs to be fresh but where you have a very high
+    load--if your API gets 5,000 requests per second, even a one-minute cache saves
+    300,000 requests from reaching your API. The web app is set to use a longer cache,
+    so responses stay fresh for six hours. Listing 20.3 shows the cache configuration.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Nginx允许您微调您如何使用缓存。在最新的配置中，我已将API设置为使用短期缓存，因此响应在分钟后就会过时，然后Nginx从API容器中获取最新的内容。这对于需要新鲜内容但负载非常高的内容来说是一个很好的设置——如果您的API每秒有5,000个请求，即使是一分钟的缓存也能节省300,000个请求到达API。Web应用程序设置为使用较长的缓存，因此响应保持新鲜六小时。列表20.3显示了缓存配置。
+- en: Listing 20.3 Nginx as a caching reverse proxy for API and web content
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表20.3 Nginx作为API和Web内容的缓存反向代理
+- en: '`       ...` `       location = /api/image {` `               proxy_pass http://iotd/image;`
+    `               proxy_set_header Host $host;` `               proxy_cache SHORT;`
+    `               proxy_cache_valid 200 1m;` `               ...` `       }`  `       location
+    / {` `               proxy_pass http://image-gallery;` `               proxy_set_header
+    Host $host;` `               proxy_cache LONG;` `               proxy_cache_valid
+    200 6h;` `               proxy_cache_use_stale error timeout invalid_header updating`
+    `                                                             http_500 http_502
+    http_503 http_504;` `               ...` `         }`'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`       ...` `       location = /api/image {` `               proxy_pass http://iotd/image;`
+    `               proxy_set_header Host $host;` `               proxy_cache SHORT;`
+    `               proxy_cache_valid 200 1m;` `               ...` `       }`  `       location
+    / {` `               proxy_pass http://image-gallery;` `               proxy_set_header
+    Host $host;` `               proxy_cache LONG;` `               proxy_cache_valid
+    200 6h;` `               proxy_cache_use_stale error timeout invalid_header updating`
+    `                                                             http_500 http_502
+    http_503 http_504;` `               ...` `         }`'
+- en: The caches, named `LONG` and `SHORT` , are defined in the core Nginx configuration
+    in the `diamol/nginx` image. The cache specs set how much memory and disk to use
+    for responses, and the eviction time for stale items.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓存，命名为`LONG`和`SHORT`，在`diamol/nginx`镜像中的核心Nginx配置中定义。缓存规范设置了用于响应的内存和磁盘使用量，以及陈旧项的驱逐时间。
+- en: I don’t want to dig into Nginx configuration too deeply, but there’s one very
+    useful feature you can use to improve app reliability, which is defined for the
+    web app in the `proxy_cache_use_stale` setting. That tells Nginx that it can use
+    cached responses even when they’re stale if the upstream is not available. Serving
+    content from stale items in the cache means your app stays online (although it
+    may not be fully functional) even if the application containers are down. This
+    is a very useful backup for working around transient failures in your app, or
+    application rollouts that need to be rolled back. You need to think carefully
+    about the paths that can be served successfully from the cache, but in a nice
+    simple demo app you can serve the whole thing.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我不想深入挖掘Nginx配置，但有一个非常有用的功能可以帮助提高应用可靠性，这个功能在`proxy_cache_use_stale`设置中定义，用于Web应用。这告诉Nginx，即使上游不可用，它也可以使用陈旧的缓存响应。从缓存中的陈旧项提供服务意味着即使应用容器已关闭，您的应用仍然可以在线（尽管可能不完全功能），这是一个非常实用的备份，用于解决应用中的暂时性故障，或者需要回滚的应用部署。您需要仔细考虑可以从缓存中成功提供的内容路径，但在一个简单的演示应用中，您可以提供整个应用。
+- en: 'Try it now Make a couple of calls to the image gallery app and API so Nginx
+    saves those responses in its cache. Then kill the containers and try requesting
+    the content again:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：对图像库应用和API进行几次调用，以便Nginx将其响应保存到其缓存中。然后终止容器并再次请求内容：
+- en: '` # call the site and the API:` ` curl -s --insecure https://image-gallery.local`
+    ` curl -s --insecure https://image-gallery.local/api/image`  ` # remove all the
+    web containers:` ` docker container rm -f $(docker container ls -f name=image-gallery_image-gallery_*
+    -q)`  ` # try the web app again:` ` curl -i --head --insecure https://image-gallery.local`
+     ` # remove the API container:` ` docker container rm -f image-gallery_iotd_1`
+     ` # try the API again:` ` curl -i --head --insecure https://image-gallery.local/api/image`'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 调用站点和API:` ` curl -s --insecure https://image-gallery.local` ` curl -s
+    --insecure https://image-gallery.local/api/image`  ` # 删除所有Web容器:` ` docker container
+    rm -f $(docker container ls -f name=image-gallery_image-gallery_* -q)`  ` # 再次尝试Web应用:`
+    ` curl -i --head --insecure https://image-gallery.local`  ` # 删除API容器:` ` docker
+    container rm -f image-gallery_iotd_1`  ` # 再次尝试API:` ` curl -i --head --insecure
+    https://image-gallery.local/api/image`'
+- en: You’ll see the different cache configurations in action here. The web cache
+    is set to expire after six hours, so even when there are no web containers available,
+    the content keeps getting served from Nginx’s cache. The API response cache expires
+    after one minute, and it’s not set to use the stale cache, so you’ll get an HTTP
+    502 error from Nginx, meaning it was unable to reach the upstream component. My
+    output is in figure 20.10.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您将在这里看到不同的缓存配置在实际中的应用。Web缓存设置为六小时后过期，因此即使没有可用的Web容器，内容也会从Nginx的缓存中继续提供服务。API响应缓存在一分钟后过期，并且未设置为使用陈旧缓存，因此您将从Nginx获得HTTP
+    502错误，这意味着它无法到达上游组件。我的输出在图20.10中。
+- en: '![](../Images/20-10.jpg)'
+  id: totrans-72
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图20.10](../Images/20-10.jpg)'
+- en: Figure 20.10 Nginx caching can be fine-tuned to keep content fresh or to add
+    reliability to your app.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.10 Nginx缓存可以微调以保持内容新鲜或为您的应用增加可靠性。
+- en: That’s as far as we’ll go with exercises for Nginx. It’s a very capable reverse
+    proxy, and there’s plenty more you can do with it--like enabling GZip compression
+    for HTTP responses and adding client cache headers--which can improve end-user
+    performance and reduce the load on your app containers. It’s a technology that
+    existed before containers, so it doesn’t actually integrate with the container
+    platform; it just works at the network level looking up IP addresses for DNS names,
+    which is where Docker provides the container IP address. It works well, but you
+    need to maintain a configuration file for each app and reload Nginx whenever the
+    configuration changes.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在这里结束对Nginx的练习。它是一个非常强大的反向代理，还有很多其他的事情可以做——比如为HTTP响应启用GZip压缩和添加客户端缓存头——这可以提高最终用户的性能并减少对应用程序容器的负载。它是在容器出现之前就存在的技术，所以它实际上并不与容器平台集成；它只是在网络级别上查找DNS名称的IP地址，这是Docker提供容器IP地址的地方。它运行得很好，但你需要为每个应用程序维护一个配置文件，并在配置更改时重新加载Nginx。
+- en: We’ll finish the chapter by looking at a modern alternative that’s container-aware
+    and integrates nicely with Docker.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过查看一个与现代替代方案结束本章，该方案具有容器感知性并且与Docker很好地集成。
+- en: 20.4 Using a cloud-native reverse proxy
+  id: totrans-76
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 20.4 使用云原生反向代理
+- en: Back in chapter 11 we built a CI pipeline using Jenkins, running in a container.
+    That container connected to the Docker Engine it was running on, so it could build
+    and push images. Connecting a container to the Docker Engine also lets applications
+    query the Docker API to learn about other containers, and that’s exactly what
+    powers the cloud-native reverse proxy Traefik (approximately pronounced “traffic”).
+    There’s no static configuration file for each app you want to make available in
+    the proxy; instead, you add labels to your containers, and Traefik uses those
+    labels to build its own configuration and routing maps.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第11章中，我们使用Jenkins构建了一个CI管道，该管道在一个容器中运行。这个容器连接到了它所运行的Docker Engine，因此它可以构建和推送镜像。将容器连接到Docker
+    Engine还允许应用程序查询Docker API以了解其他容器，这正是云原生反向代理Traefik（大约发音为“traffic”）所依赖的。对于你想要在代理中提供的每个应用程序，都没有静态配置文件；相反，你给你的容器添加标签，Traefik使用这些标签来构建自己的配置和路由图。
+- en: Dynamic configuration is one of the major benefits of a container-aware proxy
+    like Traefik. You don’t need to start your upstream apps before you run Traefik
+    because it watches for new containers while it’s running. You don’t have to restart
+    Traefik or reload configuration to make a change to your application setup--that’s
+    all part of your application deployment. Traefik has its own API and web UI that
+    shows the rules, so you can run Traefik without any other containers and then
+    deploy an application and see how the config gets built.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 动态配置是像Traefik这样的容器感知代理的主要好处之一。在运行Traefik之前，您不需要启动上游应用程序，因为它在运行时会监视新的容器。您不需要重新启动Traefik或重新加载配置来更改应用程序设置——这一切都是您应用程序部署的一部分。Traefik有自己的API和Web
+    UI，可以显示规则，因此您可以在没有其他容器的情况下运行Traefik，然后部署一个应用程序并查看配置是如何构建的。
+- en: 'Try it now Start by removing all the existing containers; then run Traefik
+    and check the UI to get a feel for how Traefik manages components:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：首先删除所有现有的容器；然后运行Traefik并检查UI，以了解Traefik如何管理组件：
+- en: '` docker container rm -f $(docker container ls -aq)`  ` # start Traefik - connecting
+    to a Linux Docker Engine:` ` docker-compose -f traefik/docker-compose.yml -f traefik/override-linux.yml
+    up -d`  ` # OR using Windows containers:` ` docker-compose -f traefik/docker-compose.yml
+    -f traefik/override-windows.yml up -d`  ` # browse to http://localhost:8080`'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` docker container rm -f $(docker container ls -aq)`  ` # 启动Traefik - 连接到Linux
+    Docker Engine:` ` docker-compose -f traefik/docker-compose.yml -f traefik/override-linux.yml
+    up -d`  ` # 或者使用Windows容器:` ` docker-compose -f traefik/docker-compose.yml -f
+    traefik/override-windows.yml up -d`  ` # 浏览到http://localhost:8080`'
+- en: There are different override files for Linux and Windows because they use different
+    private channels for the container to connect to the Docker Engine. Other than
+    that, the behavior of Traefik is exactly the same on all platforms. The dashboard
+    is your view over the applications that Traefik is proxying and how each is configured.
+    You can see the resources Traefik uses to configure proxies in figure 20.11.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Linux和Windows使用不同的私有通道将容器连接到Docker Engine，因此有不同的覆盖文件。除此之外，Traefik在所有平台上的行为都是完全相同的。仪表板是您查看Traefik代理的应用程序及其配置的地方。您可以在图20.11中看到Traefik配置代理所使用的资源。
+- en: '![](../Images/20-11.jpg)'
+  id: totrans-82
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-11.jpg)'
+- en: Figure 20.11 The Traefik dashboard shows you the configuration for all the apps
+    being proxied.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 20.11 Traefik 仪表板显示了所有被代理的应用程序的配置。
+- en: 'Traefik is very widely used, and it has a similar operational model to Nginx--there’s
+    a free, open source product that is published as an official image in Docker Hub,
+    and there’s a commercial variant if you want to run with support. If you’re new
+    to reverse proxies, Nginx and Traefik are the two options I’d recommend; it will
+    become a major part of your infrastructure, so you should look to spend some time
+    comparing the two. Let’s dig a little bit into how Traefik works:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Traefik 非常广泛地被使用，并且它具有与 Nginx 相似的操作模型 -- 有一个免费的开源产品，作为官方镜像发布在 Docker Hub 上，如果你需要支持运行，还有一个商业版本。如果你是反向代理的新手，Nginx
+    和 Traefik 是我推荐的两个选项；它将成为你基础设施的重要组成部分，因此你应该花些时间比较这两个。让我们深入了解一下 Traefik 的工作原理：
+- en: Entrypoints --These are the ports Traefik listens on for external traffic, so
+    these map to the published ports for the container. I’m using 80 and 443 for HTTP
+    and HTTPS, and 8080 for the Traefik dashboard.
+  id: totrans-85
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 入口点 -- 这些是 Traefik 监听外部流量的端口，因此这些映射到容器的发布端口。我使用 80 和 443 用于 HTTP 和 HTTPS，以及
+    8080 用于 Traefik 仪表板。
+- en: Routers --These are the rules for matching an incoming request to a target container.
+    HTTP routers have rules like host name and path to identify client requests.
+  id: totrans-86
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 路由器 -- 这些是匹配传入请求到目标容器的规则。HTTP 路由器有诸如主机名和路径等规则来识别客户端请求。
+- en: Services --These are the upstream components--the application containers that
+    actually serve the content to Traefik so it can pass the response back to the
+    client.
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务 -- 这些是上游组件 -- 实际向 Traefik 提供内容以便它可以向客户端返回响应的应用程序容器。
+- en: Middlewares --These are components that can modify requests from a router before
+    they get sent to the service. You can use middleware components to change the
+    request path or headers, or even to enforce authentication.
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 中间件 -- 这些是可以在请求发送到服务之前修改路由器请求的组件。你可以使用中间件组件来更改请求路径或头部，甚至强制执行身份验证。
+- en: The simplest configuration just needs a router set up with rules to match client
+    requests to the service that the router is attached to.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的配置只需要设置一个带有规则的路由器，以便将客户端请求匹配到路由器所连接的服务。
+- en: 'Try it Now Deploy the who-am-I app with an updated Compose definition that
+    includes labels to enable routing through Traefik:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 部署 who-am-I 应用程序，使用包含启用通过 Traefik 路由的标签的更新 Compose 定义：
+- en: '` # deploy the app with Traefik labels in the override file:` ` docker-compose
+    -f whoami/docker-compose.yml -f whoami/override-traefik.yml up -d`  ` # browse
+    to the Traefik configuration for the router:`  ` # http://localhost:8080/dashboard/#/http/routers/whoami@docker`
+     ` # and check the routing:` ` curl -i http://whoami.local`'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 使用覆盖文件中的 Traefik 标签部署应用程序：` ` docker-compose -f whoami/docker-compose.yml
+    -f whoami/override-traefik.yml up -d`  ` # 浏览到路由器的 Traefik 配置：`  ` # http://localhost:8080/dashboard/#/http/routers/whoami@docker`
+     ` # 并检查路由：` ` curl -i http://whoami.local`'
+- en: This is a very simple configuration--the route just links the entrypoint port
+    to the upstream service, which is the who-am-I container. You can see in figure
+    20.12 that Traefik has built the configuration for the router, linking the host
+    domain whoami.local to the whoami service.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个非常简单的配置 -- 路由只是将入口点端口链接到上游服务，即 who-am-I 容器。你可以在图 20.12 中看到 Traefik 已经为路由器构建了配置，将主机域名
+    whoami.local 链接到 whoami 服务。
+- en: '![](../Images/20-12.jpg)'
+  id: totrans-93
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-12.jpg)'
+- en: Figure 20.12 Traefik uses the Docker API to find containers and labels, using
+    them to build configuration.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 20.12 Traefik 使用 Docker API 来查找容器和标签，并使用它们来构建配置。
+- en: 'That’s all done by applying two labels on the container: one to enable Traefik
+    for the app, and the other to specify the host name to match on. Listing 20.4
+    shows those labels in the override Compose file.'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些操作都是通过在容器上应用两个标签来完成的：一个用于为应用程序启用 Traefik，另一个用于指定要匹配的主机名。列表 20.4 显示了覆盖 Compose
+    文件中的这些标签。
+- en: Listing 20.4 Configuring Traefik by adding labels to application containers
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 20.4 通过向应用程序容器添加标签来配置 Traefik
+- en: '` services:` `   whoami:` `       labels:` `           - "traefik.enable=true"`
+    ``             - "traefik.http.routers.whoami.rule=Host(`whoami.local`)"``'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` services:` `   whoami:` `       labels:` `           - "traefik.enable=true"`
+    ``             - "traefik.http.routers.whoami.rule=Host(`whoami.local`)"``'
+- en: Traefik supports some very sophisticated routing options. You can match by host
+    name and path, or a path prefix, and then use a middleware component to strip
+    prefixes. That sounds complicated, but it’s just what we need for the image gallery
+    API, so we can expose it as a path in the main image gallery domain. We can configure
+    Traefik to listen for incoming requests with the “api” path prefix, and then strip
+    the prefix from the request URL before it calls the service, because the service
+    itself doesn’t use that prefix.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Traefik支持一些非常复杂的路由选项。您可以通过主机名和路径，或者路径前缀进行匹配，然后使用中间件组件来去除前缀。这听起来很复杂，但这正是我们为图像库API所需要的，因此我们可以将其作为主图像库域中的路径暴露出来。我们可以配置Traefik监听带有“api”路径前缀的传入请求，并在调用服务之前从请求URL中去除前缀，因为服务本身不使用该前缀。
+- en: 'Try it now The image gallery app just needs an override file with labels specified
+    to enable Traefik support. Deploy the app, and Traefik will add the configuration
+    to its routing rules:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试吧！图像库应用只需要一个带有指定标签的重写文件来启用Traefik支持。部署应用后，Traefik将配置添加到其路由规则中：
+- en: '` # start the app with the new Traefik labels:` ` docker-compose -f image-gallery/docker-compose.yml
+    -f image-gallery/override-traefik.yml up -d`  ` # check the web application:`
+    ` curl --head http://image-gallery.local`  ` # and the API:` ` curl -i http://image-gallery.local/api/image`'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 使用新的Traefik标签启动应用：` ` docker-compose -f image-gallery/docker-compose.yml
+    -f image-gallery/override-traefik.yml up -d`  ` # 检查Web应用：` ` curl --head http://image-gallery.local`
+     ` # 以及API：` ` curl -i http://image-gallery.local/api/image`'
+- en: You’ll see in the output that you get a correct response from the API call--Traefik
+    receives an external request on http:/ /image-gallery.local/api/image and uses
+    the router and middleware configuration to make an internal call to the container
+    at http:/ /iotd/image. The configuration for that is slightly cryptic. You define
+    the router and then the middleware component, and then attach the middleware to
+    the router--it’s in the file `image-gallery/override-traefik.yml` if you want
+    to check it out.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您将在输出中看到从API调用得到正确的响应——Traefik在http:/ /image-gallery.local/api/image上接收外部请求，并使用路由器和中间件配置对http:/
+    /iotd/image上的容器进行内部调用。该配置稍微有些晦涩。您定义路由器，然后定义中间件组件，然后将中间件附加到路由器上——如果您想查看它，它位于`image-gallery/override-traefik.yml`文件中。
+- en: That complexity is all transparent to the consumer. You can see in figure 20.13
+    that the response looks like it’s coming direct from the API.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种复杂性对消费者来说是完全透明的。您可以在图20.13中看到，响应看起来就像直接从API返回的一样。
+- en: '![](../Images/20-13.jpg)'
+  id: totrans-103
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图20-13](../Images/20-13.jpg)'
+- en: Figure 20.13 Routing rules let you present a multi-container app at a single
+    domain.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.13 路由规则让您可以在单个域名下展示一个多容器应用。
+- en: Reverse proxies don’t all support the same feature set. Traefik doesn’t have
+    a cache (as of version 2.1), so if you need a caching proxy, Nginx is the way
+    to go. But when it comes to SSL, Traefik has much better support--it integrates
+    with certificate providers out of the box, so you can have it automatically connect
+    to Let’s Encrypt and update certs for you. Or you can use the default self-signed
+    certificate provider and add SSL to your sites in non-production environments
+    without any cert management.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反向代理并不都支持相同的功能集。截至版本2.1，Traefik没有缓存，所以如果您需要一个缓存代理，Nginx是您的选择。但是，当涉及到SSL时，Traefik有更好的支持——它默认集成了证书提供者，因此您可以自动连接到Let’s
+    Encrypt并为您更新证书。或者，您可以使用默认的自签名证书提供者，在非生产环境中为您的网站添加SSL，而无需任何证书管理。
+- en: 'Try it now Adding SSL support to the image gallery app and API needs a more
+    complex Traefik setup. It needs to listen on the HTTPS entry point as well as
+    HTTP, but redirect HTTP calls to HTTPS. It’s all still done with labels, so the
+    deployment is just an application update:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在为图像库应用和API添加SSL支持需要更复杂的Traefik设置。它需要监听HTTPS入口点以及HTTP，并将HTTP调用重定向到HTTPS。所有这些仍然是通过标签完成的，所以部署只是应用更新：
+- en: '` # run the app with Traefik labels for HTTPS:` ` docker-compose -f image-gallery/docker-compose.yml
+    -f image-gallery/override-traefik-ssl.yml up -d`  ` # check the website using
+    HTTPS:` ` curl --head --insecure https://image-gallery.local`  ` # and the API:`
+    ` curl --insecure https://image-gallery.local/api/image`'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 使用Traefik标签启动HTTPS应用：` ` docker-compose -f image-gallery/docker-compose.yml
+    -f image-gallery/override-traefik-ssl.yml up -d`  ` # 使用HTTPS检查网站：` ` curl --head
+    --insecure https://image-gallery.local`  ` # 以及API：` ` curl --insecure https://image-gallery.local/api/image`'
+- en: If you browse to the site or the API, you’ll see the same warning message in
+    the browser that we had using SSL with Nginx--the certificate isn’t trusted by
+    a known certificate authority. But this time we didn’t need to create our own
+    certificate and carefully manage the certificate and key files--Traefik did it
+    all. You can see my output in figure 20.14\. Using curl with the `insecure` flag
+    tells it to carry on even though the cert is untrusted.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你浏览到网站或 API，你将在浏览器中看到与使用 Nginx 进行 SSL 时相同的警告消息--证书不受已知证书机构的信任。但这次我们不需要创建自己的证书并仔细管理证书和密钥文件--Traefik
+    做了所有这些。你可以在图 20.14 中看到我的输出。使用带有 `insecure` 标志的 curl 告诉它即使证书不受信任也要继续。
+- en: '![](../Images/20-14.jpg)'
+  id: totrans-109
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/20-14.jpg)'
+- en: Figure 20.14 Using Traefik for HTTPS--it can generate certificates or fetch
+    them from third-party providers
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 20.14 使用 Traefik 进行 HTTPS--它可以生成证书或从第三方提供商获取证书
+- en: Routing, load-balancing, and SSL termination are the main features of a reverse
+    proxy, and Traefik supports them all with dynamic configuration through container
+    labels. If you’re evaluating it against Nginx, you need to remember that Traefik
+    doesn’t give you a cache--that’s a much-requested feature that may come into Traefik
+    in a later release.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 路由、负载均衡和 SSL 终止是反向代理的主要功能，Traefik 通过容器标签提供动态配置来支持所有这些功能。如果你正在将其与 Nginx 进行比较，你需要记住
+    Traefik 不提供缓存--这是一个广受欢迎的功能，可能在未来的版本中添加到 Traefik 中。
+- en: 'There’s one last feature we’ll try which is easy in Traefik and much harder
+    in Nginx: sticky sessions. Modern apps are built to have as many stateless components
+    as possible--it’s important when you’re running at scale that client requests
+    can be routed to any container so you benefit from load-balancing and see immediate
+    results when you scale up. Old apps tend not to be built from stateless components,
+    and you may find when you migrate those apps to run in containers that you want
+    the user to be routed to the same container each time. That’s called a sticky
+    session, and you can enable that in Traefik with a setting for the service.'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将尝试的最后一个是 Traefik 中简单而在 Nginx 中困难的最后一个功能：粘性会话。现代应用程序被构建成尽可能多的无状态组件--当你大规模运行时，客户端请求可以被路由到任何容器，这样你可以从负载均衡中受益，并在扩展时立即看到结果。旧应用程序往往不是由无状态组件构建的，当你将这些应用程序迁移到容器中运行时，你可能希望用户每次都被路由到同一个容器。这被称为粘性会话，你可以在
+    Traefik 的服务设置中启用它。
+- en: 'Try it now The whoami app is an easy example of sticky sessions. You can scale
+    up the current deployment and make repeated calls--they’ll be load-balanced between
+    the containers by Traefik. Deploy a new version with sticky sessions, and all
+    your requests will be handled by the same container:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试 The whoami 应用程序是粘性会话的一个简单示例。你可以扩展当前的部署并重复调用--它们将由 Traefik 在容器之间进行负载均衡。部署带有粘性会话的新版本，所有请求都将由同一个容器处理：
+- en: '` # run the who-am-I app with multiple containers:` ` docker-compose -f whoami/docker-compose.yml
+    -f whoami/override-traefik.yml up -d --scale whoami=3`  ` # check that requests
+    are load-balanced between containers:` ` curl -c c.txt -b c.txt http://whoami.local`
+    ` curl -c c.txt -b c.txt http://whoami.local`  ` # now deploy the same app with
+    sticky session support:` ` docker-compose -f whoami/docker-compose.yml -f whoami/override-traefik-sticky.yml
+    up -d --scale whoami=3`  ` # and check that requests are served by the same container:`
+    ` curl -c c.txt -b c.txt http://whoami.local` ` curl -c c.txt -b c.txt http://whoami.local`'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 使用多个容器运行 who-am-I 应用程序：` ` docker-compose -f whoami/docker-compose.yml
+    -f whoami/override-traefik.yml up -d --scale whoami=3`  ` # 检查请求是否在容器之间进行负载均衡：`
+    ` curl -c c.txt -b c.txt http://whoami.local` ` curl -c c.txt -b c.txt http://whoami.local`
+     ` # 现在部署具有粘性会话支持的相同应用程序：` ` docker-compose -f whoami/docker-compose.yml -f whoami/override-traefik-sticky.yml
+    up -d --scale whoami=3`  ` # 并检查请求是否由同一容器提供服务：` ` curl -c c.txt -b c.txt http://whoami.local`
+    ` curl -c c.txt -b c.txt http://whoami.local`'
+- en: With sticky sessions enabled, your requests get served by the same container
+    each time because Traefik sets a cookie identifying which container it should
+    use for that client (you’ll see the same behavior with the browser too). If you’re
+    interested, you can examine the cookies in your browser session or in the `c.txt`
+    file, and you’ll see Traefik puts the container’s IP address in that cookie. The
+    next time you make a call, it uses the IP address to access the same container.
+    My output is in figure 20.15.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启用粘性会话后，每次请求都由相同的容器提供服务，因为Traefik设置了一个cookie来标识它应该为该客户端使用哪个容器（你也会在浏览器中看到同样的行为）。如果你感兴趣，可以检查浏览器会话中的cookie或在`c.txt`文件中的cookie，你会发现Traefik将容器的IP地址放入该cookie中。下次你发起调用时，它会使用IP地址来访问相同的容器。我的输出如图20.15所示。
+- en: '![](../Images/20-15.jpg)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-15.jpg)'
+- en: Figure 20.15 Enabling sticky sessions in Traefik--it uses cookies to send the
+    client to the same container.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.15 在Traefik中启用粘性会话——它使用cookie将客户端发送到相同的容器。
+- en: Sticky sessions are one of the major asks from teams moving old apps to containers,
+    and Traefik makes it pretty easy. It’s not quite the same as a sticky session
+    for a physical server or VM, because containers are replaced more frequently,
+    so clients could be stuck to a container that no longer exists. If the cookie
+    directs Traefik to an unavailable container, it will pick another one, so the
+    user will see a response, but their session will have ended.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 粘性会话是团队将旧应用程序迁移到容器时的一个主要需求，Traefik使其变得相当简单。这并不完全等同于物理服务器或VM的粘性会话，因为容器更换得更频繁，所以客户端可能会被绑定到一个不再存在的容器上。如果cookie指示Traefik指向一个不可用的容器，它会选择另一个容器，所以用户会看到响应，但他们的会话已经结束。
+- en: 20.5 Understanding the patterns a reverse proxy enables
+  id: totrans-119
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 20.5 理解反向代理所支持的模式
+- en: A reverse proxy is pretty much essential when you start running many containerized
+    apps in production. We’ve covered some of the more advanced features in this chapter--SSL,
+    caching, and sticky sessions--but even without those you’ll find you need a reverse
+    proxy sooner or later. There are three major patterns that a reverse proxy enables,
+    and we’ll finish up by walking through them.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你开始在生产中运行许多容器化应用程序时，反向代理几乎是必需的。我们在本章中介绍了一些更高级的功能——SSL、缓存和粘性会话——但即使没有这些，你也会发现你迟早需要反向代理。反向代理支持三种主要模式，我们将通过它们来结束本章。
+- en: The first is hosting several web applications on the standard HTTP and HTTPS
+    ports, using the host name in the client request to fetch the correct content,
+    as in figure 20.16.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一种模式是在标准HTTP和HTTPS端口上托管多个Web应用程序，使用客户端请求中的主机名来获取正确的内容，如图20.16所示。
+- en: '![](../Images/20-16.jpg)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-16.jpg)'
+- en: Figure 20.16 Using a reverse proxy to host many applications with different
+    domain names in one cluster
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.16 使用反向代理在一个集群中托管具有不同域名的大量应用程序
+- en: The second is for microservice architectures, where a single application runs
+    across multiple containers. You can use a reverse proxy to selectively expose
+    individual microservices, routed by HTTP request path. Externally your app has
+    a single domain, but different paths are served by different containers. Figure
+    20.17 shows this pattern.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二种模式是针对微服务架构，其中单个应用程序运行在多个容器上。你可以使用反向代理有选择地暴露单个微服务，通过HTTP请求路径进行路由。从外部来看，你的应用程序有一个单一的域名，但不同的路径由不同的容器提供服务。图20.17展示了这种模式。
+- en: '![](../Images/20-17.jpg)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-17.jpg)'
+- en: Figure 20.17 Microservices exposed by the reverse proxy are part of the same
+    application domain.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.17 由反向代理暴露的微服务属于同一应用程序域。
+- en: The final pattern is very powerful if you have old monolithic applications that
+    you want to migrate to containers. You can use a reverse proxy to start breaking
+    up the monolithic frontend of your old app, splitting features out into new containers.
+    Those new features are routed by the reverse proxy, and because they’re in separate
+    containers, they can use a different, modern technology stack. Figure 20.18 shows
+    this.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你希望将旧的单体应用程序迁移到容器中，这种最终模式非常强大。你可以使用反向代理开始分解旧应用程序的单体前端，将功能拆分到新的容器中。这些新功能由反向代理路由，因为它们在独立的容器中，所以可以使用不同的、更现代的技术堆栈。图20.18展示了这一点。
+- en: '![](../Images/20-18.jpg)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/20-18.jpg)'
+- en: Figure 20.18 The reverse proxy hides the monolithic architecture so it can be
+    broken into smaller services.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图20.18 反向代理隐藏了单体架构，使其可以分解成更小的服务。
+- en: These patterns are not mutually exclusive--in a single cluster you could have
+    a reverse proxy powering all three patterns, hosting multiple domains with a mixture
+    of microservices and monolithic applications running in containers.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些模式不是互斥的——在一个单独的集群中，你可以有一个反向代理驱动所有三个模式，托管多个域名，这些域名运行着混合了微服务和单体应用，这些应用都在容器中运行。
+- en: 20.6 Lab
+  id: totrans-131
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 20.6 实验室
+- en: 'We’ve got a whole new app for this lab--one that will clearly show the power
+    of a caching reverse proxy. It’s a simple website that calculates pi to a specified
+    number of decimal places. In the lab folder for this chapter, you can run the
+    app with Docker Compose and browse to http:/ /localhost:8031/?dp=50000 to see
+    what pi looks like to 50,000 decimal places. Refresh the browser and you’ll see
+    it takes just as long to compute the same response. Your job is to run the app
+    behind a reverse proxy:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们为这个实验室开发了一个全新的应用——一个将清楚地展示缓存反向代理强大功能的应用。这是一个简单的网站，可以计算到指定小数位数的π。在本章的实验室文件夹中，你可以使用Docker
+    Compose运行该应用，并通过访问http://localhost:8031/?dp=50000来查看π看起来像什么，精确到50,000位小数。刷新浏览器，你会发现计算相同响应所需的时间是一样的。你的任务是运行一个反向代理后的应用：
+- en: The app should be available at the domain `pi.local` on the standard HTTP port.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用应该可在`pi.local`域的常规HTTP端口上访问。
+- en: The proxy should cache responses so when users repeat the same request, the
+    response is served from the cache and is much faster than from the app.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代理应缓存响应，所以当用户重复相同的请求时，响应将从缓存中提供，这比从应用中提供要快得多。
+- en: The proxy should add resilience, so if you kill the app container, any cached
+    responses are still available from the proxy.
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代理应增加容错性，所以如果你杀死了应用容器，任何缓存的响应仍然可以通过代理获得。
+- en: 'My solution is up on GitHub, and you’ll find there are huge time savings from
+    caching proxies with compute-intensive work like this: *[https://github.com/sixeyed/diamol/
+    blob/master/ch20/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch20/lab/README.md)*
+    .'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的解决方案已上传至GitHub，你会在那里发现使用这种计算密集型工作（如缓存代理）可以节省大量时间：*[https://github.com/sixeyed/diamol/blob/master/ch20/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch20/lab/README.md)*。

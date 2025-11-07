@@ -1,0 +1,1611 @@
+- en: 12 etcd and the control plane
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 12个etcd和控制平面
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Comparing etcd v2 and v3
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 比较etcd v2和v3
+- en: Looking at a watch in Kubernetes
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 查看Kubernetes中的watch
+- en: Exploring the importance of strict consistency
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探讨严格一致性的重要性
+- en: Load balancing against etcd nodes
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 针对etcd节点的负载均衡
+- en: Looking at etcd’s security model in Kubernetes
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 查看Kubernetes中etcd的安全模型
+- en: As discussed in chapter 11, etcd is a key/value store with strong consistency
+    guarantees. It’s similar to ZooKeeper, which is used for popular technologies
+    like HBase and Kafka. A Kubernetes cluster at its core consists of
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如第11章所述，etcd是一个具有强一致性保证的键/值存储。它与ZooKeeper类似，后者被用于HBase和Kafka等流行技术。Kubernetes集群的核心由以下组成
+- en: The kubelet
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet
+- en: The scheduler
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调度器
+- en: The controller managers (KCM and CCM)
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 控制器管理器（KCM 和 CCM）
+- en: The API server
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: API服务器
+- en: These components all speak to one another by updating the API server. For example,
+    if the scheduler wants to run a Pod on a specific node, it does so by modifying
+    the Pod’s definition in the API server. If, during the process of starting a Pod,
+    the kubelet needs to broadcast an event, it does so by sending the API server
+    a message. Because the scheduler, kubelet, and controller manager all communicate
+    through the API server, this makes them strongly *decoupled*. For example, the
+    scheduler doesn’t know how a kubelet runs Pods, and the kubelet doesn’t know how
+    the API server schedules Pods. In other words, Kubernetes is a giant machine that
+    stores the state of your infrastructure at all times in the API server.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些组件通过更新API服务器相互通信。例如，如果调度器想在特定节点上运行Pod，它会通过修改API服务器中的Pod定义来实现。如果在启动Pod的过程中，kubelet需要广播一个事件，它会通过向API服务器发送消息来实现。由于调度器、kubelet和控制器管理器都通过API服务器进行通信，这使得它们高度*解耦*。例如，调度器不知道kubelet如何运行Pod，kubelet也不知道API服务器如何调度Pod。换句话说，Kubernetes是一个巨大的机器，它始终在API服务器中存储你的基础设施的状态。
+- en: When nodes, controllers, or API servers fail, your data center’s applications
+    need to be reconciled, such that a container can be scheduled to new nodes, the
+    volumes can be bound to those containers, and so on. All of the state modifications
+    that are made via the Kubernetes API are actually backed up in etcd. This is nothing
+    new in the world of scale-out computing. You’ve probably heard of tools like ZooKeeper
+    that are used in the same manner. In fact, HBase, Kafka, and many other distributed
+    platforms use ZooKeeper under the hood. The etcd database is just a modern version
+    of ZooKeeper with a few different opinions on how to store highly critical data
+    and reconcile records in cases of failure scenarios.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当节点、控制器或API服务器失败时，数据中心的应用程序需要进行协调，以便容器可以被调度到新的节点，卷可以被绑定到这些容器上，等等。通过Kubernetes
+    API进行的所有状态修改实际上都备份在etcd中。在扩展计算的世界里，这并不是什么新鲜事。你可能听说过像ZooKeeper这样的工具，它们以相同的方式使用。实际上，HBase、Kafka和许多其他分布式平台在底层都使用ZooKeeper。etcd数据库只是ZooKeeper的现代版本，它在如何存储高度关键数据以及在故障场景中协调记录方面有一些不同的看法。
+- en: 12.1 Notes for the impatient
+  id: totrans-14
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.1 对于不耐烦的人的笔记
+- en: 'It can be quite overwhelming once you begin looking at the theoretical internals
+    of distributed consensus scenarios and disaster recovery for etcd databases. Before
+    we dip our toe into that universe, let’s cover some practical details around etcd
+    in Kubernetes:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦开始研究分布式共识场景和etcd数据库的灾难恢复的理论内部机制，可能会感到相当令人不知所措。在我们深入那个领域之前，让我们先了解一下Kubernetes中etcd的一些实用细节：
+- en: If you lose your etcd data, your cluster will be crippled. Back up etcd!
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你丢失了etcd数据，你的集群将受到严重损害。备份etcd！
+- en: You will need fast disk access via a solid state disk and a high performance
+    network to run etcd v3 in production.
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产中运行etcd v3需要通过固态硬盘和高速网络进行快速的磁盘访问。
+- en: 'A single write in etcd that takes more than 1 second to serialize to disk can
+    slowly bring a large cluster to a halt. Given that you might have many writes
+    occurring at any given time, this implies network and disk requirements that roughly
+    correspond to a 10 GB network and solid state disks. From etcd’s own documentation
+    ([https://etcd.io/docs/v3.3/op-guide/hardware/](https://etcd.io/docs/v3.3/op-guide/hardware/)):
+    “Typically 50 sequential IOPS (e.g., a 7200 RPM disk) is required.” And often
+    etcd requires even more IOPS'
+  id: totrans-18
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: etcd中的单个写入操作，如果需要超过1秒的时间来序列化到磁盘，可能会逐渐使大型集群停止运行。考虑到你可能会在任何给定时间有许多写入操作，这意味着网络和磁盘需求大致相当于10
+    GB的网络和固态硬盘。根据etcd自己的文档（[https://etcd.io/docs/v3.3/op-guide/hardware/](https://etcd.io/docs/v3.3/op-guide/hardware/)）：“通常需要50个顺序IOPS（例如，7200
+    RPM的硬盘）。”而且，通常etcd需要更多的IOPS
+- en: There will be periodic failures in most data centers or cloud environments for
+    a given compute node, and thus, you need redundant etcd nodes. This means running
+    three or more etcd nodes in a given installation.
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于给定的计算节点，大多数数据中心或云环境都会出现周期性的故障，因此您需要冗余的etcd节点。这意味着在给定的安装中运行三个或更多的etcd节点。
+- en: For a clustered etcd environment, understanding how its Raft implementation
+    works, why disk I/O matters for Raft consensus, and how etcd uses CPU and memory
+    is going to be important.
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于集群化的etcd环境，了解其Raft实现的工作原理、为什么磁盘I/O对Raft共识很重要，以及etcd如何使用CPU和内存，将变得非常重要。
+- en: All events, in addition to cluster state, are stored in etcd. You should, however,
+    decide to store cluster events (of which there are many) in a different etcd endpoint
+    so that your core cluster data is not competing with the unimportant event metadata.
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有事件，除了集群状态外，都存储在etcd中。然而，您应该决定将集群事件（其中有很多）存储在不同的etcd端点，这样您的核心集群数据就不会与不重要的事件元数据竞争。
+- en: 'A command-line tool for interacting with the etcd server, `etcdctl`, has its
+    own embedded performance test for quick etcd performance verification: `etcdctl
+    check` `perf`.'
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于与etcd服务器交互的命令行工具`etcdctl`具有自己的嵌入式性能测试，用于快速验证etcd性能：`etcdctl check perf`。
+- en: If you need to rescue an etcd instance, you can follow the guidelines at [http://mng.bz/6Ze5](http://mng.bz/6Ze5)
+    to manually recover an etcd snapshot.
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您需要恢复etcd实例，可以遵循[http://mng.bz/6Ze5](http://mng.bz/6Ze5)中的指南手动恢复etcd快照。
+- en: 12.1.1 Visualizing etcd performance with Prometheus
+  id: totrans-24
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.1 使用Prometheus可视化etcd性能
+- en: Much of the information in this section will be anecdotal, as there is a lot
+    of theory involved in tuning and managing etcd inside of Kubernetes. To offset
+    that, we’ll start with an applied journey of how etcd tuning and observation might
+    work in a production scenario. These examples are advanced, and you’re welcome
+    to follow along, but it isn’t required to produce this data independently in order
+    to benefit from this section.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节中的大部分信息将是轶事性的，因为调整和管理Kubernetes内部的etcd涉及很多理论。为了弥补这一点，我们将从如何在生产环境中进行etcd调整和观察的实践旅程开始。这些示例是高级的，欢迎您跟随，但您不必独立产生这些数据，才能从本节中受益。
+- en: Figure 12.1 shows the canonical flow of processes that occur when any event
+    happens in a Kubernetes cluster. All writes ultimately coincide with a quorum
+    of multiple etcd servers agreeing that the writes are complete. This will give
+    us some context for the real-world scenario that we’ll go through in a moment.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.1显示了在Kubernetes集群中发生任何事件时发生的标准流程。所有写操作最终都与多个etcd服务器达成一致，认为写操作已完成。这将为我们提供即将讨论的现实场景的背景。
+- en: '![](../Images/CH12_F01_Love.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH12_F01_Love.png)'
+- en: Figure 12.1 Flow of processes when an event happens in a Kubernetes cluster
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.1 Kubernetes集群中事件发生时的流程
+- en: Every API server action (for example, any time you make a simple Pod via `kubectl`
+    `create` `-f` `mypod.yaml`) results in a synchronous write to etcd. This ensures
+    that the request to create the Pod is stored on disk in case the API server dies
+    at some point (which, by the law of large numbers, it eventually will). The API
+    server sends information to a “leader” etcd server, and from there, the magic
+    of distributed consensus takes over to set that write in stone. In figure 12.1,
+    we can see that
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个API服务器操作（例如，每次您通过`kubectl create -f mypod.yaml`创建简单的Pod时）都会导致对etcd的同步写入。这确保了创建Pod的请求在API服务器死亡的情况下（根据大数定律，它最终会死亡）存储在磁盘上。API服务器将信息发送到“领导者”etcd服务器，然后分布式共识的魔力接管，将此写入固定下来。在图12.1中，我们可以看到
+- en: This cluster has three etcd instances. Normally, this can be three, five, or
+    seven. The number of etcd instances is always odd so that a vote on electing a
+    new leader (we’ll look at etcd leadership towards the end of this chapter) is
+    always possible.
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 此集群有三个etcd实例。通常，这可以是三个、五个或七个。etcd实例的数量总是奇数，这样在选举新领导者（我们将在本章末尾讨论etcd领导权）时总是可能的。
+- en: A single API server can receive a write, at which point it stores data in its
+    designated etcd endpoint, which is specific to your etcd server on startup as
+    `--etcd-servers`.
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 单个API服务器可以接收一个写操作，此时它将在其指定的etcd端点存储数据，该端点在启动时特定于您的etcd服务器，作为`--etcd-servers`。
+- en: A write operation actually is slowed down by the slowest etcd node. If a single
+    node’s round trip to serialize data to disk is slow, then that time dominates
+    the total round trip time for a transaction.
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 写入操作实际上是由最慢的 etcd 节点减慢的。如果一个节点将数据序列化到磁盘的往返时间很慢，那么这个时间将主导事务的总往返时间。
+- en: 'Now, let’s take a look from an etcd perspective at what happens when our cluster
+    is healthy. First, you’ll need to install Prometheus. (Although we went over this
+    quite a while ago, in this case, there’s a slight deviation: we’re going to configure
+    Prometheus running in Docker to specifically scrape an etcd instance.) You may
+    recall that starting Prometheus requires giving it a YAML file so that it knows
+    from which targets it needs to scrape information. To customize this file for
+    analyzing the three etcd clusters in our example diagram, you would create the
+    following:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们从 etcd 的角度看看当我们的集群健康时会发生什么。首先，你需要安装 Prometheus。（尽管我们之前已经详细讨论过，但在这个案例中，有一个小的偏差：我们将配置在
+    Docker 中运行的 Prometheus，以便专门抓取 etcd 实例。）你可能还记得，启动 Prometheus 需要给它一个 YAML 文件，这样它就知道需要从哪些目标抓取信息。为了定制这个文件以分析我们示例图中的三个
+    etcd 集群，你会创建以下内容：
+- en: '[PRE0]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: For this process, the key metric that we will look at is the *fsync* metric.
+    This tells us how long the writes to etcd (disk) are taking. This metric is divided
+    into buckets (it’s a histogram). Any write taking close to 1 second is an indicator
+    that our performance is at risk. If we see that there’s a positive trend in the
+    number of writes that happen in more than, say, .25 seconds, we might start to
+    get concerned that our etcd cluster is slowing down because a production Kubernetes
+    cluster may as well.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个过程，我们将关注的指标是 *fsync* 指标。这个指标告诉我们写入 etcd（磁盘）所需的时间有多长。这个指标被划分为桶（它是一个直方图）。任何接近
+    1 秒的写入都是一个指标，表明我们的性能处于风险之中。如果我们看到超过 0.25 秒的写入数量呈上升趋势，我们可能会开始担心我们的 etcd 集群正在变慢，因为生产
+    Kubernetes 集群也可能如此。
+- en: After launching Prometheus with this configuration, you can make some pretty
+    graphs. Let’s take a look at a happy Kubernetes cluster where the various etcd
+    nodes are all functioning properly. Prometheus histograms can be counterintuitive
+    in the beginning. The important thing to remember is that if a particular bucket
+    changes in slope, you might be in trouble! In our first Prometheus graph, in figure
+    12.2, we can see that
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用此配置启动 Prometheus 后，你可以制作一些相当漂亮的图表。让我们看看一个快乐的 Kubernetes 集群，其中各个 etcd 节点都运行正常。Prometheus
+    的直方图在开始时可能会让人感到困惑。重要的是要记住，如果特定的桶斜率发生变化，你可能会遇到麻烦！在我们的第一个 Prometheus 图表（图 12.2）中，我们可以看到：
+- en: The amount of writes taking more than 1 seconds is negligible.
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 超过 1 秒的写入量可以忽略不计。
+- en: The amount of writes taking more than .5 seconds is negligible.
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 超过 0.5 秒的写入量可以忽略不计。
+- en: The only deviation in overall write speeds happens in high performance buckets.
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 整体写入速度的唯一偏差发生在高性能桶中。
+- en: Most importantly, the slope of the lines does not change.
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最重要的是，线的斜率没有变化。
+- en: '![](../Images/CH12_F02_Love.png)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH12_F02_Love.png)'
+- en: Figure 12.2 Graph of a healthy cluster and etcd metrics
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.2 健康集群和 etcd 指标图
+- en: Some clusters are not quite so happy. If we reinstall the same cluster on hardware
+    that is, for example, running on a slow set of disks, we will eventually end up
+    with a histogram that looks like figure 12.3\. In contrast to figure 12.2, you’ll
+    note that there is a drastic change of slope in some of the histogram’s buckets
+    over time. The bucket with the most wildly oscillating slope represents writes
+    that happen in less than .5 seconds. Because we normally expect almost all writes
+    to happen below this margin, we know that over time, our cluster may be in jeopardy;
+    however, it’s not necessarily a smoking gun that our cluster is not healthy or
+    is trending towards disaster.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些集群并不那么令人满意。如果我们将相同的集群重新安装在例如运行在慢速磁盘组上的硬件上，我们最终会得到一个类似于图 12.3 的直方图。与图 12.2
+    相比，你会注意到直方图的一些桶随着时间的推移发生了剧烈的斜率变化。斜率波动最剧烈的桶代表在不到 0.5 秒内发生的写入。因为我们通常期望几乎所有写入都发生在这一界限以下，我们知道随着时间的推移，我们的集群可能处于危险之中；然而，这并不一定意味着我们的集群不健康或正趋向于灾难。
+- en: '![](../Images/CH12_F03_Love.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH12_F03_Love.png)'
+- en: Figure 12.3 Graph of an unhealthy cluster and etcd metrics
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.3 不健康集群和 etcd 指标图
+- en: 'We’ve now seen that it’s easy to monitor etcd over time in a cluster. But how
+    can we correlate this to real problems that are happening? The performance of
+    an etcd server’s write capacity can lead to problems involving frequent leader
+    elections if it continually degrades. Every leader election event in a Kubernetes
+    cluster means that `kubectl` will be essentially useless for a period of time
+    while the API server waits for etcd to come back online. Finally, we’ll look at
+    one more metric: leader election (figure 12.4).'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到，在集群中监控etcd随时间的变化很容易。但我们如何将其关联到实际发生的问题呢？etcd服务器写容量性能的下降可能导致频繁的领导选举问题。Kubernetes集群中的每个领导选举事件都意味着在API服务器等待etcd重新上线期间，`kubectl`将基本上无用。最后，我们将查看另一个指标：领导选举（图12.4）。
+- en: '![](../Images/CH12_F04_Love.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![嵌套虚拟化图](../Images/CH12_F04_Love.png)'
+- en: Figure 12.4 Graph of leader election and etcd metrics
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.4 领导选举和etcd指标图
+- en: To see the consequences of figure 12.3, we can look directly at the leader election
+    event’s metric, `etcd_server_is_leader`. By graphing this over time (figure 12.4),
+    you can easily notice when bursts of elections happen in the data center. Next,
+    we’ll go over a few simple smoke tests that you can run using tools such as `etcdctl`
+    for diagnosing individual etcd nodes quickly.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看图12.3的后果，我们可以直接查看领导选举事件的指标，`etcd_server_is_leader`。通过随时间绘制此指标（图12.4），您可以轻松地注意到数据中心中何时发生选举的爆发。接下来，我们将介绍一些简单的烟雾测试，您可以使用`etcdctl`等工具快速诊断单个etcd节点。
+- en: 12.1.2 Knowing when to tune etcd
+  id: totrans-50
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.2 了解何时调整etcd
+- en: As noted in the previous section, you might need to tune an etcd instance in
+    production. There are hundreds of scenarios that might lead you to consider this
+    path, but for concreteness, we’ll briefly look at a couple. There are many Kubernetes
+    providers that will either manage etcd for you (cluster API-based installations
+    will do this to some extent by storing etcd on individual nodes that can be recreated)
+    or hide etcd entirely from you (such as GKE). In other cases, you might need to
+    think about how etcd is installed and what circumstances it is running under.
+    Two interesting use cases in this regard are nested virtualization and raw `kubeadm`-based
+    Kubernetes installation. Let’s look at these two use cases next.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前节所述，在生产环境中，您可能需要调整etcd实例。有许多场景可能导致您考虑这一路径，但为了具体说明，我们将简要探讨几个例子。有许多Kubernetes提供商将为您管理etcd（基于集群API的安装将在一定程度上通过将etcd存储在可以重新创建的各个节点上来完成此操作）或者完全隐藏etcd（例如GKE）。在其他情况下，您可能需要考虑etcd的安装方式和运行环境。在这方面有两个有趣的用例：嵌套虚拟化和基于`kubeadm`的原始Kubernetes安装。让我们接下来看看这两个用例。
+- en: Nested virtualization
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌套虚拟化
+- en: 'Nested virtualization is common in developer and test environments. As an example,
+    you might use a technology such as VMware Fusion to simulate a vSphere Hypervisor.
+    In this case, you’ll have VMs that run inside of other VMs. We can think of the
+    nodes in our `kind` clusters as an analog to nested virtualization: we have Docker
+    containers that run inside of a Docker daemon, which simulate VMs, and then inside
+    of these Docker nodes, we run Kubernetes containers. In any case, as you might
+    imagine, nesting a VM inside another VM creates a huge performance overhead and
+    is not recommended for a production Kubernetes. The main reason it is such a dangerous
+    hardware profile is that, as we virtualize multiple layers, we add latency to
+    the write operations on a hard disk. This latency can make etcd extremely unreliable.'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌套虚拟化在开发者和测试环境中很常见。例如，您可能使用VMware Fusion等技术来模拟vSphere Hypervisor。在这种情况下，您将拥有运行在其他VM内部的VM。我们可以将我们的`kind`集群中的节点视为嵌套虚拟化的类比：我们有运行在Docker守护进程内部的Docker容器，这些容器模拟VM，然后在这些Docker节点内部运行Kubernetes容器。无论如何，如您所想象的那样，在另一个VM内部嵌套VM会创建巨大的性能开销，并且不建议在生产Kubernetes中使用。它之所以如此危险的硬件配置，主要原因是，随着我们虚拟化多层，我们在硬盘上的写操作中增加了延迟。这种延迟可以使etcd变得极其不可靠。
+- en: Nested virtualization limits IOPS (input/output operations) and leads to common
+    write failures. Although Kubernetes itself recovers from these, many Pods will
+    continuously lose leader status if you are using the Lease API in Kubernetes,
+    which is increasingly common. This can lead to false alarms and/or progress starvation
+    in long-running, consensus-driven applications. As an example, the Cluster API
+    itself (which we’ll cover later) is heavily dependent on leases for healthy functionality.
+    If you run the Cluster API as your Kubernetes provider and you don’t have a healthy
+    etcd for your management cluster, you may never see Kubernetes cluster requests
+    fulfilled. Even without a cluster solution like the Cluster API, which is etcd-dependent,
+    you still will have problems when it comes to your API server’s ability to keep
+    up with node status and to receive incoming updates from controllers.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嵌套虚拟化限制了IOPS（输入/输出操作），并导致常见的写入失败。尽管Kubernetes本身可以从中恢复，但如果你在Kubernetes中使用Lease
+    API，许多Pod将不断丢失领导者状态，这是越来越常见的情况。这可能导致长时间运行、基于共识的应用程序出现误报和/或进展停滞。例如，Cluster API本身（我们将在后面介绍）严重依赖于租约以实现健康的功能。如果你将Cluster
+    API作为你的Kubernetes提供者运行，并且你的管理集群没有健康的etcd，你可能永远看不到Kubernetes集群请求得到满足。即使没有像Cluster
+    API这样的集群解决方案，它依赖于etcd，你仍然会在你的API服务器跟上节点状态和接收来自控制器的更新时遇到问题。
+- en: kubeadm
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubeadm
+- en: For a lot of Kubernetes providers, `kubeadm` is the default installer and is
+    often used as a building block for a Kubernetes distribution. However, it doesn’t
+    come out of the box with an end-to-end etcd story. For production use cases, you
+    need to bring your own etcd data store to `kubeadm` rather than using its defaults,
+    which, although reasonable, might need to be tweaked or architected specifically
+    for scalability requirements. For example, you may want to create an external
+    etcd cluster with a dedicated disk drive and send this as input to your `kubeadm`
+    installation.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于许多Kubernetes提供者来说，`kubeadm`是默认的安装程序，通常用作Kubernetes发行版的构建块。然而，它并没有自带端到端的etcd故事。对于生产用例，你需要将你自己的etcd数据存储带到`kubeadm`，而不是使用其默认设置，尽管这些设置是合理的，但可能需要根据可伸缩性要求进行调整或专门设计。例如，你可能想要创建一个具有专用磁盘驱动器的外部etcd集群，并将其作为输入发送到你的`kubeadm`安装。
+- en: '12.1.3 Example: A quick health check of etcd'
+  id: totrans-57
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.3 示例：对etcd进行快速健康检查
+- en: 'We started this chapter by looking at time-series fsync performance in Prometheus,
+    but in production, you won’t often have the ability to craft beautiful graphs
+    and pontificate. One of the simplest ways to quickly make sure etcd is not down
+    is to use the `etcdctl` command-line tool, which comes with an embedded performance
+    test. As an example, go ahead and `ssh` (or `docker exec` if you are on a `kind`
+    cluster) into your cluster node that’s running etcd. Then run `find` to track
+    down where your `etcdctl` binary is living:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们从查看Prometheus中的时间序列fsync性能开始本章，但在生产环境中，你通常没有能力制作漂亮的图表和发表评论。确保etcd没有宕机的一种简单方法就是使用`etcdctl`命令行工具，该工具包含一个内置的性能测试。例如，先通过`ssh`（如果你在`kind`集群上，可以使用`docker
+    exec`）进入运行etcd的集群节点。然后运行`find`来追踪`etcdctl`二进制文件所在的位置：
+- en: '[PRE1]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'From here, use this binary for etcd. Send it the necessary `cacert`s, which
+    will likely be living in /etc/kubernetes/pki/ if you are using `kind` or Cluster
+    API-based clusters:'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从这里开始，使用这个二进制文件来配置etcd。发送必要的`cacert`文件，如果使用`kind`或基于Cluster API的集群，这些文件可能位于`/etc/kubernetes/pki/`：
+- en: '[PRE2]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: This tells us, as a baseline, that etcd is fast enough for production use. Exactly
+    what this means and why it’s important will be exemplified throughout the rest
+    of this chapter.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这告诉我们，作为基准，etcd对于生产使用来说足够快。这究竟意味着什么以及为什么它很重要将在本章的其余部分中举例说明。
+- en: 12.1.4 etcd v3 vs. v2
+  id: totrans-63
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.4 etcd v3与v2的比较
+- en: 'If you run any version of Kubernetes after 1.13.0 with etcd v2 or lower, you
+    will get the following error message: “etcd2 is no longer a supported storage
+    backend.” Thus, etcd v2 is most likely a nonfactor, and you probably are running
+    etcd v3 in production. This is good news because when cluster sizes become large,
+    or the amount of cloud native tooling you have increases, you might have hundreds
+    or thousands of clients depending on your Kubernetes API server. Once you reach
+    this tipping point, you need etcd v3:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你使用1.13.0之后的任何版本的Kubernetes，并且使用etcd v2或更低版本，你会得到以下错误信息：“etcd2不再支持作为存储后端。”因此，etcd
+    v2很可能不是问题所在，你很可能在生产环境中运行的是etcd v3。这是一个好消息，因为当集群规模变得很大，或者你拥有的云原生工具数量增加时，可能会有数百或数千个客户端依赖于你的Kubernetes
+    API服务器。一旦达到这个临界点，你需要etcd v3：
+- en: etcd v3 is much better then v2 for performance purposes.
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd v3 在性能方面比 v2 要好得多。
+- en: etcd v3 uses gRPC for faster transactions.
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd v3 使用 gRPC 以实现更快的交易。
+- en: etcd v3 has a completely flat key space (compared with a hierarchical one) for
+    faster concurrent access at scales that can easily support thousands of clients.
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与具有分层结构的键空间相比，etcd v3 具有完全平坦的键空间，以便在可以轻松支持数千个客户端的规模上实现更快的并发访问。
+- en: etcd v3 watches operations, which are the basis for a Kubernetes controller,
+    can inspect many different keys over a single TCP connection.
+  id: totrans-68
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd v3 观察操作，这是 Kubernetes 控制器的基础，可以在单个 TCP 连接上检查许多不同的键。
+- en: We’ve discussed etcd in other parts of this book, so we assume that you already
+    know why it’s important. Instead, we’ll zero in on the *hows* of etcd’s internal
+    implementation for the purposes of this chapter.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在其他部分已经讨论了 etcd，所以我们假设你已经知道为什么它很重要。相反，我们将专注于本章目的的 etcd 内部实现的“如何”。
+- en: 12.2 etcd as a data store
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.2 etcd 作为数据存储
+- en: Consensus algorithms have been a key part of distributed systems from day one.
+    As early as the 1970s, Ted Codd’s rules for databases were, indeed, largely a
+    way to simplify the world of transactional programming so that any computer program
+    did not have to waste time resolving redundant, overlapping, or inconsistent data
+    records. Kubernetes is no different.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一致性算法从一开始就是分布式系统的一个关键部分。早在 20 世纪 70 年代，Ted Codd 的数据库规则确实在很大程度上是为了简化事务编程的世界，以便任何计算机程序都不必浪费时间解决冗余、重叠或不一致的数据记录。Kubernetes
+    没有不同。
+- en: The decisions on the architecture of the data plane, implemented via etcd, and
+    the control plane (the scheduler, the controller managers, and the API server)
+    are all based on the same principle of *consistency at all costs*. etcd, therefore,
+    solves the generic problem of reconciling global knowledge. The core functionality
+    underlying the Kubernetes API server includes
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据平面的架构决策，通过 etcd 实现，以及控制平面（调度器、控制器管理器和 API 服务器）都是基于“不惜一切代价保持一致性”的原则。因此，etcd
+    解决了协调全局知识的通用问题。Kubernetes API 服务器背后的核心功能包括
+- en: Creating key/value pairs
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建键/值对
+- en: Deleting key/value pairs
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 删除键/值对
+- en: Watching keys (with selection filters that can prevent watches from unnecessarily
+    getting data)
+  id: totrans-75
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 观察键（带有可以防止观察不必要获取数据的筛选器）
+- en: '12.2.1 The watch: Can you run Kubernetes on other databases?'
+  id: totrans-76
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.2.1 观察：你能在其他数据库上运行 Kubernetes 吗？
+- en: 'Watches in Kubernetes allow you to “watch” an API resource—not several API
+    resources, just one. This is important to note because a real-world Kubernetes-native
+    application might need to make many watches to respond to new incoming Kubernetes
+    events. Note here that, by API resource, we mean a specific object type, such
+    as Pods or Services. Every time you watch a resource, you can receive events that
+    affect it (for example, you can receive an event from your client each time a
+    new Pod is added or deleted from a cluster). The pattern in Kubernetes for building
+    watch-based applications is known as the *controller pattern*. We’ve mentioned
+    this before in this book: controllers are the backbone of how Kubernetes manages
+    homeostasis in clusters.'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 中的观察允许你“观察”一个 API 资源——不是几个 API 资源，而是一个。这一点很重要，因为现实世界的 Kubernetes
+    原生应用程序可能需要执行许多观察来响应新的 Kubernetes 事件。注意，在这里，我们所说的 API 资源是指特定的对象类型，例如 Pods 或 Services。每次你观察一个资源时，你都可以接收影响它的事件（例如，每次在集群中添加或删除新的
+    Pod 时，你都可以从你的客户端接收事件）。在 Kubernetes 中构建基于观察的应用程序的模式被称为“控制器模式”。我们在这本书中已经提到过：控制器是
+    Kubernetes 在集群中管理稳态的支柱。
+- en: Now, let’s focus on the last operation, as it is a critical differentiator for
+    how Kubernetes works compared with other database-backed applications. Most databases
+    do not have a watch operation. We’ve alluded to the importance of a watch many
+    times in this book. Because Kubernetes itself is just a bunch of controller loops
+    that maintain homeostasis of a distributed group of computers, a mechanism for
+    monitoring changes in the desired state of affairs is required. A few databases
+    that support watches, which you may have heard of, include
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们专注于最后一个操作，因为它与其他数据库后端应用程序相比，是 Kubernetes 工作方式的一个关键区分因素。大多数数据库都没有观察操作。我们在这本书中多次提到了观察的重要性。因为
+    Kubernetes 本身只是一系列控制器循环，用于维护分布式计算机组的稳态，所以需要一个机制来监控期望状态的变化。一些支持观察的数据库，你可能已经听说过，包括
+- en: Apache ZooKeeper
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Apache ZooKeeper
+- en: Redis
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Redis
+- en: etcd
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd
+- en: 'The Raft protocol is a way to manage distributed consensus, and was written
+    as a follow-up to the Paxos protocol used by Apache ZooKeeper. Raft is easier
+    to reason about than Paxos, and simply defines a robust and scalable way to ensure
+    that a distributed group of computers can agree on the state of a key/value database.
+    In short, we can define Raft like so:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Raft协议是一种管理分布式一致性的方式，它是作为Apache ZooKeeper使用的Paxos协议的后续而编写的。与Paxos相比，Raft更容易推理，并且简单地定义了一种健壮且可扩展的方式来确保分布式计算机组能够就键/值数据库的状态达成一致。简而言之，我们可以这样定义Raft：
+- en: There is a leader and several follower nodes in a database with an odd number
+    of total nodes.
+  id: totrans-83
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在一个节点总数为奇数的数据库中，有一个主节点和多个跟随节点。
+- en: A client requests a write operation on a database.
+  id: totrans-84
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 客户端请求在数据库上执行写操作。
+- en: A server receives the write request and forwards it to several follower nodes.
+  id: totrans-85
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 服务器接收写请求并将其转发给多个跟随节点。
+- en: Once half of the follower nodes receive and acknowledge the write request, the
+    server commits this request.
+  id: totrans-86
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一旦一半的跟随节点接收并确认了写请求，服务器就会提交这个请求。
+- en: The client receives a successful write response from the server.
+  id: totrans-87
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 客户端从服务器接收到成功的写响应。
+- en: If a leader dies, the followers elect a new leader, and this same process continues
+    with the old leader evicted from the cluster.
+  id: totrans-88
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果领导者死亡，跟随节点将选举一个新的领导者，并且这个过程会继续，旧的领导者被从集群中移除。
+- en: Of the aforementioned databases, etcd has a strict consistency model based on
+    the Raft protocol and is much more purposely built for coordinating data centers
+    and, thus, was the choice for Kubernetes. That said, it can be feasible to run
+    Kubernetes on another database. There is no Kubernetes-specific functionality
+    inside etcd. In any case, Kubernetes has the core requirement of being able to
+    watch a data source so that it can do tasks such as scheduling Pods, creating
+    load balancers, provisioning storage, and so on. The value of the watch semantic
+    on a database is, however, only as meaningful as the quality of the data being
+    reconciled.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上述数据库中，etcd基于Raft协议具有严格的强一致性模型，并且更专门地构建用于协调数据中心，因此成为了Kubernetes的选择。尽管如此，在另一个数据库上运行Kubernetes也是可行的。etcd内部没有Kubernetes特定的功能。无论如何，Kubernetes的核心需求是能够监视数据源，以便执行诸如调度Pod、创建负载均衡器、提供存储等任务。然而，数据库上监视语义的价值仅与正在协调的数据质量相当。
+- en: 'As mentioned, etcd v3 has the ability to watch many records over a single TCP
+    connection. This optimization makes etcd v3 a powerful companion for large Kubernetes
+    clusters. Thus, Kubernetes has a second requirement for its database: consistency.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如之前提到的，etcd v3能够在单个TCP连接上监视多个记录。这种优化使得etcd v3成为大型Kubernetes集群的有力伴侣。因此，Kubernetes对其数据库的第二个要求是一致性。
+- en: 12.2.2 Strict consistency
+  id: totrans-91
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.2.2 严格的强一致性
+- en: 'Imagine it’s Christmas, and you’re running an application for a shopping site
+    that needs extreme uptime. Now, imagine one of your etcd nodes “thinks” you needed
+    2 Pods for a critical service, but in actuality, you needed 10\. In this case,
+    a downscaling event might occur, interfering with your production availability
+    requirements for this critical application. In this case, the cost of failing
+    over from a correct etcd node to an incorrect one is higher than the cost of not
+    failing over at all! Thus, etcd is strictly consistent. This is done by key architectural
+    constants behind an etcd installation:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设现在是圣诞节，你正在运行一个为购物网站提供服务的应用程序，该网站需要极高的正常运行时间。现在，假设你的etcd节点“认为”你需要为关键服务分配2个Pod，但实际上你需要10个。在这种情况下，缩容事件可能会发生，干扰你对该关键应用程序的生产可用性要求。在这种情况下，从正确的etcd节点切换到错误的节点的成本高于完全不切换的成本！因此，etcd是严格一致的。这是通过etcd安装背后的关键架构常数实现的：
+- en: There is only one leader in an etcd cluster, and that leader’s world view is
+    100% correct.
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在etcd集群中只有一个领导者，并且该领导者的世界观是100%正确的。
+- en: An odd-number quorum of etcd instances can always vote to decide which instance
+    is the leader in case a new one needs to be created due to loss of an etcd node.
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在etcd实例中，奇数多数的实例可以始终投票决定在需要创建新实例以弥补etcd节点丢失的情况下，哪个实例是领导者。
+- en: No write can occur in an etcd quorum until it is persisted collectively to the
+    quorum’s disks.
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在etcd的法定多数中，没有写操作可以发生，直到它被共同持久化到法定多数的磁盘上。
+- en: An etcd node that doesn’t have an up-to-date record of all transactions will
+    never serve any data. This is enforced by a consensus protocol called Raft, which
+    we’ll discuss later.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果一个etcd节点没有所有事务的最新记录，它将永远不会提供任何数据。这是通过称为Raft的共识协议强制执行的，我们将在后面讨论。
+- en: An etcd cluster at any time has exactly one, and only one, leader that we can
+    write to.
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 任何时刻的 etcd 集群恰好有一个，且只有一个，我们可以向其写入的领导者。
+- en: All etcd writes are blocked on the write, cascading to at least half of the
+    etcd nodes in a quorum.
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有 etcd 写入都会在写入操作上阻塞，级联到至少半数 etcd 节点。
+- en: 12.2.3 fsync operations make etcd consistent
+  id: totrans-99
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.2.3 `fsync` 操作使 etcd 保持一致性
+- en: '`fsync` operations block disk writes, which guarantee that etcd is consistent.
+    When you write data to etcd, it guarantees that a real disk is actually modified
+    before the write returns. This can make certain API operations slow, and in turn,
+    it also guarantees that you’ll never lose data about your cluster’s state in a
+    Kubernetes outage. The faster your disks (yes, your disks, not your memory or
+    CPU), the faster an `fsync` operation will be:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fsync` 操作会阻塞磁盘写入，这保证了 etcd 的一致性。当你向 etcd 写入数据时，它保证在写入返回之前，实际的磁盘已经被修改。这可能会使某些
+    API 操作变慢，反过来，这也保证了在 Kubernetes 故障期间，你永远不会丢失关于集群状态的数据。你的磁盘越快（是的，你的磁盘，而不是你的内存或 CPU），`fsync`
+    操作就会越快：'
+- en: In production clusters, you will generally see performance slow-down (or failures)
+    if the fsync operation duration extends beyond 1 second.
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产集群中，如果你发现 `fsync` 操作持续时间超过 1 秒，你通常会看到性能下降（或故障）。
+- en: In a typical cloud, you should expect this operation to complete within 250
+    ms or so.
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在典型的云环境中，你应该期望这个操作在 250 毫秒左右完成。
+- en: 'The simplest way to understand how etcd performs is to look at its `fsync`
+    performance. Let’s quickly do this in one of the myriad `kind` clusters that you’ve
+    likely spun up throughout your earlier adventures in this book. In your terminal,
+    run `docker exec -t -i <kind container> /bin/bash` like so:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解 etcd 如何执行的最简单方法就是查看它的 `fsync` 性能。让我们快速在一个你可能在本书早期冒险中启动的无数 `kind` 集群中这样做。在你的终端中运行
+    `docker exec -t -i <kind container> /bin/bash`，如下所示：
+- en: '[PRE3]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Now, let’s take a look at the speed of `fsync`. Prometheus metrics are published
+    by etcd for its performance, which can be `curl`ed down or viewed in a tool such
+    as Grafana. These metrics tell us, in seconds, how long the blocking `fsync` calls
+    take for writes. In a local cluster on an SSD, you’ll see that this can be fast
+    indeed. For example, on a local `kind` cluster running on a laptop with a solid
+    state drive, you may see something like this:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看 `fsync` 的速度。etcd 发布 Prometheus 指标以衡量其性能，这些指标可以通过 `curl` 下载或在 Grafana
+    等工具中查看。这些指标告诉我们，以秒为单位，阻塞的 `fsync` 调用需要多长时间。在一个运行在固态硬盘上的本地 `kind` 集群中，你会发现这确实很快。例如，在一个运行在笔记本电脑上的本地
+    `kind` 集群中，你可能会看到如下内容：
+- en: '[PRE4]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: The buckets in this output tell us that
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这输出中的桶告诉我们
+- en: 1,239 out of 2,588 writes to disk happened in .001 seconds.
+  id: totrans-108
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2,588 次磁盘写入中有 1,239 次在 0.001 秒内发生。
+- en: 2,587 out or 2,588 writes to disk happened within .008 seconds or less.
+  id: totrans-109
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 0.008 秒或更短的时间内，发生了 2,587 次或 2,588 次磁盘写入。
+- en: One write happened within .016 seconds.
+  id: totrans-110
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有一次写入发生在 0.016 秒内。
+- en: No writes took more than .016 seconds.
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 没有写入操作超过 0.016 秒。
+- en: You’ll notice these buckets are exponentially graded because once your writes
+    take longer than 1 second, it doesn’t matter; your cluster is likely broken. That’s
+    because there can be hundreds of watches and events firing at any given time in
+    Kubernetes in order to do their jobs, all of which are dependent on the speed
+    of etcd’s I/O.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会注意到这些桶是指数级分级的，因为一旦你的写入操作超过 1 秒，那就没关系了；你的集群可能已经损坏。这是因为 Kubernetes 中在任何给定时间都可能有许多监视和事件正在触发以完成它们的工作，所有这些工作都依赖于
+    etcd 的 I/O 速度。
+- en: 12.3 Looking at the interface for Kubernetes to etcd
+  id: totrans-113
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.3 查看 Kubernetes 到 etcd 的接口
+- en: 'The Kubernetes data store interface gives us the concrete abstraction that
+    Kubernetes itself uses to access an underlying data store. Of course, the only
+    popular and well-tested implementation of a Kubernetes data store is etcd. The
+    API server in Kubernetes abstracts etcd into a few core operations—`Create`, `Delete`,
+    `WatchList`, `Get`, `GetToList`, and `List`—as the following code snippet shows:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 数据存储接口为我们提供了 Kubernetes 本身用来访问底层数据存储的实体抽象。当然，Kubernetes 数据存储的唯一流行且经过良好测试的实现是
+    etcd。Kubernetes 的 API 服务器将 etcd 抽象为几个核心操作——`Create`、`Delete`、`WatchList`、`Get`、`GetToList`
+    和 `List`——如下代码片段所示：
+- en: '[PRE5]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Next, let’s look at `WatchList` and `Watch`. These functions are part of what
+    make etcd special, compared to other databases (although other databases like
+    ZooKeeper and Redis also implement this API):'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看看 `WatchList` 和 `Watch`。这些函数是使 etcd 与其他数据库（尽管其他数据库如 ZooKeeper 和 Redis
+    也实现了此 API）不同的部分：
+- en: '[PRE6]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 12.4 etcd’s job is to keep the facts straight
+  id: totrans-118
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.4 etcd 的任务是保持事实清晰
+- en: Strict consistency is a key component of Kubernetes in production, as we can
+    discern from this chapter. But how can multiple database nodes all have the same
+    view of a system at any given time? The answer is, simply, they can’t. The travel
+    of information has speed limitations, and although its speed limit is fast, it
+    is not infinitely fast. There is always a latency between when a write happens
+    to one location and when that write is cascaded (or backed up) into another location.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 严格一致性是 Kubernetes 在生产中的关键组成部分，正如我们从本章中可以看出的。但是，多个数据库节点如何在任何给定时间都拥有对系统的相同视图呢？答案是，简单来说，它们不能。信息传输有速度限制，尽管其速度限制很快，但并非无限快。从写入发生到写入被级联（或备份）到另一个位置之间始终存在延迟。
+- en: 'Many a PhD thesis has been written on this subject, and we will not attempt
+    to explain the theoretical limitations of consensus and strict writes in gory
+    detail. What we will do, however, is to define a few concepts with specific Kubernetes
+    motivations that ultimately depend on the ability of etcd to maintain a consistent
+    view of a cluster. For example:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多人已经就这个主题撰写了博士论文，我们不会试图详细解释共识和严格写入的理论限制。然而，我们将定义一些具有特定 Kubernetes 动机的概念，这些概念最终取决于
+    etcd 维护集群一致视图的能力。例如：
+- en: You can only accept one new fact at a time, and these facts must flow to a single
+    node running the control plane.
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你一次只能接受一个新事实，并且这些事实必须流向运行控制平面的单个节点。
+- en: The state of the system at any given time is the sum total of all current facts.
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在任何给定时间，系统的状态是所有当前事实的总和。
+- en: The Kubernetes API server provides read and write operations that are always
+    100% correct with regard to the existing stream of facts.
+  id: totrans-123
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes API 服务器提供始终与现有事实流 100% 正确的读写操作。
+- en: Because entities in any database might change over time, older versions of a
+    record might be available, and etcd supports the notion of versioned entries.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于任何数据库中的实体可能会随时间变化，因此可能会提供旧版本的记录，并且 etcd 支持版本化条目的概念。
+- en: 'This involves two stages: establishing leadership at a given time so that a
+    fact that is being proposed into the stream of facts is accepted by all members
+    in a system, and then writing that fact to those members. This is a (crude) rendition
+    of what is known as the *Paxos consensus algorithm*.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这涉及两个阶段：在特定时间建立领导权，以便将事实提议到事实流中时，所有系统成员都接受该事实，然后将其写入这些成员。这是所谓的 *Paxos 一致性算法*
+    的（粗略）版本。
+- en: Given that the preceding logic is quite complex, imagine a scenario where cluster
+    leaders are continually trading off and starving one another. By “starving,” we
+    mean to say that a leader election scenario reduces uptime of etcd availability
+    for writes. If elections continue to occur, then write throughput suffers. In
+    Raft, rather than continually getting a leadership lock for every new transaction,
+    we continually just send facts from a single leader. That leader can change over
+    time, and a new leader is elected.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于前面的逻辑相当复杂，想象一个场景，其中集群领导者不断地相互竞争和剥夺对方。通过“剥夺”，我们是指领导者选举场景减少了 etcd 可用性对于写入的在线时间。如果选举持续发生，那么写入吞吐量就会受到影响。在
+    Raft 中，我们不是为每个新事务不断地获取领导权锁，而是不断地从单个领导者发送事实。这个领导者可以随时间变化，并且会选举新的领导者。
+- en: etcd ensures that the leader’s unavailability does not result in an inconsistent
+    state of the database, and, thus, writes are aborted if a leader dies during a
+    transaction before the writes have cascaded to 50% of the etcd nodes in a cluster.
+    This is described in figure 12.1, where our sequence diagram returns from a write
+    request after the second node in the cluster has acknowledged a write. Note that
+    the third etcd node can take its sweet time to update its own internal state at
+    this point, without slowing down the overall database speed.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: etcd 确保领导者的不可用不会导致数据库状态不一致，因此，如果在写入尚未传播到集群中 50% 的 etcd 节点之前，领导者在一个事务中死亡，则写入将被中止。这在本章的图
+    12.1 中有所描述，其中我们的序列图在集群中的第二个节点确认写入后返回写入请求。请注意，第三个 etcd 节点可以在这个时候慢慢更新其自身的内部状态，而不会减慢整体数据库的速度。
+- en: This is important to consider when we look at how etcd nodes are distributed,
+    especially if these nodes are distributed across different networks. In that case,
+    elections may be more frequent because you can lose leaders more often in data
+    center to data center internetworking slowness. At any time, the majority of all
+    databases in an etcd cluster will have an up-to-date log of all transactions.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们考虑 etcd 节点的分布情况时，这一点非常重要，尤其是如果这些节点分布在不同的网络中。在这种情况下，选举可能会更加频繁，因为数据中心之间的互连速度慢，你可能会更频繁地失去领导者。在任何时候，etcd
+    集群中所有数据库都将有一个所有事务的最新日志。
+- en: 12.4.1 The etcd write-ahead log
+  id: totrans-129
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.4.1 etcd 预写日志
+- en: 'Because all transactions are written to a write-ahead log (WAL), etcd is durable.
+    To understand the importance of the WAL, let’s consider what happens when we undertake
+    a write:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于所有事务都写入预写日志（WAL），etcd 是持久的。为了理解 WAL 的重要性，让我们考虑在执行写入时会发生什么：
+- en: A client sends a request to an etcd server.
+  id: totrans-131
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 客户端向 etcd 服务器发送请求。
+- en: The etcd server relies on the Raft consensus protocol to write a transaction.
+  id: totrans-132
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: etcd 服务器依赖于 Raft 共识协议来写入事务。
+- en: Raft ultimately confirms that all etcd nodes that are members of a Raft cluster
+    have synchronized WAL files. Data is, thus, always consistent in an etcd cluster,
+    even though you may send writes to different etcd servers at different times.
+    That’s because all etcd nodes in a cluster ultimately have a single Raft consensus
+    of the exact state of the system over time.
+  id: totrans-133
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Raft 最终确认 Raft 集群中所有成员 etcd 节点已同步 WAL 文件。因此，在 etcd 集群中，数据始终是一致的，即使你在不同时间向不同的
+    etcd 服务器发送写入。这是因为集群中的所有 etcd 节点最终都有一个关于系统随时间精确状态的单一 Raft 共识。
+- en: Yes, we actually can load balance an etcd client, even though etcd is strictly
+    consistent. You may wonder how a client can send writes to many different servers
+    without potentially having some inconsistency between these locations that are
+    temporal. The reason for this is that, again, the Raft implementation in etcd
+    ultimately manages to forward writes to the Raft leader, regardless of origin.
+    A write is not completed until the leader is up-to-date and one-half of the other
+    nodes in the cluster are also current.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是的，我们实际上可以负载均衡 etcd 客户端，尽管 etcd 是严格一致的。你可能想知道客户端如何向许多不同的服务器发送写入，而不会在这些位置之间产生潜在的不一致性。原因在于，同样地，etcd
+    中的 Raft 实现最终能够将写入转发给 Raft 领导者，无论来源如何。只有当领导者是最新的，并且集群中一半的其他节点也是最新的，写入才算完成。
+- en: 12.4.2 Effect on Kubernetes
+  id: totrans-135
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.4.2 对 Kubernetes 的影响
+- en: Because etcd implements Raft as its consensus algorithm, the consequence of
+    this is that, at any time, we know exactly where all Kubernetes state information
+    is saved. No state is modified in Kubernetes unless the master etcd node has accepted
+    a write and cascades to a majority of other nodes in a cluster. The effect this
+    has on Kubernetes is that when etcd goes down, the API server for Kubernetes is
+    itself, essentially, also down when it comes to most of the important operations
+    that it implements.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 etcd 实现了 Raft 作为其共识算法，其结果是，在任何时候，我们都能确切地知道所有 Kubernetes 状态信息存储的位置。除非主 etcd
+    节点已接受写入并将其级联到集群中的大多数其他节点，否则 Kubernetes 中不会修改任何状态。这对 Kubernetes 的影响是，当 etcd 崩溃时，Kubernetes
+    的 API 服务器在执行其大多数重要操作时，本质上也是关闭的。
+- en: 12.5 The CAP theorem
+  id: totrans-137
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.5 CAP 定理
+- en: The CAP theorem is a seminal theory in computer science; you can read more about
+    it at [https://en.wikipedia.org/wiki/CAP_theorem](https://en.wikipedia.org/wiki/CAP_theorem).
+    The fundamental conclusion of the CAP theorem is that you cannot have perfect
+    consistency, availability, and partitionability in a database all at the same
+    time. etcd chooses consistency as its most important feature. The consequence
+    of this is that, if a single leader in an etcd cluster is down, then the database
+    is not available until a new leader is elected.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CAP 定理是计算机科学中的一个开创性理论；你可以在[https://en.wikipedia.org/wiki/CAP_theorem](https://en.wikipedia.org/wiki/CAP_theorem)上了解更多关于它的信息。CAP
+    定理的基本结论是，你无法在数据库中同时拥有完美的一致性、可用性和分区容错性。etcd 选择一致性作为其最重要的特性。其结果是，如果一个 etcd 集群中的单个领导者宕机，那么数据库将不可用，直到新的领导者被选举出来。
+- en: 'Comparatively, there are databases such as Cassandra, Solr, and so on, that
+    are much more available and well partitioned; however, they don’t guarantee that
+    all nodes in a database have a consistent view of data at a given time. In etcd,
+    we always have a clear definition of what the exact state of the database is at
+    any given time. Compared with ZooKeeper, Consul, and other similar consistent
+    key/value stores, etcd’s performance is extremely stable at large scales, with
+    predictable latency being its “killer” feature:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相比之下，有一些数据库如Cassandra、Solr等，具有更高的可用性和良好的分区；然而，它们不能保证在给定时间内数据库中的所有节点对数据都有一致的观点。在etcd中，我们总是对数据库在任何给定时间的确切状态有一个清晰的定义。与ZooKeeper、Consul和其他类似的强一致性键/值存储相比，etcd在大规模下的性能极其稳定，可预测的延迟是其“杀手级”特性：
+- en: Consul is suited for service discovery and, in general, stores megabytes of
+    data. At high scales, latency and performance are an issue.
+  id: totrans-140
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Consul适用于服务发现，并且通常存储数兆字节的数据。在高规模下，延迟和性能是一个问题。
+- en: etcd is suited for reliable key/value storage with predictable latency because
+    it can handle gigabytes of data.
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd适用于具有可预测延迟的可靠键/值存储，因为它可以处理数吉字节的数据。
+- en: ZooKeeper can be used in ways similar to etcd, generally, with the caveat that
+    its API is lower-level, it doesn’t support versioned entries, and scale is a little
+    harder to achieve.
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: ZooKeeper可以像etcd一样使用，通常情况下，需要注意的是它的API是低级别的，它不支持版本化条目，并且扩展性稍微困难一些。
+- en: The theoretical basis for these tradeoffs is referred to as the *CAP theorem*,
+    which dictates that you must pick between data consistency, availability, and
+    partitionability. For example, if we have a distributed database, we need to exchange
+    transaction information. We can do this immediately and strictly, in which case,
+    we will always have a consistent record of data, until we do not.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些权衡的理论基础被称为*CAP定理*，它规定你必须在这三个选项之间做出选择：数据一致性、可用性和分区性。例如，如果我们有一个分布式数据库，我们需要交换事务信息。我们可以立即严格地这样做，在这种情况下，我们总是会有一个一致的数据记录，直到我们不再这样做。
+- en: Why can’t we always have a perfect record of data in a distributed system? Because
+    machines can go down, and when they do, we need some amount of time before we
+    can recover them. The fact that this time is nonzero means that databases with
+    multiple nodes, which need to always be consistent with one another, can be unavailable
+    at times. For example, transactions must be blocked until the other data stores
+    are capable of consuming them.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么我们总是在分布式系统中不能始终有一个完美的数据记录？因为机器可能会宕机，当它们这样做时，我们需要一些时间来恢复它们。这个时间不为零的事实意味着需要始终与其他节点保持一致性的多节点数据库有时可能会不可用。例如，事务必须被阻塞，直到其他数据存储能够消费它们。
+- en: What happens if we decide that we are OK with some databases not receiving transactions
+    at times (for example, if a netsplit happens)? In that case, we may be sacrificing
+    consistency. In short, we have to choose between two scenarios in a distributed
+    system that runs in the real world, so that when networks are slow or machines
+    are misbehaving, we either
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们决定我们接受某些数据库在特定时间不接收交易（例如，如果发生netsplit），会发生什么？在这种情况下，我们可能会牺牲一致性。简而言之，我们必须在现实世界中运行的分布式系统中选择两种场景之一，这样当网络速度慢或机器行为异常时，我们或者
+- en: Stop receiving transactions (sacrifice availability)
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 停止接收交易（牺牲可用性）
+- en: Keep receiving transactions (sacrifice consistency)
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 继续接收交易（牺牲一致性）
+- en: The reality of this choice (again, the CAP theorem) limits the ability of a
+    distributed system to ever be “perfect.” As an example, a relational database
+    is known generally as consistent and partitionable. Meanwhile, a database like
+    Solr or Cassandra is known as partitionable and available.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个选择的现实（再次，CAP定理）限制了分布式系统永远“完美”的能力。例如，关系型数据库通常被认为是一致性和可分区的。同时，像Solr或Cassandra这样的数据库被认为是可分区的和可用的。
+- en: CoreOS (a company that was acquired by RedHat) designed etcd to manage large
+    fleets of machines, creating a key/value store that could provide a consistent
+    view of the desired state of the cluster to all nodes. Servers were then able
+    to upgrade, if needed, by looking at the state of etcd itself. Thus, Kubernetes
+    adopted etcd as a backend for the API server, which provided a strictly consistent
+    key/value store where Kubernetes could store all of the desired states of the
+    cluster. In the final section of this chapter, we will go through a few of the
+    salient aspects around etcd in production, in particular, load balancing, keepalives,
+    and size limitations.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CoreOS（一家被RedHat收购的公司）设计了etcd来管理大量机器，创建了一个键/值存储，可以为所有节点提供对集群期望状态的统一视图。服务器随后可以通过查看etcd本身的状态来进行升级。因此，Kubernetes采用了etcd作为API服务器的后端，它提供了一个严格一致性的键/值存储，Kubernetes可以存储集群的所有期望状态。在本章的最后部分，我们将探讨生产环境中etcd的一些显著方面，特别是负载均衡、心跳和大小限制。
+- en: 12.6 Load balancing at the client level and etcd
+  id: totrans-150
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.6 客户端级别的负载均衡和etcd
+- en: 'As mentioned, a Kubernetes cluster consists of a control plane, and the API
+    server needs to access etcd in order to respond to events from the various control
+    plane components. In the previous requests, we used `curl` to acquire raw JSON
+    data. Although convenient, a real etcd client needs to have access to all members
+    in an etcd cluster so that it can load balance queries across nodes:'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，Kubernetes集群由控制平面组成，API服务器需要访问etcd以响应用户控制平面组件的事件。在前面的请求中，我们使用了`curl`来获取原始JSON数据。虽然方便，但真正的etcd客户端需要访问etcd集群中的所有成员，以便可以在节点之间进行负载均衡查询：
+- en: The etcd client tries to grab all connections from all endpoints, and the first
+    one to respond is kept open.
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd客户端试图从所有端点获取所有连接，并保持第一个响应的连接打开。
+- en: etcd keeps a TCP connection to an endpoint that is selected from all endpoints
+    given to an etcd client.
+  id: totrans-153
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd保持与所有提供给etcd客户端的端点之一之间的TCP连接。
+- en: In case of connection failures, failover to other endpoints can happen.
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在连接失败的情况下，可能会发生故障转移到其他端点。
+- en: This is a common idiom in gRPC. It is based on the pattern of using HTTPS keep-alive
+    requests.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是在gRPC中常见的惯用语。它基于使用HTTPS心跳请求的模式。
+- en: '12.6.1 Size limitations: What (not) to worry about'
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.6.1 大小限制：需要（不）担心的问题
+- en: 'etcd itself has size limits and is not meant to be scaled up to terabytes and
+    petabytes of key/value content. It’s baseline use case is coordination and consistency
+    of distributed systems (hint: /etc/ is the configuration directory for software
+    on your Linux boxes). In a production Kubernetes cluster, an extremely rough but
+    reliable starting point for memory and disk sizing is 10 KB per namespace. This
+    would mean that a 1,000- namespace cluster would probably work reasonably well
+    with 1 GB of RAM. However, because etcd uses a large amount of memory for managing
+    watches, which are the dominating factor in its RAM requirements, this minimal
+    estimate isn’t useful. In a production Kubernetes cluster with thousands of nodes,
+    you should consider running etcd with 64 GB of RAM to service the watches of all
+    kubelets and other API server clients efficiently.'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: etcd本身有大小限制，并不打算扩展到千兆和太字节级别的键/值内容。它的基本用例是分布式系统的协调和一致性（提示：/etc/是Linux机器上软件的配置目录）。在生产Kubernetes集群中，内存和磁盘大小的粗略但可靠的起点是每个命名空间10
+    KB。这意味着一个拥有1,000个命名空间的集群可能使用1 GB的RAM就能合理地工作。然而，由于etcd使用大量内存来管理监视，这是其内存需求的主要因素，这个最小估计并不适用。在一个拥有数千个节点的生产Kubernetes集群中，你应该考虑使用64
+    GB的RAM来高效地服务所有kubelets和其他API服务器客户端的监视。
+- en: Individual key/value pairs for etcd are generally less than 1.5 MB (the request
+    size of an operation should generally be below this). This is quite common in
+    key/value stores because the ability to do defragmentation and optimization of
+    storage depends on the fact that individual values can only take up a certain
+    amount of fixed disk space. This value is configurable, however, by the `max-request-bytes`
+    parameter.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: etcd的单独键/值对通常小于1.5 MB（操作的请求大小通常应低于此）。这在键/值存储中很常见，因为进行碎片整理和存储优化的能力取决于单个值只能占用一定量的固定磁盘空间。然而，这个值可以通过`max-request-bytes`参数进行配置。
+- en: Kubernetes doesn’t explicitly prevent you from storing arbitrarily large objects
+    (a ConfigMap with > 2 MB of data, for example), but depending on how you’ve configured
+    etcd, this may or may not be possible. Keep in mind that this is especially important
+    given that every member of an etcd cluster has a full copy of all data, so distributing
+    data across shards for partitioning is not possible.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 并没有明确阻止你存储任意大小的对象（例如，包含超过 2 MB 数据的 ConfigMap），但根据你的 etcd 配置，这可能可行或不可行。请记住，这一点尤为重要，因为
+    etcd 集群的每个成员都拥有所有数据的完整副本，因此无法通过分片来跨数据分片分配数据。
+- en: Value sizes are limited
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值的大小有限
+- en: 'Kubernetes is not designed to store infinitely large data types, and neither
+    is etcd: both are designed to handle small key/value pairs typical for configuration
+    and state metadata for distributed systems. Because of this design decision, etcd
+    has certain well-intentioned limitations:'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 并未设计用于存储无限大的数据类型，etcd 亦是如此：两者都旨在处理分布式系统配置和状态元数据中典型的较小键/值对。由于这个设计决策，etcd
+    有一些出于好意的限制：
+- en: Larger requests will work but may increase the latency of other requests.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 较大的请求可以工作，但可能会增加其他请求的延迟。
+- en: By default, the maximum size of any request is 1.5 MiB.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 默认情况下，任何请求的最大大小为 1.5 MiB。
+- en: This limit is configurable through the `--max-request-bytes` flag for the etcd
+    server.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这个限制可以通过 etcd 服务器上的 `--max-request-bytes` 标志进行配置。
+- en: 'The total size of the database is limited:'
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据库的总大小有限：
+- en: The default storage size limit is 2 GB, and it’s recommended that most etcd
+    database stay under 8 GB.
+  id: totrans-166
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 默认存储大小限制为 2 GB，并且建议大多数 etcd 数据库保持在 8 GB 以下。
+- en: The default payload maximum for etcd is 1.5 MB. Because the amount of text describing
+    a Pod is less than a kilobyte, unless you’re creating a CRD or another object
+    that is a thousand times larger than a normal Kubernetes YAML file, this shouldn’t
+    affect you.
+  id: totrans-167
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd 的默认有效载荷最大值为 1.5 MB。由于描述 Pod 的文本量小于一个千字节，除非你正在创建一个 CRD 或其他比正常 Kubernetes
+    YAML 文件大一千倍的对象，否则这不应该影响你。
+- en: We can derive from this the fact that Kubernetes itself is not meant to grow
+    infinitely large in terms of its persistent footprint. This makes sense. After
+    all, even in a 1,000-node cluster, if you ran 300 Pods per node and each Pod consumed
+    1 KB of text to store its configuration, you would still have well under a megabyte
+    of data. Even if each Pod had 10 ConfigMaps of the same size associated with it,
+    you would still be under 50 MB.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以由此得出结论，Kubernetes 本身并不旨在在持久性足迹方面无限增长。这是有道理的。毕竟，即使在 1,000 节点的集群中，如果你每个节点运行
+    300 个 Pod，并且每个 Pod 使用 1 KB 的文本来存储其配置，你仍然会有不到兆字节的数据。即使每个 Pod 都有 10 个相同大小的 ConfigMap
+    与之关联，你仍然会低于 50 MB。
+- en: You generally do not have to worry about etcd’s total size being a limiting
+    factor in Kubernetes’ performance. You do, however, need to concern yourself with
+    the speed of watches and load-balanced queries, especially if you have a large
+    turnover of applications. The reason is that service endpoints and internal routing
+    requires global knowledge of Pod IP addresses, and if this becomes obsolete, your
+    ability to route cluster traffic can be affected in production.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你通常不必担心 etcd 的总大小会成为 Kubernetes 性能的限制因素。然而，你确实需要关注监视和负载均衡查询的速度，尤其是如果你有大量应用程序的周转。原因是服务端点和内部路由需要
+    Pod IP 地址的全局知识，如果这些信息过时，你的集群流量路由能力可能会在生产环境中受到影响。
+- en: 12.7 etcd encryption at rest
+  id: totrans-170
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.7 etcd 静态加密
+- en: If you’ve gotten this far, you may now realize that etcd has a lot of information
+    inside of it that, if compromised, could lead to an enterprise-scale disaster
+    scenario. Indeed, secrets such as database passwords are idiomatically stored
+    in Kubernetes, and ultimately, stored at rest in etcd.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你已经读到这儿，你现在可能已经意识到 etcd 内部有大量信息，如果遭到破坏，可能导致企业级灾难场景。确实，像数据库密码这样的机密信息通常存储在 Kubernetes
+    中，并且最终存储在 etcd 中。
+- en: 'Because the traffic between the API server and its various clients is known
+    to be secure, the ability to steal a secret from a Pod, in general, is restricted
+    to those who already have access to a `kubectl` client that is actively audited
+    and logged (and, thus, easily traced). etcd itself, especially due to its single-node
+    nature, is arguably the most valuable target for any hacker in a Kubernetes cluster.
+    Let’s look at how the Kubernetes API deals with the topic of encryption:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于API服务器与其各种客户端之间的流量已知是安全的，因此从Pod中窃取秘密的能力通常仅限于那些已经访问到正在积极审计和记录的`kubectl`客户端的人（因此，很容易追踪）。etcd本身，尤其是由于其单节点特性，可以说是Kubernetes集群中任何黑客最有价值的目标。让我们看看Kubernetes
+    API是如何处理加密主题的：
+- en: The Kubernetes API server itself is *encryption-aware*; it accepts an argument
+    describing what types of API objects should be encrypted (typically, at the least,
+    this includes Secrets). The argument for this is `--encryption-provider-config`.
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes API服务器本身是*加密感知的*；它接受一个参数，描述了应该加密哪些类型的API对象（至少，这通常包括Secrets）。这个参数是`--encryption-provider-config`。
+- en: 'The value of `--encryption-provider-config` is a YAML file with fields for
+    an API object type (for example, Secrets) and a list of encryption providers.
+    There are three of these: AES-GCM, AES-CBC, and Secret Box.'
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`--encryption-provider-config`的值是一个包含API对象类型（例如，Secrets）和加密提供者列表的字段YAML文件。这里有三种：AES-GCM、AES-CBC和Secret
+    Box。'
+- en: The providers previously listed are tried in descending order for decryption,
+    and the first item in the list of providers is used for encryption.
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 之前列出的提供者按降序尝试解密，列表中的第一个提供者用于加密。
+- en: Thus, the Kubernetes API server itself is the most important tool for managing
+    etcd security in a Kubernetes cluster. etcd is a tool in your larger Kubernetes
+    story, and it’s important not to think of it in the same way that you would a
+    highly secured commercial database. Although in the future, encryption technology
+    may evolve into etcd itself, for now, storing etcd data on an encrypted drive
+    and encrypting directly on the client side is the best way to secure its data.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，Kubernetes API服务器本身是管理Kubernetes集群中etcd安全性的最重要的工具。etcd是你更大的Kubernetes故事中的一个工具，并且重要的是不要像对待高度安全的商业数据库那样去思考它。尽管在未来，加密技术可能会发展到etcd本身，但就目前而言，在加密驱动器上存储etcd数据和在客户端端直接加密是保护其数据的最有效方式。
+- en: 12.8 Performance and fault tolerance of etcd at a global scale
+  id: totrans-177
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.8 etcd在全局范围内的性能和容错性
+- en: A *global deployment* of etcd refers to the idea that you may want to run etcd
+    in a geo-replicated manner. Understanding the consequences that this might have
+    requires revisiting how etcd writes work.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: etcd的*全局部署*指的是你可能希望以地理复制的方式运行etcd。理解这可能会带来的后果需要重新审视etcd的写操作方式。
+- en: Recall that etcd itself cascades write consensus via the Raft protocol, meaning
+    that over half of all etcd nodes need to accept a write before it is official.
+    As mentioned, consensus in etcd is the most important attribute to conserve at
+    any scale. By default, etcd is designed to support local rather than global deployments,
+    which means that you have to tune etcd for global scale deployments. Thus, if
+    you have etcd distributed over separate networks, you will have to tune several
+    of its parameters so that
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，etcd本身通过Raft协议级联写共识，这意味着在写入正式之前，所有etcd节点中超过一半需要接受该写入。如前所述，在etcd中，共识是任何规模下最重要的属性。默认情况下，etcd被设计为支持本地部署而不是全局部署，这意味着你必须调整etcd以支持全局规模部署。因此，如果你有分布在不同网络上的etcd，你将不得不调整其多个参数，以便
+- en: Leader election is more forgiving
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 领导选举更加宽容
+- en: Heartbeat intervals are less frequent
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 心跳间隔较少
+- en: 12.9 Heartbeat times for a highly distributed etcd
+  id: totrans-182
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.9 高度分布式etcd的心跳时间
+- en: What should you do if you are running a single etcd cluster distributed across
+    separate data centers? In this case, you need to change your expectations on write
+    throughput, which will be much lower. Per etcd’s own documentation, “A reasonable
+    round-trip time for the continental United States is 130ms, and the time between
+    US and Japan is around 350-400ms.” (See [https://etcd.io/docs/v3.4/tuning/](https://etcd.io/docs/v3.4/tuning/)
+    for details about this.)
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在运行一个跨多个数据中心分布的单个etcd集群，你应该怎么做？在这种情况下，你需要改变你对写入吞吐量的预期，这将大大降低。根据etcd自己的文档，“美国大陆的合理往返时间为130ms，美国和日本之间的大致时间为350-400ms。”（有关此信息的详细信息，请参阅[https://etcd.io/docs/v3.4/tuning/](https://etcd.io/docs/v3.4/tuning/)。）
+- en: 'Based on this timeframe, we should start etcd with longer heartbeat intervals,
+    as well as longer leader election timeouts. When a heartbeat is too fast, you
+    waste CPU cycles sending chatty maintenance data over the wire. When a heartbeat
+    is too long, there is a higher likelihood that a new leader might need to be elected.
+    An example of how to set etcd’s election settings for a geo-distributed deployment
+    follows:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据这个时间框架，我们应该使用更长的心跳间隔以及更长的领导者选举超时来启动 etcd。当心跳太快时，你会浪费 CPU 周期在网络上发送冗余的维护数据。当心跳太长时，新领导者可能需要被选中的可能性更高。以下是如何为地理分布式部署设置
+    etcd 的选举设置的示例：
+- en: '[PRE7]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 12.10 Setting an etcd client up on a kind cluster
+  id: totrans-186
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.10 在 kind 集群上设置 etcd 客户端
+- en: 'One of the trickier aspects of accessing etcd in a running Kubernetes environment
+    is simply that of securely making queries. As a way to remedy this, the following
+    YAML file (originally obtained from [https://mauilion.dev](https://mauilion.dev))
+    can be used to quickly create a Pod that we can use to execute etcd client commands.
+    As an example, write the following to a file (call it cli.yaml) and make sure
+    you have a `kind` cluster running (or any other Kubernetes cluster). You may have
+    to modify the value of the `hostPath` depending on where your etcd security credentials
+    are located:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行中的 Kubernetes 环境中访问 etcd 的一个较为复杂的问题仅仅是安全地进行查询。为了解决这个问题，以下 YAML 文件（最初从 [https://mauilion.dev](https://mauilion.dev)
+    获取）可以用来快速创建一个 Pod，我们可以使用它来执行 etcd 客户端命令。例如，将以下内容写入一个文件（命名为 cli.yaml），并确保你有一个 `kind`
+    集群正在运行（或任何其他 Kubernetes 集群）。你可能需要根据你的 etcd 安全凭证的位置修改 `hostPath` 的值：
+- en: '[PRE8]'
+  id: totrans-188
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ Replace this image name with an etcd service if you want to use etcdctl to
+    query the API server instead of curl.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果你想要使用 etcdctl 查询 API 服务器而不是 curl，请将此镜像名称替换为 etcd 服务。
+- en: 'Using a file like this in a live cluster is a quick and easy way to set up
+    a container that can be used to query etcd. For example, you can run commands
+    such as those in the following code snippet (after running `kubectl exec -t -i
+    etcdclient -n kube-system /bin/sh` to open a bash terminal):'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个实时集群中使用这样的文件是快速轻松地设置一个可以用来查询 etcd 的容器的简单方法。例如，你可以运行以下代码片段中的命令（在运行 `kubectl
+    exec -t -i etcdclient -n kube-system /bin/sh` 以打开 bash 终端之后）：
+- en: '[PRE9]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'To return etcd’s health status or to get various Prometheus metrics exported
+    by etcd, run the following commands:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要返回 etcd 的健康状态或获取 etcd 导出的各种 Prometheus 指标，请运行以下命令：
+- en: '[PRE10]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 12.10.1 Running etcd in non-Linux environments
+  id: totrans-194
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.10.1 在非 Linux 环境中运行 etcd
+- en: At the time of this writing, etcd can run on both macOS and Linux, but it isn’t
+    fully supported on Windows. For this reason, Kubernetes clusters that support
+    multiple OSs (a Kubernetes cluster with Linux and Windows nodes) typically have
+    a management cluster control plane that is entirely Linux-based, which runs etcd
+    in a Pod. Additionally, the API server, scheduler, and Kubernetes controller managers
+    are only supported on Linux as well, even though they are also capable of running
+    on macOS in a pinch. Thus, although Kubernetes is capable of supporting non-Linux
+    OSs for workloads (mainly, this refers to the fact that you can run a Windows
+    kubelet for running Windows containers), you’ll likely still need a Linux OS in
+    any Kubernetes deployment to run the API server, scheduler, and controller managers
+    (as well as, of course, etcd).
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在撰写本文时，etcd 可以在 macOS 和 Linux 上运行，但在 Windows 上并不完全受支持。因此，支持多个操作系统（即具有 Linux
+    和 Windows 节点的 Kubernetes 集群）的 Kubernetes 集群通常有一个完全基于 Linux 的管理集群控制平面，该控制平面在一个
+    Pod 中运行 etcd。此外，API 服务器、调度器和 Kubernetes 控制管理器也仅在 Linux 上受支持，尽管它们也具备在必要时在 macOS
+    上运行的能力。因此，尽管 Kubernetes 能够支持非 Linux 操作系统的工作负载（主要是指你可以运行 Windows kubelet 来运行 Windows
+    容器），但你可能仍然需要在任何 Kubernetes 部署中使用 Linux 操作系统来运行 API 服务器、调度器和控制管理器（当然，还有 etcd）。
+- en: Summary
+  id: totrans-196
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: etcd is the configuration czar for almost all Kubernetes clusters running today.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd 几乎是今天运行的所有 Kubernetes 集群的配置大管家。
+- en: etcd is an open source database that is in the same family as ZooKeeper and
+    Redis in terms of its overall usage patterns. It is not meant for large data sets
+    or application data.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd 是一个开源数据库，在整体使用模式上与 ZooKeeper 和 Redis 同属一家族。它并不适用于大型数据集或应用程序数据。
+- en: The Kubernetes API abstracts the five major API calls that etcd supports, and
+    most importantly, it includes the ability to watch individual items or lists.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes API 抽象了 etcd 支持的五个主要 API 调用，最重要的是，它包括了监视单个项目或列表的能力。
+- en: '`etcdctl` is a powerful command-line tool for inspecting key/value pairs, as
+    well as stress testing and diagnosing problems on a given node of a cluster.'
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`etcdctl` 是一个强大的命令行工具，用于检查键值对，以及在对集群中某个节点进行压力测试和诊断问题时使用。'
+- en: etcd has constraint defaults of 1.5 MB for transactions and, generally, less
+    than 8 GB for most common scenarios.
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd 对事务的默认约束为 1.5 MB，在大多数常见场景下通常小于 8 GB。
+- en: etcd, like the other control plane elements of a Kubernetes cluster, is really
+    only supported on Linux and is, thus, one of the reasons that most Kubernetes
+    clusters, even those that are slanted to run Windows workloads, include at least
+    one Linux node.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: etcd，就像 Kubernetes 集群的其他控制平面元素一样，实际上仅支持 Linux，因此，这是大多数 Kubernetes 集群（即使是那些倾向于运行
+    Windows 工作负载的集群）至少包含一个 Linux 节点的原因之一。

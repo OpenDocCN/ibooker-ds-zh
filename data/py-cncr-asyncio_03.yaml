@@ -1,0 +1,1465 @@
+- en: 3 A first asyncio application
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 3 一个基本的asyncio应用程序
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: Using sockets to transfer data over a network
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用套接字在网络中传输数据
+- en: Using telnet to communicate with a socket-based application
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用telnet与基于套接字的应用程序通信
+- en: Using selectors to build a simple event loop for non-blocking sockets
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用选择器构建非阻塞套接字的简单事件循环
+- en: Creating a non-blocking echo server that allows for multiple connections
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建一个支持多个连接的非阻塞回声服务器
+- en: Handling exceptions in tasks
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在任务中处理异常
+- en: Adding custom shutdown logic to an asyncio application
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 向asyncio应用程序添加自定义关闭逻辑
+- en: In chapters 1 and 2, we introduced coroutines, tasks, and the event loop. We
+    also examined how to run long operations concurrently and explored some of asyncio’s
+    APIs that facilitate this. Up to this point however, we’ve only simulated long
+    operations with the `sleep` function.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第1章和第2章中，我们介绍了协程、任务和事件循环。我们还探讨了如何并发运行长时间操作，并探索了一些简化此过程的asyncio API。然而，到目前为止，我们只使用`sleep`函数模拟了长时间操作。
+- en: Since we’d like to build more than just demo applications, we’ll use some real-world
+    blocking operations to demonstrate how to create a server that can handle multiple
+    users concurrently. We’ll do this with only one thread, leading to a more resource-efficient
+    and simpler application than other solutions that would involve threads or multiple
+    processes. We’ll take what we’ve learned about coroutines, tasks, and asyncio’s
+    API methods to build a working command-line echo server application using sockets
+    to demonstrate this. By the end of this chapter, you’ll be able to build socket-based
+    network applications with asyncio that can handle multiple users simultaneously
+    with one thread.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们希望构建的不仅仅是演示应用程序，我们将使用一些现实世界的阻塞操作来演示如何创建一个可以同时处理多个用户的服务器。我们只使用一个线程来完成这个任务，这将比涉及线程或多个进程的其他解决方案更高效、更简单。我们将利用我们对协程、任务和asyncio
+    API方法的知识，使用套接字构建一个可工作的命令行回声服务器应用程序来演示这一点。到本章结束时，你将能够使用asyncio构建基于套接字的网络应用程序，这些应用程序可以使用一个线程同时处理多个用户。
+- en: First, we’ll learn the basics of how to send and receive data with blocking
+    sockets. We’ll then use these sockets to attempt building a multi-client echo
+    server. In doing so, we’ll demonstrate that we can’t build an echo server that
+    works properly for more than one client at a time with only a single thread. We’ll
+    then learn how to resolve these issues by making our sockets non-blocking and
+    using the operating system’s event notification system. This will help us understand
+    how the underlying machinery of the asyncio event loop works. Then we’ll use asyncio’s
+    non-blocking socket coroutines to allow multiple clients to connect properly.
+    This application will let multiple users connect simultaneously, letting them
+    send and receive messages concurrently. Finally, we’ll add custom shutdown logic
+    to our application, so when our server shuts down, we’ll give in-flight messages
+    some time to complete.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们将学习如何使用阻塞套接字发送和接收数据的基础知识。然后，我们将使用这些套接字尝试构建一个多客户端回声服务器。在这个过程中，我们将证明仅使用单个线程无法构建同时为多个客户端正确工作的回声服务器。然后，我们将学习如何通过使套接字非阻塞并使用操作系统的事件通知系统来解决这些问题。这将帮助我们理解asyncio事件循环的底层机制。然后，我们将使用asyncio的非阻塞套接字协程来允许多个客户端正确连接。这个应用程序将允许多个用户同时连接，让他们能够并发地发送和接收消息。最后，我们将向我们的应用程序添加自定义关闭逻辑，以便当我们的服务器关闭时，我们给正在传输的消息一些时间来完成。
+- en: 3.1 Working with blocking sockets
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.1 与阻塞套接字一起工作
+- en: 'In chapter 1, we introduced the concept of sockets. Recall that a socket is
+    a way to read and write data over a network. We can think of a socket as a mailbox:
+    we put a letter in, and it is delivered to the recipient’s address. The recipient
+    can then read that message, and possibly send us another back.'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第1章中，我们介绍了套接字的概念。回想一下，套接字是一种在网络中读写数据的方式。我们可以将套接字想象成一个邮箱：我们放入一封信，它就会被送到收件人的地址。收件人可以阅读那封信，并可能给我们回一封信。
+- en: To get started, we’ll create the main mailbox socket, which we’ll call our server
+    socket. This socket will first accept connection messages from clients that want
+    to communicate with us. Once that connection is acknowledged by our server socket,
+    we’ll create a socket that we can use to communicate with the client. This means
+    our server starts to look more like a post office with multiple PO boxes rather
+    than just one mailbox. The client side can still be thought of as having a single
+    mailbox as they will have one socket to communicate with us. When a client connects
+    to our server, we provide them a PO box. We then use that PO box to send and receive
+    messages to and from that client (see figure 3.1).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了开始，我们将创建主邮箱套接字，我们将称之为服务器套接字。这个套接字将首先接受来自想要与我们通信的客户端的连接消息。一旦我们的服务器套接字确认了这个连接，我们将创建一个我们可以用来与客户端通信的套接字。这意味着我们的服务器开始看起来更像一个拥有多个邮政信箱的邮局，而不仅仅是单个邮箱。客户端仍然可以被视为拥有一个单独的邮箱，因为他们将有一个套接字来与我们通信。当客户端连接到我们的服务器时，我们为他们提供一个邮政信箱。然后我们使用那个邮政信箱来发送和接收来自该客户端的消息（见图3.1）。
+- en: '![03-01](Images/03-01.png)'
+  id: totrans-14
+  prefs: []
+  type: TYPE_IMG
+  zh: '![03-01](Images/03-01.png)'
+- en: Figure 3.1 A client connects to our server socket. The server then creates a
+    new socket to communicate with the client.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.1 客户端连接到我们的服务器套接字。然后服务器创建一个新的套接字来与客户端通信。
+- en: We can create this server socket with Python’s built-in socket module. This
+    module provides functionality for reading, writing, and manipulating sockets.
+    To get started creating sockets, we’ll create a simple server which listens for
+    a connection from a client and prints a message on a successful connection. This
+    socket will be bound to both a hostname and a port and will be the main “server
+    socket” that any clients will communicate with.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用Python内置的socket模块来创建这个服务器套接字。此模块提供了读取、写入和操作套接字的功能。要开始创建套接字，我们将创建一个简单的服务器，该服务器监听来自客户端的连接，并在成功连接时打印一条消息。此套接字将绑定到主机名和端口号，并将作为任何客户端将与之通信的主要“服务器套接字”。
+- en: 'It takes a few steps to create a socket. We first use the `socket` function
+    to create a socket:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建套接字需要几个步骤。我们首先使用`socket`函数创建一个套接字：
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Here, we specify two parameters to the socket function. The first is `socket.AF_INET`—this
+    tells us what type of address our socket will be able to interact with; in this
+    case a hostname and a port number. The second is `socket.SOCK_STREAM`; this means
+    that we use the TCP protocol for our communication.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们向套接字函数指定了两个参数。第一个是`socket.AF_INET`——这告诉我们我们的套接字将能够与哪种类型的地址交互；在这种情况下是一个主机名和一个端口号。第二个是`socket.SOCK_STREAM`；这意味着我们使用TCP协议进行通信。
+- en: What is the TCP protocol?
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 什么是TCP协议？
+- en: TCP, or transmission control protocol, is a protocol designed to transfer data
+    between applications over a network. This protocol is designed with reliability
+    in mind. It performs error checking, delivers data in order, and can retransmit
+    data when needed. This reliability comes at the cost of some overhead. The vast
+    majority of the web is built on TCP. TCP is in contrast to UDP, or user datagram
+    protocol, which is less reliable but has much less overhead than TCP and tends
+    to be more performant. We will exclusively focus on TCP sockets in this book.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TCP，或传输控制协议，是一种设计用于在网络中在应用程序之间传输数据的协议。这个协议在设计时考虑了可靠性。它执行错误检查，按顺序交付数据，并在需要时重新传输数据。这种可靠性是以一些开销为代价的。绝大多数的Web都是建立在TCP之上的。TCP与UDP，或用户数据报协议相对，UDP可靠性较低，但比TCP有更少的开销，并且通常性能更好。本书将专门关注TCP套接字。
+- en: We also call `setsockopt` to set the `SO_REUSEADDR` flag to `1`. This will allow
+    us to reuse the port number after we stop and restart the application, avoiding
+    any *address already in use* errors. If we didn’t do this, it might take some
+    time for the operating system to unbind this port and have our application start
+    without error.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还调用`setsockopt`来设置`SO_REUSEADDR`标志为`1`。这将允许我们在停止和重新启动应用程序后重用端口号，避免任何“地址已在使用”的错误。如果我们不这样做，操作系统可能需要一些时间来解绑此端口，并且我们的应用程序可能无法无错误地启动。
+- en: 'Calling `socket.socket` lets us create a socket, but we can’t start communicating
+    with it yet because we haven’t bound it to an address that clients can talk to
+    (our post office needs an address!). For this example, we’ll bind the socket to
+    an address on our own computer at `127.0.0.1`, and we’ll pick an arbitrary port
+    number of 8000:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调用`socket.socket`允许我们创建一个套接字，但我们还不能与之通信，因为我们还没有将其绑定到客户端可以与之交谈的地址（我们的邮局需要一个地址！）。对于这个例子，我们将套接字绑定到我们自己的计算机上的地址`127.0.0.1`，并且我们将选择一个任意的端口号8000：
+- en: '[PRE1]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Now we’ve set our socket up at the address 127.0.0.1:8000\. This means that
+    clients will be able to use this address to send data to our server, and if we
+    write data to a client, they will see this as the address that it’s coming from.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经将套接字设置在地址 127.0.0.1:8000 上。这意味着客户端将能够使用此地址向我们的服务器发送数据，如果我们向客户端写入数据，它们将看到这是数据来源的地址。
+- en: 'Next, we need to actively listen for connections from clients who want to connect
+    to our server. To do this, we can call the listen method on our socket. This tells
+    the socket to listen for incoming connections, which will allow clients to connect
+    to our server socket. Then, we wait for a connection by calling the accept method
+    on our socket. This method will block until we get a connection and when we do,
+    it will return a connection and the address of the client that connected. The
+    connection is just another socket we can use to read data from and write data
+    to our client:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要积极监听想要连接到我们服务器的客户端的连接。为此，我们可以在我们的套接字上调用 listen 方法。这告诉套接字监听传入的连接，这将允许客户端连接到我们的服务器套接字。然后，我们通过在套接字上调用
+    accept 方法等待连接。此方法将阻塞，直到我们获得连接，当我们这样做时，它将返回一个连接和连接客户端的地址。连接只是另一个我们可以用来从客户端读取数据和向客户端写入数据的套接字：
+- en: '[PRE2]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: With these pieces, we have all the building blocks we need to create a socket-based
+    server application that will wait for a connection and print a message once we
+    have one.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这些组件，我们拥有了创建基于套接字的等待连接并打印消息的服务器应用程序所需的所有构建块。
+- en: Listing 3.1 Starting a server and listening for a connection
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.1 启动服务器并监听连接
+- en: '[PRE3]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Create a TCP server socket.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个 TCP 服务器套接字。
+- en: ❷ Set the address of the socket to 127.0.0.1:8000.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将套接字地址设置为 127.0.0.1:8000。
+- en: ❸ Listen for connections or “open the post office.”
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 监听连接或“开设邮局”。
+- en: ❹ Wait for a connection and assign the client a PO box.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待连接并为客户端分配一个邮政信箱。
+- en: In the preceding listing, when a client connects, we get their connection socket
+    as well as their address and print that we got a connection.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，当客户端连接时，我们获得他们的连接套接字以及他们的地址，并打印出我们已获得连接。
+- en: So now that we’ve built this application, how do we connect to it to test it
+    out? While there are quite a few tools for this, in this chapter we’ll use the
+    telnet command-line application.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，现在我们已经构建了这个应用程序，我们如何连接到它来测试它？虽然有很多工具可以做到这一点，但在本章中，我们将使用 telnet 命令行应用程序。
+- en: 3.2 Connecting to a server with Telnet
+  id: totrans-37
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.2 使用 Telnet 连接到服务器
+- en: Our simple example of accepting connections left us with no way to connect.
+    There are many command-line applications to read and write data to and from a
+    server, but a popular application that has been around for quite some time is
+    Telnet.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们接受连接的简单示例没有给我们提供连接的方法。有许多命令行应用程序可以读取和写入服务器上的数据，但一个流行且存在已久的应用程序是 Telnet。
+- en: Telnet was first developed in 1969 and is short for “teletype network.” Telnet
+    establishes a TCP connection to a server and a host we specify. Once we do so,
+    a terminal is established and we’re free to send and receive bytes, all of which
+    will be displayed in the terminal.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Telnet 首次于 1969 年开发，缩写为“远程网络”。Telnet 建立与指定服务器的 TCP 连接。一旦这样做，就会建立一个终端，我们可以自由地发送和接收字节，所有这些都会在终端中显示。
+- en: On Mac OS you can install telnet with Homebrew with the command `brew` `install`
+    `telnet` (see [https://brew.sh/](https://brew.sh/) to install Homebrew). On Linux
+    distributions you will need to use the system package manager to install (`apt-get`
+    `install` `telnet` or similar). On Windows, PuTTy is the best option, and you
+    can download this from [https://putty.org](https://putty.org).
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Mac OS 上，您可以使用 Homebrew 通过命令 `brew install telnet` 安装 telnet（有关安装 Homebrew
+    的信息，请参阅 [https://brew.sh/](https://brew.sh/)）。在 Linux 发行版中，您需要使用系统包管理器来安装（例如 `apt-get
+    install telnet` 或类似命令）。在 Windows 上，PuTTY 是最佳选择，您可以从 [https://putty.org](https://putty.org)
+    下载它。
+- en: Note With PuTTY you’ll need to turn on local line editing for code samples in
+    this book to work. To do this go to *Terminal* on the left-hand side of the PuTTy
+    configuration window and set *Local line editing* to *Force on*.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在使用 PuTTY 时，您需要将此书中的代码示例的本地行编辑打开，以便它们能够正常工作。为此，请转到 PuTTY 配置窗口左侧的 *Terminal*，并将
+    *Local line editing* 设置为 *Force on*。
+- en: 'To connect to the server we built in listing 3.1, we can use the Telnet command
+    on a command line and specify that we’d like to connect to localhost on port 8000:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要连接到列表 3.1 中构建的服务器，我们可以在命令行中使用 Telnet 命令并指定我们想要连接到本地主机上的端口 8000：
+- en: '[PRE4]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Once we do this, we’ll see some output on our terminal telling us that we’ve
+    successfully connected. Telnet then will display a cursor, which allows us to
+    type and select [Enter] to send data to the server.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦这样做，我们将在我们的终端上看到一些输出，告诉我们我们已经成功连接。然后 Telnet 将显示一个光标，这允许我们输入并选择 [Enter] 来向服务器发送数据。
+- en: '[PRE5]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'In the console output of our server application, we should now see output like
+    the following, showing that we’ve established a connection with our Telnet client:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的服务器应用程序的控制台输出中，我们现在应该看到以下输出，显示我们已经与我们的 Telnet 客户端建立了连接：
+- en: '[PRE6]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: You’ll also see a `Connection` `closed` `by` `foreign` `host` message as the
+    server code exits, indicating the server has shut down the connection to our client.
+    We now have a way to connect to a server and write and read bytes to and from
+    it, but our server can’t read or send any data itself. We can do this with our
+    client socket’s `sendall` and `recv` methods.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还会在服务器代码退出时看到一条 `Connection closed by foreign host` 消息，这表明服务器已经关闭了与我们的客户端的连接。我们现在有了一种连接到服务器并从它那里写入和读取字节的方法，但我们的服务器本身不能读取或发送任何数据。我们可以通过使用客户端套接字的
+    `sendall` 和 `recv` 方法来实现这一点。
+- en: 3.2.1 Reading and writing data to and from a socket
+  id: totrans-49
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.2.1 从套接字读取和写入数据
+- en: Now that we’ve created a server capable of accepting connections, let’s examine
+    how to read data from our connections. The socket class has a method named `recv`
+    that we can use to get data from a particular socket. This method takes an integer
+    representing the number of bytes we wish to read at a given time. This is important
+    because we can’t read all data from a socket at once; we need to buffer until
+    we reach the end of the input.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经创建了一个能够接受连接的服务器，让我们来探讨如何从我们的连接中读取数据。套接字类有一个名为 `recv` 的方法，我们可以使用它从特定的套接字获取数据。这个方法接受一个整数，表示我们在给定时间内希望读取的字节数。这是很重要的，因为我们不能一次从套接字中读取所有数据；我们需要缓冲直到达到输入的末尾。
+- en: In this case, we’ll treat the end of input as a carriage return plus a line
+    feed or `'\r\n'`. This is what gets appended to the input when a user presses
+    [Enter] in telnet. To demonstrate how buffering works with small messages, we’ll
+    set a buffer size intentionally low. In a real-world application, we would use
+    a larger buffer size, such as 1024 bytes. We would typically want a larger buffer
+    size, as this will take advantage of the buffering that occurs at the operating
+    system-level, which is more efficient than doing it in your application.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们将输入的结束视为回车符加换行符或 `'\r\n'`。这是当用户在 telnet 中按下 [Enter] 键时附加到输入的内容。为了演示缓冲区如何与短消息一起工作，我们将故意设置一个较低的缓冲区大小。在实际应用中，我们会使用更大的缓冲区大小，例如
+    1024 字节。我们通常会想要更大的缓冲区大小，因为这将利用操作系统级别的缓冲，这比在应用程序中做更有效率。
+- en: Listing 3.2 Reading data from a socket
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.2 从套接字读取数据
+- en: '[PRE7]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'In the preceding listing, we wait for a connection with `server_socket.accept`,
+    as before. Once we get a connection, we try to receive two bytes and store it
+    in our buffer. Then, we go into a loop, checking each iteration to see if our
+    buffer ends in a carriage return and a line feed. If it does not, we get two more
+    bytes and print out which bytes we received and append that to the buffer. If
+    we get `''\r\n''`, then we end the loop and we print out the full message we got
+    from the client. We also close the server socket in a `finally` block. This ensures
+    that we close the connection even if an exception occurs while reading data. If
+    we connect to this application with telnet and send a message `''testing123''`,
+    we’ll see this output:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们像之前一样使用 `server_socket.accept` 等待连接。一旦我们得到一个连接，我们尝试接收两个字节并将它们存储在我们的缓冲区中。然后，我们进入一个循环，检查每次迭代以查看我们的缓冲区是否以回车符和换行符结尾。如果不是，我们再获取两个字节并打印出我们接收的字节，并将它们追加到缓冲区中。如果我们得到
+    `'\r\n'`，那么我们结束循环并打印出我们从客户端收到的完整消息。我们还在 `finally` 块中关闭服务器套接字。这确保了即使在读取数据时发生异常，我们也会关闭连接。如果我们使用
+    telnet 连接到这个应用程序并发送消息 `'testing123'`，我们会看到以下输出：
+- en: '[PRE8]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Now, we’re able to read data from a socket, but how do we write data back to
+    a client? Sockets have a method named `sendall` that will take a message and write
+    it back to the client for us. We can adapt our code in listing 3.2 to echo the
+    message the client sent to us by calling `connection.sendall` with the buffer
+    once it is filled:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们能够从套接字中读取数据，但我们是怎样将数据写回客户端的呢？套接字有一个名为 `sendall` 的方法，它将消息写回客户端。我们可以将列表 3.2
+    中的代码进行适配，通过调用 `connection.sendall` 并将缓冲区传递给它，来回显客户端发送给我们的消息：
+- en: '[PRE9]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Now when we connect to this application and send it a message from Telnet, we
+    should see that message printed back on our telnet terminal. We’ve created a very
+    basic echo server with sockets!
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们连接到这个应用程序并向它发送一个来自 Telnet 的消息，我们应该看到这条消息在我们的 Telnet 终端上打印出来。我们已经使用套接字创建了一个非常基础的回显服务器！
+- en: This application handles one client at a time right now, but multiple clients
+    can connect to a single server socket. Let’s adapt this example to allow multiple
+    clients to connect at the same time. In doing this we’ll demonstrate how we can’t
+    properly support multiple clients with blocking sockets.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前这个应用程序一次只处理一个客户端，但多个客户端可以连接到单个服务器套接字。让我们修改这个示例，以允许同时连接多个客户端。在这个过程中，我们将展示我们如何无法正确地使用阻塞套接字来支持多个客户端。
+- en: 3.2.2 Allowing multiple connections and the dangers of blocking
+  id: totrans-60
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.2.2 允许多个连接和阻塞的风险
+- en: A socket in listen mode allows multiple client connections simultaneously. This
+    means that we can call `socket.accept` repeatedly, and each time a client connects
+    we will get a new connection socket to read and write data to and from that client.
+    With that knowledge, we can straightforwardly adapt our previous example to handle
+    multiple clients. We loop forever, calling `socket.accept` to listen for new connections.
+    Each time we get one, we append it to a list of connections we’ve got so far.
+    Then, we loop over each connection, receiving data as it comes in and writing
+    that data back out to the client connection.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监听模式下的套接字允许同时进行多个客户端连接。这意味着我们可以反复调用 `socket.accept`，每次客户端连接时，我们都会得到一个新的连接套接字，用于读取和写入数据到该客户端。有了这个知识，我们可以直接将之前的示例修改为处理多个客户端。我们无限循环，调用
+    `socket.accept` 来监听新的连接。每次我们得到一个连接，我们就将它追加到迄今为止我们得到的连接列表中。然后，我们遍历每个连接，接收传入的数据，并将这些数据写回客户端连接。
+- en: Listing 3.3 Allowing multiple clients to connect
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.3 允许多个客户端连接
+- en: '[PRE10]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: We can try this by making one connection with telnet and typing a message. Then,
+    once we have done that, we can connect with a second telnet client and send another
+    message. However, if we do this, we will notice a problem right away. Our first
+    client will work fine and will echo messages back as we’d expect, but our second
+    client won’t get anything echoed back to it. This is due to the default blocking
+    behavior of sockets. The methods `accept` and `recv` block until they receive
+    data. This means that once the first client connects, we will block waiting for
+    it to send its first echo message to us. This causes other clients to be stuck
+    waiting for the next iteration of the loop, which won’t happen until the first
+    client sends us data (figure 3.2).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用 telnet 建立一个连接并输入一条消息来尝试这个。然后，一旦我们这样做，我们就可以使用第二个 telnet 客户端并发送另一条消息。然而，如果我们这样做，我们马上就会注意到一个问题。我们的第一个客户端将正常工作，并回显我们预期的消息，但第二个客户端不会接收到任何回显。这是由于套接字的默认阻塞行为。`accept`
+    和 `recv` 方法会在接收到数据之前阻塞。这意味着一旦第一个客户端连接，我们就会阻塞等待它发送它的第一个回显消息给我们。这导致其他客户端陷入等待下一次循环迭代的困境，而这只有在第一个客户端发送数据给我们之后才会发生（图
+    3.2）。
+- en: '![03-02](Images/03-02.png)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![03-02](Images/03-02.png)'
+- en: Figure 3.2 With blocking sockets, Client 1 connects, but Client 2 is blocked
+    until client one sends data.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 3.2 在阻塞套接字的情况下，客户端 1 连接，但客户端 2 被阻塞，直到客户端 1 发送数据。
+- en: This obviously isn’t a satisfactory user experience; we’ve created something
+    that won’t properly scale when we have more than one user. We can solve this issue
+    by putting our sockets in non-blocking mode. When we mark a socket as non-blocking,
+    its methods will not block waiting to receive data before moving on to execute
+    the next line of code.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这显然不是一个令人满意的用户体验；我们创建了一个在用户超过一个时无法正确扩展的东西。我们可以通过将我们的套接字设置为非阻塞模式来解决这个问题。当我们标记套接字为非阻塞时，其方法在移动到执行下一行代码之前不会阻塞等待接收数据。
+- en: 3.3 Working with non-blocking sockets
+  id: totrans-68
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.3 使用非阻塞套接字
+- en: Our previous echo server allowed multiple clients to connect; however, when
+    more than one connected, we ran into issues where one client could cause others
+    to wait for it to send data. We can address this issue by putting sockets into
+    non-blocking mode. When we do this, any time we call a method that would block,
+    such as `recv`, it is guaranteed to return instantly. If the socket has data ready
+    for processing, then we will get data returned as we would with a blocking socket.
+    If not, the socket will instantly let us know it does not have any data ready,
+    and we are free to move on to execute other code.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前的回声服务器允许多个客户端连接；然而，当连接超过一个时，我们遇到了一个问题，其中一个客户端可能会使其他客户端等待它发送数据。我们可以通过将套接字置于非阻塞模式来解决此问题。当我们这样做时，任何会阻塞的方法调用，如`recv`，都会立即返回。如果套接字有数据准备好处理，那么我们将像在阻塞套接字中一样得到数据返回。如果没有，套接字会立即通知我们它没有准备好任何数据，我们可以自由地继续执行其他代码。
+- en: Listing 3.4 Creating a non-blocking socket
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.4 创建非阻塞套接字
+- en: '[PRE11]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Fundamentally, creating a non-blocking socket is no different from creating
+    a blocking one, except that we must call `setblocking` with `False`. By default,
+    a socket will have this value set to `True`, indicating it is blocking. Now let’s
+    see what happens when we do this in our original application. Does this fix the
+    issue?
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基本上，创建一个非阻塞套接字与创建一个阻塞套接字没有区别，只是我们必须使用`setblocking`方法将`False`作为参数。默认情况下，套接字将具有此值设置为`True`，表示它是阻塞的。现在让我们看看我们在原始应用程序中这样做会发生什么。这能解决问题吗？
+- en: Listing 3.5 A first attempt at a non-blocking server
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.5 非阻塞服务器的第一次尝试
+- en: '[PRE12]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Mark the server socket as non-blocking.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将服务器套接字标记为非阻塞。
+- en: ❷ Mark the client socket as non-blocking.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将客户端套接字标记为非阻塞。
+- en: 'When we run listing 3.5, we’ll notice something different right away. Our application
+    crashes almost instantly! We’ll get thrown a `BlockingIOError` because our server
+    socket has no connection yet and therefore no data to process:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行列表3.5时，我们会立即注意到一些不同。我们的应用程序几乎立即崩溃！我们会收到一个`BlockingIOError`异常，因为我们的服务器套接字还没有连接，因此没有数据可以处理：
+- en: '[PRE13]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: This is the socket’s somewhat unintuitive way of telling us, “I don’t have any
+    data, try calling me again later.” There is no easy way for us to tell if a socket
+    has data right now, so one solution is to just catch the exception, ignore it,
+    and keep looping until we have data. With this tactic, we’ll constantly be checking
+    for new connections and data as fast as we can. This should solve the issue that
+    our blocking socket echo server had.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一种套接字以某种不太直观的方式告诉我们，“我没有数据，稍后再调用我。”我们没有简单的方法来判断套接字是否现在有数据，所以一种解决方案是简单地捕获异常，忽略它，并继续循环，直到我们有数据。使用这种策略，我们将不断地尽可能快地检查新的连接和数据。这应该解决我们的阻塞套接字回声服务器存在的问题。
+- en: Listing 3.6 Catching and ignoring blocking IO errors
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.6 捕获并忽略阻塞IO错误
+- en: '[PRE14]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Each time we go through an iteration of our infinite loop, none of our calls
+    to `accept` or `recv` every block, and we either instantly throw an exception
+    that we ignore, or we have data ready to process and we process it. Each iteration
+    of this loop happens quickly, and we’re never dependent on anyone sending us data
+    to proceed to the next line of code. This addresses the issue of our blocking
+    server and allows multiple clients to connect and send data concurrently.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当我们通过无限循环的一次迭代，我们的`accept`或`recv`调用都不会阻塞，我们要么立即抛出一个我们忽略的异常，要么有数据准备好处理，然后我们处理它。这个循环的每次迭代都很快，我们永远不会依赖于任何人发送数据来执行下一行代码。这解决了我们的阻塞服务器问题，并允许多个客户端并发连接和发送数据。
+- en: This approach works, but it comes at a cost. The first is code quality. Catching
+    exceptions any time we might not yet have data will quickly get verbose and is
+    potentially error-prone. The second is a resource issue. If you run this on a
+    laptop, you may notice your fan starts to sound louder after a few seconds. This
+    application will always be using nearly 100% of our CPU’s processing power (figure
+    3.3). This is because we are constantly looping and getting exceptions as fast
+    as we can inside our application, leading to a workload that is CPU heavy.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法有效，但代价是代码质量。在我们可能还没有数据的情况下捕获异常会很快变得冗长，并且可能存在错误风险。第二个问题是资源问题。如果你在笔记本电脑上运行这个程序，你可能会注意到几秒钟后风扇开始变得更响。这个应用程序将始终使用我们CPU处理能力的近100%（图3.3）。这是因为我们一直在循环中尽可能快地捕获异常，导致了一个CPU密集型的工作负载。
+- en: '![03-03](Images/03-03.png)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_IMG
+  zh: '![03-03](Images/03-03.png)'
+- en: Figure 3.3 When looping and catching exceptions, CPU usage spikes to 100% and
+    stays there.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.3 当循环捕获异常时，CPU使用率会飙升到100%并保持在那里。
+- en: Earlier, we mentioned operating system-specific event notification systems that
+    can notify us when sockets have data that we can act on. These systems rely on
+    hardware-level notifications and don’t involve polling with a `while` loop, as
+    we just did. Python has a library for using this event notification system built
+    in. Next, we’ll use this to resolve our CPU utilization issues and build a mini
+    event loop for socket events.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前，我们提到了操作系统特定的通知系统，这些系统可以在套接字有我们可以操作的数据时通知我们。这些系统依赖于硬件级别的通知，并且不涉及我们刚才所做的轮询，即使用
+    `while` 循环。Python 内置了一个用于使用此事件通知系统的库。接下来，我们将使用这个库来解决我们的 CPU 利用率问题，并为套接字事件构建一个迷你事件循环。
+- en: 3.4 Using the selectors module to build a socket event loop
+  id: totrans-87
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.4 使用 selectors 模块构建套接字事件循环
+- en: Operating systems have efficient APIs that let us watch sockets for incoming
+    data and other events built in. While the actual API is dependent on the operating
+    system (kqueue, epoll, and IOCP are a few common ones), all of these I/O notification
+    systems operate on a similar concept. We give them a list of sockets we want to
+    monitor for events, and instead of constantly checking each socket to see if it
+    has data, the operating system tells us explicitly when sockets have data.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作系统内置了高效的 API，允许我们监视套接字以获取传入数据和其它事件。虽然实际的 API 依赖于操作系统（如 kqueue、epoll 和 IOCP
+    是一些常见的例子），但所有这些 I/O 通知系统都基于相似的概念。我们向它们提供一个我们想要监视事件的套接字列表，操作系统会明确地告诉我们套接字何时有数据，而不是不断地检查每个套接字是否有数据。
+- en: Because this is implemented at the hardware level, very little CPU utilization
+    is used during this monitoring, allowing for efficient resource usage. These notification
+    systems are the core of how asyncio achieves concurrency. Understanding how this
+    works gives us a view of how the underlying machinery of asyncio works.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这是在硬件级别实现的，所以在监控期间使用的 CPU 利用率非常低，从而允许高效地使用资源。这些通知系统是 asyncio 实现并发性的核心。了解它是如何工作的，让我们看到了
+    asyncio 的底层机制是如何运作的。
+- en: The event notification systems are different depending on the operating system.
+    Luckily, Python’s `selectors` module is abstracted such that we can get the proper
+    event for wherever we run our code. This makes our code portable across different
+    operating systems.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件通知系统根据操作系统而有所不同。幸运的是，Python 的 `selectors` 模块进行了抽象，这样我们就可以在代码运行的任何地方获取适当的事件。这使得我们的代码可以在不同的操作系统之间移植。
+- en: This library exposes an abstract base class called `BaseSelector`, which has
+    multiple implementations for each event notification system. It also contains
+    a `DefaultSelector` class, which automatically chooses which implementation is
+    most efficient for our system.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个库公开了一个名为 `BaseSelector` 的抽象基类，它为每个事件通知系统提供了多个实现。它还包含一个 `DefaultSelector` 类，该类会自动选择对我们系统最有效的实现。
+- en: The `BaseSelector` class has important concepts. The first is *registration*.
+    When we have a socket that we’re interested in getting notifications about, we
+    register it with the selector and tell it which events we’re interested in. These
+    are events such as read and write. Inversely, we can also deregister a socket
+    we’re no longer interested in.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`BaseSelector` 类包含重要的概念。第一个是 *注册*。当我们对获取通知的套接字感兴趣时，我们将它注册到选择器中，并告诉它我们感兴趣的事件。这些事件包括读取和写入。相反，我们也可以注销不再感兴趣的套接字。'
+- en: The second major concept is *select*. `select` will block until an event has
+    happened, and once it does, the call will return with a list of sockets that are
+    ready for processing along with the event that triggered it. It also supports
+    a timeout, which will return an empty set of events after a specified amount of
+    time.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个主要概念是 *选择*。`select` 将会阻塞，直到发生一个事件，一旦发生，调用将返回一个列表，其中包含准备好处理的事件套接字以及触发该事件的那个事件。它还支持超时，在指定时间后返回一个空的事件集。
+- en: Given these building blocks, we can create a non-blocking echo server that does
+    not stress our CPU. Once we create our server socket, we’ll register it with the
+    default selector, which will listen for any connections from clients. Then, any
+    time someone connects to our server socket, we’ll register the client’s connection
+    socket with the selector to watch for any data sent. If we get any data from a
+    socket that isn’t our server socket, we know it is from a client that has sent
+    data. We then receive that data and write it back to the client. We will also
+    add a timeout to demonstrate that we can have other code execute while we’re waiting
+    for things to happen.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定这些构建块，我们可以创建一个非阻塞的回声服务器，它不会对我们的CPU造成压力。一旦我们创建了服务器套接字，我们将将其注册到默认选择器，以便监听来自客户端的任何连接。然后，每当有人连接到我们的服务器套接字时，我们将客户端的连接套接字注册到选择器，以便监视任何发送的数据。如果我们从不是服务器套接字的套接字接收到数据，我们知道它来自已发送数据的客户端。然后我们接收这些数据并将其写回客户端。我们还将添加一个超时来演示，在我们等待事情发生的同时，我们可以执行其他代码。
+- en: Listing 3.7 Using selectors to build a non-blocking server
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.7 使用选择器构建非阻塞服务器
+- en: '[PRE15]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Create a selector that will timeout after 1 second.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个在1秒后超时的选择器。
+- en: ❷ If there are no events, print it out. This happens when a timeout occurs.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果没有事件发生，则打印出来。这发生在超时发生时。
+- en: ❸ Get the socket for the event, which is stored in the fileobj field.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 获取事件套接字，它存储在fileobj字段中。
+- en: ❹ If the event socket is the same as the server socket, we know this is a connection
+    attempt.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果事件套接字与服务器套接字相同，我们知道这是一个连接尝试。
+- en: ❺ Register the client that connected with our selector.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 使用我们的选择器注册已连接的客户端。
+- en: ❻ If the event socket is not the server socket, receive data from the client,
+    and echo it back.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 如果事件套接字不是服务器套接字，则从客户端接收数据并将其回显。
+- en: When we run listing 3.7, we’ll see “No events, waiting a bit more!” printed
+    roughly every second unless we get a connection event. Once we get a connection,
+    we register that connection to listen for read events. Then, if a client sends
+    us data, our selector will return an event that we have data ready and we can
+    read it with `socket.recv`.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行列表3.7时，除非我们得到连接事件，否则大约每秒会打印出“没有事件，再等一会儿！”除非我们得到连接事件。一旦我们得到连接，我们将该连接注册为监听读取事件。然后，如果客户端发送数据给我们，我们的选择器将返回一个事件，表示我们有数据准备好，我们可以使用`socket.recv`读取它。
+- en: This is fully functioning echo server that supports multiple clients. This server
+    has no issues with blocking, as we only read or write data when we have data to
+    act on. It also has very little CPU utilization as we’re using the operating system’s
+    efficient event notification system (figure 3.4).
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个完全功能的回声服务器，支持多个客户端。这个服务器没有阻塞问题，因为我们只有在有数据要处理时才会读取或写入数据。它还非常节省CPU资源，因为我们正在使用操作系统的有效事件通知系统（图3.4）。
+- en: '![03-04](Images/03-04.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![03-04](Images/03-04.png)'
+- en: Figure 3.4 CPU graph of the echo server with selectors. Utilization hovers around
+    0 and 1 percent with this method.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.4 使用选择器的回声服务器CPU图。使用此方法时，利用率在0和1%之间徘徊。
+- en: 'What we’ve built is akin to a big part of what asyncio’s event loop does under
+    the hood. In this case, the events that matter are sockets receiving data. Each
+    iteration of our event loop and the asyncio event loop is triggered by either
+    a socket event happening, or a timeout triggering an iteration of the loop. In
+    the asyncio event loop, when any of these two things happen, coroutines that are
+    waiting to run will do so until they either complete or they hit the next `await`
+    statement. When we hit an `await` in a coroutine that utilizes a non-blocking
+    socket, it will register that socket with the system’s selector and keep track
+    that the coroutine is paused waiting for a result. We can translate this into
+    pseudocode that demonstrates the concept:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们所构建的类似于asyncio事件循环在底层所做的大部分工作。在这种情况下，重要的事件是套接字接收数据。我们的事件循环和asyncio事件循环的每次迭代都是由套接字事件发生或超时触发循环迭代的。在asyncio事件循环中，当这两者中的任何一个发生时，等待运行的协程将执行，直到它们完成或遇到下一个`await`语句。当我们在一个使用非阻塞套接字的协程中遇到`await`时，它将注册该套接字到系统的选择器，并跟踪协程暂停等待结果。我们可以将此概念转换为伪代码：
+- en: '[PRE16]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: We run any coroutines that are ready to run until they are paused on an `await`
+    statement and store those in the `paused` array. We also keep track of any new
+    sockets we need to watch from running those coroutines and register them with
+    the selector. We then calculate the desired timeout for when we call `select`.
+    While this timeout calculation is somewhat complicated, it is typically looking
+    at things we have scheduled to run at a specific time or for a specific duration.
+    An example of this is `asyncio.sleep`. We then call select and wait for any socket
+    events or a timeout. Once either of those happen, we process those events and
+    turn that into a list of coroutines that are ready to run.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们运行任何准备就绪的协程，直到它们在 `await` 语句上暂停，并将它们存储在 `paused` 数组中。我们还跟踪任何需要从运行这些协程中监视的新套接字，并将它们注册到选择器中。然后我们计算调用
+    `select` 时所需的超时时间。虽然这个超时计算有些复杂，但它通常是在查看我们计划在特定时间或特定持续时间运行的计划任务。一个例子是 `asyncio.sleep`。然后我们调用
+    select 并等待任何套接字事件或超时。一旦发生其中之一，我们就处理这些事件，并将它们转换成可以运行的协程列表。
+- en: While the event loop we’ve built is only for socket events, it demonstrates
+    the main concept of using selectors to register sockets we care about, only being
+    woken up when something we want to process happens. We’ll get more in-depth with
+    how to construct a custom event loop at the end of this book.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们构建的事件循环仅用于套接字事件，但它展示了使用选择器注册我们关心的套接字的主要概念，只有在需要处理的事情发生时才会被唤醒。我们将在本书的末尾更深入地了解如何构建自定义事件循环。
+- en: Now, we understand a large part of the machinery that makes asyncio tick. However,
+    if we just use selectors to build our applications, we would resort to implementing
+    our own event loop to achieve the same functionality, as provided by asyncio.
+    To see how to implement this with asyncio, let’s take what we have learned and
+    translate it into `async` `/` `await` code and use an event loop already implemented
+    for us.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们已经理解了使 asyncio 运转的大部分机制。然而，如果我们仅仅使用选择器来构建我们的应用程序，我们就可能需要实现自己的事件循环来实现与 asyncio
+    提供的相同的功能。为了了解如何使用 asyncio 实现这一点，让我们将我们所学的内容翻译成 `async` `/` `await` 代码，并使用为我们已经实现的事件循环。
+- en: 3.5 An echo server on the asyncio event loop
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.5 在 asyncio 事件循环上的回声服务器
+- en: Working with `select` is a bit too low-level for most applications. We may want
+    to have code run in the background while we’re waiting for socket data to come
+    in, or we may want to have background tasks run on a schedule. If we were to do
+    this with only selectors, we’d likely build our own event loop, while asyncio
+    has a nicely implemented one ready to use. In addition, coroutines and tasks provide
+    abstractions on top of selectors, which make our code easier to implement and
+    maintain, as we don’t need to think about selectors at all.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `select` 一起工作对于大多数应用程序来说太低级了。我们可能希望在等待套接字数据到来时，让代码在后台运行，或者我们可能希望在计划中运行后台任务。如果我们只使用选择器来做这件事，我们很可能会构建自己的事件循环，而
+    asyncio 已经提供了一个现成的、很好地实现的事件循环可供使用。此外，协程和任务在选择器之上提供了抽象，这使得我们的代码更容易实现和维护，因为我们根本不需要考虑选择器。
+- en: Now that we have a deeper understanding on how the asyncio event loop works,
+    let’s take the echo server that we built in the last section and build it again
+    using coroutines and tasks. We’ll still use lower-level sockets to accomplish
+    this, but we’ll use asyncio-based APIs that return coroutines to manage them.
+    We’ll also add some more functionality to our echo server to demonstrate a few
+    key concepts to illustrate how asyncio works.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们对 asyncio 事件循环的工作原理有了更深入的了解，让我们再次构建我们在上一节中构建的回声服务器，这次我们将使用协程和任务来构建它。我们仍然会使用低级套接字来完成这项工作，但我们将使用基于
+    asyncio 的 API 来管理它们，这些 API 返回协程。我们还将向我们的回声服务器添加一些更多功能，以展示几个关键概念，以说明 asyncio 的工作方式。
+- en: 3.5.1 Event loop coroutines for sockets
+  id: totrans-115
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.5.1 套接字事件循环协程
+- en: 'Given that sockets are a relatively low-level concept, the methods for dealing
+    with them are on asyncio’s event loop itself. There are three main coroutines
+    we’ll want to work with: `sock_accept`, `sock_recv` and `sock_sendall`. These
+    are analogous to the socket methods that we used earlier, except that they take
+    in a socket as an argument and return coroutines that we can `await` until we
+    have data to act on.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于套接字是一个相对低级的概念，处理它们的方法就在 asyncio 的事件循环本身。我们将想要与之合作的三个主要协程是：`sock_accept`、`sock_recv`
+    和 `sock_sendall`。这些方法与我们在之前使用的套接字方法类似，但它们接受一个套接字作为参数，并返回我们可以 `await` 直到有数据可以处理的协程。
+- en: 'Let’s start with `sock_accept`. This coroutine is analogous to the `socket.accept`
+    method that we saw in our first implementation. This method will return a tuple
+    (a data structure that stores an ordered sequence of values) of a socket connection
+    and a client address. We pass it in the socket we’re interested in, and we can
+    then `await` the coroutine it returns. Once that coroutine completes, we’ll have
+    our connection and address. This socket must be non-blocking and should already
+    be bound to a port:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从 `sock_accept` 开始。这个协程类似于我们在第一次实现中看到的 `socket.accept` 方法。此方法将返回一个包含套接字连接和客户端地址的元组（一个存储有序值序列的数据结构）。我们传入我们感兴趣的套接字，然后我们可以
+    `await` 返回的协程。一旦该协程完成，我们就会得到我们的连接和地址。这个套接字必须是非阻塞的，并且应该已经绑定到一个端口：
+- en: '[PRE17]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '`sock_recv` and `sock_sendall` are called similarly to `sock_accept`. They
+    take in a socket, and we can then `await` for a result. `sock_recv` will `await`
+    until a socket has bytes we can process. `sock_sendall` takes in both a socket
+    and data we want to send and will wait until all data we want to send to a socket
+    has been sent and will return `None` on success:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`sock_recv` 和 `sock_sendall` 的调用方式类似于 `sock_accept`。它们接受一个套接字，然后我们可以 `await`
+    结果。`sock_recv` 将 `await` 直到套接字有我们可以处理的数据。`sock_sendall` 接受一个套接字和我们想要发送的数据，并将等待直到所有我们想要发送到套接字的数据都已发送，并在成功时返回
+    `None`：'
+- en: '[PRE18]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: With these building blocks, we’ll be able to translate our previous approaches
+    into one using coroutines and tasks.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这些构建块，我们将能够将我们之前的方法转换为使用协程和任务的方法。
+- en: 3.5.2 Designing an asyncio echo server
+  id: totrans-122
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.5.2 设计 asyncio 回显服务器
+- en: In chapter 2, we introduced coroutines and tasks. So when should we use just
+    a coroutine, and when should we wrap a coroutine in a task for our echo server?
+    Let’s examine how we want our application to behave to make this determination.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第2章中，我们介绍了协程和任务。那么我们应该在何时只使用协程，在何时将协程包装在任务中以用于我们的回显服务器？让我们检查我们希望我们的应用程序如何行为，以便做出这个决定。
+- en: We’ll start with how we want to listen for connections in our application. When
+    we are listening for connections, we will only be able to process one connection
+    at a time as `socket.accept` will only give us one client connection. Behind the
+    scenes, incoming connections will be stored in a queue known as the *backlog*
+    if we get multiple connections at the same time, but here, we won’t get into how
+    this works.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从我们希望在应用程序中监听连接的方式开始。当我们正在监听连接时，我们一次只能处理一个连接，因为 `socket.accept` 只会给我们一个客户端连接。在幕后，如果我们在同一时间收到多个连接，传入的连接将被存储在一个称为
+    *backlog* 的队列中，但在这里，我们不会深入探讨它是如何工作的。
+- en: 'Since we don’t need to process multiple connections concurrently, a single
+    coroutine that loops forever makes sense. This will allow other code to run concurrently
+    while we’re paused waiting for a connection. We’ll define a coroutine called `listen_
+    for_connections` that will loop forever and listen for any incoming connections:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们不需要同时处理多个连接，一个无限循环的单个协程是有意义的。这将允许我们在等待连接时，其他代码可以并发运行。我们将定义一个名为 `listen_for_connections`
+    的协程，它将无限循环并监听任何传入的连接：
+- en: '[PRE19]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Now that we have a coroutine for listening to connections, how about reading
+    and writing data to the clients who have connected? Should that be a coroutine,
+    or a coroutine we wrap in a task? In this case, we will have multiple connections,
+    each of which could send data to us at any time. We don’t want to wait for data
+    from one connection to block another, so we need to read and write data from multiple
+    clients concurrently. Because we need to handle multiple connections at the same
+    time, creating a task for each connection to read and write data makes sense.
+    On every connection we get, we’ll create a task to both read data from and write
+    data to that connection.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经有了用于监听连接的协程，那么如何读取和写入已连接客户端的数据呢？这应该是一个协程，还是我们将其包装在任务中的协程？在这种情况下，我们将有多个连接，每个连接都可能随时向我们发送数据。我们不希望等待一个连接的数据而阻塞另一个连接，因此我们需要从多个客户端并发地读取和写入数据。由于我们需要同时处理多个连接，为每个连接创建一个读取和写入数据的任务是有意义的。对于每个我们获得的连接，我们将创建一个任务来从该连接读取数据并写入数据。
+- en: We’ll create a coroutine named `echo` that is responsible for handling data
+    from a connection. This coroutine will loop forever listening for data from our
+    client. Once it receives data it will then send it back to the client.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将创建一个名为 `echo` 的协程，该协程负责处理连接的数据。这个协程将无限循环地监听来自客户端的数据。一旦它接收到数据，它就会将其发送回客户端。
+- en: Then, in `listen_for_connections` we’ll create a new task that wraps our `echo`
+    coroutine for each connection that we get. With these two coroutines defined,
+    we now have all we need to build an asyncio echo server.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在`listen_for_connections`中，我们将为每个接收到的连接创建一个新的任务，该任务封装了我们的`echo`协程。有了这两个协程定义，我们现在拥有了构建异步io回显服务器所需的一切。
+- en: Listing 3.8 Building an asyncio echo server
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.8 构建异步io回显服务器
+- en: '[PRE20]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Loop forever waiting for data from a client connection
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 无限循环等待客户端连接的数据
+- en: ❷ Once we have data, send it back to that client.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 一旦我们有数据，就将其发送回那个客户端。
+- en: ❸ Whenever we get a connection, create an echo task to listen for client data.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 每当我们得到一个连接时，创建一个回显任务来监听客户端数据。
+- en: ❹ Start the coroutine to listen for connections.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 启动协程以监听连接。
+- en: The architecture for the preceding listing looks like figure 3.5\. We have one
+    coroutine, `listen_for_connection`, listening for connections. Once a client connects,
+    our coroutine spawns an `echo` task for each client which then listens for data
+    and writes it back out to the client.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面的代码架构看起来像图3.5。我们有一个协程`listen_for_connection`在监听连接。一旦客户端连接，我们的协程为每个客户端产生一个`echo`任务，然后监听数据并将其写回客户端。
+- en: '![03-05](Images/03-05.png)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![03-05](Images/03-05.png)'
+- en: Figure 3.5 The coroutine listening for connections spawns one task per each
+    connection it gets.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.5 协程监听连接为每个接收到的连接产生一个任务。
+- en: When we run this application, we’ll be able to connect multiple clients concurrently
+    and send data to them concurrently. Under the hood, this is all using selectors
+    as we saw before, so our CPU utilization remains low.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个应用程序时，我们将能够同时连接多个客户端并发地向它们发送数据。在底层，这所有的一切都是使用我们在之前看到的选择器，所以我们的CPU利用率保持很低。
+- en: We’ve now built a fully functioning echo server entirely using asyncio! So is
+    our implementation error free? It turns out that the way we have designed this
+    echo server does have an issue when our echo task fails that we’ll need to handle.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经使用asyncio完全构建了一个功能齐全的回显服务器！那么我们的实现是否没有错误？结果证明，我们设计这个回显服务器的方式在回显任务失败时确实存在一个问题，我们需要处理。
+- en: 3.5.3 Handling errors in tasks
+  id: totrans-141
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.5.3 处理任务中的错误
+- en: 'Network connections are often unreliable, and we may get exceptions we don’t
+    expect in our application code. How would our application behave if reading or
+    writing to a client failed and threw an exception? To test this out, let’s change
+    our implementation of `echo` to throw an exception when a client passes us a specific
+    keyword:'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网络连接通常不可靠，我们可能在应用程序代码中遇到我们不期望的异常。如果读取或写入客户端失败并抛出异常，我们的应用程序会如何表现？为了测试这一点，让我们改变`echo`的实现，当客户端传递给我们一个特定的关键字时抛出异常：
+- en: '[PRE21]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Now, whenever a client sends “boom” to us, we will raise an exception and our
+    task will crash. So, what happens when we connect a client to our server and send
+    this message? We will see a traceback with a warning like the following:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，每当一个客户端发送“boom”给我们时，我们将抛出一个异常，我们的任务将会崩溃。那么，当我们把一个客户端连接到我们的服务器并发送这条消息时会发生什么？我们会看到一个带有如下警告的回溯：
+- en: '[PRE22]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The important part here is `Task` `exception` `was` `never` `retrieved`. What
+    does this mean? When an exception is thrown inside a task, the task is considered
+    done with its result as an exception. This means that no exception is thrown up
+    the call stack. Furthermore, we have no cleanup here. If this exception is thrown,
+    we can’t react to the task failing because we never retrieved the exception.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里重要的是`Task` `exception` `was` `never` `retrieved`。这意味着什么？当一个任务内部抛出异常时，该任务被认为已经完成，其结果是一个异常。这意味着不会向上抛出异常。此外，我们这里没有清理。如果这个异常被抛出，我们无法对任务失败做出反应，因为我们从未检索到异常。
+- en: To have the exception reach us, we must use the task in an `await` expression.
+    When we await a task that failed, the exception will get thrown where we perform
+    the await, and the traceback will reflect that. If we don’t `await` a task at
+    some point in our application, we run the risk of never seeing an exception that
+    a task raised. While we did see the exception output in the example, which may
+    lead us to think it isn’t that big an issue, there are subtle ways we could change
+    our application so that we would never see this message.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要让异常传达到我们这里，我们必须在`await`表达式中使用任务。当我们等待一个失败的任务时，异常将在我们执行`await`的地方被抛出，并且回溯将反映这一点。如果我们不在应用程序的某个地方等待任务，我们就有可能永远看不到任务抛出的异常。虽然我们在示例中看到了异常输出，这可能会让我们认为这不是一个大问题，但我们可以以微妙的方式改变我们的应用程序，以至于我们永远不会看到这条消息。
+- en: 'As a demonstration of this, let’s say that, instead of ignoring the echo tasks
+    we create in `listen_for_connections`, we kept track of them in a list like so:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为这个的演示，让我们假设，我们不是忽略在`listen_for_connections`中创建的回显任务，而是像这样在列表中跟踪它们：
+- en: '[PRE23]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: One would expect this to behave in the same way as before. If we send the “boom”
+    message, we’ll see the exception printed along with the warning that we never
+    retrieved the task exception. However, this isn’t the case, since we’ll actually
+    see nothing printed until we forcefully terminate our application!
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人们会期望这会像以前一样表现。如果我们发送“boom”消息，我们会看到异常被打印出来，同时还会有一条警告说我们从未检索到任务异常。然而，情况并非如此，因为我们实际上什么都不会打印出来，直到我们强制终止我们的应用程序！
+- en: This is because we’ve kept a reference around to the task. asyncio can only
+    print this message and the traceback for a failed task when that task is garbage
+    collected. This is because it has no way to tell if that task will be awaited
+    at some other point in the application and would therefore raise an exception
+    then. Due to these complexities, we’ll either need to `await` our tasks or handle
+    all exceptions that our tasks could throw. So how do we do this in our echo server?
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是因为我们保留了对任务的引用。asyncio只能在任务被垃圾回收时打印出失败任务的这条消息和跟踪信息。这是因为它没有方法来判断该任务是否会在应用程序的某个其他点被等待，从而引发异常。由于这些复杂性，我们可能需要`await`我们的任务或处理所有任务可能抛出的异常。那么，我们如何在我们的回显服务器中做到这一点呢？
+- en: 'The first thing we can do to fix this is wrap the code in our echo coroutine
+    in a `try/catch` statement, log the exception, and close the connection:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以做的第一件事是在我们的回显协程代码中包裹一个`try/catch`语句，记录异常，并关闭连接：
+- en: '[PRE24]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: This will resolve the immediate issue of an exception causing our server to
+    complain that a task exception was never retrieved because we handle it in the
+    coroutine itself. It will also properly shut down the socket within the `finally`
+    block, so we won’t be left with a dangling unclosed exception in the event of
+    a failure.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将解决由异常引起的即时问题，我们的服务器会抱怨任务异常从未被检索，因为我们已经在协程中处理了它。它还会在`finally`块中正确关闭套接字，这样在失败的情况下我们就不会留下悬而未决的未关闭异常。
+- en: It’s important to note that this implementation will properly close any connections
+    to clients we have open on application shutdown. Why is this? In chapter 2, we
+    noted that `asyncio.run` will cancel any tasks we have remaining when our application
+    shuts down. We also learned when we cancel a task, a `CancelledError` is raised
+    whenever we try to `await` it.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要注意，这个实现将在应用程序关闭时正确关闭我们打开的任何客户端连接。为什么是这样？在第2章中，我们注意到`asyncio.run`将在我们的应用程序关闭时取消我们剩余的所有任务。我们还了解到，当我们取消一个任务时，每次我们尝试`await`它时都会抛出一个`CancelledError`。
+- en: The important thing here is noting where that exception is raised. If our task
+    is waiting on a statement such as `await` `loop.sock_recv`, and we cancel that
+    task, a `CancelledError` is thrown from the `await` `loop.sock_recv` line. This
+    means that in the above case our `finally` block will be executed, since we threw
+    an exception on an `await` expression when we canceled the task. If we change
+    the exception block to catch and log these exceptions, you will see one `CancelledError`
+    per each task that was created.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里重要的是要注意异常被抛出的位置。如果我们的任务正在等待一个如`await loop.sock_recv`这样的语句，并且我们取消了这个任务，那么`await
+    loop.sock_recv`行会抛出一个`CancelledError`。这意味着在上面的情况下，我们的`finally`块将被执行，因为我们取消任务时在`await`表达式中抛出了异常。如果我们将异常块改为捕获并记录这些异常，你将看到每个创建的任务都会有一个`CancelledError`。
+- en: We’ve now handled the immediate issue of handling errors when our echo tasks
+    fail. What if we want to provide some cleanup of any errors or leftover tasks
+    when our application shuts down? We can do this with asyncio’s signal handlers.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经处理了当我们的回显任务失败时处理错误的问题。如果我们想在应用程序关闭时提供任何错误或剩余任务的清理，该怎么办？我们可以使用asyncio的信号处理器来完成这个任务。
+- en: 3.6 Shutting down gracefully
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.6 优雅地关闭
+- en: Now, we’ve created an echo server that handles multiple concurrent connections
+    and also properly logs errors and cleans up when we get an exception. What happens
+    if we need to shut down our application? Wouldn’t it be nice if we could allow
+    any in-flight messages to complete before we shut down? We can do this by adding
+    custom shutdown logic to our application that allows any in-progress tasks a few
+    seconds to finish sending any messages they might want to send. While this won’t
+    be a production-worthy implementation, we’ll learn the concepts around shutting
+    down as well as canceling all running tasks in our asyncio applications.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们已经创建了一个可以处理多个并发连接并正确记录错误、在发生异常时清理的回声服务器。如果我们需要关闭我们的应用程序会发生什么？如果我们能在关闭之前允许所有正在传输的消息完成，那岂不是很好？我们可以通过向应用程序中添加自定义关闭逻辑来实现这一点，这样任何正在进行的任务就有几秒钟的时间来发送它们可能想要发送的消息。虽然这不会是一个适合生产的实现，但我们将学习关于关闭以及取消所有正在运行的异步应用程序任务的概念。
+- en: Signals on Windows
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Windows 上的信号
+- en: 'Windows does not support signals. Therefore, this section only applies to Unix-based
+    systems. Windows uses a different system to handle this, that, at the time of
+    writing this book, does not perform with Python. To learn more about how to make
+    this code work in a cross-platform way, see the following answer on Stack Overflow:
+    [https:// stackoverflow.com/questions/35772001](https://stackoverflow.com/questions/35772001).'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Windows 不支持信号。因此，本节仅适用于基于 Unix 的系统。Windows 使用不同的系统来处理这个问题，在撰写本书时，它不与 Python
+    兼容。要了解更多关于如何使此代码以跨平台方式工作的信息，请参阅以下 Stack Overflow 上的答案：[https:// stackoverflow.com/questions/35772001](https://stackoverflow.com/questions/35772001)。
+- en: 3.6.1 Listening for signals
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.6.1 监听信号
+- en: Signals are a concept in Unix-based operating systems for asynchronously notifying
+    a process of an event that occurred at the operating system level. While this
+    sounds very low-level, you’re probably familiar with some signals. For instance,
+    a common signal is SIGINT, short for *signal interrupt*. This is triggered when
+    you press CTRL-C to kill a command-line application. In Python, we can often handle
+    this by catching the `KeyboardInterrupt` exception. Another common signal is SIGTERM,
+    short for *signal terminate*. This is triggered when we run the `kill` command
+    on a particular process to stop its execution.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 信号是类 Unix 操作系统中的一个概念，用于异步通知进程在操作系统级别发生的事件。虽然这听起来非常底层，但你可能熟悉一些信号。例如，一个常见的信号是
+    SIGINT，代表 *信号中断*。当你按下 CTRL-C 来终止命令行应用程序时，它会触发。在 Python 中，我们通常可以通过捕获 `KeyboardInterrupt`
+    异常来处理它。另一个常见的信号是 SIGTERM，代表 *信号终止*。当我们运行 `kill` 命令来停止特定进程的执行时，它会触发。
+- en: To implement custom shutdown logic, we’ll implement listeners in our application
+    for both the SIGINT and SIGTERM signals. Then, in these listeners we’ll implement
+    logic to allow any echo tasks we have a few seconds to finish.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现自定义关闭逻辑，我们将在应用程序中为 SIGINT 和 SIGTERM 信号实现监听器。然后，在这些监听器中，我们将实现逻辑，允许我们拥有的任何回声任务有几分钟的时间来完成。
+- en: How do we listen for signals in our application? The asyncio event loop lets
+    us directly listen for any event we specify with the `add_signal_handler` method.
+    This differs from the signal handlers that you can set in the signal module with
+    the `signal .signal` function in that `add_signal_handler` can safely interact
+    with the event loop. This function takes in a signal we want to listen for and
+    a function that we’ll call when our application receives that signal. To demonstrate
+    this, let’s look at adding a signal handler that cancels all currently running
+    tasks. asyncio has a convenience function that returns a set of all running tasks
+    named `asyncio.all_tasks`.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何在应用程序中监听信号？asyncio 事件循环允许我们通过 `add_signal_handler` 方法直接监听任何指定的事件。这与使用 `signal.signal`
+    函数在信号模块中设置的信号处理程序不同，因为 `add_signal_handler` 可以安全地与事件循环交互。此函数接受我们想要监听的信号以及当我们的应用程序接收到该信号时我们将调用的函数。为了演示这一点，让我们看看如何添加一个取消所有当前运行任务的信号处理程序。asyncio
+    有一个便利函数，它返回所有正在运行的任务集合，名为 `asyncio.all_tasks`。
+- en: Listing 3.9 Adding a signal handler to cancel all tasks
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.9 添加信号处理程序以取消所有任务
+- en: '[PRE25]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: When we run this application, we’ll see that our delay coroutine starts right
+    away and waits for 10 seconds. If we press CTRL-C within these 10 seconds we should
+    see `got` `a` `SIGINT!` printed out, followed by a message that we’re canceling
+    our tasks. We should also see a `CancelledError` thrown from `asyncio.run(main())`,
+    since we’ve canceled that task.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个应用程序时，我们会看到我们的延迟协程立即开始并等待 10 秒。如果我们在这 10 秒内按下 CTRL-C，我们应该会看到打印出 `got`
+    `a` `SIGINT!`，然后是一个取消任务的消息。我们还应该看到从 `asyncio.run(main())` 抛出的 `CancelledError`，因为我们已经取消了那个任务。
+- en: 3.6.2 Waiting for pending tasks to finish
+  id: totrans-169
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.6.2 等待挂起任务完成
+- en: In the original problem statement, we wanted to give our echo server’s echo
+    tasks a few seconds to keep running before shutting down. One way for us to do
+    this is to wrap all our echo tasks in a `wait_for` and then `await` those wrapped
+    tasks. Those tasks will then throw a `TimeoutError` once the timeout has passed
+    and we can terminate our application.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在原始问题说明中，我们希望在我们关闭之前给我们的回声服务器回声任务一些时间继续运行。我们做到这一点的办法是将所有回声任务包裹在 `wait_for` 中，然后
+    `await` 这些包裹的任务。这些任务将在超时后抛出 `TimeoutError`，然后我们可以终止我们的应用程序。
+- en: 'One thing you’ll notice about our shutdown handler is that this is a normal
+    Python function, so we can’t run any `await` statements inside of it. This poses
+    a problem for us, since our proposed solution involves `await`. One possible solution
+    is to just create a coroutine that does our shutdown logic, and in our shutdown
+    handler, wrap it in a task:'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会注意到我们的关闭处理程序是一个正常的 Python 函数，所以我们不能在其中运行任何 `await` 语句。这对我们来说是个问题，因为我们的解决方案涉及
+    `await`。一个可能的解决方案是创建一个执行关闭逻辑的协程，然后在我们的关闭处理程序中将其包裹在任务中：
+- en: '[PRE26]'
+  id: totrans-172
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: An approach like this will work, but the drawback is that if something in `await_
+    all_tasks` throws an exception, we’ll be left with an orphaned task that failed
+    and a “exception was never retrieved” warning. So, is there a better way to do
+    this?
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法可以工作，但缺点是如果在 `await_all_tasks` 中发生异常，我们将留下一个失败的孤儿任务和一个“异常从未检索”的警告。那么，有没有更好的方法来做这件事呢？
+- en: 'We can deal with this by raising a custom exception to stop our main coroutine
+    from running. Then, we can catch this exception when we run the main coroutine
+    and run any shutdown logic. To do this, we’ll need to create an event loop ourselves
+    instead of using `asyncio.run`. This is because on an exception `asyncio.run`
+    will cancel all running tasks, which means we aren’t able to wrap our echo tasks
+    in a `wait_for`:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过抛出一个自定义异常来停止我们的主协程运行来处理这个问题。然后，当我们运行主协程时，我们可以捕获这个异常并运行任何关闭逻辑。为此，我们需要自己创建一个事件循环而不是使用
+    `asyncio.run`。这是因为当发生异常时，`asyncio.run` 将取消所有正在运行的任务，这意味着我们无法将我们的回声任务包裹在 `wait_for`
+    中：
+- en: '[PRE27]'
+  id: totrans-175
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'With this approach in mind, let’s write our shutdown logic:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到这种方法，让我们编写我们的关闭逻辑：
+- en: '[PRE28]'
+  id: totrans-177
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: In `close_echo_tasks`, we take a list of echo tasks and wrap them all in a `wait_for`
+    task with a 2-second timeout. This means that any echo tasks will have 2 seconds
+    to finish before we cancel them. Once we’ve done this, we loop over all these
+    wrapped tasks and `await` them. We catch any `TimeoutErrors`, as we expect this
+    to be thrown from our tasks after 2 seconds. Taking all these parts together,
+    our echo server with shutdown logic looks like the following listing.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `close_echo_tasks` 中，我们取一个回声任务列表，并将它们全部包裹在一个 2 秒超时的 `wait_for` 任务中。这意味着任何回声任务都将有
+    2 秒的时间完成，然后我们取消它们。一旦我们这样做，我们就遍历所有这些包裹的任务并 `await` 它们。我们捕获任何 `TimeoutErrors`，因为我们预计在
+    2 秒后我们的任务会抛出这个错误。将这些部分综合起来，我们的带关闭逻辑的回声服务器看起来如下所示。
+- en: Listing 3.10 A graceful shutdown
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.10 优雅的关闭
+- en: '[PRE29]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: Assuming we have at least one client connected, if we stop this application
+    with either CTRL-C, or we issue a `kill` command to our process, our shutdown
+    logic will execute. We will see the application wait for 2 seconds, while it allows
+    our echo tasks some time to finish before it stops running.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们至少有一个客户端连接，如果我们使用 CTRL-C 停止这个应用程序，或者向我们的进程发出 `kill` 命令，我们的关闭逻辑将执行。我们会看到应用程序等待
+    2 秒，在它停止运行之前允许我们的回声任务有时间完成。
+- en: There are a couple reasons why this is not a production-worthy shutdown. The
+    first is we don’t shut down our connection listener while we’re waiting for our
+    echo tasks to complete. This means that, as we’re shutting down, a new connection
+    could come in and then we won’t be able to add a 2-second shutdown. The other
+    problem is that in our shutdown logic we await every echo task we’re shutting
+    down and only catch `TimeoutExceptions`. This means that if one of our tasks threw
+    something other than that, we would capture that exception and any other subsequent
+    tasks that may have had an exception will be ignored. In chapter 4, we’ll see
+    some asyncio methods for more gracefully handling failures from a group of awaitables.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几个原因说明这不是一个值得在生产环境中使用的关闭方式。第一个原因是我们在等待我们的回声任务完成时没有关闭我们的连接监听器。这意味着，当我们关闭时，一个新的连接可能会进来，然后我们就无法添加2秒的关闭时间。另一个问题是，在我们的关闭逻辑中，我们等待每个关闭的回声任务，并且只捕获`TimeoutExceptions`。这意味着如果我们的任务抛出了其他类型的异常，我们会捕获那个异常，并且任何可能出现的后续任务中的异常都将被忽略。在第4章中，我们将看到一些asyncio方法，用于更优雅地处理一组awaitables的失败。
+- en: While our application isn’t perfect and is a toy example, we’ve built a fully
+    functioning server using asyncio. This server can handle many users concurrently—all
+    within one single thread. With a blocking approach we saw earlier, we would need
+    to turn to threading to be able to handle multiple clients, adding complexity
+    and increased resource utilization to our application.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们的应用程序并不完美，只是一个玩具示例，但我们已经使用asyncio构建了一个完全功能的服务器。这个服务器可以同时处理许多用户——所有这些都在一个单独的线程中完成。使用我们之前看到的阻塞方法，我们需要转向多线程来处理多个客户端，这增加了应用程序的复杂性并增加了资源利用率。
+- en: Summary
+  id: totrans-184
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, we’ve learned about blocking and non-blocking sockets and have
+    explored more in depth how the asyncio event loop functions. We’ve also made our
+    first application with asyncio, a highly concurrent echo server. We have examined
+    how to handle errors in tasks and add custom shutdown logic in our application.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们学习了阻塞和非阻塞套接字，并更深入地探讨了asyncio事件循环的功能。我们还制作了我们的第一个asyncio应用程序，一个高度并发的回声服务器。我们检查了如何在任务中处理错误，并在我们的应用程序中添加自定义关闭逻辑。
+- en: We’ve learned how to create simple applications with blocking sockets. Blocking
+    sockets will stop the entire thread when they are waiting for data. This prevents
+    us from achieving concurrency because we can get data from only one client at
+    a time.
+  id: totrans-186
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学习了如何使用阻塞套接字创建简单的应用程序。阻塞套接字在等待数据时会停止整个线程。这阻止了我们实现并发，因为我们一次只能从一位客户端获取数据。
+- en: We’ve learned how to build applications with non-blocking sockets. These sockets
+    will always return right away, either with data because we have it ready, or with
+    an exception stating we have no data. These sockets let us achieve concurrency
+    because their methods never block and return instantly.
+  id: totrans-187
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学习了如何使用非阻塞套接字构建应用程序。这些套接字总是会立即返回，要么是因为我们有数据，要么是因为一个异常表明我们没有数据。这些套接字使我们能够实现并发，因为它们的方
+    法永远不会阻塞并立即返回。
+- en: We’ve learned how to use the selectors module to listen for events on sockets
+    in an efficient manner. This library lets us register sockets we want to track
+    and will tell us when a non-blocking socket is ready with data.
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学习了如何使用selectors模块以高效的方式监听套接字上的事件。这个库允许我们注册我们想要跟踪的套接字，并且会告诉我们当非阻塞套接字准备好数据时。
+- en: If we put select in an infinite loop, we’ve replicated the core of what the
+    asyncio event loop does. We register sockets we are interested in, and we loop
+    forever, running any code we want once a socket has data available to act on.
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果我们将select放入一个无限循环中，我们就复制了asyncio事件循环的核心功能。我们注册了我们感兴趣的套接字，并且无限循环，一旦套接字有数据可供操作，就运行任何我们想要的代码。
+- en: We learned how to use asyncio’s event loop methods to build applications with
+    non-blocking sockets. These methods take in a socket and return a coroutine which
+    we can then use this in an `await` expression. This will suspend our parent coroutine
+    until the socket has data. Under the hood, this is using the selectors library.
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们学习了如何使用asyncio的事件循环方法来构建使用非阻塞套接字的应用程序。这些方法接收一个套接字并返回一个协程，然后我们可以将其用于`await`表达式。这将挂起我们的父协程，直到套接字有数据。在底层，这是使用selectors库。
+- en: We’ve seen how to use tasks to achieve concurrency for an asyncio-based echo
+    server with multiple clients sending and receiving data at the same time. We’ve
+    also examined how to handle errors within those tasks.
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经看到了如何使用任务来实现基于asyncio的回声服务器在多个客户端同时发送和接收数据时的并发性。我们还检查了如何处理这些任务中的错误。
+- en: We’ve learned how to add custom shutdown logic to an asyncio application. In
+    our case, we decided that when our server shuts down, we’d give it a few seconds
+    for any remaining clients to finish sending data. Using this knowledge, we can
+    add any logic our application needs when it is shutting down.
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何为 asyncio 应用程序添加自定义的关闭逻辑。在我们的例子中，我们决定当我们的服务器关闭时，我们会给它几秒钟的时间，让任何剩余的客户完成数据发送。利用这个知识，我们可以在应用程序关闭时添加任何需要的逻辑。

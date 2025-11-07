@@ -1,0 +1,2606 @@
+- en: 17 Modern internals
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 17 现代内部结构
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Introducing JVM internals
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介绍JVM内部结构
+- en: Reflection internals
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 反射内部结构
+- en: Method handles
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 方法处理
+- en: Invokedynamic
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Invokedynamic
+- en: Recent internal changes
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 近期内部更改
+- en: Unsafe
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 不安全
+- en: Java’s virtual machine (JVM) is an extremely sophisticated runtime environment
+    that has, for decades, prioritized stability and production-grade engineering.
+    For these reasons, many Java developers have never needed to poke about in the
+    internals, because it is simply not necessary to do so most of the time.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Java的虚拟机（JVM）是一个极其复杂的运行环境，几十年来一直优先考虑稳定性和生产级工程。因此，许多Java开发者从未需要深入了解内部结构，因为这通常并不必要。
+- en: This chapter, on the other hand, is for the curious—the people who would like
+    to know more, who would like to draw back the curtain and see some of the details
+    of how the JVM is implemented. Let’s start with method invocation.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，本章是为好奇的人准备的——那些想要了解更多、想要揭开面纱看看JVM实现细节的人。让我们从方法调用开始。
+- en: '17.1 Introducing JVM internals: Method invocation'
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.1 介绍JVM内部结构：方法调用
+- en: To get going, let’s look at a simple example, defined by the classes `Pet`,
+    `Cat`, and `Bear` and the interface `Furry`. This can be seen in figure 17.1
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了开始，让我们看看由`Pet`、`Cat`和`Bear`类以及`Furry`接口定义的一个简单示例。这可以在图17.1中看到。
+- en: '![](../Images/CH17_F01_Evans2.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH17_F01_Evans2.png)'
+- en: Figure 17.1 Simple inheritance hierarchy
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图17.1 简单继承层次结构
+- en: We might also suppose that other subclasses of `Pet` exist (e.g., `Dog` and
+    `Fish`) that aren’t shown in the diagram to keep things clear. We’ll use this
+    example to explain in detail how the different invoke opcodes work, starting with
+    `invokevirtual`.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以假设存在其他`Pet`的子类（例如`Dog`和`Fish`），这些子类在图中没有显示，以保持清晰。我们将使用这个例子来详细解释不同的调用操作码是如何工作的，从`invokevirtual`开始。
+- en: 17.1.1 Invoking virtual methods
+  id: totrans-15
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.1.1 调用虚拟方法
+- en: 'The most common type of method invocation is calling an instance method on
+    an object of a specific class (or a subclass) by use of an `invokevirtual` bytecode.
+    This is known as a *dispatch* (i.e., call) of a *virtual method* (or just virtual
+    dispatch), which means that the exact method to be invoked is determined at runtime,
+    rather than compile time, by looking at the actual type of the object at runtime.
+    When the JVM executes this bit of code:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最常见的方法调用类型是通过使用`invokevirtual`字节码在特定类（或其子类）的对象上调用实例方法。这被称为*分派*（即调用）*虚拟方法*（或简称虚拟分派），这意味着要调用的确切方法是在运行时而不是编译时通过查看运行时的实际对象类型来确定的。当JVM执行这段代码时：
+- en: '[PRE0]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: the implementation of `feed()` that is actually called is determined at the
+    point when the method needs to be executed.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际调用`feed()`的实现是在方法需要执行时确定的。
+- en: The implementations can be different depending on whether `p` holds a `Cat`
+    or a `Dog` (or a `Pet`, assuming the superclass is not abstract). It is also possible
+    that `getPet()` returns an object of different subtypes of `Pet` at different
+    times during the execution of the program. That doesn’t matter—the implementation
+    to be called is looked up each time the method is to be executed. Despite being
+    a bit of a wall of text, this description is just how Java methods have always
+    worked ever since you first learned the language.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现可能因`p`持有`Cat`或`Dog`（或假设超类不是抽象的`Pet`）而不同。还有可能`getPet()`在程序执行的不同时间返回`Pet`的不同子类型对象。这并不重要——每次方法需要执行时都会查找要调用的实现。尽管这是一段有点像墙的文字，但这正是自从你第一次学习这门语言以来Java方法一直以来的工作方式。
+- en: Internally, to make this work, the JVM stores a table (per class), which holds
+    the method definitions corresponding to that type, called the *vtable (this is
+    what C++ programmers call a virtual function table).* This table is stored inside
+    a special area of memory, called *metaspace*, inside the JVM that holds metadata
+    that the VM needs.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内部，为了使这成为可能，JVM存储了一个表（每个类一个），该表包含对应类型的方法定义，称为*vtable*（这是C++程序员所说的虚函数表）。这个表存储在JVM内部的一个特殊内存区域，称为*元空间*，其中包含VM需要的元数据。
+- en: Note In Java 7 and earlier, this metadata lived in an area of the Java heap
+    called *permgen*.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在Java 7及之前版本中，此元数据位于Java堆的一个区域，称为*permgen*。
+- en: To see how the vtable is used, we need to look briefly at the JVM metadata for
+    a class. In Java, all objects live within the Java heap and are handled by reference
+    only. HotSpot uses the general term *oop* (for “ordinary object pointer”) to refer
+    to the various internal data structures that live in the heap.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解 vtable 的使用方法，我们需要简要地看一下类的 JVM 元数据。在 Java 中，所有对象都生活在 Java 堆中，并且仅通过引用来处理。HotSpot
+    使用通用术语 *oop*（“普通对象指针”）来指代堆中存在的各种内部数据结构。
+- en: 'Every Java object must have an *object header*, which contains the following
+    two types of metadata:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个 Java 对象都必须有一个 *对象头*，它包含以下两种类型的元数据：
+- en: Metadata that is specific to the particular instance of a class (the “mark word”)
+  id: totrans-24
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 特定于类实例的元数据（“标记词”）
+- en: Metadata that is shared by all instances of a class (the “klass word”)
+  id: totrans-25
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由类的所有实例共享的元数据（“klass 词”）
+- en: To save space, only one copy of the per-class metadata is stored, and each object
+    that belongs to that class has a pointer to it—the klass word. In Figure 17.2
+    we can see a representation of a Java reference, held in a local variable, pointing
+    at the start of a Java object header in the heap.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了节省空间，每个类的元数据只存储一个副本，并且属于该类的每个对象都有一个指向它的指针——klass 词。在图 17.2 中，我们可以看到一个表示，它是一个存储在局部变量中的
+    Java 引用，指向堆中 Java 对象头的开始。
+- en: '![](../Images/CH17_F02_Evans2.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH17_F02_Evans2.png)'
+- en: Figure 17.2 Java object header and layout
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 17.2 Java 对象头和布局
+- en: A *klass* is the JVM’s internal representation of a Java class at runtime, stored
+    in metaspace. It contains all of the information needed for the JVM to work with
+    the class at runtime (e.g., method definitions and field layout).
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*klass* 是 JVM 在运行时对 Java 类的内部表示，存储在元空间中。它包含 JVM 在运行时与该类交互所需的所有信息（例如，方法定义和字段布局）。'
+- en: Some of the information from the klass is available to the Java programmer via
+    the `Class<?>` object corresponding to the type, but the klass and the `Class`
+    are separate concepts. In particular, the klass contains information that is deliberately
+    kept out of the reach of ordinary application code.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从 klass 中的一些信息可以通过对应于类型的 `Class<?>` 对象提供给 Java 程序员，但 klass 和 `Class` 是两个不同的概念。特别是，klass
+    包含一些故意不使普通应用程序代码能够访问的信息。
+- en: Note The choice of the spelling “klass” is quite deliberate, because it disambiguates
+    the internal data structure from the other uses of the word “class” in written
+    documentation but, sadly, not in spoken English. You may also see the word “clazz”
+    or “clz” used—these usually name a Java variable that contains a `Class` object.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：选择拼写“klass”是相当故意的，因为它在书面文档中将内部数据结构与其他使用“class”一词的情况区分开来，但在英语口语中却不是这样。您也可能看到使用“clazz”或“clz”的单词——这些通常命名一个包含
+    `Class` 对象的 Java 变量。
+- en: We can now explain virtual dispatch (implemented by the `invokevirtual` bytecode)
+    in terms of the internal JVM structures, such as the klass, and, in particular,
+    its vtable. When the JVM encounters an `invokevirtual` instruction to execute,
+    it pops the receiver object and any arguments for the method from the current
+    method’s evaluation stack.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以用 JVM 的内部结构来解释虚拟分派（由 `invokevirtual` 字节码实现），特别是 klass 和它的 vtable。当 JVM
+    遇到要执行的 `invokevirtual` 指令时，它会从当前方法的评估堆栈中弹出接收对象和任何方法参数。
+- en: Note A receiver object is the object upon which an instance method is being
+    called.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：接收对象是实例方法被调用的对象。
+- en: The JVM object header layout starts with the mark word, with the klass word
+    immediately following. So, to locate the method to be executed, the JVM follows
+    the pointer into metaspace, where it consults the vtable of the klass to see exactly
+    which code needs to be executed. This process can be seen in figure 17.3.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: JVM 对象头布局从标记词开始，紧接着是 klass 词。因此，为了定位要执行的方法，JVM 会跟随指针进入元空间，在那里它咨询 klass 的 vtable，以确定需要执行的确切代码。这个过程可以在图
+    17.3 中看到。
+- en: '![](../Images/CH17_F03_Evans2.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH17_F03_Evans2.png)'
+- en: Figure 17.3 Locating a method implementation
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 17.3 定位方法实现
+- en: If the klass does not have a definition for the method, the JVM follows a pointer
+    to the klass corresponding to the direct superclass and tries again. This process
+    is the basis of method overriding in the JVM.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果 klass 没有对该方法的定义，JVM 会跟随一个指针到对应直接超类的 klass，并再次尝试。这个过程是 JVM 中方法重写的基础。
+- en: To make it efficient, the vtables are laid out in a specific way. Each klass
+    lays out its vtable so that the first methods to appear are those methods that
+    the parent type defines. These methods are laid out in the exact order that the
+    parent type used. The methods that are new to this type and are not declared by
+    the parent type come at the end of the vtable.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使其高效，vtable以特定的方式布局。每个klass都布局其vtable，使得首先出现的方法是父类型定义的方法。这些方法按照父类型使用的确切顺序布局。对于这个类型来说是新的、且不是由父类型声明的方法，放在vtable的末尾。
+- en: When a subclass overrides a method, it will be at the same offset in the vtable
+    as the implementation being overridden. This makes lookup of overridden methods
+    completely trivial, because their offset in the vtable will be the same as their
+    parent. In figure 17.4, we can see the vtable layout for some of the classes in
+    our example.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当子类重写一个方法时，它将在vtable中的位置与被重写实现的偏移量相同。这使得查找重写方法变得完全简单，因为它们在vtable中的偏移量将与它们的父类相同。在图17.4中，我们可以看到我们示例中一些类的vtable布局。
+- en: '![](../Images/CH17_F04_Evans2.png)'
+  id: totrans-40
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH17_F04_Evans2.png)'
+- en: Figure 17.4 Vtable structure
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图17.4 Vtable结构
+- en: So, if we call `Cat::feed`, the JVM will not find an override in the `Cat` class
+    and will instead follow the superclass pointer to the klass of `Pet`. This does
+    have an implementation for `feed()`, so this is the code that will be called.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，如果我们调用`Cat::feed`，JVM将不会在`Cat`类中找到重写，而会跟随超类指针到`Pet`的klass。这确实有一个`feed()`的实现，所以这将是被调用的代码。
+- en: Note This vtable structure—and efficient implementation of overriding—works
+    well because Java implements only single inheritance of classes. There is only
+    one direct superclass of any type (except `Object`, which has no superclass).
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：这种vtable结构——以及重写的有效实现——之所以工作得很好，是因为Java只实现了类的单继承。任何类型（除了没有超类的`Object`）只有一个直接超类。
+- en: 17.1.2 Invoking interface methods
+  id: totrans-44
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.1.2 调用接口方法
+- en: In the case of `invokeinterface`, the situation is a little more complicated.
+    For example, note that the `groom()` method will not necessarily appear in the
+    same place in the vtable for every implementation of `Furry`. The different offsets
+    for `Cat::groom` and `Bear::groom` are caused by the fact that their class inheritance
+    hierarchies differ. The end result of this is that some additional lookup is needed
+    when a method is invoked on an object for which only the interface type is known
+    at compile time.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`invokeinterface`的情况下，情况要复杂一些。例如，请注意，`groom()`方法不一定在每个`Furry`实现的vtable中出现在相同的位置。`Cat::groom`和`Bear::groom`的不同偏移量是由它们不同的类继承层次结构造成的。结果是，当在编译时只知道接口类型的对象上调用方法时，需要额外的查找。
+- en: Note Even though slightly more work is done for the lookup of an interface call,
+    you should not try to micro-optimize by avoiding interfaces. Remember that the
+    JVM has a JIT compiler, and it will essentially eliminate the performance difference
+    between the two cases.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：尽管查找接口调用会做稍微多一点的工作，但你不应试图通过避免接口来微优化。记住，JVM有一个即时编译器，它将基本上消除这两种情况之间的性能差异。
+- en: 'Let’s look at an example. Consider this bit of code:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看一个例子。考虑以下代码片段：
+- en: '[PRE1]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'This produces the following bytecode:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这产生了以下字节码：
+- en: '[PRE2]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The two calls at 27 and 35 look like they are the same in the Java code but
+    will actually invoke different methods, because the runtime contents of `f` is
+    different. The call at 27 will actually invoke `Cat::groom`, whereas the call
+    at 35 will invoke `Bear::groom`.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在27和35处的两个调用在Java代码中看起来相同，但实际上会调用不同的方法，因为`f`的运行时内容不同。27处的调用实际上会调用`Cat::groom`，而35处的调用会调用`Bear::groom`。
+- en: 17.1.3 Invoking “special” methods
+  id: totrans-52
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.1.3 调用“特殊”方法
+- en: With this background of `invokevirtual` and `invokeinterface`, the behavior
+    of `invokespecial` is now easy to understand. If a method is invoked by `invokespecial`,
+    it does not undergo virtual lookup. Instead, the JVM will look only in the exact
+    place in the exact vtable for the requested method.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在了解了`invokevirtual`和`invokeinterface`的背景之后，`invokespecial`的行为现在就容易理解了。如果一个方法是通过`invokespecial`调用的，它不会经历虚拟查找。相反，JVM将只在请求的方法的确切vtable位置进行查找。
+- en: 'An `invokespecial` is used for two cases: calls to a superclass method and
+    calls to the constructor body (which is turned into a method called `<init>` in
+    bytecode). In both of these cases, virtual lookup and the possibility of overriding
+    are explicitly excluded.'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`invokespecial`用于两种情况：调用超类方法和调用构造函数体（在字节码中转换为名为`<init>`的方法）。在这两种情况下，虚拟查找和重写的可能性都被明确排除。'
+- en: 'We should mention two further corner cases that might seem to suggest the use
+    of `invokespecial` (which is also called *exact dispatch*). The first is private
+    methods—they cannot be overridden, and the exact method to be called is known
+    when the class is compiled, so it might seem that they should be called via `invokespecial`.
+    However, this situation is more complex than it appears. Let’s look at an example
+    to demonstrate:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该提到两个进一步的边缘情况，它们可能看起来暗示了使用`invokespecial`（也称为*精确分发*）。第一个是私有方法——它们不能被重写，当类被编译时，要调用的确切方法已知，所以它们可能应该通过`invokespecial`来调用。然而，这种情况比它看起来更复杂。让我们通过一个例子来演示：
+- en: '[PRE3]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Let’s compile this with Java 8 first. Decompiling it using `javap` gives this:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先使用Java 8来编译这个例子。使用`javap`反编译它给出以下结果：
+- en: '[PRE4]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Note that `javap` is being invoked without the `-p` switch, so the decompilation
+    of the private method does not appear. So far, so good—the private method is indeed
+    called via `invokespecial`. However, if we recompile with Java 11 and look closely,
+    we will see a different result, shown here:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，`javap`是在没有`-p`开关的情况下被调用的，所以私有方法的反编译没有出现。到目前为止，一切顺利——私有方法确实是通过`invokespecial`调用的。然而，如果我们用Java
+    11重新编译并仔细观察，我们会看到不同的结果，如下所示：
+- en: '[PRE5]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ This is now invokevirtual.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这现在是`invokevirtual`。
+- en: As we can see, calls to private methods are handled differently in modern Java,
+    which we will explain in section 17.5.3, when we meet nestmates.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们所见，在现代Java中，对私有方法的调用处理方式不同，我们将在第17.5.3节中解释，当我们遇到嵌套成员时。
+- en: 17.1.4 Final methods
+  id: totrans-63
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.1.4 最终方法
+- en: 'The other corner case is the use of `final` methods. At first glance, it might
+    appear that calls to `final` methods would also be turned into `invokespecial`
+    instructions—after all, they can’t be overridden and the implementation that is
+    to be called is known at compile time. However, the Java Language Specification
+    has something to say about this case:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个特殊情况是`final`方法的使用。乍一看，调用`final`方法似乎也会被转换为`invokespecial`指令——毕竟，它们不能被重写，要调用的实现是在编译时已知的。然而，Java语言规范对此有一些说法：
+- en: Changing a method that is declared `final` to no longer be declared `final`
+    does not break compatibility with pre-existing binaries.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将声明为`final`的方法更改为不再声明为`final`不会破坏与现有二进制的兼容性。
+- en: Suppose code in one class had a call to a `final` method in another class, which
+    had been compiled into an `invokespecial`. Then, if the class with the `final`
+    method was changed so that the method was made non-`final` (and recompiled), it
+    could be overridden in a subclass.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设一个类的代码调用了另一个类中的`final`方法，该方法已被编译成`invokespecial`。然后，如果包含`final`方法的类被修改为使方法不再为`final`（并重新编译），则可以在子类中重写它。
+- en: Now suppose that an instance of the subclass was passed into the calling method
+    in the first class. The `invokespecial` would be executed, and now the wrong implementation
+    of the method would be called. This is a violation of the rules of Java’s object
+    orientation (strictly speaking, it violates the Liskov Substitution Principle).
+    For this reason, calls to `final` methods must be compiled into `invokevirtual`
+    instructions.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在假设将子类的实例传递到第一个类中的调用方法。将执行`invokespecial`，现在将调用错误的方法实现。这是违反Java面向对象规则的（严格来说，它违反了Liskov替换原则）。因此，对`final`方法的调用必须编译成`invokevirtual`指令。
+- en: Note In practice, HotSpot contains optimizations that allow the case of final
+    methods to be detected and executed extremely efficiently.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在实践中，HotSpot包含优化，可以非常高效地检测和执行`final`方法的情况。
+- en: We’ve introduced the basics of HotSpot’s internals through the lens of virtual
+    method dispatch. At this point, it might be interesting to reread the JIT compilation
+    section of chapter 7—especially the sections on monomorphic dispatch and inlining.
+    You may be able to gain a deeper understanding of these techniques now that you’ve
+    seen a few of the details of how they are implemented.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过虚拟方法调用的视角介绍了HotSpot内部机制的基础。在这个阶段，重新阅读第7章的JIT编译部分可能很有趣——特别是关于单态分发和内联的部分。现在你已经看到了它们实现的一些细节，你可能能够对这些技术有更深入的理解。
+- en: 17.2 Reflection internals
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.2 反射内部机制
+- en: We met reflection in chapter 4 as a way of handling objects and calling methods
+    dynamically at runtime. Now that we know about vtables, we can dig a bit deeper
+    and see how reflection is implemented by the JVM.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在第4章中遇到了反射，作为在运行时动态处理对象和调用方法的一种方式。现在我们知道了vtable，我们可以更深入地了解JVM是如何实现反射的。
+- en: 'Recall that we can obtain a `java.lang.reflect.Method` object from a class
+    object and then invoke it, like this (eliding the exception handling):'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，我们可以从一个类对象中获取一个`java.lang.reflect.Method`对象，然后调用它，如下所示（省略了异常处理）：
+- en: '[PRE6]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'But what does this `Method` object represent? It is really “the capability
+    of calling a specific method dynamically at runtime.” The dynamic nature of the
+    call means that in the compiled code, we see only an `invokevirtual` of the `invoke()`
+    method on `Method`, as shown next:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但这个`Method`对象代表什么？它实际上是“在运行时动态调用特定方法的能力。”调用的动态性质意味着在编译代码中，我们只看到`Method`上的`invokevirtual`调用，如下所示：
+- en: '[PRE7]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ The call to getMethod() is variadic and is passed a size-0 array of Class
+    objects.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 调用getMethod()是可变参数的，并传递一个大小为0的Class对象数组。
+- en: ❷ The call to invoke() is passed a size-0 array of Object objects (the arguments).
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 调用invoke()传递一个大小为0的Object对象数组（参数）。
+- en: Note that there is no bytecode that refers to `toString()` via a method descriptor
+    (such as `java/lang/Object.toString:()Ljava/lang/String;`)—only as the string
+    `toString`.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：没有字节码通过方法描述符（例如`java/lang/Object.toString:()Ljava/lang/String;`）引用`toString()`，而是直接作为字符串`toString`。
+- en: Now, let’s recall that class objects (e.g., `String.class`) are just regular
+    Java objects—they have the properties of regular Java objects and are represented
+    by oops. A class object contains a `Method` object for each method on the class,
+    and these method objects are, again, just regular Java objects.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们回顾一下，类对象（例如，`String.class`）只是普通的Java对象——它们具有普通Java对象的属性，并由oops表示。类对象为类上的每个方法包含一个`Method`对象，而这些方法对象再次只是普通的Java对象。
+- en: Note The `Method` objects are created lazily after class loading. You can sometimes
+    see traces of this effect in an IDE’s code debugger.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：`Method`对象是在类加载后延迟创建的。有时你可以在IDE的代码调试器中看到这种效果的痕迹。
+- en: 'So how does the JVM actually implement reflection? Let’s take a look at a bit
+    of source for the `Method` class and see some of its fields:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么JVM实际上是如何实现反射的呢？让我们看看`Method`类的部分源代码，并看看它的字段：
+- en: '[PRE8]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ The class this method belongs to
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 该方法所属的类
+- en: ❷ The offset in the vtable where this methods lives
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 该方法在vtable中的偏移量
+- en: ❸ The delegate that carries out the invocation
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 执行调用的代理
+- en: We already know that in Java, calling an instance method involves looking it
+    up in a vtable. So, conceptually, we want to exploit the duality between the vtable
+    and the array of `Method` objects held by the `Class` object. We can see this
+    duality in figure 17.5 where the array of `Method` objects help by `Entry.class`
+    is dual to the vtable on the klassOop for `Entry`.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经知道，在Java中，调用实例方法涉及到在vtable中查找它。所以，从概念上讲，我们想要利用vtable和由`Class`对象持有的`Method`对象数组之间的双重性。我们可以在图17.5中看到这种双重性，其中`Method`对象数组通过`Entry.class`帮助，与`Entry`的klassOop上的vtable是双重关系。
+- en: '![](../Images/CH17_F05_Evans2.png)'
+  id: totrans-87
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH17_F05_Evans2.png)'
+- en: Figure 17.5 Reflection internals
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图17.5 反射内部结构
+- en: Let’s see how `Method` uses this duality to implement reflection. The key turns
+    out to be the `MethodAccessor` object.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看`Method`是如何利用这种双重性来实现反射的。关键在于`MethodAccessor`对象。
+- en: Note Some of the code that follows is simplified and based on an earlier version
+    of Java, to aid understanding of the mechanism. The current shipping production
+    code in Java 11 and later is more complex.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：以下部分代码进行了简化，并基于Java的早期版本，以帮助理解机制。Java 11及以后的当前发行版生产代码更为复杂。
+- en: 'The `invoke()` method on `Method` looks a bit like this:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Method`上的`invoke()`方法看起来有点像这样：'
+- en: '[PRE9]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Performs a security access check (if not setAccessible())
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 执行安全访问检查（如果未设置setAccessible()）
+- en: ❷ Volatile read of accessor
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 访问者的volatile读取
+- en: ❸ Delegates to MethodAccessor
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 方法访问者代理
+- en: At the first reflective invocation of this method, `acquireMethodAccessor()`
+    creates an instance of `DelegatingMethodAccessorImpl` that holds a reference to
+    a `NativeMethodAccessorImpl`. These are classes defined in `sun.reflect` that
+    both implement `MethodAccessor`. Note that they are not part of the API of the
+    `java.base` module and cannot be called directly.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第一次反射调用此方法时，`acquireMethodAccessor()`创建了一个`DelegatingMethodAccessorImpl`实例，该实例持有一个指向`NativeMethodAccessorImpl`的引用。这些类是在`sun.reflect`中定义的，它们都实现了`MethodAccessor`。请注意，它们不是`java.base`模块的API的一部分，不能直接调用。
+- en: 'Here’s `DelegatingMethodAccessorImpl` in full:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是完整的`DelegatingMethodAccessorImpl`：
+- en: '[PRE10]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'and here’s `NativeMethodAccessorImpl`:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是`NativeMethodAccessorImpl`：
+- en: '[PRE11]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Entered after an invocation threshold is reached
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在达到调用阈值后进入
+- en: ❷ Uses MethodAccessorGenerator to create a custom class that implements the
+    reflective call
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用`MethodAccessorGenerator`创建一个实现反射调用的自定义类
+- en: ❸ Replaces the current object as a delegate with an instance of the new custom
+    class
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将当前对象作为代理替换为新自定义类的实例
+- en: ❹ If the threshold is not hit yet, proceeds with the native call
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果尚未达到阈值，则继续进行本地调用
+- en: This technique—using a delegating accessor that can be patched with the new
+    dynamically generated bytecode accessor—can be seen in figure 17.6\. Note that
+    the custom accessor class is a subclass of `MethodAccessorImpl` to allow the cast
+    to succeed.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种技术——使用可以与新动态生成的字节码访问器修补的委托访问器——可以在图17.6中看到。请注意，自定义访问器类是`MethodAccessorImpl`的子类，以便成功进行类型转换。
+- en: '![](../Images/CH17_F06_Evans2.png)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH17_F06_Evans2.png)'
+- en: Figure 17.6 Implementing reflection
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图17.6 实现反射
+- en: 'A word about performance: this mechanism involves trading off two different
+    possible sources of slowness. On one hand, the native accessor uses a native call,
+    which is slower than a Java method call and can’t be JIT compiled. On the other,
+    dynamically generating bytecode in `MethodAccessorGenerator` is potentially slow,
+    and this can be a bad trade-off that we want to avoid for methods that are called
+    by reflection only once. This trick, of lazily loading an accessor object and
+    then dynamically patching the call site, is one that we will meet again, in a
+    different guise, later in this chapter.'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于性能的一个词：这个机制涉及权衡两种不同的可能来源的缓慢。一方面，本地访问器使用本地调用，这比Java方法调用慢，并且不能被JIT编译。另一方面，在`MethodAccessorGenerator`中动态生成字节码可能很慢，这可能是一个我们想要避免的坏交易，对于仅通过反射调用一次的方法。这种技巧，即延迟加载访问器对象然后动态修补调用点，我们将在本章后面以不同的形式再次遇到。
+- en: Also of note is that reflection also defeats inlining and the standard kinds
+    of method dispatch that the JVM can optimize well. The call site for the method
+    of `Delegating-MethodAccessorImpl` is said to be *megamorphic* (many possible
+    implementations for the method) after patching because each instance of `Method`
+    has a different, dynamically spun method accessor object. This means that some
+    of the JVM’s primary optimization mechanisms won’t work well for reflective calls.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个值得注意的事实是，反射也破坏了内联和JVM可以很好地优化的标准方法调度类型。修补后的`Delegating-MethodAccessorImpl`方法的调用点被称为*megamorphic*（方法有许多可能的实现），因为每个`Method`实例都有一个不同的、动态生成的访问器对象。这意味着JVM的一些主要优化机制对于反射调用可能不会很好地工作。
+- en: 'So the use of delegation and patching out of the native accessor is a compromise
+    that aims to balance between acceptable performance for rarely called reflective
+    methods while still preserving some of the benefits of JIT. This compromise, as
+    well as the other problems of reflection, which we discussed back in chapter 4,
+    led to a search for a better approach to the problems of dynamic invocation and
+    lightweight method objects. In the next section, we introduce the first result
+    of that research: the *Method Handles* API.'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，使用委托和修补本地访问器是一种折衷方案，旨在在可接受的性能和JIT的一些好处之间取得平衡。这种折衷方案，以及我们在第4章中讨论的反射的其他问题，导致了对动态调用和轻量级方法对象问题更好方法的探索。在下一节中，我们将介绍该研究的第一项成果：*方法句柄*
+    API。
+- en: 17.3 Method handles
+  id: totrans-111
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.3 方法句柄
+- en: The Method Handles API was added to Java with version 7\. The core of this API
+    is the package `java.lang.invoke`, and especially the class `MethodHandle`. Instances
+    of this type represent the ability to call a method and are directly executable,
+    in a similar way to `java.lang.reflect.Method` objects.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 方法句柄API是在Java 7版本中添加到Java中的。这个API的核心是`java.lang.invoke`包，特别是`MethodHandle`类。这种类型的实例代表调用方法的能力，并且可以直接执行，类似于`java.lang.reflect.Method`对象。
+- en: The API was produced as part of the project to bring `invokedynamic` (which
+    we discuss in section 17.4) to the JVM. But method handle objects have applications
+    in framework and regular user code that go far beyond the `invokedynamic` use
+    cases.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该API是作为将`invokedynamic`（我们在第17.4节中讨论）引入JVM的项目的一部分产生的。但方法句柄对象在框架和常规用户代码中的应用远远超出了`invokedynamic`用例。
+- en: We’ll start by introducing the basic technology of method handles; then, we’ll
+    look at an extended example that compares them to some alternatives and summarizes
+    the differences.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将首先介绍方法句柄的基本技术；然后，我们将查看一个扩展示例，将其与一些替代方案进行比较，并总结差异。
+- en: 17.3.1 MethodHandle
+  id: totrans-115
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.3.1 方法句柄
+- en: What is a `MethodHandle`? The official answer is that it’s a typed reference
+    to a method that is directly executable. Another way of saying this is that a
+    `MethodHandle` is an object that represents the ability to call a method safely.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 什么是`MethodHandle`？官方答案是它是对可以直接执行的方法的带类型的引用。另一种说法是，`MethodHandle`是一个表示能够安全调用方法的对象。
+- en: Note A `MethodHandle` is similar, in many ways, to a `Method` object from `java.lang.reflect`,
+    but the API is generally better, less cumbersome, and with several significant
+    design flaws corrected.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：`MethodHandle`在很多方面与`java.lang.reflect`中的`Method`对象相似，但API通常更好，更简洁，并且纠正了几个重大的设计缺陷。
+- en: 'There are two aspects to using method handles: obtaining them and using them.
+    The second, using them, is very easy. Let’s see a very simple example of calling
+    a method handle. For now, we’ll just assume that we have some static helper method
+    `getTwoArgMH()` that returns a method handle that takes a receiver object `obj`
+    and one call argument `arg0` and returns `String`.'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用方法句柄有两个方面：获取它们和使用它们。第二个方面，使用它们，非常简单。让我们看看调用方法句柄的一个非常简单的例子。现在，我们假设我们有一些静态辅助方法`getTwoArgMH()`，它返回一个接收者对象`obj`和一个调用参数`arg0`的方法句柄，并返回`String`。
+- en: 'Later, we’ll explain how we’d get a method handle that matches that signature,
+    but for now we just assume that we have a helper method that will create a method
+    handle for us. The following usage should remind you of reflective calls:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之后，我们将解释如何获取与该签名匹配的方法句柄，但现在我们只是假设我们有一个辅助方法会为我们创建方法句柄。以下用法应该会让你想起反射调用：
+- en: '[PRE12]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Gets the method handle from a helper method
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从辅助方法获取方法句柄
+- en: ❷ Performs the call, passing a receiver and one argument
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 执行调用，传递接收者和一个参数
+- en: This looks like a reflective call to a method, as we saw in section 4.5.1—we’re
+    using `invokeExact()` on `MethodHandle` rather than `invoke()` on `Method`, but
+    other than that, it should look pretty similar. However, this is possible only
+    once we actually have a method handle object in the first place—so, how do we
+    get one?
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这看起来像是对方法的反射调用，就像我们在第4.5.1节中看到的那样——我们使用`MethodHandle`上的`invokeExact()`而不是`Method`上的`invoke()`，但除此之外，它应该看起来非常相似。然而，这只有在我们实际上首先有一个方法句柄对象的情况下才可能——那么，我们如何得到一个呢？
+- en: To get a handle for a method, we need to look it up via a *lookup context*.
+    The usual way to get a context is to call the static helper method `MethodHandles.lookup()`.
+    This will return a lookup context based on the currently executing method. From
+    the lookup, we can obtain method handles by calling one of the `find*()` methods
+    such as `findVirtual()` or `findConstructor()`.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要获取一个方法句柄，我们需要通过一个*查找上下文*来查找它。获取上下文的通常方法是通过调用静态辅助方法`MethodHandles.lookup()`。这将返回一个基于当前执行方法的查找上下文。从查找中，我们可以通过调用`find*()`方法之一（如`findVirtual()`或`findConstructor()`）来获取方法句柄。
+- en: The lookup context object can provide a method handle on any method that’s visible
+    from the execution context where the lookup was created. However, as well as the
+    lookup context for methods, we also need to consider how to represent the signature
+    of the method we want a handle to.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查找上下文对象可以提供对任何从创建查找的执行上下文中可见的方法的方法句柄。然而，除了方法查找上下文之外，我们还需要考虑如何表示我们想要句柄的方法的签名。
+- en: Recall the `Callable` interface from chapter 6\. It represents a block of code
+    to be executed, which is similar to method handles. However, one problem with
+    `Callable` is that it can model only methods that take no arguments.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下第6章中的`Callable`接口。它表示要执行的一段代码，与方法句柄类似。然而，`Callable`的一个问题是它只能模拟不带参数的方法。
+- en: 'If we want to model all types of methods, we would have to create other interfaces,
+    with increasing numbers of type parameters. We’d end up with a set of interfaces
+    like this:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们要模拟所有类型的方法，我们就必须创建其他接口，类型参数的数量逐渐增加。我们最终会得到一组像这样的接口：
+- en: '[PRE13]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: This would very quickly lead to a huge proliferation of interfaces. This approach
+    is taken by some non-Java languages (e.g., Scala), but not in Java.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将非常快地导致接口的大量激增。这种方法被一些非Java语言（例如Scala）采用，但Java中没有。
+- en: It’s also insightful to consider the way that Clojure does it. The `IFn` interface
+    has `invoke` methods that represent all the different arities of functions (including
+    a variadic form for functions that take more than 20 args). We met a simplified
+    version of `IFn` in chapter 10.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑Clojure是如何做的也很具有洞察力。`IFn`接口有`invoke`方法，代表所有不同类型的函数（包括用于接受超过20个参数的函数的可变参数形式）。我们在第10章遇到了`IFn`的简化版本。
+- en: However, Clojure is dynamically typed, so all `invoke` methods take `Object`
+    for every parameter and also return `Object`—this eliminates all the complexity
+    from handling generics. Clojure forms can also be written variadically quite naturally—Clojure
+    will throw a runtime exception if a form is called with the wrong arity. Java
+    uses neither of these approaches.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，Clojure是动态类型的，所以所有的`invoke`方法都接受每个参数的`Object`，并且也返回`Object`——这消除了处理泛型时的所有复杂性。Clojure形式也可以非常自然地以可变的形式编写——如果形式以错误的arity调用，Clojure将抛出运行时异常。Java不使用这两种方法中的任何一种。
+- en: Instead, Java’s method handles implement an approach that can model any method
+    signature, without needing to produce a vast number of small classes. This is
+    done by means of the new `MethodType` class.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，Java的方法处理实现了一种可以模拟任何方法签名的方案，无需生成大量的小类。这是通过新的`MethodType`类来实现的。
+- en: 17.3.2 MethodType
+  id: totrans-133
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.3.2 MethodType
+- en: A `MethodType` is an immutable object that represents the type signature of
+    a method. Every method handle has a `MethodType` instance that includes the return
+    type and the argument types. But it doesn’t include the name of the method or
+    the receiver type—the type that an instance method is called on.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MethodType`是一个不可变对象，表示方法的类型签名。每个方法处理程序都有一个包含返回类型和参数类型的`MethodType`实例。但它不包含方法名称或接收器类型——实例方法被调用的类型。'
+- en: 'As one simple way to get new `MethodType` instances, you can use factory methods
+    in the `MethodType` class. Here are a few examples:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 获取新的`MethodType`实例的一个简单方法是在`MethodType`类中使用工厂方法。以下是一些示例：
+- en: '[PRE14]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'These are the `MethodType` instances that represent the type signatures of
+    `toString()`, a setter method (for a member of type `Object`), and the `compareTo()`
+    method defined by a `Comparator<String>`. The general instance follows the same
+    pattern, with the return type passed in first, followed by the types of the arguments
+    (all as `Class` objects), like this:'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是表示`toString()`、一个setter方法（对于类型`Object`的成员）和由`Comparator<String>`定义的`compareTo()`方法的`MethodType`实例。通用实例遵循相同的模式，首先传递返回类型，然后是参数类型（所有作为`Class`对象），如下所示：
+- en: '[PRE15]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: As you can see, different method signatures can now be represented as normal
+    instance objects, without the need to define a new type for each signature that
+    was required. This also provides a simple way to ensure as much type safety as
+    possible. If you want to know whether a candidate method handle can be called
+    with a certain set of arguments, you can examine the `MethodType` belonging to
+    the handle.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所见，不同的方法签名现在可以表示为正常的实例对象，无需为每个签名定义新的类型。这也提供了一种简单的方法来确保尽可能多的类型安全。如果你想了解一个候选方法处理是否可以用一组特定的参数调用，你可以检查属于该处理程序的`MethodType`。
+- en: Note Passing around a single `MethodType` object is much more convenient than
+    the cumbersome `Class[]` that reflection forces you to use.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：传递单个`MethodType`对象比反射强制你使用的繁琐的`Class[]`要方便得多。
+- en: Now that you’ve seen how `MethodType` objects solve the interface-proliferation
+    problem, let’s see how we can create method handles that point at methods from
+    our types.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经看到了`MethodType`对象如何解决接口膨胀问题，让我们看看我们如何创建指向我们类型中方法的`method handle`。
+- en: 17.3.3 Looking up method handles
+  id: totrans-142
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.3.3 查找方法处理程序
+- en: 'Let’s take a look at how to get a method handle that points at the `toString()`
+    method on the current class. Notice that we want `mtToString` to exactly match
+    the signature of `toString()`—it has a return type of `String` and takes no arguments.
+    The corresponding `MethodType` instance should be `MethodType.methodType(String.class)`,
+    as shown here:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何获取指向当前类`toString()`方法的`method handle`。注意，我们希望`mtToString`与`toString()`的签名完全匹配——它有一个返回类型为`String`，没有参数。相应的`MethodType`实例应该是`MethodType.methodType(String.class)`，如下所示：
+- en: '[PRE16]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Obtains the lookup context
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取查找上下文
+- en: ❷ Looks up the handle from context
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从上下文中查找处理程序
+- en: To get a method handle from a lookup object, you need to provide the class that
+    holds the method you want, the name of the method, and a `MethodType` representing
+    the appropriate signature. The method type is necessary to deal with overloaded
+    methods.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从查找对象中获取方法处理程序，你需要提供包含你想要的方法的类，方法名称，以及表示适当签名的`MethodType`。方法类型对于处理重载方法是必要的。
+- en: 'It is very common to use a lookup context to find methods on the current class,
+    but you can, in fact, use the context to get handles on methods belonging to *any*
+    type, including JDK types. Of course, if you get handles from a class in a different
+    package or module, the lookup context will be able to see only methods you have
+    access to (e.g., public methods on public classes in exported packages). This
+    is an important aspect of the method handles API: access control for a method
+    handle is checked when the method is found, *not* when the handle is executed.'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用查找上下文在当前类上查找方法是非常常见的，但实际上，你可以使用上下文来获取属于 *任何* 类型的方法句柄，包括 JDK 类型。当然，如果你从不同包或模块中的类获取句柄，查找上下文只能看到你有权访问的方法（例如，导出包中公共类的公共方法）。这是方法句柄
+    API 的重要方面：方法句柄的访问控制是在找到方法时检查的，而不是在执行句柄时检查。
+- en: Once a method handle has been obtained, it’s always safe to call it, because
+    there are no further access control checks. A method handle can be created in
+    one context, where access is allowed, and then passed to another context where
+    access is *not* allowed, and it will still execute. This is an important difference
+    from reflection.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦获得方法句柄，就可以安全地调用它，因为没有进一步的访问控制检查。方法句柄可以在允许访问的上下文中创建，然后传递到不允许访问的另一个上下文中，它仍然会执行。这与反射的一个重要区别。
+- en: Note Access control for invoking method handles cannot be circumvented, unlike
+    reflective calls. There is no equivalent of the reflection `setAccessible()` hack
+    we met in chapter 4.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：调用方法句柄的访问控制无法绕过，与反射调用不同。没有与第 4 章中遇到的反射 `setAccessible()` 漏洞等效的方法。
+- en: 'Now that we have a method handle, the natural thing to do with it is to execute
+    it. The API provides two main ways to do this: the `invokeExact()` and `invoke()`
+    methods.'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经拥有了方法句柄，自然的事情就是用它来执行。API 提供了两种主要方式来完成这个任务：`invokeExact()` 和 `invoke()`
+    方法。
+- en: The `invokeExact()` method requires the types of arguments to exactly match
+    what the underlying method expects. The `invoke()` method performs some transformations
+    to try to get the types to match if they’re not quite right (e.g., boxing or unboxing,
+    as required).
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`invokeExact()` 方法要求参数类型与底层方法期望的参数类型完全匹配。`invoke()` 方法执行一些转换，试图在类型不完全匹配的情况下（例如，装箱或拆箱，如所需）使类型匹配。'
+- en: After this introduction, we’ll now move on to show a longer example of how method
+    handles can be used to replace other techniques, such as reflection and small
+    inner classes used to proxy capabilities.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在介绍之后，我们将继续展示一个更长的示例，说明如何使用方法句柄来替换其他技术，例如反射和用于代理功能的小型内联类。
+- en: 17.3.4 Reflection vs. proxies vs. method handles
+  id: totrans-154
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.3.4 反射 vs. 代理 vs. 方法句柄
+- en: If you’ve spent any time dealing with a codebase that contains a lot of reflection,
+    you’re probably all too familiar with some of the pain that comes from reflective
+    code. In this subsection, we want to show you how method handles can be used to
+    replace a lot of reflective boilerplate and make your coding life a little easier.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你花过时间处理包含大量反射的代码库，你很可能非常熟悉反射代码带来的痛苦。在本小节中，我们想向你展示如何使用方法句柄来替换大量的反射样板代码，使你的编码生活变得更加轻松。
+- en: 'To show the differences between method handles and other techniques, we’ve
+    provided three ways to access the private `callThePrivate()` method from outside
+    the class. There are two standard techniques: reflection and the use of an inner
+    class acting as a proxy. We can compare these to a modern approach based on `MethodHandle`.
+    An example of the three alternatives appears in the next listing.'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了展示方法句柄与其他技术的区别，我们提供了三种从类外部访问私有 `callThePrivate()` 方法的途径。有两种标准技术：反射和用作代理的内联类。我们可以将这些技术与基于
+    `MethodHandle` 的现代方法进行比较。三种替代方案的示例将在下一列表中展示。
+- en: Listing 17.1 Providing access three ways
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 17.1 提供三种访问方式
+- en: '[PRE17]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ The private method we want to provide access to
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们想要提供访问权限的私有方法
+- en: ❷ MethodType creation—we can use the exact type rather than needing to box here.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 方法类型创建——我们可以使用确切类型，而不是需要在这里装箱。
+- en: ❸ The MethodHandle lookup
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 方法句柄查找
+- en: The example class provides three different capabilities that can access the
+    private `callThePrivate()` method. In practice, only one of these capabilities
+    would usually be provided—we’re only showing all three to discuss the distinctions
+    between them. In practice, as a user of an API, you should not need to care which
+    approach is used.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 示例类提供了三种不同的能力，可以访问私有的 `callThePrivate()` 方法。在实际应用中，通常只会提供其中一种能力——我们只展示所有三种能力来讨论它们之间的区别。在实际应用中，作为API的用户，你通常不需要关心使用哪种方法。
+- en: In table 17.1, you can see that the main advantage of reflection is familiarity.
+    Proxies may be easier to understand for simple use cases, but we believe method
+    handles represent the best of both worlds. We strongly recommend their use in
+    all new applications.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在表17.1中，你可以看到反射的主要优势是熟悉性。对于简单用例，代理可能更容易理解，但我们相信方法句柄代表了两者的最佳结合。我们强烈建议在所有新应用程序中使用它们。
+- en: Table 17.1 Comparing Java’s indirect method access technologies
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表17.1 比较Java的间接方法访问技术
+- en: '| Feature | Reflection | Inner class/lambda | Method handle |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| 功能 | 反射 | 内部类/lambda | 方法句柄 |'
+- en: '| --- | --- | --- | --- |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- |'
+- en: '| Access control | Must use `setAccessible()`. Can be disallowed by an active
+    security manager. | Inner classes can access restricted methods. | Full access
+    to all methods allowed from current context. No issue with security managers.
+    |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| 访问控制 | 必须使用 `setAccessible()`。可能被活动的安全管理器禁止。 | 内部类可以访问受限制的方法。 | 允许从当前上下文访问所有方法。与安全管理器无关。
+    |'
+- en: '| Type discipline | None. Ugly exception on mismatch. | Static. Can be too
+    strict. May need a lot of metaspace for all proxies. | Typesafe at runtime. Doesn’t
+    consume much (if any) metaspace. |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| 类型纪律 | 无。不匹配时会产生丑陋的异常。 | 静态。可能过于严格。可能需要大量的元空间来存储所有代理。 | 运行时类型安全。几乎不消耗（如果有的话）元空间。
+    |'
+- en: '| Performance | Slow compared to alternatives. | As fast as any other method
+    call. | Aims to be as fast as other method calls. |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| 性能 | 与其他替代方案相比较慢。 | 与任何其他方法调用一样快。 | 力求与其他方法调用一样快。 |'
+- en: 'One additional feature that method handles provide is the ability to determine
+    the current class from a static context. If you’ve ever written logging code (such
+    as for log4j) that looked like this:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 方法句柄提供的一个额外功能是能够从静态上下文中确定当前类。如果你曾经编写过类似这样的日志代码（例如，对于log4j）：
+- en: '[PRE18]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'then you know that this code is fragile. If it’s refactored to move into a
+    superclass or subclass, the explicit class name would cause problems. With method
+    handles, however, you can write this:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后你知道这段代码是脆弱的。如果将其重构为移动到父类或子类，显式的类名会导致问题。然而，使用方法句柄，你可以这样写：
+- en: '[PRE19]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: In this code, the `lookupClass()` expression can be thought of as an equivalent
+    to `getClass()`, which can be used in a static context. This is particularly useful
+    in situations such as dealing with logging frameworks, which typically have a
+    logger per class.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此代码中，`lookupClass()` 表达式可以被视为与 `getClass()` 等效，它可以在静态上下文中使用。这在处理日志框架等场景中特别有用，因为它们通常为每个类提供一个日志记录器。
+- en: Note Method Handles has proved to be a very successful API. In fact, it’s been
+    so successful that in Java 18 (but not in 11 or 17), the implementing technology
+    for reflection has been changed to rely on it, instead of the implementation we
+    met in the last section.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意方法句柄已被证明是一个非常成功的API。事实上，它如此成功，以至于在Java 18（但不在11或17）中，反射的实现技术已经改为依赖于它，而不是我们在上一节中遇到的那种实现。
+- en: With the technology of method handles in your toolbox of techniques, and armed
+    with a working knowledge of bytecode from chapter 4, let’s dive into the details
+    of the `invokedynamic` opcode. It was introduced in Java 7 and (so far) is the
+    only opcode ever to be added to the JVM’s instruction set. The original use case
+    of `invokedynamic` was to help non-Java languages get the most out of the JVM
+    as a platform, but it has become a major agent of change within the platform,
+    as we’ll see.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的技术工具箱中拥有方法句柄技术，并具备第4章中字节码的实用知识，让我们深入了解 `invokedynamic` 指令。它在Java 7中被引入，并且（到目前为止）是唯一被添加到JVM指令集的指令。`invokedynamic`
+    的原始用例是帮助非Java语言充分利用JVM作为平台，但它已经成为平台内变革的主要推动者，正如我们将看到的。
+- en: 17.4 Invokedynamic
+  id: totrans-177
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.4 Invokedynamic
+- en: This section deals with one of the most technically sophisticated new features
+    of modern Java. But despite being enormously powerful, it isn’t a feature that
+    will necessarily be used directly by every working developer. Instead, this feature
+    is mostly for frameworks developers and non-Java language implementors at present.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节讨论了现代Java中最技术复杂的新特性之一。但尽管它非常强大，这并不是每个工作开发者都会直接使用的特性。相反，目前这个特性主要用于框架开发者和非Java语言实现者。
+- en: Therefore, it’s OK to skip this section on first reading. To make best use of
+    it, you will need to have read and understood the discussion of executing `invoke`
+    instructions earlier in the chapter—it helps to know the rules that we are now
+    about to break.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在第一次阅读时可以跳过这一节。为了最好地利用它，你需要阅读并理解本章前面关于执行`invoke`指令的讨论——了解我们即将打破的规则会有所帮助。
+- en: We’ll cover the details of how `invokedynamic` works and look at some examples
+    of decompiling a call site that makes use of the new bytecode. Note that it isn’t
+    necessary to fully understand this to use languages and frameworks that leverage
+    `invokedynamic`, but this is the internals chapter, so we’re going to get into
+    the details.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将详细介绍`invokedynamic`的工作原理，并查看一些使用新字节码的调用站点的反编译示例。请注意，为了使用利用`invokedynamic`的语言和框架，并不需要完全理解这一点，但这是内部章节，所以我们将深入细节。
+- en: As you might guess from the name, `invokedynamic` is a new type of invocation
+    instruction, that is, it’s used for making method calls. It’s used to tell the
+    JVM that it must defer figuring out which method to call until runtime.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所猜，`invokedynamic`是一种新的调用指令类型，即它用于进行方法调用。它用于告诉JVM它必须推迟确定调用哪个方法，直到运行时。
+- en: This might not seem like much of a big deal—after all, `invokevirtual` and `invokeinterface`
+    both decide at runtime which implementation is to be called. However, the target
+    selection for those opcodes is subject to the constraints of the Java language
+    inheritance rules and type system, so at least some *call target* information
+    is known at compile time.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可能看起来不是什么大问题——毕竟，`invokevirtual`和`invokeinterface`都会在运行时决定调用哪个实现。然而，这些操作码的目标选择受到Java语言继承规则和类型系统的约束，因此在编译时至少知道一些*调用目标*信息。
+- en: On the other hand, `invokedynamic` was created to relax these constraints, and
+    it does so by calling a helper method (called a *bootstrap method*, or *BSM*)
+    that makes the decision of which method ought to be called.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，`invokedynamic`是为了放宽这些约束而创建的，它通过调用一个辅助方法（称为*引导方法*或*BSM*）来做出应该调用哪个方法的决策。
+- en: Note The target method (call target) for an `invokedynamic` site does not have
+    to fit into the rules of Java’s inheritance hierarchy at all—it is a user-defined
+    choice.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：`invokedynamic`站点的目标方法（调用目标）根本不需要符合Java继承层次结构的规则——这是一个用户定义的选择。
+- en: To allow for this flexibility, `invokedynamic` opcodes refer to a special section
+    of the constant pool of the class that contains extended entries to support the
+    dynamic nature of the call—the BSMs. These are a key part of `invokedynamic`,
+    and all `invokedynamic` call sites have a corresponding constant pool entry for
+    a BSM.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了允许这种灵活性，`invokedynamic`操作码引用类常量池的一个特殊部分，该部分包含扩展条目以支持调用的动态性——BSMs。这些是`invokedynamic`的关键部分，所有`invokedynamic`调用点都有一个对应的BSM常量池条目。
+- en: 'BSMs take in information about the call site and link the dynamic call. A BSM
+    takes at least three arguments and returns a `CallSite` object. The standard arguments
+    are of the following types:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: BSM接受有关调用站点的信息并链接动态调用。BSM至少接受三个参数，并返回一个`CallSite`对象。标准参数类型如下：
+- en: '`MethodHandles.Lookup`—A lookup object on the class in which the call site
+    occurs'
+  id: totrans-187
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`MethodHandles.Lookup`—在调用点发生的类上的查找对象'
+- en: '`String`—The name mentioned in the `NameAndType`'
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`String`—在`NameAndType`中提到的名称'
+- en: '`MethodType`—The resolved type descriptor of the `NameAndType`'
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`MethodType`—`NameAndType`的解析类型描述符'
+- en: Following these arguments are any additional arguments that are needed by the
+    BSM. These are referred to as *additional static arguments* in the documentation.
+    The returned call site holds a `MethodHandle`, which is the effect of calling
+    the call site and will be executed as the actual invocation of the `invokedynamic`.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这些参数之后是BSM需要的任何其他参数。在文档中，这些被称为*附加静态参数*。返回的调用点包含一个`MethodHandle`，这是调用调用点的效果，并将作为`invokedynamic`的实际调用执行。
+- en: Note To allow the association of a BSM to a specific `invokedynamic` call site,
+    a new constant pool entry type, also called `InvokeDynamic`, was added to the
+    classfile format.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：为了允许将BSM与特定的`invokedynamic`调用点关联，在类文件格式中添加了一个新的常量池条目类型，也称为`InvokeDynamic`。
+- en: The call site of the `invokedynamic` instruction is said to be “unlaced” at
+    class loading time. This means that no target method has been associated with
+    the call site and will not be until the call site is reached (i.e., when the JVM
+    tries to link, and then execute, that specific `invokedynamic` instruction).
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`invokedynamic`指令的调用点在类加载时被称为“未编织”。这意味着尚未将目标方法与调用点关联，并且只有在调用点被到达时（即，当JVM尝试链接并执行该特定的`invokedynamic`指令时）才会这样做。'
+- en: At this point, the BSM will be called to determine what method should actually
+    be called. BSMs always return a `CallSite` object (which contains a `MethodHandle`),
+    and it will be “laced” into the call site. With the `CallSite` linked, the actual
+    method call can then be made—it’s to the `MethodHandle` being held by the `CallSite`.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一点上，BSM将被调用以确定应该实际调用哪个方法。BSMs总是返回一个包含`MethodHandle`的`CallSite`对象，并且它将被“编织”到调用点中。一旦`CallSite`被链接，实际的调用就可以进行——它是到由`CallSite`持有的`MethodHandle`。
+- en: In the simplest case, when a `ConstantCallSite` is used, once the lookup has
+    been done once, it will not be repeated. Instead, the target of the call site
+    will be directly called on all future invocations without any further work. It
+    behaves in a similar way to a `CompletableFuture<CallSite>`. In practice, this
+    means that the call site is now stable and is, therefore, friendly to other JVM
+    subsystems, such as the JIT compiler. More complex choices, such as a `MutableCallSite`
+    (or even a `VolatileCallSite`), are also possible, and these allow for the possibility
+    of relinking a call site so that it can point at a different target method over
+    time.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在最简单的情况下，当使用`ConstantCallSite`时，一旦查找完成一次，就不会重复。相反，调用点的目标将在所有未来的调用上直接调用，而无需任何进一步的工作。它的行为类似于`CompletableFuture<CallSite>`。在实践中，这意味着调用点现在是稳定的，因此对其他JVM子系统（如JIT编译器）友好。还可能存在更复杂的选择，例如`MutableCallSite`（甚至`VolatileCallSite`），这些允许在一段时间内重新链接调用点，使其指向不同的目标方法。
+- en: A non-constant call site can have many different method handles as its target
+    over the lifetime of a program. In fact, being able to change the method called
+    at a particular call site is a technique that can be important for non-Java languages.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个非常量调用点在其程序生命周期内可以拥有许多不同的方法句柄作为其目标。实际上，能够在特定的调用点更改被调用的方法是一种对于非Java语言来说可能很重要的技术。
+- en: For example, in JavaScript or Ruby, an individual object of a particular type
+    can have methods defined on it that are not present on other instances of the
+    class. This is not possible in Java—the class defines a set of methods that are
+    used to construct the vtable when the class is loaded, and all instances share
+    the same vtable. The use of `invokedynamic` with mutable call sites can allow
+    for this non-Java feature to be implemented efficiently.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在JavaScript或Ruby中，特定类型的单个对象可以定义其上不存在于该类其他实例上的方法。这在Java中是不可能的——类定义了一组在类加载时用于构建vtable的方法，所有实例共享相同的vtable。使用`invokedynamic`与可变调用点可以有效地实现这种非Java特性。
+- en: We should point out that you can’t make `javac` emit `invokedynamic` from a
+    regular method invocation—a Java method call is always turned into one of the
+    four “regular” invoke opcodes that we met in chapter 4\. Instead, Java frameworks
+    and libraries (including those in the JDK) use `invokedynamic` for a variety of
+    purposes. Lambdas provide a great case study of one of these purposes. Let’s take
+    a closer look.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该指出，你不能从常规方法调用中让`javac`生成`invokedynamic`——Java方法调用始终被转换为我们在第4章中遇到的四个“常规”invoke操作码之一。相反，Java框架和库（包括JDK中的那些）出于各种目的使用`invokedynamic`。Lambdas提供了一个很好的案例研究，让我们更深入地了解这些目的之一。
+- en: 17.4.1 Implementing lambda expressions
+  id: totrans-198
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.4.1 实现lambda表达式
+- en: 'Lambdas have become ubiquitous in Java programming, but many Java programmers
+    don’t really know how they’re implemented. Let’s find out, starting with the following
+    simple example:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Lambdas在Java编程中变得无处不在，但许多Java程序员实际上并不真正了解它们的实现方式。让我们从以下简单的例子开始了解：
+- en: '[PRE20]'
+  id: totrans-200
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: You might guess that the lambda is really just syntactic sugar for an anonymous
+    implementation of `Runnable`. However, if we compile the previous class, we can
+    see that only a single file `LambdaExample.class` is generated—there is no second
+    class file (which is where the inner class would be placed, as we discussed in
+    chapter 8). So, there is more to the story, as we’ll see.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会猜测lambda实际上只是`Runnable`匿名实现的语法糖。然而，如果我们编译前面的类，我们可以看到只生成了一个名为`LambdaExample.class`的单个文件——没有第二个类文件（正如我们在第8章讨论的，内部类应该放在那里）。所以，故事还有更多，我们将看到。
+- en: 'Instead, if we decompile, then we can see the lambda body has in fact been
+    compiled into a private static method that appears in the main class:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，如果我们反编译，那么我们可以看到lambda体实际上已经被编译成了一个私有的静态方法，这个方法出现在主类中：
+- en: '[PRE21]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'and the main method looks like this:'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主方法看起来是这样的：
+- en: '[PRE22]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The `invokedynamic` is acting as a call to an unusual form of factory method.
+    The call returns an instance of some type that implements `Runnable`. The exact
+    type is not specified in the bytecode, and it fundamentally does not matter. In
+    fact, the actual returned type does not exist at compile time and will be created
+    on demand at runtime.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`invokedynamic`正在充当对一种不寻常的工厂方法的调用。调用返回一个实现了`Runnable`类型的实例。确切类型在字节码中未指定，并且这基本上并不重要。事实上，实际返回的类型在编译时并不存在，将在运行时按需创建。'
+- en: 'We know that `invokedynamic` sites always have bootstrap methods associated
+    with them. For our simple `Runnable` example, we have a single BSM in the appropriate
+    section of the class file, as shown here:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道`invokedynamic`站点总是与引导方法相关联。对于我们的简单`Runnable`示例，在类文件的相关部分有一个单一的BSM，如下所示：
+- en: '[PRE23]'
+  id: totrans-208
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'This is a bit hard to read, so let’s decode it. The bootstrap method for this
+    call site is entry #28 in the constant pool—an entry of type `MethodHandle`. It
+    points at a static factory method `LambdaMetafactory.metafactory()` in the package
+    `java.lang.invoke`. The metafactory method takes quite a few arguments, but they’re
+    mostly supplied by the additional static arguments belonging to the BSM (entries
+    #29 and #30).'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这有点难以阅读，所以让我们来解码它。这个调用站的引导方法是常量池中的第28项——一个类型为`MethodHandle`的条目。它指向`java.lang.invoke`包中的静态工厂方法`LambdaMetafactory.metafactory()`。元工厂方法接受相当多的参数，但它们大多数是由BSM（条目#29和#30）的附加静态参数提供的。
+- en: 'A single lambda expression generates three static arguments that are passed
+    to the BSM: the lambda’s signature, the method handle for the actual final invocation
+    target of the lambda (i.e., the lambda body), and the erased form of the signature.'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单个lambda表达式生成三个静态参数，这些参数被传递给BSM：lambda的签名、lambda实际最终调用目标的处理方法（即lambda体），以及签名的擦除形式。
+- en: Let’s follow the code into `java.lang.invoke` and see how the platform uses
+    *metafactories* to dynamically create the classes that actually implement the
+    target types for our lambda expressions. The BSM (i.e., the call to the `metafactory`
+    method) returns a call site object, as always. When the `invokedynamic` instruction
+    is executed, the method handle contained in the call site will return an instance
+    of a class that implements the lambda’s target type.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们跟随代码进入`java.lang.invoke`，看看平台如何使用*元工厂*来动态创建实现我们lambda表达式目标类型的类。BSM（即对`metafactory`方法的调用）返回一个调用站对象，就像往常一样。当`invokedynamic`指令被执行时，调用站中包含的方法处理程序将返回一个实现了lambda目标类型的类的实例。
+- en: Note If the `invokedynamic` instruction is never executed, the dynamically created
+    class will never be created.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：如果`invokedynamic`指令从未被执行，那么动态创建的类将永远不会被创建。
+- en: 'The source code for the `metafactory` method is relatively simple, as shown
+    next:'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`metafactory`方法的源代码相对简单，如下所示：'
+- en: '[PRE24]'
+  id: totrans-214
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: The lookup object corresponds to the context where the `invokedynamic` instruction
+    lives. In our case, that is the same class where the lambda was defined, so the
+    lookup context will have the correct permissions to access the private method
+    that the lambda body was compiled into.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查找对象对应于`invokedynamic`指令存在的上下文。在我们的情况下，那就是定义lambda的同一个类，所以查找上下文将具有正确的权限来访问lambda体编译成的私有方法。
+- en: The invoked name and type are provided by the JVM and are implementation details.
+    The final three parameters are the additional static arguments from the BSM.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: JVM提供了调用的名称和类型，这些都是实现细节。最后的三个参数是从BSM提供的额外静态参数。
+- en: In the current implementation of lambdas, the metafactory delegates to code
+    that uses an internal, shaded copy of the ASM bytecode libraries to spin up an
+    inner class that implements the target type. This may change in the future.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在当前实现的lambdas中，metafactory委托给使用ASM字节码库内部、阴影副本的代码来启动一个实现目标类型的内部类。这可能在将来改变。
+- en: Finally, we should note that it is perfectly possible to create a custom class
+    that uses `invokedynamic` to do something special, but to construct such a class,
+    you would have to use a bytecode manipulation library to produce a .class file
+    with the `invokedynamic` instruction in it. One good choice for this is the ASM
+    library(see [http://asm.ow2.org/](http://asm.ow2.org/)). We have mentioned this
+    library a couple of times, and it’s an industrial-strength library used in a wide
+    range of well-known Java frameworks (including the JDK itself, as mentioned earlier).
+    This marks the end of our discussion of `invokedynamic`, and it’s time to move
+    on to discuss some smaller, but still significant, changes to the internals.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们应该注意，创建一个使用`invokedynamic`执行特殊操作的定制类是完全可能的，但为了构建这样的类，你必须使用字节码操作库来生成包含`invokedynamic`指令的`.class`文件。一个不错的选择是ASM库（见[http://asm.ow2.org/](http://asm.ow2.org/)）。我们已经提到过这个库几次，它是一个工业级的库，被广泛应用于各种知名的Java框架中（包括前面提到的JDK本身）。这标志着我们对`invokedynamic`的讨论结束，现在是时候讨论一些较小但仍然重要的内部变化了。
+- en: 17.5 Small internal changes
+  id: totrans-219
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.5 小型内部更改
+- en: Sometimes small changes can have a big impact on a language. In this section,
+    we’re going to meet three small internal changes to the implementation that either
+    help performance or correct an old piece of cruft in the platform. Let’s start
+    by talking about strings.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时小的变化可以对语言产生重大影响。在本节中，我们将遇到三个小的实现内部变化，这些变化要么有助于性能，要么纠正平台上的旧问题。让我们先从字符串开始谈。
+- en: 17.5.1 String concatenation
+  id: totrans-221
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.5.1 字符串连接
+- en: Remember that in Java, instances of `String` are effectively immutable. So,
+    what happens when you concatenate two strings together with the `+` operator?
+    The JVM must create a new `String` object, but there’s more going on here than
+    might be immediately apparent.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，在Java中，`String`的实例实际上是不可变的。那么，当你使用`+`运算符连接两个字符串时会发生什么？JVM必须创建一个新的`String`对象，但这里发生的事情可能比表面上看起来更复杂。
+- en: 'Consider a simple class with a `main()` method, as shown here:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑一个具有`main()`方法的简单类，如下所示：
+- en: '[PRE25]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'The Java 8 bytecode corresponding to this relatively simple method is as follows:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对应于这个相对简单方法的Java 8字节码如下：
+- en: '[PRE26]'
+  id: totrans-226
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ❶ If the array is empty, jump forward to instruction 12.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果数组为空，则跳转到指令12。
+- en: ❷ Loads System.out onto the stack
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将System.out加载到栈上
+- en: ❸ Sets up StringBuilder
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 设置StringBuilder
+- en: ❹ Creates a string from StringBuilder
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 从StringBuilder创建字符串
+- en: ❺ Prints the string
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 打印字符串
+- en: We have a few things to notice in this bytecode. In particular, the appearance
+    of `StringBuilder` may be a little surprising—we asked for concatenation of some
+    strings, but the bytecode is telling us that we’re really creating additional
+    objects and then calling `append()`, then `toString()` on them.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个字节码中，我们有几件事情需要注意。特别是，`StringBuilder`的出现可能有点令人惊讶——我们要求连接一些字符串，但字节码却告诉我们，我们实际上是在创建额外的对象，然后调用`append()`，然后对它们调用`toString()`。
+- en: Instructions 15–23 show the object creation pattern (`new`, `dup`, `invokespecial`)
+    for the temporary `StringBuilder` object, but in this case, construction also
+    includes an `ldc` (load constant) after the `dup`. This variant pattern indicates
+    that you’re calling a non-void constructor—`StringBuilder(String)`, in this case.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指令15-23显示了临时`StringBuilder`对象的`new`、`dup`、`invokespecial`对象创建模式，但在这个情况下，构造还包括在`dup`之后的`ldc`（加载常量）。这种变体模式表明你正在调用一个非void构造函数——在这个例子中是`StringBuilder(String)`。
+- en: The reason behind all of this is that Java’s strings are (effectively) immutable.
+    We can’t modify the string contents by concatenating it, so instead, we have to
+    make a new object, and the `StringBuilder` is just one convenient way to do this.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这一切背后的原因是Java的字符串（实际上是）不可变的。我们不能通过连接来修改字符串内容，因此我们不得不创建一个新的对象，而`StringBuilder`只是做这件事的一种方便方式。
+- en: 'The bytecode shape for Java 11 looks totally different, however:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，Java 11的字节码形状看起来完全不同：
+- en: '[PRE27]'
+  id: totrans-236
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'The first 12 instructions are identical to the Java 8 case, but then things
+    start to change. One obvious change is that the `StringBuilder` temporary is completely
+    gone. Instead, there’s an `invokedynamic` at instruction 16\. This, of course,
+    requires a bootstrap method:'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面的12条指令与Java 8的情况相同，但之后事情开始发生变化。一个明显的改变是第16条指令处的`StringBuilder`临时变量完全消失了。取而代之的是，有一个`invokedynamic`指令。当然，这需要引导方法：
+- en: '[PRE28]'
+  id: totrans-238
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: This is a dynamic invocation of a static factory method `makeConcatWithConstants()`
+    that lives on a class called `StringConcatFactory` in the package `java.lang.invoke`.
+    This factory method takes in a string—the concatenation *recipe* for these specific
+    arguments—and produces a `CallSite`, which is linked to a customized method for
+    this specific case.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个动态调用静态工厂方法`makeConcatWithConstants()`，该方法位于`java.lang.invoke`包中的名为`StringConcatFactory`的类中。这个工厂方法接受一个字符串——这些特定参数的连接*配方*——并生成一个`CallSite`，它与针对此特定情况的定制方法相关联。
+- en: In general, this is machinery that is deep inside the JVM’s implementation code.
+    Most ordinary Java code would never call these methods directly and instead would
+    rely on JDK code and libraries/frameworks that would call it.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，这是JVM实现代码深处的机制。大多数普通Java代码永远不会直接调用这些方法，而是依赖于JDK代码和库/框架，这些代码和框架会调用它们。
+- en: Note The static argument to the bootstrap method includes the character `\u0001`
+    (Unicode point 0001), which represents an ordinary argument to be interpolated
+    into the concatenation recipe.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：引导方法的静态参数包括字符`\u0001`（Unicode点0001），它代表一个普通参数，将被插入到连接配方中。
+- en: The `invokedynamic` callsites can be reused and the implementing classes can
+    be dynamically created if need be. The implementations also have access to private
+    APIs—such as zero-copy `String` constructors—that it would not be possible to
+    expose as a part of `StringBuilder`.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`invokedynamic`调用点可以被重用，如果需要，实现类也可以动态创建。实现类还可以访问私有API——例如零拷贝`String`构造函数——这些API作为`StringBuilder`的一部分是不可能公开的。'
+- en: 17.5.2 Compact strings
+  id: totrans-243
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.5.2 紧凑字符串
+- en: When you first learned Java, you were introduced to the primitive types, and
+    you learned that a `char` is two bytes in Java. It isn’t too difficult to guess
+    that under the hood, a Java string is implemented using a `char[]` to hold the
+    individual characters of the string.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你最初学习Java时，你被介绍到原始类型，并了解到在Java中`char`是两个字节。不难猜测，在底层，Java字符串是通过使用`char[]`来存储字符串的各个字符来实现的。
+- en: However, this is not quite true. It is true that in Java 8 and earlier the contents
+    of a `String` are represented as a `char[]`. However, this representation causes
+    an inefficiency that may not be obvious, so let’s dig into it a little.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这并不完全正确。确实，在Java 8及之前，`String`的内容是以`char[]`的形式表示的。然而，这种表示可能导致一个可能不明显的不效率，所以让我们稍微深入了解一下。
+- en: Java’s two-byte `char` (which represents a UTF-16 character) is wasteful for
+    any string that contains only characters from Western European languages, because
+    the first byte of each `char` is always zero for such strings. This wastes almost
+    50% of the storage of the string for those languages, and they’re very common.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Java的两个字节`char`（表示UTF-16字符）对于只包含西欧语言字符的字符串来说是浪费的，因为这种字符串的每个`char`的第一个字节总是零。这浪费了这些语言的字符串近50%的存储空间，而这些语言非常常见。
+- en: 'To address this issue, Java 9 introduced a performance optimization: it allows
+    a per-string choice of (currently) two representations. Each string can be encoded
+    as either Latin-1 (for Western European languages) or UTF-16 (the original representation).'
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这个问题，Java 9引入了一种性能优化：它允许每个字符串选择（目前）两种表示之一。每个字符串可以编码为拉丁-1（用于西欧语言）或UTF-16（原始表示）。
+- en: Note Latin-1 is also known by its standards number, ISO-8859-1\. Try not to
+    confuse it with ISO-8851, which is the international standard for determining
+    the moisture content of butter.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：拉丁-1也以其标准号ISO-8859-1而闻名。请勿将其与ISO-8851混淆，ISO-8851是确定黄油水分含量的国际标准。
+- en: 'Internally, the representation of a string has changed to a `byte[]`, with
+    a string of `n` characters being represented in `n` bytes if the string is Latin-1
+    or `n * 2` bytes if not. The code in `java.lang.String` looks like this:'
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 内部，字符串的表示已经改为`byte[]`，如果字符串是拉丁-1编码，则`n`个字符的字符串表示为`n`个字节；如果不是，则为`n * 2`个字节。`java.lang.String`中的代码如下：
+- en: '[PRE29]'
+  id: totrans-250
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: Depending on the nature of the workload, this can cause significant savings
+    in the common Latin-1 case. On the other hand, applications that deal primarily
+    with text in, for example, one of the CJKV languages (Chinese, Japanese, Korean,
+    and Vietnamese) will not see any space savings from this internal change.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据工作负载的性质，这可以在常见的拉丁-1情况下带来显著的节省。另一方面，主要处理例如CJKV语言（中文、日语、韩语和越南语）文本的应用程序将不会从这个内部变化中看到任何空间节省。
+- en: In the field, applications using Western languages can see up to 30% or even
+    40% heap size savings when moving from Java 8 to 11, just from this change alone.
+    Smaller heap sizes means smaller containers, and that can translate to a visible
+    saving in the costs of cloud compute for your applications.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实际应用中，使用西方语言的应用程序在从Java 8迁移到11时，仅从这个变化本身就可以看到高达30%甚至40%的堆大小节省。较小的堆大小意味着较小的容器，这可以转化为云计算成本的可视节省。
+- en: 'To conclude this discussion, a quick note about the performance impact of this
+    change: it provides a great example of why we must treat performance as an experimental
+    science and measure from the top down. The introduction of the two different `String`
+    representations does involve more code being executed because string operations
+    now need to have two separate implementations—one for Latin-1 and one for UTF-16—and
+    so code needs to inspect `coder` and branch based on the result.'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了结束这次讨论，简要说明一下这个变化对性能的影响：它提供了一个很好的例子，说明了为什么我们必须将性能视为一门实验科学，并从上到下进行测量。引入两种不同的`String`表示形式确实涉及更多的代码执行，因为字符串操作现在需要两个单独的实现——一个用于拉丁-1，一个用于UTF-16——因此代码需要检查`coder`并根据结果进行分支。
+- en: 'However, the key performance question is, “Does the extra code matter?” that
+    is, do the benefits outweigh the cost of this additional “complexity tax”? The
+    benefits of the change include the following:'
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，关键的性能问题是，“额外的代码是否重要？”也就是说，这个额外的“复杂性税”的好处是否超过了成本？这个变化的好处包括以下方面：
+- en: Smaller heap sizes
+  id: totrans-255
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 较小的堆大小
+- en: Potentially faster GC times
+  id: totrans-256
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可能更快的GC时间
+- en: Better cache locality for Latin-1 strings
+  id: totrans-257
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 拉丁-1字符串的更好缓存局部性
+- en: We can also question how much the additional comparison and branch operations
+    really affect the amount of code actually executed—remember that the JIT compiler
+    does a lot of nonobvious optimizations and can exploit the time spent waiting
+    for cache misses, so the extra instructions needed by compact strings may actually
+    come for free, essentially.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以质疑额外的比较和分支操作实际上对实际执行代码量的影响有多大——记住JIT编译器会进行许多非显而易见的优化，并可以利用等待缓存缺失的时间，因此紧凑字符串所需的额外指令实际上可能是免费的。
+- en: Note In general, “counting instructions executed” is not a good way to reason
+    about Java performance.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：一般来说，“计算执行指令数”并不是推理Java性能的好方法。
+- en: This picture of countervailing forces and trade-offs, the impact of which can
+    be determined only by measurement of large-scale observables, is precisely the
+    performance model that we discussed in chapter 7\. In this specific case, the
+    smaller heap size may translate directly into reduced cloud hosting costs because
+    smaller containers can be used.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种相互制衡的力量和权衡的画面，其影响只能通过测量大规模可观察量来确定，这正是我们在第7章讨论的性能模型。在这个具体案例中，较小的堆大小可能直接转化为减少云托管成本，因为可以使用较小的容器。
+- en: 17.5.3 Nestmates
+  id: totrans-261
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.5.3 寄居者
+- en: 'Nestmates were specified in JEP 181: Nest-Based Access Control, and the change
+    essentially corrects an implementation hack that dates back all the way to Java
+    1.1 to do with inner classes. Let’s look at an example and see the changes in
+    bytecode that have been made to support nestmates:'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 寄居者是在JEP 181：基于巢的访问控制中指定的，并且这个变化本质上纠正了一个追溯到Java 1.1的内部类实现上的实现技巧。让我们看一个例子，看看为了支持寄居者所做的字节码更改：
+- en: '[PRE30]'
+  id: totrans-263
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'If we compile this code, we will end up with two separate class files, whether
+    we compile with Java 8 or 17\. However, the bytecode is different in each case.
+    We can use `javap` to look at the difference between the two cases. Here’s Java
+    8:'
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们编译这段代码，无论我们使用Java 8还是17编译，最终都会得到两个独立的类文件。然而，每种情况下的字节码都是不同的。我们可以使用`javap`来查看这两种情况之间的差异。以下是Java
+    8的情况：
+- en: '[PRE31]'
+  id: totrans-265
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: ❶ The compiler has inserted this “bridge” method.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 编译器已插入此“桥梁”方法。
+- en: 'with the separate class file for the inner class:'
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于内部类的单独类文件：
+- en: '[PRE32]'
+  id: totrans-268
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: ❶ The bridge method used here
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这里使用的桥梁方法
+- en: 'Note how the *synthetic* access method (or bridge method) `access$000()` has
+    been added to the outer class to provide package-private access to the private
+    field that we access in the inner class. Now let’s see what happens to the bytecode
+    if we recompile the source under Java 17 (or 11):'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意如何将*合成*访问方法（或桥接方法）`access$000()`添加到外部类中，以提供对我们在内部类中访问的私有字段的包私有访问。现在让我们看看如果我们使用Java
+    17（或11）重新编译源代码会发生什么：
+- en: '[PRE33]'
+  id: totrans-271
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'The synthetic accessor has completely disappeared. Instead, look at the inner
+    class, shown here:'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 合成访问器已经完全消失。相反，看看这里显示的内部类：
+- en: '[PRE34]'
+  id: totrans-273
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'This is now direct access of a private field, as shown next:'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这现在是对私有字段的直接访问，如下所示：
+- en: '[PRE35]'
+  id: totrans-275
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: Java 11 introduced the concept of *nests*, which are actually a generalization
+    of the existing concept of nested classes. In previous versions of Java, to share
+    the same access control context, the source code for one class had to be physically
+    located inside the source code of another class. In the new concept, a group of
+    class files can form a nest, in which *nestmates* share a common access control
+    mechanism and have unrestricted direct (and reflective) access to each other—including
+    to private members.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Java 11引入了“巢”的概念，这实际上是现有嵌套类概念的泛化。在Java的早期版本中，为了共享相同的访问控制上下文，一个类的源代码必须物理地位于另一个类的源代码内部。在新概念中，一组类文件可以形成一个巢，其中巢居者共享一个共同的访问控制机制，并且可以无限制地直接（和反射）访问彼此——包括对私有成员的访问。
+- en: Note The arrival of nestmates has subtly altered the meaning of `private`, as
+    we saw earlier when we discussed `invokespecial`.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：巢居者的到来微妙地改变了“私有”一词的含义，正如我们在之前讨论`invokespecial`时所见。
+- en: 'This change is indeed small, but it not only removes some less-than-perfect
+    implementation cruft but is also needed for forthcoming changes in the platform.
+    Let’s move on from the small changes and discuss one of the major (and most notorious?)
+    aspects of JVM internals: the `Unsafe` class.'
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个变化确实很小，但它不仅移除了一些不太完美的实现冗余，而且对于平台即将到来的变化也是必要的。让我们从小的变化中走出来，讨论JVM内部的一个主要（也是最臭名昭著的）方面：`Unsafe`类。
+- en: 17.6 Unsafe
+  id: totrans-279
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.6 不安全
+- en: 'In the Java platform, if some feature or behavior seems “magical,” it is normally
+    accomplished by using one of three primary mechanisms: reflection, class loading
+    (including associated bytecode transformation), or `Unsafe`.'
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Java平台中，如果某些功能或行为看起来“神奇”，通常是通过使用三种主要机制之一来实现的：反射、类加载（包括相关的字节码转换）或`Unsafe`。
+- en: A power user of Java will seek to understand all three of these techniques,
+    even if they resort to them only when necessary. The principle that “just because
+    you *can* do something, it does not mean that you *should* ” applies to our design
+    choices in software as much as it does elsewhere.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个Java的高级用户会试图理解这三种技术，即使他们只有在必要时才会使用它们。原则“仅仅因为你可以做某事，并不意味着你应该这样做”不仅适用于我们的软件设计选择，也适用于其他地方。
+- en: 'Of the three, `Unsafe` is the most potentially dangerous (and powerful) because
+    it provides a way to do certain things that are otherwise impossible and that
+    break well-established rules of the platform. For example, `Unsafe` allows Java
+    code to do the following:'
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这三个中，`Unsafe`是最有可能危险的（也是最有力的），因为它提供了一种做某些事情的方式，这些事情在其他情况下是不可能的，并且违反了平台已经建立良好的规则。例如，`Unsafe`允许Java代码执行以下操作：
+- en: Directly access hardware CPU features
+  id: totrans-283
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 直接访问硬件CPU功能
+- en: Create an object but not run its constructor
+  id: totrans-284
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建一个对象但不运行其构造函数
+- en: Create a truly anonymous class without the usual verification
+  id: totrans-285
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建一个真正匿名的类，而不进行通常的验证
+- en: Manually manage off-heap memory
+  id: totrans-286
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 手动管理堆外内存
+- en: Perform many other “impossible” things
+  id: totrans-287
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行许多其他“不可能”的事情
+- en: The Java 8 `Unsafe` class, `sun.misc.Unsafe`, warns us of its very nature immediately—not
+    only in the class name but also by the package in which it lives. The `sun.misc`
+    package is an internal, implementation-specific location and not something that
+    Java code should ever touch directly.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Java 8的`Unsafe`类，`sun.misc.Unsafe`，立即警告我们其本质——不仅在类名中，还在于它所在的包。`sun.misc`包是一个内部、实现特定的位置，不是Java代码应该直接接触的东西。
+- en: Note In Java 9 and later versions, the danger of `Unsafe` is made even clearer,
+    as the functionality has been moved to a module called `jdk.unsupported`.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在Java 9及以后的版本中，`Unsafe`的危险性变得更加明显，因为其功能已被移动到一个名为`jdk.unsupported`的模块中。
+- en: Java libraries are, of course, not supposed to couple directly to these types
+    of implementation details. Reinforcing this standpoint, the attitude of Java’s
+    platform maintainers has long been that end users who break the rules and link
+    to internal details do so at their own risk.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，Java库不应该直接与这些类型的实现细节耦合。为了加强这一观点，Java平台维护者的态度一直是，违反规则并链接到内部细节的用户这样做是自担风险。
+- en: However, the inconvenient truth is that this API, unsupported as it is, has
+    widespread usage by library authors. It is not an official standard for Java,
+    but it had become a dumping ground for nonstandard but necessary platform features
+    of varying safety.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，不便的事实是，尽管这个API不受支持，但它被库作者广泛使用。它不是Java的官方标准，但它已经成为非标准但必要的平台特性的垃圾场，这些特性具有不同的安全性。
+- en: 'To illustrate this, let’s take a look at a classic use of `Unsafe`: the use
+    of the hardware feature known as “compare and swap,” or CAS. This capability is
+    present on virtually all modern CPUs but famously is not a part of Java’s memory
+    model (the JMM).'
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这一点，让我们看看`Unsafe`的经典用法：使用称为“比较并交换”或CAS的硬件功能。这种功能几乎存在于所有现代CPU上，但众所周知，它不是Java内存模型（JMM）的一部分。
+- en: 'In our example, we’ll recall the `Account` class we met back in chapter 5\.
+    For technical reasons, we’ll assume the balance is an `int` rather than a `double`
+    for this section. The `Account` interface is defined as follows:'
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的例子中，我们将回顾第5章中遇到的`Account`类。由于技术原因，在本节中我们将假设余额是一个`int`而不是`double`。`Account`接口的定义如下：
+- en: '[PRE36]'
+  id: totrans-294
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: 'We’ll implement it in two different ways. First, we’ll stick to the rules and
+    use synchronization. Two of the methods on the interface look like this in `SynchronizedAccount`:'
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将用两种不同的方式来实现它。首先，我们将坚持规则并使用同步。在`SynchronizedAccount`接口中的两个方法看起来像这样：
+- en: '[PRE37]'
+  id: totrans-296
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'Now let’s compare this to the atomic, `Unsafe` implementation, which contains
+    significantly more boilerplate, due to having to access the `Unsafe` class reflectively:'
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们将其与原子性的`Unsafe`实现进行比较，由于需要反射地访问`Unsafe`类，因此它包含大量的样板代码：
+- en: '[PRE38]'
+  id: totrans-298
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: ❶ Our copy of the Unsafe object
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们的`Unsafe`对象副本
+- en: ❷ The numeric value of the pointer offset for the balance field relative to
+    the object start
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 相对于对象开始的余额字段的指针偏移的数值
+- en: ❸ The actual balance field
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 实际的余额字段
+- en: ❹ Looks up the Unsafe object reflectively
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 反射地查找`Unsafe`对象
+- en: ❺ Computes the pointer offset
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 计算指针偏移
+- en: ❻ A volatile read of balance—no locks
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 对余额的易失性读取——没有锁
+- en: ❼ Updates the balance using CAS operations
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 使用CAS操作更新余额
+- en: In this example, we are doing several things that are supposedly impossible
+    in Java. First, we are computing a pointer offset (the offset where the field
+    `value` lives relative to the start of `AtomicAccount` objects). There is no sequence
+    of JVM bytecode instructions that can provide this—only native code that directly
+    accesses the JVM’s internal data structures can do it. The method `objectFieldOffset()`
+    on the `Unsafe` object enables us to do that.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，我们正在做几件在Java中似乎不可能的事情。首先，我们正在计算指针偏移（字段`value`相对于`AtomicAccount`对象开始的偏移量）。没有JVM字节码指令序列可以提供这个——只有直接访问JVM内部数据结构的本地代码才能做到。`Unsafe`对象的`objectFieldOffset()`方法使我们能够做到这一点。
+- en: 'Second, we are performing a lock-free, atomic add on the balance. This is not
+    possible within the terms of the JMM because `volatile` grants us only one operation
+    (a read *or* a write) but addition requires both a read *and* a write. Let’s look
+    at the code in the `getAndAddInt()` method in `Unsafe` to see how this is done:'
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二，我们正在对余额执行无锁的原子性加法。在JMM的条款下，这是不可能的，因为`volatile`只给我们一个操作（一个读取*或*一个写入），而加法需要读取*和*写入。让我们看看`Unsafe`中的`getAndAddInt()`方法中的代码，看看这是如何完成的：
+- en: '[PRE39]'
+  id: totrans-308
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: ❶ Programmatic volatile access
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 程序化易失性访问
+- en: ❷ A low-level CAS operation
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 低级CAS操作
+- en: In this code, we are choosing the memory access mode (in this case, `volatile`)
+    instead of having that determined by how the variable was declared. We are also
+    directly accessing memory via pointer offset, not by field indirection—another
+    action that is impossible in normal Java.
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这段代码中，我们选择内存访问模式（在这种情况下，`volatile`），而不是让变量声明的方式决定它。我们也是通过指针偏移直接访问内存，而不是通过字段间接访问——这是在正常Java中不可能做到的。
+- en: Note The implementation in JDK 11+ uses an “internal `Unsafe`” object, for encapsulation
+    reasons—it is this code that’s shown here.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：JDK 11+中的实现使用了一个“内部`Unsafe`”对象，出于封装原因——这里显示的代码就是这部分。
+- en: 'The semantics of the CAS method follows: on an object `o`, which has a field
+    at a given `offset` from the start of the object header, as a single CPU operation:'
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CAS方法的语义如下：在对象`o`上，该对象从对象头开始有一个给定`offset`的字段，作为一个单CPU操作：
+- en: Compare the current state of the memory location (four bytes) to an int `v`.
+  id: totrans-314
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将内存位置（四个字节）的当前状态与int类型的`v`进行比较。
+- en: If the value of `v` matches, update it to `v + delta`.
+  id: totrans-315
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果`v`的值匹配，则将其更新为`v + delta`。
+- en: Return `true` if the replacement succeeded; return `false` if it failed.
+  id: totrans-316
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果替换成功则返回`true`；如果失败则返回`false`。
+- en: The replacement might fail because a thread that is actively running on another
+    CPU has updated the memory location between the volatile read and the CAS. In
+    this case, the method `compareAndSetInt()` returns `false`, and the `do-while`
+    loop sends us around for another try.
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 替换可能会失败，因为一个在另一个CPU上积极运行的线程在易失性读取和CAS之间更新了内存位置。在这种情况下，`compareAndSetInt()`方法返回`false`，而`do-while`循环会再次尝试。
+- en: So, these types of operations are lock-free but *not* loop-free. Highly contended
+    fields that are being operated on by many threads may require us to spin around
+    the loop for some time before the atomic addition eventually succeeds, but there
+    is no possibility of Lost Update.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，这类操作是无锁的，但不是无循环的。许多线程正在操作的高度竞争字段可能需要我们在原子加法最终成功之前在循环中旋转一段时间，但不存在丢失更新的可能性。
+- en: Note If we trace down into the code in the JDK, we can see that this implementation
+    is pretty close to what the JDK actually does for `AtomicInteger`.
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：如果我们追踪到JDK中的代码，我们可以看到这个实现与JDK实际上为`AtomicInteger`所做的非常接近。
+- en: 'For the sake of completeness, let’s have a look at the `withdraw()` implementation
+    as well:'
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了完整性，让我们也看看`withdraw()`的实现：
+- en: '[PRE40]'
+  id: totrans-321
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: ❶ A volatile read of balance
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 对余额进行易失性读取
+- en: ❷ Attempts to update balance via a low-level CAS
+  id: totrans-323
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 通过低级CAS尝试更新余额
+- en: This case is a little bit different, because we are directly using the low-level
+    API for the balance update. This is necessary, because we must maintain the constraint
+    that the account balance must not become negative. This requires extra operations,
+    such as the comparison on `newBal`.
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种情况有点不同，因为我们直接使用低级API进行余额更新。这是必要的，因为我们必须保持约束，即账户余额不能变为负数。这需要额外的操作，例如在`newBal`上的比较。
+- en: For the case of a deposit, we can use the higher-level API, which loops until
+    it succeeds. However, this is because money can always be deposited into an account,
+    regardless of its state. If we used the same technique here, this withdrawal could
+    spin indefinitely because there may not be enough money in the account to satisfy
+    it.
+  id: totrans-325
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于存款的情况，我们可以使用高级API，它会循环直到成功。然而，这是因为钱总是可以存入账户，无论其状态如何。如果我们在这里使用同样的技术，这个提款可能会无限期地旋转，因为账户可能没有足够的钱来满足它。
+- en: Instead, we take the approach that we try once and fail the withdrawal if the
+    CAS operation fails. This removes the race condition of two withdrawal operations
+    attempting to claim the same funds but has the side effect that a withdrawal that
+    *should* succeed can be spuriously failed because of a deposit occurring on another
+    thread (which alters the balance after the volatile read).
+  id: totrans-326
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，我们采取的方法是尝试一次，如果CAS操作失败则取消提款。这消除了两个提款操作试图索要相同资金的竞争条件，但副作用是，由于另一个线程（在易失性读取之后改变了余额）发生的存款，一个本应成功的提款可能会意外失败。
+- en: Note We could introduce a `for` loop to the withdrawal code to reduce the chance
+    of spurious failures, but it must be a provably finite loop.
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们可以在提款代码中引入一个`for`循环来减少意外失败的可能性，但它必须是一个可证明的有限循环。
+- en: In benchmarks, the performance difference between these two approaches is quite
+    considerable—the `Unsafe` implementation is roughly a factor of two to three times
+    faster on modern hardware. However, you should not use techniques like this in
+    your end user code. As already discussed, many (virtually all?) modern frameworks
+    already use `Unsafe`. There is unlikely to be any performance benefit whatsoever
+    in coding directly against `Unsafe` rather than using what your framework of choice
+    provides.
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在基准测试中，这两种方法之间的性能差异相当显著——`Unsafe`实现在现代硬件上大约快两到三倍。然而，你不应该在最终用户代码中使用这种技术。如前所述，许多（几乎全部？）现代框架已经使用`Unsafe`。直接针对`Unsafe`编码而不是使用你选择的框架提供的内容，不太可能带来任何性能上的好处。
+- en: 'More important, you are breaking the rules of the Java specification by doing
+    this: using internal capabilities that do not necessarily follow the rules in
+    the way that user code is supposed to. In the next section, we will discuss how
+    recent versions of Java have tried to reduce this unsupported API and replace
+    it with fully supported alternatives.'
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更重要的是，你通过这种方式违反了Java规范：使用内部功能，这些功能不一定遵循用户代码应该遵循的规则。在下文中，我们将讨论Java的最新版本是如何尝试减少不受支持的API，并用完全支持的替代方案来替换它的。
+- en: 17.7 Replacing Unsafe with supported APIs
+  id: totrans-330
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 17.7 用支持的API替换`Unsafe`
+- en: Recall that in chapter 2, we met Java modules. This encapsulation mechanism
+    provides a strict exporting capability and removes the ability to call code in
+    internal packages. How does this affect `Unsafe` and the code that uses it?
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，在第2章中，我们遇到了Java模块。这种封装机制提供了严格的导出能力，并移除了调用内部包中代码的能力。这对`Unsafe`及其使用的代码有何影响？
+- en: Given the number of frameworks and libraries that depend upon `Unsafe`, they
+    would be unable to upgrade to versions of Java that do not permit reflective access
+    to `Unsafe`.
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于许多框架和库依赖于`Unsafe`，它们将无法升级到不允许反射访问`Unsafe`的Java版本。
+- en: Note The `Unsafe` object must be accessed reflectively because the platform
+    already prevents direct access to it for non-JDK code.
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：必须通过反射访问`Unsafe`对象，因为平台已经阻止非JDK代码直接访问它。
+- en: 'In Java 11+, the modules system provides the `jdk.unsupported` module. It is
+    declared like this:'
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Java 11+中，模块系统提供了`jdk.unsupported`模块。它的声明方式如下：
+- en: '[PRE41]'
+  id: totrans-335
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: 'This code provides access for any application that explicitly depends upon
+    the `unsupported` module and—crucially—also provides unrestricted reflective access
+    to `sun.misc`, the package containing `Unsafe`. Although this helps move `Unsafe`
+    into a more module-friendly form, we may legitimately ask: for how long should
+    this compromise access be maintained?'
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码为任何明确依赖于`unsupported`模块的应用程序提供访问权限，并且——关键的是——还提供了对`sun.misc`包的无限制反射访问，该包包含`Unsafe`。尽管这有助于将`Unsafe`转换为更模块友好的形式，但我们有理由问：这种妥协的访问应该维持多久？
+- en: This is giving `Unsafe` a temporary pass for a short time only—the real solution
+    is for the Java platform team to create new, supported APIs that can replace the
+    “safe” features of `sun.misc.Unsafe` and then remove or close the `jdk.unsupported`
+    module once Java library authors have had a chance to migrate to the new APIs.
+  id: totrans-337
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这只是暂时给`Unsafe`放行一段时间——真正的解决方案是Java平台团队创建新的、受支持的API来替代`sun.misc.Unsafe`的“安全”功能，然后一旦Java库作者有机会迁移到新API，就移除或关闭`jdk.unsupported`模块。
+- en: Note The closing of `Unsafe` affects everyone using a *very* wide range of frameworks—it’s
+    not an exaggeration to say that basically every nontrivial application in the
+    Java ecosystem relies upon `Unsafe` indirectly in one way or another.
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：关闭`Unsafe`会影响使用非常广泛范围的框架的用户——说基本上Java生态系统中的每一个非平凡应用都间接依赖于`Unsafe`并不夸张。
+- en: One of the major `Unsafe` APIs that needs to be removed is programmatic access
+    modes for memory, such as `getIntVolatile()`. The replacement is the VarHandles
+    API, which is the subject of our next section.
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要移除的主要`Unsafe` API之一是内存的编程访问模式，例如`getIntVolatile()`。替代方案是VarHandles API，这是我们下一节的主题。
+- en: 17.7.1 VarHandles
+  id: totrans-340
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.7.1 VarHandles
+- en: 'The VarHandles API, introduced in Java 9, looks to extend the Method Handles
+    concept to provide similar functionality for fields and memory access. Recall
+    that, as discussed in chapter 5, in the JMM, only two memory access modes are
+    provided: normal access and volatile (“reread from main memory, disregarding CPU
+    caches and stalling until read completes”). Not only that, but the Java language
+    provides a way to express these modes only at the field level. All accesses are
+    done in normal mode, unless a field is explicitly declared `volatile`, and in
+    that case, *all* access to that field is done in volatile mode. What if these
+    provisions are insufficient for modern applications?'
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Java 9中引入的VarHandles API旨在扩展Method Handles的概念，为字段和内存访问提供类似的功能。回想一下，在第5章中讨论的JMM中，只提供了两种内存访问模式：正常访问和volatile（“从主内存重新读取，忽略CPU缓存，直到读取完成”）。不仅如此，Java语言还提供了一种仅在字段级别表达这些模式的方法。所有访问都是在正常模式下进行的，除非字段被显式声明为`volatile`，在这种情况下，对该字段的*所有*访问都是在volatile模式下进行的。如果这些规定不足以满足现代应用的需求怎么办？
+- en: Note Volatile is a Java language fiction. Memory is just memory, and there are
+    not separate banks of volatile-access and non-volatile-access memory chips.
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：Volatile 是 Java 语言的虚构。内存只是内存，并没有分开的 volatile 访问和非 volatile 访问的内存芯片。
+- en: One important goal of VarHandles is to allow new ways of accessing memory, that
+    is, to provide a supported, and superior, alternative to `Unsafe` usage, such
+    as alternative ways to perform CAS or general volatile access.
+  id: totrans-343
+  prefs: []
+  type: TYPE_NORMAL
+  zh: VarHandles 的一个重要目标是允许新的内存访问方式，即提供对 `Unsafe` 使用的一种受支持的、更优越的替代方案，例如执行 CAS 或一般可变访问的替代方法。
+- en: 'To see this in action, let’s look at a quick example that shows how we might
+    approach using VarHandles to replace `Unsafe` in the account class:'
+  id: totrans-344
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了看到这个功能在实际中的应用，让我们来看一个快速示例，展示我们如何使用 VarHandles 来替换账户类中的 `Unsafe`：
+- en: '[PRE42]'
+  id: totrans-345
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: ❶ Creates a Lookup object
+  id: totrans-346
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个 Lookup 对象
+- en: ❷ Obtains a VarHandle for the balance, and caches it
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 获取 balance 的 VarHandle 并将其缓存
+- en: ❸ Uses the VarHandle to access the field, using volatile memory semantics
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用 VarHandle 以可变内存语义访问字段
+- en: This is functionally equivalent to the version that uses `Unsafe`, but it now
+    uses only fully supported APIs.
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这在功能上与使用 `Unsafe` 的版本等效，但现在它只使用完全受支持的 API。
+- en: The use of `MethodHandles.Lookup` is an important change. Unlike reflection,
+    which relies upon `setAccessible()` to access private fields, the lookup object
+    has whatever permissions that the calling context has, which includes access to
+    the private field `balance`.
+  id: totrans-350
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `MethodHandles.Lookup` 是一个重要的变化。与依赖于 `setAccessible()` 来访问私有字段的反射不同，查找对象拥有调用上下文所拥有的任何权限，这包括对私有字段
+    `balance` 的访问。
+- en: 'The migration away from reflection and toward method and field handles means
+    that a number of methods that were present in `Unsafe` in Java 8 can now be removed
+    from the unsupported API, including the following:'
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从反射迁移到方法和字段处理意味着在 Java 8 中的 `Unsafe` 中存在的一些方法现在可以从不受支持的 API 中删除，包括以下方法：
+- en: '`compareAndSwapInt()`'
+  id: totrans-352
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`compareAndSwapInt()`'
+- en: '`compareAndSwapLong()`'
+  id: totrans-353
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`compareAndSwapLong()`'
+- en: '`compareAndSwapObject()`'
+  id: totrans-354
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`compareAndSwapObject()`'
+- en: 'The equivalents of these methods are found on `VarHandle`, along with useful
+    accessor methods. There are also get and put methods for the primitive types and
+    object, in both normal and volatile access modes, as well as methods for building
+    efficient adders, such as:'
+  id: totrans-355
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些方法的等价方法可以在 `VarHandle` 中找到，以及一些有用的访问器方法。还有对原始类型和对象的获取和设置方法，在正常和可变的访问模式下，以及构建高效加法器的方法，例如：
+- en: '`getAndAddInt()`'
+  id: totrans-356
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`getAndAddInt()`'
+- en: '`getAndAddLong()`'
+  id: totrans-357
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`getAndAddLong()`'
+- en: '`getAndSetInt()`'
+  id: totrans-358
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`getAndSetInt()`'
+- en: '`getAndSetLong()`'
+  id: totrans-359
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`getAndSetLong()`'
+- en: '`getAndSetObject()`'
+  id: totrans-360
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`getAndSetObject()`'
+- en: Another key goal of VarHandles is to allow low-level access to the new memory
+    order modes available in JDK 9 and later. These new concurrency barrier modes
+    for Java 9 also require some rather modest updates to the JMM.
+  id: totrans-361
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个 VarHandles 的关键目标是允许对 JDK 9 及以后版本中可用的新内存顺序模式进行低级访问。这些 Java 9 的新并发屏障模式也要求对
+    JMM 进行一些相当适度的更新。
+- en: Overall, definite progress has been made in creating alternatives to the de
+    facto APIs of `Unsafe`. For example, in addition to VarHandles, the `getCallerClass()`
+    functionality from `Unsafe` is now available in the stack-walking API defined
+    by JEP 259 (see [https://openjdk.java.net/jeps/259](https://openjdk.java.net/jeps/259)).
+    However, there is still more to do.
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体来说，在创建 `Unsafe` 的实际 API 的替代品方面已经取得了明确的进步。例如，除了 VarHandles 之外，`Unsafe` 中的 `getCallerClass()`
+    功能现在也通过 JEP 259 定义的堆栈跟踪 API 可用（见 [https://openjdk.java.net/jeps/259](https://openjdk.java.net/jeps/259)）。然而，还有更多的工作要做。
+- en: 17.7.2 Hidden classes
+  id: totrans-363
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 17.7.2 隐藏类
+- en: '*Hidden classes* are described in JEP 371 (see [https://openjdk.java.net/jeps/371](https://openjdk.java.net/jeps/371)).
+    This internal feature is designed for platform and framework authors. The JEP
+    aims to provide a supported API for one of the most common usages of `Unsafe`:
+    the desire to create on-the-fly classes that cannot be used directly by other
+    classes (but can be handled indirectly).'
+  id: totrans-364
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*隐藏类* 在 JEP 371 中描述（见 [https://openjdk.java.net/jeps/371](https://openjdk.java.net/jeps/371)）。这个内部特性是为平台和框架作者设计的。JEP
+    的目标是提供一个受支持的 API，用于 `Unsafe` 最常见的用途之一：创建即兴类，这些类不能直接由其他类使用（但可以间接处理）。'
+- en: 'These classes have sometimes been referred to as *anonymous classes*, and the
+    method in `Unsafe` is called `defineAnonymousClass()`. However, that term is confusing
+    to developers, because in the context of normal Java application code, it means
+    a nested implementation of some interface that declares its static type to be
+    the interface, like this:'
+  id: totrans-365
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些类有时被称为 *匿名类*，`Unsafe` 中的方法被称为 `defineAnonymousClass()`。然而，这个术语对开发者来说很令人困惑，因为在正常
+    Java 应用程序代码的上下文中，它意味着某个接口的嵌套实现，该接口声明其静态类型为该接口，如下所示：
+- en: '[PRE43]'
+  id: totrans-366
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: This is usually called an “anonymous implementation of `Runnable`”; however,
+    classes like this are not really anonymous—instead, the compiler will generate
+    a class named something like `Scratch$1`, which is a genuine and usable Java class.
+    Although the class name is not available to Java source code, the class can be
+    found using that name and accessed reflectively and then used just like any other
+    class.
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这通常被称为“`Runnable` 的匿名实现”；然而，这样的类实际上并不是匿名的——相反，编译器将生成一个类似 `Scratch$1` 的类名，这是一个真正的、可用的
+    Java 类。尽管类名对 Java 源代码不可用，但可以使用该名称找到该类，并通过反射访问它，然后像任何其他类一样使用它。
+- en: A hidden class is not truly anonymous, either—it has a name that is available
+    by directly invoking `getName()` on its Class object. This name can also show
+    up in several other places, including diagnostic, JVM Tool Interface (JVMTI),
+    or JDK Flight Recorder (JFR) events. However, hidden classes cannot be found using
+    a class loader or in any way that regular classes can be found, including using
+    reflection (e.g., via `Class.forName()`).
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个隐藏类并非真正匿名——它有一个可以通过在其类对象上直接调用 `getName()` 来获取的名称。这个名称也可能出现在几个其他地方，包括诊断信息、JVM
+    工具接口（JVMTI）或 JDK 飞行记录器（JFR）事件中。然而，隐藏类不能像常规类那样通过类加载器或任何方式找到，包括使用反射（例如，通过 `Class.forName()`）。
+- en: The intention is that hidden classes are named in a way that explicitly puts
+    them in a different namespace from regular classes—the name has a sufficiently
+    unusual form that it effectively makes the class invisible to all other classes.
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目的是隐藏类的命名方式将它们明确地放在与常规类不同的命名空间中——名称具有足够不寻常的形式，从而有效地使该类对所有其他类不可见。
+- en: 'The naming scheme exploits the fact that in the JVM classes typically have
+    two forms of their name: the binary name (`com.acme.Gadget`), which is returned
+    by calling `getName()` on a class object, and the internal form (`com/acme/Gadget`).
+    Hidden classes are named in a way that does not fit this pattern. Instead, a name
+    like `com.acme.Gadget/1234` would be returned by calling `getName()` on the class
+    object of a hidden class. This is neither a binary name nor an internal form,
+    and any attempt to make a regular class that matches this name will fail. Let’s
+    have a quick look at an example of how to create a hidden class:'
+  id: totrans-370
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命名方案利用了在 JVM 中类通常有两种名称形式的事实：二进制名称（`com.acme.Gadget`），这是通过在类对象上调用 `getName()`
+    返回的，以及内部形式（`com/acme/Gadget`）。隐藏类的命名方式不符合这种模式。相反，通过在隐藏类的类对象上调用 `getName()`，会返回一个类似
+    `com.acme.Gadget/1234` 的名称。这既不是二进制名称也不是内部形式，任何尝试创建与该名称匹配的常规类的尝试都将失败。让我们快速看一下如何创建一个隐藏类的示例：
+- en: '[PRE44]'
+  id: totrans-371
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: One advantage of this naming scheme (and differentiating hidden classes in this
+    way) is that they need not be subject to the usual vigorous scrutiny of the JVM’s
+    class loading mechanism. This fits with the overall design that hidden classes
+    are intended for use by framework authors and others who need capabilities that
+    go beyond the usual bulletproof checks imposed on general Java classes.
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种命名方案（以及以这种方式区分隐藏类）的一个优点是，它们不需要受到 JVM 类加载机制通常的严格审查。这与整体设计相吻合，即隐藏类旨在供框架作者和其他需要超越常规
+    Java 类通常施加的“万无一失”检查的能力的人使用。
+- en: Note Hidden classes were delivered as part of Java 15 and are not available
+    in Java 11.
+  id: totrans-373
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：隐藏类是作为 Java 15 的一部分提供的，并且在 Java 11 中不可用。
+- en: In the context of `Unsafe`, JEP 371 aims to deprecate the `defineAnonymousClass()`
+    method from `Unsafe`, with the overall goal being to remove it in a future release.
+    This is a purely internal change—there is no suggestion that the arrival of hidden
+    classes will change the Java programming language in any way, at least initially.
+    However, the implementations of classes like `LambdaMetaFactory`, `StringConcatFactory`,
+    and other “flexible factory” methods could well be updated to use the new APIs.
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `Unsafe` 的上下文中，JEP 371 旨在废弃 `Unsafe` 中的 `defineAnonymousClass()` 方法，整体目标是未来某个版本中将其移除。这是一个纯粹的内部变更——没有建议隐藏类的出现将以任何方式改变
+    Java 编程语言，至少最初是这样。然而，`LambdaMetaFactory`、`StringConcatFactory` 和其他“灵活工厂”方法等类的实现可能会更新以使用新的
+    API。
+- en: Summary
+  id: totrans-375
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Java provides features for runtime introspection not easily available in languages
+    like C++.
+  id: totrans-376
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Java 提供了在 C++ 等语言中不易获得的运行时内省功能。
+- en: Reflection
+  id: totrans-377
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 反射
+- en: Method handles
+  id: totrans-378
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 方法处理
+- en: '`invokedynamic`'
+  id: totrans-379
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`invokedynamic`'
+- en: '`Unsafe`'
+  id: totrans-380
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`不安全`'

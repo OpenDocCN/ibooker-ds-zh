@@ -1,0 +1,967 @@
+- en: 10 Investigating deadlocks with thread dumps
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 10 使用线程转储调查死锁
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Getting thread dumps using a profiler
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用分析器获取线程转储
+- en: Getting thread dumps using the command line
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用命令行获取线程转储
+- en: Reading thread dumps to investigate issues
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 读取线程转储以调查问题
+- en: In this chapter, we’ll discuss using thread dumps to analyze thread execution
+    at a given moment in time. Often, we use thread dumps in situations in which the
+    application becomes unresponsive, such as in the case of a deadlock. A *deadlock*
+    occurs when multiple threads pause their execution and wait for each other to
+    fulfill a given condition. If hypothetical thread A waits for thread B to do something,
+    and thread B waits for thread A, neither can continue their execution. In such
+    a case, the app, or at least a part of it, will freeze. We need to know how to
+    analyze this issue to find its root cause and eventually solve the problem.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论如何使用线程转储来分析给定时间点的线程执行。通常，我们在应用程序变得无响应的情况下使用线程转储，例如在死锁的情况下。当多个线程暂停它们的执行并等待彼此满足某个条件时，就会发生*死锁*。如果假设线程A等待线程B执行某些操作，而线程B又等待线程A，那么两者都无法继续执行。在这种情况下，应用程序，或者至少是它的一部分，将会冻结。我们需要了解如何分析这个问题，以找到其根本原因，并最终解决问题。
+- en: Because a deadlock may cause a process to completely freeze, you usually can’t
+    use sampling or profiling (instrumentation), like we did in chapter 9\. Instead,
+    you can get a statistic of all the threads and their states for a given JVM process.
+    This statistic is called a *thread dump*.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于死锁可能导致进程完全冻结，你通常无法使用采样或分析（工具），就像我们在第9章中所做的那样。相反，你可以获取给定JVM进程的所有线程及其状态的统计信息。这个统计信息被称为*线程转储*。
+- en: 10.1 Getting a thread dump
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.1 获取线程转储
+- en: In this section, we’ll analyze ways to obtain a thread dump. We’ll use a small
+    application that implements a problem that creates deadlocks on purpose. You can
+    find this app in project da-ch10-ex1\. We’ll run this app and wait for it to freeze
+    (this should happen in a few seconds), and then we’ll discuss multiple ways to
+    get thread dumps. Once we know how to obtain the thread dumps, we discuss how
+    to read them (section 10.2).
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将分析获取线程转储的方法。我们将使用一个小应用程序，该应用程序故意实现了一个导致死锁的问题。你可以在项目da-ch10-ex1中找到这个应用程序。我们将运行这个应用程序，等待它冻结（这应该在几秒钟内发生），然后我们将讨论获取线程转储的多种方法。一旦我们知道了如何获取线程转储，我们将讨论如何读取它们（第10.2节）。
+- en: Let’s look at how the app we’ll use is implemented and why its execution causes
+    deadlocks. The app uses two threads to change two shared resources (two list instances).
+    A thread named the “producer” adds values to one list or another during execution.
+    Another thread named the “consumer” removes values from these lists. If you read
+    chapter 9, you may recall we worked on a similar app. But since the app’s logic
+    is irrelevant for our example, I’ve omitted it from the listings and kept only
+    the part that is important to our demonstration—the synchronized blocks.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看我们将要使用的应用程序是如何实现的，以及为什么它的执行会导致死锁。该应用程序使用两个线程来更改两个共享资源（两个列表实例）。一个名为“生产者”的线程在执行过程中向一个列表或另一个列表添加值。另一个名为“消费者”的线程从这些列表中移除值。如果你阅读了第9章，你可能还记得我们曾对一个类似的应用程序进行过工作。但由于该应用程序的逻辑对我们示例无关紧要，我已经从列表中省略了它，只保留了对我们演示重要的一部分——同步块。
+- en: The example is simplified to allow you to focus on the investigation techniques
+    we discuss. In a real-world app, things usually get more complicated. Also, wrongly
+    used synchronized blocks are not the only way to get into deadlocks. Faulty use
+    of blocking objects such as semaphores, latches, or barriers can also cause such
+    problems. But the steps you’ll learn to investigate the issues are the same.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个例子被简化了，以便你能够专注于我们讨论的调查技术。在现实世界的应用程序中，事情通常会更加复杂。此外，错误使用同步块并不是导致死锁的唯一途径。错误使用信号量、闩锁或屏障等阻塞对象也可能导致此类问题。但你要学习的调查问题的步骤是相同的。
+- en: 'In listings 10.1 and 10.2, notice that the two threads use nested synchronized
+    blocks with two different monitors: `listA` and `listB`. The problem is that one
+    of the threads uses monitor `listA` for the outer synchronized block, while `listB`
+    is used for the inner. The other thread uses them the other way around. Such a
+    code design leaves room for deadlocks as are shown visually in figure 10.1.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表10.1和10.2中，请注意，两个线程使用嵌套的同步块和两个不同的监视器：`listA`和`listB`。问题是其中一个线程使用监视器`listA`进行外部同步块，而`listB`用于内部。另一个线程则相反。这种代码设计留下了死锁的空间，如图10.1所示。
+- en: Listing 10.1 Using nested synchronized blocks for the consumer thread
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.1 使用嵌套同步块进行消费者线程
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ The outer synchronized block uses the listA monitor.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 外部同步块使用listA监视器。
+- en: ❷ The inner synchronized block uses the listB monitor.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 内部同步块使用listB监视器。
+- en: In listing 10.1, the consumer thread uses `listA` as the monitor for the outer
+    synchronized block. In listing 10.2, the producer thread uses the same monitor
+    for the inner block, while the `listB` monitor is also swapped between the two
+    threads.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表10.1中，消费者线程使用`listA`作为外部同步块的监视器。在列表10.2中，生产者线程使用相同的监视器作为内部块，而`listB`监视器也在两个线程之间交换。
+- en: Listing 10.2 Using nested synchronized blocks for the producer thread
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.2 使用嵌套同步块进行生产者线程
+- en: '[PRE1]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ The listB monitor is used by the outer synchronized block.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 外部同步块使用listB监视器。
+- en: ❷ The listA monitor is used by the inner synchronized block.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 内部同步块使用listA监视器。
+- en: Figure 10.1 shows how the two threads can run into a deadlock.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1显示了两个线程如何遇到死锁。
+- en: '![](../../OEBPS/Images/CH10_F01_Spilca3.png)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F01_Spilca3.png)'
+- en: Figure 10.1 If both threads enter the outer synchronized block, but not the
+    inner one, they remain stuck and wait for each other. We say that they went into
+    a deadlock.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1 如果两个线程都进入了外部同步块，但没有进入内部块，它们将陷入停滞并相互等待。我们说它们进入了死锁。
+- en: 10.1.1 Getting a thread dump using a profiler
+  id: totrans-24
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.1 使用分析工具获取线程转储
+- en: What do we do when we have a frozen app and we want to identify the problem’s
+    root cause? Using a profiler to analyze the locks most likely won’t work in a
+    scenario in which the app, or part of it, is frozen. Instead of analyzing the
+    locks during execution, as we did in chapter 9, we’ll take a snapshot just of
+    the app’s thread states. We’ll read this snapshot (i.e., thread dump) and find
+    out which threads are affecting each other and causing the app to freeze.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们有一个冻结的应用程序并且想要确定问题的根本原因时，我们该怎么办？在应用程序或其部分冻结的情况下，使用分析工具分析锁可能不起作用。与第9章中我们在执行过程中分析锁不同，我们将只对应用程序的线程状态进行快照。我们将读取这个快照（即线程转储），并找出哪些线程在相互影响，导致应用程序冻结。
+- en: You can obtain a thread dump either by using a profiler tool (e.g., VisualVM,
+    JProfiler) or by directly calling a tool provided by the JDK using the command
+    line. In this section, we’ll discuss how to obtain a thread dump using a profiler,
+    and in section 10.1.2, we’ll learn how to get the same information using the command
+    line.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过使用分析工具（例如，VisualVM、JProfiler）或通过使用命令行直接调用JDK提供的工具来获取线程转储。在本节中，我们将讨论如何使用分析工具获取线程转储，而在第10.1.2节中，我们将学习如何使用命令行获取相同的信息。
+- en: We’ll start our application (project da-ch10-ex1) and wait a few seconds for
+    it to enter a deadlock. You’ll know the app gets into a deadlock when it no longer
+    writes messages in the console (it gets stuck).
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将启动我们的应用程序（项目da-ch10-ex1），等待几秒钟，直到它进入死锁。当应用程序不再在控制台写入消息（它卡住了）时，您就会知道应用程序进入了死锁。
+- en: Getting the thread dump using a profiler is a simple approach. It’s no more
+    than the click of a button. Let’s use VisualVM to get a thread dump. Figure 10.2
+    shows the Visual VM interface. You can see that VisualVM is smart and figured
+    out that some of the threads of our process ran into a deadlock. This is indicated
+    in the Threads tab.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用分析工具获取线程转储是一种简单的方法。这不需要更多的操作，只需点击一下按钮。让我们使用VisualVM来获取线程转储。图10.2显示了VisualVM界面。您可以看到VisualVM非常智能，已经发现我们进程的一些线程遇到了死锁。这在“线程”标签页中有显示。
+- en: '![](../../OEBPS/Images/CH10_F02_Spilca3.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F02_Spilca3.png)'
+- en: Figure 10.2 When some of the app’s threads get into a deadlock, VisualVM indicates
+    the situation with a message in the Threads tab. Notice that both the `_Consumer`
+    and `_Producer` threads are locked on the graphic timeline. To get a thread dump,
+    you simply select the Thread Dump button in the window’s upper-right corner.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.2 当应用程序的一些线程进入死锁时，VisualVM在“线程”标签页中用消息指示这种情况。请注意，`_Consumer`和`_Producer`两个线程都在图形时间线上被锁定。要获取线程转储，您只需在窗口右上角选择“线程转储”按钮。
+- en: After the thread dump is collected, the interface looks like figure 10.3\. The
+    thread dump is represented as plain text that describes the app threads and provides
+    details about them (e.g., their state in the life cycle, who blocks them, etc.).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在收集线程转储后，界面看起来像图10.3。线程转储以纯文本形式表示，描述了应用程序线程并提供有关它们的详细信息（例如，它们在生命周期中的状态、谁阻塞了它们等）。
+- en: At first, you might not understand the thread dump text in figure 10.3\. Later
+    in this chapter, you’ll learn to read it.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 起初，你可能不理解图10.3中的线程转储文本。在本章的后面部分，你将学习如何阅读它。
+- en: '![](../../OEBPS/Images/icon_guy4.png)'
+  id: totrans-33
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/icon_guy4.png)'
+- en: '![](../../OEBPS/Images/CH10_F03_Spilca3.png)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F03_Spilca3.png)'
+- en: Figure 10.3 A thread dump in plain text that describes an app’s threads. In
+    the thread dump we collected, we can find the two deadlocked threads `_Consumer`
+    and `_Producer`.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.3 显示了一个纯文本线程转储，描述了应用程序的线程。在我们收集的线程转储中，我们可以找到两个死锁线程 `_Consumer` 和 `_Producer`。
+- en: 10.1.2 Generating a thread dump from the command line
+  id: totrans-36
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.2 从命令行生成线程转储
+- en: A thread dump can also be obtained using the command line. This approach is
+    particularly useful when you need to get a thread dump from a remote environment.
+    Most of the time, you won’t be able to remote profile an app installed in an environment
+    (and remember, remote profiling and remote debugging aren’t recommended in a production
+    environment, as discussed in chapter 4). Since in most cases you can only access
+    a remote environment using the command line, you need to know how to get a thread
+    dump this way too.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 线程转储也可以使用命令行获取。这种方法在需要从远程环境获取线程转储时特别有用。大多数情况下，你无法远程分析安装在环境中的应用程序（记住，在第4章中讨论过，在生产环境中不建议进行远程分析和远程调试）。由于在大多数情况下，你只能通过命令行访问远程环境，因此你也需要知道如何以这种方式获取线程转储。
+- en: 'Fortunately, getting a thread dump using the command line is quite easy (figure
+    10.4):'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，使用命令行获取线程转储相当简单（图10.4）：
+- en: Find the process ID for which you want a thread dump.
+  id: totrans-39
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 找到你想要获取线程转储的进程ID。
+- en: Get the thread dump as text data (raw data) and save it in a file.
+  id: totrans-40
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将线程转储作为文本数据（原始数据）获取，并将其保存到文件中。
+- en: Load the saved thread dump to make it easier to read in a profiler tool.
+  id: totrans-41
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将保存的线程转储加载到分析工具中，以便更容易阅读。
+- en: '![](../../OEBPS/Images/CH10_F04_Spilca3.png)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F04_Spilca3.png)'
+- en: Figure 10.4 Follow three simple steps to get a thread dump using the command
+    line. First, find the process ID for which you want the thread dump. Second, use
+    a JDK tool to get the thread dump. Finally, open the thread dump in a profiler
+    tool to read it.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.4 使用命令行获取线程转储的三个简单步骤。首先，找到你想要获取线程转储的进程ID。其次，使用JDK工具获取线程转储。最后，在分析工具中打开线程转储以读取它。
+- en: 'Step 1: Find the process ID for the process under investigation'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 步骤1：找到要调查的进程的进程ID
+- en: 'Thus far, we have identified the process we want to profile using its name
+    (represented as the main class’s name). But when getting a thread dump using the
+    command line, you need to identify the process using its ID. How do you get a
+    process ID (PID) for a running Java app? The simplest way is using the `jps` tool
+    provided with the JDK. The next snippet shows the command you need to run. We
+    use the `-l` (lowercase “L”) option to get the main class names associated with
+    the PIDs. This way, we can identify the processes the same way we did in chapters
+    6 to 9 where we learned to profile an app’s execution:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经通过其名称（表示为主类的名称）识别了我们想要分析的过程。但是，当使用命令行获取线程转储时，你需要通过其ID来识别进程。如何获取正在运行的Java应用的进程ID（PID）？最简单的方法是使用JDK提供的`jps`工具。下面的代码片段显示了你需要运行的命令。我们使用`-l`（小写“L”）选项来获取与PID关联的主类名称。这样，我们可以以与第6章到第9章中学习分析应用程序执行相同的方式识别进程：
+- en: '[PRE2]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Figure 10.5 shows the result of running the command. The numeric values in the
+    output’s first column are the PIDs. The second column associates the main class
+    name to each PID. This way, we get the PID that we’ll use in step 2 to obtain
+    the thread dump.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.5显示了运行命令的结果。输出第一列中的数值是PID。第二列将主类名称与每个PID关联。这样，我们得到了在步骤2中用于获取线程转储的PID。
+- en: '![](../../OEBPS/Images/CH10_F05_Spilca3.png)'
+  id: totrans-48
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F05_Spilca3.png)'
+- en: Figure 10.5 By using the `jps` tool provided with the JDK, we get the PIDs of
+    the running Java processes. These PIDs are necessary to get thread dumps for a
+    given process.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.5 显示了使用JDK提供的`jps`工具获取正在运行的Java进程的PID。这些PID是获取给定进程的线程转储所必需的。
+- en: 'Step 2: Collect the thread dump'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 步骤2：收集线程转储
+- en: 'Once you can identify (by its PID) the process for which you want to collect
+    a thread dump, you can use another tool the JDK provides, `jstack`, to generate
+    a thread dump. When using `jstack`, you only need to provide the process ID as
+    a parameter (instead of `<<PID>>`, you need to use the PID value you collected
+    in step 1):'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦您可以通过其PID识别出您想要收集线程转储的进程，您就可以使用JDK提供的另一个工具`jstack`来生成线程转储。当使用`jstack`时，您只需要提供一个进程ID作为参数（而不是`<<PID>>`，您需要使用在第1步中收集到的PID值）：
+- en: '[PRE3]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: An example of such a command execution is
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样的命令执行示例是
+- en: '[PRE4]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Figure 10.6 shows you the result of running the `jstack` command followed by
+    a PID. The thread dump is provided as plain text that you can save in a file to
+    move or load into a tool for investigation.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.6显示了运行`jstack`命令后跟一个PID的结果。线程转储以纯文本形式提供，您可以将其保存到文件中以便移动或加载到工具中进行调查。
+- en: '![](../../OEBPS/Images/CH10_F06_Spilca3.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F06_Spilca3.png)'
+- en: Figure 10.6 The `jstack` command followed by a PID will generate a thread dump
+    for the given process. The thread dump is shown as plain text (also called a raw
+    thread dump). You can collect the text in a file to import it and investigate
+    it later.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.6 `jstack`命令后跟一个PID将为给定进程生成线程转储。线程转储以纯文本形式显示（也称为原始线程转储）。您可以将文本收集到文件中，以便稍后导入和调查。
+- en: 'Step 3: Import the collected thread dump into a profiler to make it easier
+    to read'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第3步：将收集到的线程转储导入分析器以方便阅读
+- en: Usually, you save the output of the `jstack` command, the thread dump, into
+    a file. Storing the thread dump in a file allows you to move it, store it, or
+    import it into tools that help you investigate its details.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，您会将`jstack`命令的输出、线程转储保存到文件中。将线程转储存储在文件中允许您移动它、存储它或将其导入帮助您调查其详细信息的工具。
+- en: Figure 10.7 shows you how you can put the output of the `jstack` command in
+    a file in the command line. Once you have the file, you can load it in VisualVM
+    using the File > Load menu.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.7显示了您如何在命令行中将`jstack`命令的输出放入文件中。一旦您有了文件，您可以使用文件 > 加载菜单在VisualVM中加载它。
+- en: '![](../../OEBPS/Images/CH10_F07_Spilca3.png)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH10_F07_Spilca3.png)'
+- en: Figure 10.7 Once you save the thread dump into a file, you can open it in various
+    tools to investigate it. For example, to open it in VisualVM, you select File
+    > Load.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.7 一旦将线程转储保存到文件中，您就可以使用各种工具来打开它进行调查。例如，要在VisualVM中打开它，请选择文件 > 加载。
+- en: 10.2 Reading thread dumps
+  id: totrans-63
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.2 读取线程转储
+- en: In this section, we’ll discuss reading thread dumps. Once you collect a thread
+    dump, you need to know how to read it and how to efficiently use it to identify
+    issues. We’ll start by discussing how to read plain-text thread dumps in section
+    10.2.1—meaning you’ll learn to read raw data as provided by `jstack` (see section
+    10.1.2). Then, in section 10.2.2, we’ll use a tool named fastThread ([https://fastthread.io/](https://fastthread.io/)),
+    which provides a simpler way to visualize the data in a thread dump.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论读取线程转储。一旦收集到线程转储，您需要了解如何读取它以及如何有效地使用它来识别问题。我们将从讨论如何在第10.2.1节中读取纯文本线程转储开始——这意味着您将学习如何读取由`jstack`（见第10.1.2节）提供的原始数据。然后，在第10.2.2节中，我们将使用一个名为fastThread（[https://fastthread.io/](https://fastthread.io/））的工具，它提供了一种更简单的方式来可视化线程转储中的数据。
+- en: Both approaches (reading plain-text thread dumps and using advanced visualization)
+    are useful. Of course, we always prefer advanced visualization, but if you can’t
+    obtain it, you need to know how to rely on raw data.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种方法（读取纯文本线程转储和使用高级可视化）都很有用。当然，我们总是更喜欢高级可视化，但如果您无法获得它，您需要了解如何依赖原始数据。
+- en: 10.2.1 Reading plain-text thread dumps
+  id: totrans-66
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.1 读取纯文本线程转储
+- en: When you collect a thread dump, you get a description of the threads in plain-text
+    format (i.e., raw data). Although we have tools you can use to easily visualize
+    the data (as we’ll discuss in section 10.2.2), I’ve always considered it important
+    for a developer to understand the raw representation as well. You may get into
+    a situation in which you can’t remove the raw thread dump from the environment
+    in which you generated it. Say you connect to a container remotely and can only
+    use the command line to dig into the logs and investigate what happens with the
+    running app. You suspect a thread-related problem, so you want to generate a thread
+    dump. If you can read the thread dump as text, you need nothing more than the
+    console itself.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你收集线程转储时，你会得到线程的纯文本格式描述（即原始数据）。尽管我们有工具可以轻松地可视化这些数据（我们将在第10.2.2节中讨论），但我一直认为对于开发者来说，理解原始表示也很重要。你可能遇到无法从生成它的环境中移除原始线程转储的情况。比如说，你远程连接到一个容器，并且只能使用命令行来深入日志并调查运行中的应用程序发生了什么。你怀疑存在与线程相关的问题，因此你想生成线程转储。如果你能以文本形式读取线程转储，你需要的就只有控制台本身了。
+- en: 'Let’s look at listing 10.3, which shows one of the threads in the thread dump.
+    It is nothing more than similarly displayed details for each thread active in
+    the app when the dump was taken. Here are the details you get for a thread:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看列表10.3，它显示了线程转储中的一个线程。这不过是当转储被捕获时，在应用程序中活跃的每个线程的类似显示的详细信息。以下是关于线程的详细信息：
+- en: Thread name
+  id: totrans-69
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程名称
+- en: Thread ID
+  id: totrans-70
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程ID
+- en: Native thread ID
+  id: totrans-71
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 原生线程ID
+- en: Priority of the thread at the operating system level
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 操作系统级别的线程优先级
+- en: Total and CPU time the thread consumed
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程消耗的总时间和CPU时间
+- en: State description
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 状态描述
+- en: State name
+  id: totrans-75
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 状态名称
+- en: Stack trace
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 栈跟踪
+- en: Who’s blocking the thread
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 谁阻塞了线程
+- en: What locks the thread acquires
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程所获取的锁
+- en: The first thing displayed is the *thread name*—in our case, `"_Producer"`. The
+    thread name is essential since it’s one of the ways you identify the thread in
+    the thread dump later if you need it. The JVM also associates the thread with
+    a *thread ID* (in listing 10.3, `tid=0x000002f964987690`). Since the developer
+    gives the name, there’s a small chance some threads will get the same name. If
+    this unlucky situation happens, you can still identify a thread in the dump by
+    its ID (which is always unique).
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先显示的是*线程名称*——在我们的例子中，`"_Producer"`。线程名称至关重要，因为它是你在需要时识别线程转储中线程的几种方式之一。JVM还将线程与一个*线程ID*（在列表10.3中，`tid=0x000002f964987690`）关联起来。由于开发者提供了名称，因此有些线程可能会得到相同的名称。如果这种不幸的情况发生，你仍然可以通过其ID（总是唯一的）在转储中识别线程。
+- en: In a JVM app, a thread is a wrapper over a system thread, which means you can
+    always identify the operating system (OS) thread running behind the scenes. If
+    you ever need to do that, look for the *native thread ID* (in listing 10.3, `nid=0xcac`).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在JVM应用程序中，线程是系统线程的包装器，这意味着你总是可以识别在幕后运行的操作系统（OS）线程。如果你需要这样做，请寻找*原生线程ID*（在列表10.3中，`nid=0xcac`）。
+- en: Once you have identified a thread, you identify the details you are interested
+    in. The first three pieces of information you get in a thread dump are the *thread’s
+    priority*, the *CPU execution time*, and the *total execution time*. Every OS
+    associates a priority to each of its running threads. I don’t often use this value
+    in a thread dump. But if you see that a thread isn’t as active as you think it
+    should be, and you see that the OS designates it as a lower priority, then this
+    may be the cause. In this situation, the total execution time would also be much
+    higher than the CPU execution time. Remember from chapter 7 that the total execution
+    time is how long the thread was alive, while the CPU execution time is how well
+    it worked.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你识别了一个线程，你就识别你感兴趣的详细信息。在线程转储中，你首先得到的是*线程的优先级*、*CPU执行时间*和*总执行时间*。每个操作系统都会将其运行的每个线程关联到一个优先级。我很少在线程转储中使用这个值。但是，如果你看到某个线程的活跃度不如你想象的那么高，并且你看到操作系统将其指定为较低的优先级，那么这可能是原因。在这种情况下，总执行时间也会比CPU执行时间高得多。记住，从第7章中，总执行时间是线程存活的时间，而CPU执行时间是它工作得有多好。
+- en: '*State description* is a valuable detail. It tells you in plain English what
+    happens to the thread. In our case, the thread is “waiting for monitor entry,”
+    meaning it is blocked at the entrance to a synchronized block. The thread could
+    have been “timed waiting on a monitor,” which would mean it’s sleeping for a defined
+    time or is running. A *state name* (Running, Waiting, Blocked, etc.) is associated
+    with the state description. Appendix D offers a good refresher on thread life
+    cycle and thread states in case you need it.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*状态描述* 是一个宝贵的细节。它用简单的英语告诉您线程发生了什么。在我们的例子中，线程是“等待监视器进入”，这意味着它在同步块的入口处被阻塞。线程可能“在监视器上定时等待”，这意味着它在定义的时间内睡眠或正在运行。与状态描述相关联的是
+    *状态名称*（运行中、等待、阻塞等）。附录D提供了关于线程生命周期和线程状态的很好的复习资料，以防您需要。'
+- en: The thread dump provides a *stack trace* for every thread, which shows exactly
+    what part of the code the thread was executing when the dump was taken. The stack
+    trace is valuable since it shows you exactly what the thread was working on. You
+    can use the stack trace to find a specific piece of code you want to further debug,
+    or, in the case of a slow thread, to determine exactly what delays or blocks that
+    thread.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 线程转储为每个线程提供了一个 *堆栈跟踪*，显示了在转储时线程正在执行代码的哪个部分。堆栈跟踪非常有价值，因为它显示了线程正在做什么。您可以使用堆栈跟踪来找到您想要进一步调试的特定代码片段，或者在慢线程的情况下，确定导致该线程延迟或阻塞的具体原因。
+- en: Finally, for threads that acquire locks or are locked, we can find *which locks
+    they acquire* and *which locks are they waiting for*. You’ll use these details
+    every time you investigate a deadlock. They can also give you optimization hints.
+    For example, if you see that a thread acquires many locks, you may wonder why
+    and how you can change its behavior so that it doesn’t block so many other executions.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '最后，对于获取锁或被锁定的线程，我们可以找到 *它们获取的锁* 和 *它们等待的锁*。每次您调查死锁时都会使用这些细节。它们也可以为您提供优化提示。例如，如果您看到线程获取了许多锁，您可能会想知道为什么以及如何改变其行为，使其不会阻塞那么多的其他执行。 '
+- en: Listing 10.3 The anatomy of a thread’s details in a thread dump
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.3 线程转储中线程详细信息的结构
+- en: '[PRE5]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Thread name and details about resource consumption and execution time
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 线程名称以及关于资源消耗和执行时间的详细信息
+- en: ❷ Thread ID and state description
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 线程ID和状态描述
+- en: ❸ Thread state
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 线程状态
+- en: ❹ Thread stack trace
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 线程堆栈跟踪
+- en: ❺ Lock ID that blocks the current thread and type of the monitor object
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 阻塞当前线程的锁ID和监视器对象类型
+- en: ❻ Lock ID of the lock produced by the current thread
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 当前线程产生的锁的锁ID
+- en: 'An important thing to remember about thread dumps is that they give you almost
+    as many details as a normal lock profiling (discussed in chapter 9). Lock profiling
+    offers an advantage over a thread dump: it shows the dynamics of the execution.
+    Just like the difference between a picture and a movie, the thread dump is just
+    a snapshot at a given time (here, during the execution), while profiling shows
+    you how parameters change during the execution. But in many situations, a picture
+    is enough and much easier to obtain.'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于线程转储的一个重要事项是，它们提供的细节几乎与正常的锁分析（在第9章中讨论）一样多。锁分析相对于线程转储的优势在于，它显示了执行的动态性。就像图片和电影之间的区别一样，线程转储只是给定时间点的快照（在这里，是执行期间），而分析显示了参数在执行过程中的变化。但在许多情况下，一张图片就足够了，而且更容易获得。
+- en: Sometimes it is enough to use a thread dump instead of a profiler.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时使用线程转储而不是分析器就足够了。
+- en: '![](../../OEBPS/Images/icon_guy4.png)'
+  id: totrans-95
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/icon_guy4.png)'
+- en: If the only thing you need to know is what code executes at a given time, a
+    thread dump is sufficient. You have learned to use sampling for this purpose,
+    but it’s good to know a thread dump can do this too. Say you don’t have access
+    to remotely profile an app, but you need to find out what code executes behind
+    the scenes. You can get a thread dump.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您只需要知道在给定时间执行的代码是什么，线程转储就足够了。您已经学会了使用采样来达到这个目的，但了解线程转储也能做到这一点是很好的。比如说，您无法远程分析一个应用程序，但您需要找出幕后执行的代码。您可以获取线程转储。
+- en: Let’s now focus on how can you find the relationship between threads with a
+    thread dump. How can we analyze the way in which threads interact with one another?
+    We are particularly interested in threads locking each other. In listing 10.4,
+    I added the details from the thread dump for the two threads that we know are
+    in a deadlock. But the question is, “How would we find they are in a deadlock
+    if we didn’t know this detail up front?”
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们关注如何通过线程转储找到线程之间的关系。我们如何分析线程之间相互交互的方式？我们特别感兴趣的是线程之间的锁定。在列表10.4中，我添加了两个已知处于死锁状态的线程的线程转储细节。但问题是，“如果我们事先不知道这些细节，我们如何找到它们处于死锁状态？”
+- en: 'If you suspect a deadlock, you should focus your investigation on the locks
+    the threads cause (figure 10.8):'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你怀疑存在死锁，你应该专注于线程引起的锁（图10.8）：
+- en: Filter out all threads that are not blocked so that you can focus on the threads
+    that can cause the deadlock.
+  id: totrans-99
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 筛选出所有未阻塞的线程，以便你可以专注于可能导致死锁的线程。
+- en: Start with the first candidate thread (a thread you didn’t filter in step 1),
+    and search the lock ID that causes it to be blocked.
+  id: totrans-100
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从第一个候选线程（你在第1步中没有筛选的线程）开始，搜索导致它被阻塞的锁ID。
+- en: Find the thread causing that lock, and check what blocks that thread. If at
+    some point you return to the thread you started with, all the threads you parsed
+    are in a deadlock.
+  id: totrans-101
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 找到导致该锁的线程，并检查是什么阻止了该线程。如果你在某个时刻返回到你开始的线程，那么你解析的所有线程都处于死锁状态。
+- en: '![](../../OEBPS/Images/CH10_F08_Spilca3.png)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F08_Spilca3.png)'
+- en: Figure 10.8 To find a deadlock with a thread dump, follow these three easy steps.
+    First, remove all threads that are not blocked. Then, start with one of the blocked
+    threads and find what is blocking it using the lock ID. Continue this process
+    for each thread. If you return to a thread you already investigated, it means
+    you found a deadlock.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.8 要通过线程转储找到死锁，请遵循这三个简单的步骤。首先，移除所有未阻塞的线程。然后，从一个阻塞线程开始，使用锁ID找到阻止它的原因。对每个线程重复此过程。如果你返回到你已经调查过的线程，这意味着你找到了死锁。
+- en: 'Step 1: Filter out threads that are not locked'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第1步：筛选出未锁定的线程
+- en: First, filter out all the threads that are not locked so that you can focus
+    only on the threads that are potential candidates for the situation you are investigating—the
+    deadlock. A thread dump can describe dozens of threads. You want to eliminate
+    the noise and focus only on the threads that are blocked.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，筛选掉所有未锁定的线程，这样你就可以只关注你正在调查的情况——死锁——的潜在候选线程。线程转储可以描述数十个线程。你想要消除噪音，只关注那些被阻塞的线程。
+- en: 'Step 2: Take the first candidate thread and find what blocks it'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第2步：找到第一个候选线程被阻止的原因
+- en: After eliminating the unnecessary thread details, start with the first candidate
+    thread and search by the lock ID that causes a thread to wait. The lock ID is
+    the one between angle brackets (in listing 10.4, `"_Producer"` waits for a lock
+    with ID `0x000000052e0313f8`).
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在消除不必要的线程细节后，从第一个候选线程开始，通过导致线程等待的锁ID进行搜索。锁ID是尖括号之间的一个（在列表10.4中，`"_Producer"`等待ID为`0x000000052e0313f8`的锁）。
+- en: 'Step 3: Find what blocks the next thread'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第3步：找到阻止下一个线程的原因
+- en: Repeat the process. If at some point you get to a thread that was already investigated,
+    you’ve found a deadlock; please see the following listing.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重复此过程。如果你在某个时刻到达一个已经调查过的线程，这意味着你找到了死锁；请参阅以下列表。
+- en: Listing 10.4 Finding threads that lock each other
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.4 查找相互锁定的线程
+- en: '[PRE6]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ The _Consumer thread waits for a lock initiated by the _Producer thread.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 消费者线程等待由生产者线程发起的锁。
+- en: ❷ The _Producer thread waits for a lock initiated by the _Consumer thread.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 生产者线程等待由消费者线程发起的锁。
+- en: Our example demonstrates a simple deadlock that assumes two threads lock each
+    other. Following the three-step process discussed earlier, you’ll see that the
+    `"_Producer"` thread blocks the `"_Consumer"` thread, and vice versa. A complex
+    deadlock happens when more than two threads are involved. For example, thread
+    A blocks thread B, thread B blocks thread C, and thread C blocks thread A. You
+    can discover a long chain of threads that lock each other. The longer the chain
+    of threads in the deadlock, the more difficult the deadlock is to find, understand,
+    and solve. Figure 10.9 shows the difference between a complex deadlock and a simple
+    one.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的例子演示了一个简单的死锁，假设两个线程互相锁定。按照前面讨论的三步流程，你会看到`"_Producer"`线程阻塞了`"_Consumer"`线程，反之亦然。当涉及超过两个线程时，会发生复杂的死锁。例如，线程A阻塞线程B，线程B阻塞线程C，线程C又阻塞线程A。你可以发现一条长链，其中线程互相锁定。死锁中线程链越长，找到、理解和解决死锁就越困难。图10.9显示了复杂死锁和简单死锁之间的区别。
+- en: '![](../../OEBPS/Images/CH10_F09_Spilca3.png)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_IMG
+  zh: '![示例图](../../OEBPS/Images/CH10_F09_Spilca3.png)'
+- en: Figure 10.9 When only two threads block each other, it’s called a simple deadlock,
+    but a deadlock can be caused by multiple threads that block each other. More threads
+    means more complexity. Thus, when more than two threads are involved, it's called
+    a complex deadlock.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.9 当只有两个线程互相阻塞时，这被称为简单死锁，但死锁可能由多个互相阻塞的线程引起。线程越多，复杂性就越大。因此，当涉及超过两个线程时，这被称为复杂死锁。
+- en: Sometimes a complex deadlock can be confused with cascading blocked threads
+    (figure 10.10). *Cascading blocked threads* (also known as *cascading locks*)
+    are a different issue you can spot using a thread dump. To find cascading threads,
+    follow the same steps as when investigating a deadlock. But instead of finding
+    that one of the threads is blocked by another in the chain (as in the case of
+    a deadlock), in a cascade of locks, you’ll see that one of the threads is waiting
+    for an external event, causing all others to also wait.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时复杂的死锁可能会与级联阻塞线程（图10.10）混淆。*级联阻塞线程*（也称为*级联锁定*）是你可以通过线程转储发现的不同问题。要找到级联线程，遵循与调查死锁相同的步骤。但在锁的级联中，你将看到其中一个线程正在等待一个外部事件，这导致所有其他线程也等待。
+- en: '![](../../OEBPS/Images/CH10_F10_Spilca3.png)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![示例图](../../OEBPS/Images/CH10_F10_Spilca3.png)'
+- en: Figure 10.10 Cascading locks appear when multiple threads enter a chain where
+    they wait for one another. The last thread in the chain is blocked by an external
+    event, such as reading from a data source or calling an endpoint.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.10 当多个线程进入一个链式等待的链时，会出现级联锁定。链中的最后一个线程被外部事件（如从数据源读取或调用端点）阻塞。
+- en: Cascading blocked threads usually signal a bad design in the multithreaded architecture.
+    When we design an app with multiple threads, we implement threading to allow the
+    app to process things concurrently. Having threads waiting for one another defeats
+    the purpose of a multithreaded architecture. Although sometimes you need to make
+    threads wait for one another, you shouldn’t expect long chains of threads with
+    cascading locks.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 级联阻塞线程通常表明多线程架构设计不当。当我们设计一个多线程的应用程序时，我们实现线程化以允许应用程序并发处理事物。线程互相等待会抵消多线程架构的目的。尽管有时你需要让线程互相等待，但你不应期望出现带有级联锁的长线程链。
+- en: 10.2.2 Using tools to better grasp thread dumps
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.2 使用工具更好地理解线程转储
+- en: Reading the plain-text raw representation of a thread dump is useful but sometimes
+    can be quite difficult. Most prefer a simpler way to visualize the data in a thread
+    dump, if possible. Today we can use tools to help us to more easily understand
+    a thread dump. Whenever possible, I remove the thread dump from the environment
+    where I collect it. I usually prefer using fastThread ([fastthread.io](https://fastthread.io/))
+    to investigate the dump instead of dealing with the raw data.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阅读线程转储的纯文本原始表示是有用的，但有时可能相当困难。如果可能的话，大多数人更喜欢一种更简单的方式来可视化线程转储中的数据。今天，我们可以使用工具来帮助我们更容易地理解线程转储。尽可能的情况下，我会从收集线程转储的环境中移除它。我通常更喜欢使用fastThread
+    ([fastthread.io](https://fastthread.io/))来调查转储，而不是处理原始数据。
+- en: fastThread is a web tool designed to help you read thread dumps. It offers both
+    free and paid plans, but the free plan has always been enough for my needs. Simply
+    upload a file containing the thread dump raw data and wait for the tool to extract
+    the details you need and put them in a shape easier to grasp. Figure 10.11 shows
+    you the starting page, where you choose the file containing the thread dump raw
+    data from your system and upload it for analysis.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: fastThread是一个旨在帮助您阅读线程转储的在线工具。它提供免费和付费计划，但免费计划一直足够满足我的需求。只需上传包含线程转储原始数据的文件，然后等待工具提取您需要的细节并将它们以更容易理解的形式呈现。图10.11显示了起始页面，您可以从系统中选择包含线程转储原始数据的文件并上传它以进行分析。
+- en: '![](../../OEBPS/Images/CH10_F11_Spilca3.png)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F11_Spilca3.png)'
+- en: Figure 10.11 To analyze a thread dump, upload a file containing the thread dump
+    raw data to [fastThread.io](https://fastthread.io/) and wait for the tool to present
+    the details in a simple-to-understand shape.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.11 要分析线程转储，请将包含线程转储原始数据的文件上传到[fastThread.io](https://fastthread.io/)，并等待工具以简单易懂的形式呈现细节。
+- en: The fastThread analysis shows various details from the thread dump, including
+    deadlock detection, dependency graphs, stack traces, resource consumption, and
+    even a flame graph (figure 10.12).
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: fastThread的分析显示了线程转储的各种细节，包括死锁检测、依赖图、堆栈跟踪、资源消耗，甚至火焰图（图10.12）。
+- en: '![](../../OEBPS/Images/CH10_F12_Spilca3.png)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F12_Spilca3.png)'
+- en: Figure 10.12 fastThread provides various details in an easy-to-read format.
+    These details include deadlock detection, dependency graphs, resource consumption,
+    and a flame graph.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.12 fastThread以易于阅读的格式提供了各种详细信息。这些细节包括死锁检测、依赖图、资源消耗和火焰图。
+- en: Figure 10.13 shows how fastThread identified the deadlock in our thread dump.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.13显示了fastThread如何识别我们的线程转储中的死锁。
+- en: '![](../../OEBPS/Images/CH10_F13_Spilca3.png)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH10_F13_Spilca3.png)'
+- en: Figure 10.13 After analyzing the thread dump raw data, fastThread identifies
+    and provides details about the deadlock caused by the `_Consumer` and `_Producer`
+    threads.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.13 在分析线程转储原始数据后，fastThread识别并提供了由`_Consumer`和`_Producer`线程引起的死锁的详细信息。
+- en: Summary
+  id: totrans-132
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: When two or more threads get blocked while waiting for each other, they are
+    in a deadlock. When an app gets into a deadlock, it usually freezes and can’t
+    continue its execution.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当两个或多个线程在等待彼此时被阻塞，它们处于死锁状态。当一个应用程序进入死锁状态时，它通常会冻结，无法继续执行。
+- en: You can identify the root cause of a deadlock using thread dumps, which show
+    the status of all threads of an app at the time the thread dump was generated.
+    This information allows you to find which thread is waiting for another.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以使用线程转储识别死锁的根本原因，这些转储显示了在生成线程转储时应用程序所有线程的状态。这些信息使您能够找到哪个线程正在等待另一个线程。
+- en: A thread dump also shows details such as resource consumption and stack traces
+    for each thread. If these details are sufficient, you can use a thread dump instead
+    of instrumentation for your investigation. Imagine the difference between a thread
+    dump and profiling as the difference between a picture and a movie. With a thread
+    dump, you only have a still image, so you miss the execution dynamics, but you
+    can still get a lot of relevant and helpful details.
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程转储还显示了有关资源消耗和每个线程的堆栈跟踪等详细信息。如果这些细节足够充分，您可以使用线程转储而不是仪器进行您的调查。想象一下线程转储和剖析之间的差异，就像图片和电影之间的差异一样。使用线程转储，您只有一张静态图片，因此您错过了执行动态，但您仍然可以获取大量相关且有用的细节。
+- en: The thread dump provides information about the threads that were executing in
+    the app when the dump was taken. The thread dump shows essential details about
+    the threads in a plain-text format, including resource consumption, thread state
+    in its life cycle, if the thread is waiting for something, and which locks it’s
+    causing or being affected by.
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程转储提供了在转储时应用程序中正在执行的线程的信息。线程转储以纯文本格式显示了线程的详细信息，包括资源消耗、线程在其生命周期中的状态、线程是否正在等待某些事物，以及它引起的或受影响的锁。
+- en: You can generate a thread dump with either a profiler or using the command line.
+    Using a profiling tool to get the thread dump is the easiest approach, but when
+    you can’t connect a profiler to the running process (e.g., due to network constraints),
+    you can use the command line to get the dump. The thread dump will allow you to
+    investigate the running threads and the relationships between them.
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以使用性能分析器或命令行来生成线程转储。使用性能分析工具获取线程转储是最简单的方法，但当您无法将性能分析器连接到正在运行的过程（例如，由于网络限制）时，您可以使用命令行来获取转储。线程转储将允许您调查正在运行的线程及其之间的关系。
+- en: The plain-text thread dump (also known as a raw thread dump) can be challenging
+    to read. Tools such as [fastThread.io](https://fastthread.io/) help you to visualize
+    the details.
+  id: totrans-138
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 纯文本线程转储（也称为原始线程转储）可能难以阅读。例如，[fastThread.io](https://fastthread.io/) 等工具可以帮助您可视化这些细节。

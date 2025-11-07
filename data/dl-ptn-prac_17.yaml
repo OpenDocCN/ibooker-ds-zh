@@ -1,0 +1,3590 @@
+- en: 14 Training and deployment pipeline
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 14 训练和部署流程
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Feeding models training data in a production environment
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产环境中为模型训练提供数据
+- en: Scheduling for continuous retraining
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为持续重新训练进行调度
+- en: Using version control and evaluating models before and after deployment
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用版本控制和部署前后的模型评估
+- en: Deploying models for large-scale on-demand and batch requests, in both monolithic
+    and distributed deployments
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在单体和分布式部署中部署模型以处理大规模的按需和批量请求
+- en: 'In the previous chapter, we went through the data pipeline portion of an end-to-end
+    production ML pipeline. Here, in the final chapter of the book, we will cover
+    the final portion of the end-to-end pipeline: training, deployment, and serving.'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们探讨了端到端生产机器学习流程中的数据流程部分。在这里，在本书的最后一章，我们将涵盖端到端流程的最后一部分：训练、部署和服务。
+- en: To remind you with a visual, figure 14.1 shows the whole pipeline, borrowed
+    from chapter 13\. I’ve circled the part of the system we’ll address in this chapter.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了用视觉方式提醒你，图14.1显示了整个流程，它来自第13章。我已经圈出了本章我们将要解决的问题的部分系统。
+- en: '![](Images/CH14_F01_Ferlitsch.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F01_Ferlitsch.png)'
+- en: Figure 14.1 Production e2e pipeline with this chapter’s emphasis on training
+    and deployment
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.1 本章重点介绍的端到端生产流程
+- en: 'You may ask, what exactly is a pipeline and why do we use one, whether for
+    ML production or any programmatic production operation that is managed by orchestration?
+    You typically use pipelines when the job, such as training or other operations
+    handled by orchestration, has multiple steps that occur in sequential order: do
+    step A, do step B, and so on.'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，究竟什么是流程，为什么我们使用它，无论是用于机器学习生产还是任何由编排管理的程序化生产操作？通常，当工作，如训练或其他由编排处理的操作，有多个按顺序发生的步骤时，你会使用流程：执行步骤A，执行步骤B，等等。
+- en: Putting these steps into an ML production pipeline provides multiple benefits.
+    First, the pipeline is reusable for subsequent training and deployment jobs. Second,
+    the pipeline can be containerized and, as such, run as an asynchronous batch job.
+    Third, pipelines can be distributed across multiple compute instances, where different
+    tasks within the pipeline are executed on different compute instances, or portions
+    of the same task are executed in parallel on different compute instances. Finally,
+    all the tasks associated with the execution of the pipeline can be tracked and
+    the status/ outcome preserved as history.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将这些步骤放入机器学习生产流程中可以带来多重好处。首先，该流程可以重复用于后续的训练和部署工作。其次，该流程可以被容器化，因此可以作为异步批量作业运行。第三，流程可以在多个计算实例之间分布，其中流程内的不同任务在不同的计算实例上执行，或者同一任务的各个部分可以在不同的计算实例上并行执行。最后，所有与流程执行相关的任务都可以被跟踪，其状态/结果可以保存为历史记录。
+- en: This chapter starts with the procedures for feeding models for training in a
+    production environment, including both sequential and distributed systems, and
+    example implementations using `tf.data` and TensorFlow Extended (TFX). We then
+    learn how to schedule training and provision compute resources. We will start
+    by covering reusable pipelines, how metadata is used for integrating pipelines
+    into a production environment, along with history and versioning for tracking
+    and auditing.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章首先介绍了在生产环境中为训练提供模型的程序，包括顺序和分布式系统，以及使用`tf.data`和TensorFlow Extended (TFX)的示例实现。然后我们学习如何安排训练和提供计算资源。我们将从介绍可重复使用的流程开始，讨论如何使用元数据将流程集成到生产环境中，以及历史和版本控制用于跟踪和审计。
+- en: Next we’ll see how models are evaluated for release into a production environment.
+    These days, we do not simply compare the metrics from the test (holdout) data
+    against the test metrics of the previous version of the model. Instead, we identify
+    different subpopulations and distributions that are seen in the production environment
+    and construct additional evaluation data, which are commonly referred to as *evaluation
+    slices*. Then the model is evaluated in a simulated production environment, commonly
+    called a *sandbox*, to see how well it performs for response times and scaling.
+    I include example TFX implementations for evaluating a candidate model in a sandbox
+    environment.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来我们将看到模型是如何在投入生产环境前进行评估的。如今，我们不仅仅是将测试（保留）数据中的指标与模型前一个版本的测试指标进行比较。相反，我们识别出在生产环境中看到的不同子群体和分布，并构建额外的评估数据，这些数据通常被称为*评估切片*。然后，模型在一个模拟的生产环境中进行评估，通常称为*沙盒*，以查看它在响应时间和扩展性方面的表现如何。我包括了一些在沙盒环境中评估候选模型的TFX实现示例。
+- en: Then we’ll move to the process of deploying models into production and serving
+    predictions for both on-demand and batch. You’ll find methods for scaling and
+    load balancing for current traffic demand. You’ll also see how serving platforms
+    are provisioned. Lastly, we discuss how models are further evaluated against a
+    previous version after they are deployed to production using A/B testing methods,
+    and subsequent retraining from insights gained during production using continuous
+    evaluation methods.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们将转向将模型部署到生产环境并服务于按需和批量预测的过程。您将找到针对当前流量需求的扩展和负载均衡方法。您还将了解服务平台的配置情况。最后，我们讨论了在将模型部署到生产环境后，如何使用A/B测试方法进一步评估模型与之前版本的区别，以及如何使用持续评估方法在生产过程中获得洞察后进行后续重新训练。
+- en: 14.1 Model feeding
+  id: totrans-15
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.1 模型喂养
+- en: 'Figure 14.2 is a conceptual overview of the model-feeding process within a
+    training pipeline. On the frontend is the data pipeline, which performs the tasks
+    for extracting and preparing the training data (step 1 in the figure). Because
+    today we work with very large amounts of data in a production environment, we
+    will assume that the data is being drawn from disk on demand. As such, the model
+    feeder acts as a generator and does the following:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.2是训练管道中模型喂养过程的概述。在前端是数据管道，它执行提取和准备训练数据的任务（图中的步骤1）。由于今天我们在生产环境中处理的数据量非常大，我们将假设数据是从磁盘按需抽取的。因此，模型喂养器充当生成器，并执行以下操作：
+- en: Makes requests to the data pipeline for examples (step 2)
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 向数据管道请求示例（步骤2）
+- en: Receives those examples from the data pipeline (step 3)
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从数据管道接收这些示例（步骤3）
+- en: Assembles the received examples into a batch format for training (step 4)
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将接收到的示例组装成用于训练的批次格式（步骤4）
+- en: The model feeder hands off each batch to the training method, which sequentially
+    forward-feeds each batch (step 5) to the model, calculates the loss at the end
+    of the forward feed (step 6), and updates the weights by backward propagation
+    (step 7).
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型喂养器将每个批次交给训练方法，该训练方法依次向前馈送每个批次（步骤5）到模型，计算前馈结束时的损失（步骤6），并通过反向传播更新权重（步骤7）。
+- en: '![](Images/CH14_F02_Ferlitsch.png)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F02_Ferlitsch.png)'
+- en: Figure 14.2 Interaction of model-feeding process between the data pipeline and
+    the train method
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.2 数据管道与训练方法之间模型喂养过程的交互
+- en: Positioned between the data pipeline and the train function, the model feeder
+    can potentially be an I/O bottleneck in the training process, and thus it is important
+    to consider the implementation so the feeder can generate batches as fast as the
+    training method can consume them. For example, if the model feeder is running
+    as a single CPU thread, and the data pipeline is a multi-CPU or GPU and the training
+    process is a multi-GPU, it would likely result in the feeder unable to either
+    process examples as fast as they are received, or to generate batches as fast
+    as the training GPUs can consume them.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 模型喂养器位于数据管道和训练函数之间，可能在训练过程中成为I/O瓶颈，因此考虑其实施方式，以便喂养器能够以训练方法可以消耗的速度生成批次非常重要。例如，如果模型喂养器作为一个单CPU线程运行，而数据管道是一个多CPU或GPU，训练过程是一个多GPU，那么很可能会导致喂养器无法以接收示例的速度处理它们，或者以训练GPU可以消耗的速度生成批次。
+- en: 'Given its relationship to the train method, the model feeder must have the
+    next batch ready in memory at or before the train method has consumed the current
+    batch. A model feeder in production is typically a multithreaded process operating
+    on more than one CPU core. There are two ways to feed training examples to models
+    during training: sequentially and distributed.'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于模型喂养器与训练方法的关系，模型喂养器必须在训练方法消耗当前批次之前或同时，在内存中准备好下一个批次。生产环境中的模型喂养器通常是一个多线程过程，在多个CPU核心上运行。在训练过程中向模型提供训练示例有两种方式：顺序和分布式。
+- en: Model feeder for sequential training
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 顺序训练模型喂养器
+- en: 'Figure 14.3 shows a sequential model feeder. We start with an area of shared
+    memory and then go through four steps, as follows:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.3 展示了一个顺序模型喂养器。我们从一个共享内存区域开始，然后经过以下四个步骤：
+- en: An area of shared memory reserved for the model feeder for holding two or more
+    batches in memory (step 1).
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为模型喂养器保留的共享内存区域，用于在内存中保留两个或更多批次（步骤1）。
+- en: A first in, first out (FIFO) queue gets implemented in the shared memory (step
+    1).
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在共享内存中实现了一个先进先出（FIFO）队列（步骤1）。
+- en: A first asynchronous process posts ready batches into the queue (steps 2 and
+    3).
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第一个异步过程将准备好的批次放入队列中（步骤2和3）。
+- en: A second asynchronous process pulls the next batch out of the queue, when requested
+    by the train method (steps 3 and 4).
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当训练方法请求时（步骤3和4），第二个异步过程从队列中拉取下一个批次。
+- en: 'Generally, a sequential approach is the most cost-efficient for compute resources,
+    and is used when the time period to complete the training is within your time-to-train
+    requirements. The benefits are straightforward: there is no compute overhead,
+    as in a distributed system, and the CPU/GPUs can be run at full capacity.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，顺序方法在计算资源方面是最经济的，当完成训练的时间周期在您的训练时间要求内时，会使用这种方法。其好处是直接的：没有计算开销，就像分布式系统那样，CPU/GPUs可以全速运行。
+- en: '![](Images/CH14_F03_Ferlitsch.png)'
+  id: totrans-32
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F03_Ferlitsch.png)'
+- en: Figure 14.3 A model feeder for sequential training
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.3 顺序训练的模型馈送器
+- en: Model feeder for distributed training
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式训练的模型馈送器
+- en: In distributed training, such as on multiple GPUs, the impact of an I/O bottleneck
+    at the model feeder can become more severe. As you can see in figure 14.4, it
+    differs from the single instance, nondistributed sequential approach, in that
+    multiple asynchronous submit processes are pulling batches from the queue, to
+    feed the training of multiple instances of the model in parallel.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式训练中，例如在多个GPU上，模型馈送器处的I/O瓶颈的影响可能会变得更加严重。如图14.4所示，它与单实例、非分布式顺序方法不同，因为多个异步提交过程正在从队列中拉取批次，以并行训练多个模型实例。
+- en: '![](Images/CH14_F04_Ferlitsch.png)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F04_Ferlitsch.png)'
+- en: Figure 14.4 A model feeder for distributed training
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图片](Images/CH14_F04_Ferlitsch.png)'
+- en: While a distributed approach will introduce some compute inefficiencies, it
+    is used when your time frame doesn’t allow for a sequential approach to complete
+    the training. Usually, the time requirement is based on a business requirement,
+    and not meeting the business requirement has a higher cost than the compute inefficiencies.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然分布式方法会引入一些计算效率低下，但在您的框架不允许顺序方法完成训练时，会使用它。通常，时间要求是基于业务需求，而未能满足业务需求比计算效率低下有更高的成本。
+- en: In distributed training, the first asynchronous process must submit multiple
+    batches into the queue (step 1) at a speed equal to or greater than the other
+    plural asynchronous processes are pulling batches (step 2). Each of the distributed
+    training nodes has an asynchronous process for pulling batches from the queue.
+    Finally, a third asynchronous process coordinates pulling batches from the queue
+    and waiting for completion (step 3). In this form of distributed training, there
+    is a second asynchronous process for each distributed training node (step 2),
+    where a node can be
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式训练中，第一个异步过程必须以等于或大于其他多个异步过程拉取批次的速率（步骤2）将多个批次提交到队列中。每个分布式训练节点都有一个异步过程用于从队列中拉取批次。最后，第三个异步过程协调从队列中拉取批次并等待完成（步骤3）。在这种分布式训练形式中，每个分布式训练节点都有一个第二个异步过程（步骤2），其中节点可以是
+- en: Separate compute instances networked together
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 网络连接在一起的独立计算实例
+- en: Separate hardware accelerators (such as a GPU) on the same compute instance
+  id: totrans-41
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 同一计算实例上的独立硬件加速器（如GPU）
+- en: Separate threads on a multicore compute instance (such as a CPU)
+  id: totrans-42
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 多核计算实例（如CPU）上的独立线程
+- en: You might ask, how does the model get trained when each instance will see only
+    a subset of the batches? Good question. In this distributed method, we use batch
+    smoothing of the weights.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，当每个实例只能看到批次的一个子集时，模型是如何进行训练的？这是一个好问题。在这种分布式方法中，我们使用权重的批次平滑。
+- en: 'Think of it this way: each model instance learns from a subsampling distribution
+    of the training data, and we need a way to merge the learned weights from each
+    subsampling distribution. Each node, upon completion of a batch, will send its
+    weight updates to the other nodes. When the recipient nodes receive the weight
+    updates, it will average them with the weight updates from its own batch—hence
+    the batch smoothing of weights.'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样想：每个模型实例从训练数据的子采样分布中学习，我们需要一种方法来合并每个子采样分布中学习到的权重。每个节点在完成一个批次后，将向其他节点发送其权重更新。当接收节点收到权重更新时，它将与自己的批次中的权重更新进行平均——这就是权重批次平滑的原因。
+- en: There are two common network approaches to sending the weights. One is to broadcast
+    the weights on the subnet that all the nodes are connected to. The other is to
+    use a ring network, where each node sends its weight updates to the next connected
+    node.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有两种常见的网络方法用于发送权重。一种是在所有节点都连接到的子网上广播权重。另一种是使用环形网络，其中每个节点将其权重更新发送给下一个连接的节点。
+- en: This form of distributed training has two consequences, whether broadcast or
+    ring. First, there is all the network activity. Second, you don’t know when the
+    message with the weight updates will show up. It’s totally uncoordinated and ad
+    hoc. As a result, the batch smoothing of the weights has inherent inefficiencies
+    and will result in more epochs needed to train the model versus the sequential
+    approach.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种分布式训练形式有两个后果，无论是广播还是环形。首先，有所有的网络活动。其次，你不知道权重更新的消息何时会出现。它是完全无协调和临时的。因此，权重批平滑固有的低效性会导致与顺序方法相比需要更多的训练轮次。
+- en: Model feeder with a parameter server
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 带有参数服务器的模型提供者
+- en: Another version of distributed training uses a parameter server. The parameter
+    server typically runs on another node, which is usually a CPU. As an example,
+    in Google’s TPU pods, each group of four TPUs has a CPU-based parameter server.
+    Its purpose is to overcome the inefficiencies of the asynchronous updating for
+    batch smoothing of the weights.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种分布式训练版本使用参数服务器。参数服务器通常运行在另一个节点上，通常是CPU。例如，在谷歌的TPU pods中，每组四个TPU都有一个基于CPU的参数服务器。其目的是克服异步更新批平滑权重的低效性。
+- en: In this form of distributed training, the batch smoothing of weight updates
+    happens synchronously. The parameter server, depicted in figure 14.5, dispatches
+    different batches to each of the training nodes, and then waits for each to finish
+    consuming its corresponding batch (step 1), and send the loss calculation back
+    to the parameter server (step 2). Upon receiving the loss calculation from each
+    training node, the parameter server averages the loss and updates the weights
+    on a master copy maintained by the parameter server, and then sends the updated
+    weights to each training node (step 3). The parameter server then signals the
+    model feeder to dispatch the next set of parallel batches (step 4).
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种分布式训练形式中，权重更新的批平滑是同步发生的。如图14.5所示的参数服务器将不同的批次分发给每个训练节点，然后等待每个节点完成其对应批次的消耗（步骤1），并将损失计算发送回参数服务器（步骤2）。参数服务器接收到每个训练节点的损失计算后，平均损失并在参数服务器维护的主副本上更新权重，然后将更新的权重发送给每个训练节点（步骤3）。然后参数服务器向模型提供者发出信号，以分发下一组并行批次（步骤4）。
+- en: The advantage of this synchronous method is that it does not require as many
+    epochs to be trained as the aforementioned asynchronous method. But the drawback
+    is that each training node must wait on the parameter server to signal receiving
+    the next batch, and thus the training nodes may run below GPU, or other compute,
+    capacity.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种同步方法的优点是，与上述异步方法相比，它不需要那么多的训练轮次。但缺点是，每个训练节点必须等待参数服务器发出接收下一批次的信号，因此训练节点可能运行在GPU或其他计算能力以下。
+- en: '![](Images/CH14_F05_Ferlitsch.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F05_Ferlitsch.png)'
+- en: Figure 14.5 Parameter server in distributed training
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.5 分布式训练中的参数服务器
+- en: There are a couple of more things to point out. For each round, each distributed
+    training node receives a different batch from another. Because there could be
+    significant variance in the loss across the training nodes, and overhead waiting
+    on the parameter to update the weights, distributed training generally uses larger
+    batch sizes. The larger batches smooth out or reduce variance across the parallel
+    batches as well as reducing I/O bottlenecks during the training process.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几点需要指出。对于每一轮，每个分布式训练节点都会从另一个节点接收不同的批次。因为训练节点之间的损失可能会有很大差异，以及等待参数更新权重的开销，分布式训练通常使用更大的批次大小。较大的批次可以平滑或减少并行批次之间的差异，以及在训练过程中的I/O瓶颈。
+- en: 14.1.1 Model feeding with tf.data.Dataset
+  id: totrans-54
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.1.1 使用 tf.data.Dataset 进行模型提供
+- en: In chapter 13, we saw how `tf.data.Dataset` can be used to construct a data
+    pipeline. It can be used as the mechanism for model feeding. In essence, an instance
+    of `tf.data.Dataset` is a generator. It can be integrated into both sequential
+    and distributed training. However, in a distributor feeder, the instance does
+    not act as a parameter server, because that function is performed by the underlying
+    distribution system.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第13章中，我们看到了如何使用`tf.data.Dataset`构建数据管道。它可以作为模型提供的机制。本质上，`tf.data.Dataset`的一个实例是一个生成器。它可以集成到顺序和分布式训练中。然而，在分布式提供者中，该实例不充当参数服务器，因为该功能由底层分布式系统执行。
+- en: Some of the primary benefits of a `tf.data.Dataset` are setting of the batch
+    size, shuffling the data for randomized batches, and prefetching the next batches
+    in parallel to feeding a current batch.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.data.Dataset` 的主要优点包括设置批量大小、对数据进行随机打乱以及并行预取当前批次的下一个批次。'
+- en: The following code is an example of using `tf.data.Dataset` for feeding a model
+    during training, using a dummy model—a `Sequential` model with a single layer
+    (`Flatten`) with no parameters to train. For demonstration, we use the CIFAR-10
+    data from TF.Keras built-in datasets.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码是使用 `tf.data.Dataset` 在训练期间为模型提供数据的示例，使用了一个虚拟模型——一个没有参数的单层 (`Flatten`) `Sequential`
+    模型进行训练。为了演示，我们使用了 TF.Keras 内置数据集的 CIFAR-10 数据。
+- en: 'Since the CIFAR-10 data in this example will already be in memory, when loaded
+    by `cifar.load_data()`, we will create a generator that will feed batches from
+    the in-memory source. The first step is to create the generator for our in-memory
+    dataset. We do this using `from_tensor_slices()`, which takes as a parameter a
+    tuple of the in-memory training examples and corresponding labels `(x_train, y_train)`.
+    Note, this method does not make a copy of the training data. Instead, it builds
+    an index to the source of the training data and uses the index to shuffle, iterate,
+    and fetch examples:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于本例中的 CIFAR-10 数据将已经在内存中，当通过 `cifar.load_data()` 加载时，我们将创建一个生成器，该生成器将从内存源提供批次。第一步是创建我们的内存数据集的生成器。我们使用
+    `from_tensor_slices()` 来完成这个任务，它接受一个参数，即内存中的训练示例和相应的标签的元组 `(x_train, y_train)`。注意，此方法不会复制训练数据。相反，它构建了一个指向训练数据源的索引，并使用该索引来打乱、迭代和获取示例：
+- en: '[PRE0]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Creates a tf.data.Dataset as a generator for model feeding of CIFAR-10 training
+    data
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个 tf.data.Dataset 作为 CIFAR-10 训练数据的模型喂养生成器
+- en: ❷ Sets model feeding attributes
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 设置模型喂养属性
+- en: ❸ Uses the generator as the model feeder when training
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在训练时使用生成器作为模型喂养器
+- en: 'Now that we have a generator in the preceding code example, we will add some
+    attributes to complete it as a model feeder:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经有了前面代码示例中的生成器，我们将添加一些属性来将其完整地作为模型喂养器：
+- en: We set the batch size to 32 (`batch(32)`).
+  id: totrans-64
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们将批量大小设置为 32 (`batch(32)`）。
+- en: We set randomly shuffling 1000 examples at a time in memory (`shuffle (1000)`).
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们在内存中随机打乱每次 1000 个示例（`shuffle(1000)`）。
+- en: We reiterate through the entire training data repeatedly (`repeat()`). Without
+    `repeat()`, the generator would make only a single pass through the training data.
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们反复遍历整个训练数据（`repeat()`）。如果没有 `repeat()`，生成器只会对训练数据进行单次遍历。
+- en: In parallel to feeding a batch, prefetch up to two batches in the feeder queue
+    (`prefetch(2)`).
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在提供批量的同时，在喂养器队列中预取最多两个批次（`prefetch(2)`）。
+- en: Next, we can pass the generator as the training input source to the `fit(dataset,
+    epochs=10,` `steps_per_epoch=len(x_train//32))` command for training. This command
+    will treat the generator as an iterator, and for each interaction the generator
+    will perform the model-feeding task.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们可以将生成器作为训练输入源传递给 `fit(dataset, epochs=10, steps_per_epoch=len(x_train//32))`
+    命令进行训练。此命令将生成器视为迭代器，并且对于每次交互，生成器将执行模型喂养任务。
+- en: Because we are using a generator for model feeding and `repeat()` will cause
+    the generator to iterate forever, the `fit()` method does not know when it has
+    consumed the entire training data for an epoch. So we need to tell the `fit()`
+    method how many batches constitute an epoch, which we set with the keyword parameter
+    `steps_per_epoch`.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们使用生成器进行模型喂养，并且 `repeat()` 将导致生成器无限迭代，因此 `fit()` 方法不知道它何时已经消耗了一个epoch的全部训练数据。因此，我们需要告诉
+    `fit()` 方法一个epoch由多少个批次组成，我们使用关键字参数 `steps_per_epoch` 来设置。
+- en: Dynamically updating the batch size
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 动态更新批量大小
+- en: In chapter 10, we discussed how the batch size is inversely related to the learning
+    rate. During training, this inverse relationship means that conventional model-feeding
+    techniques will increase the batch in proportion to decreases in the learning
+    rate. While TF.Keras has a built-in method for dynamically updating the learning
+    rate with the `LearningRateScheduler` callback, it presently does not have the
+    same capability for the batch size. Instead, I will show you the DIY version of
+    updating the batch size dynamically during training while lowering the learning
+    rate.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 10 章中，我们讨论了批量大小与学习率成反比的关系。在训练期间，这种反比关系意味着传统的模型喂养技术将按比例增加批量以适应学习率的降低。虽然 TF.Keras
+    有一个内置的 `LearningRateScheduler` 回调来动态更新学习率，但它目前还没有同样的能力来更新批量大小。相反，我将向您展示在降低学习率的同时动态更新批量大小的
+    DIY 版本。
+- en: I’ll explain the DIY process as I describe the code that implements it. In this
+    case, we add an outer training loop to dynamically update the batch size. Recall,
+    in the `fit()` method, the batch size is specified as a parameter. So, to update
+    the batch size, we will partition up the epochs and call `fit()` multiple times.
+    Inside the loop, we train the model for a specified number of epochs. As for the
+    loop, each time we iterate through it, we will update the learning rate and batch
+    size, and set the number of epochs to train for in the loop. In the `for` loop,
+    we use a list of tuples, and each tuple will specify the learning rate (`lr`),
+    batch size (`bs`), and number of epochs (`epochs`); for example, `(0.01, 32, 10)`.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我将在描述实现它的代码时解释DIY过程。在这种情况下，我们添加一个外层训练循环以动态更新批量大小。回想一下，在`fit()`方法中，批量大小被指定为一个参数。因此，要更新批量大小，我们将划分epoch并多次调用`fit()`。在循环内部，我们将对模型进行指定数量的epoch的训练。至于循环，每次迭代时，我们将更新学习率和批量大小，并在循环中设置要训练的epoch数量。在`for`循环中，我们使用一个元组的列表，每个元组将指定学习率（`lr`）、批量大小（`bs`）和epoch数量（`epochs`）；例如，`(0.01,
+    32, 10)`。
+- en: Resetting the number of `epochs` in the loop is straightforward since we can
+    specify it as a parameter to the `fit()` method. For the learning rate, we reset
+    it by (re)compiling the model and reset the learning rate when we specify the
+    optimizer parameter—`Adam(lr=lr)`. It’s OK to recompile a model in the middle
+    of training, as it does not affect the model’s weights. In other words, recompiling
+    does not undo previous training.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在循环中重置`epochs`的数量很简单，因为我们可以将其指定为`fit()`方法的参数。对于学习率，我们通过（重新）编译模型并在指定优化器参数时重置学习率来重置它——`Adam(lr=lr)`。在训练过程中重新编译模型是可以的，因为它不会影响模型的权重。换句话说，重新编译不会撤销之前的训练。
+- en: Resetting the batch size for a `tf.data.Dataset` is not is not as straightforward,
+    since once it’s set, you cannot reset it. Instead, we will have to create a new
+    generator for the training data in each loop iteration, where we will specify
+    the current batch size with the method `batch``()`.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重置`tf.data.Dataset`的批量大小并不简单，因为一旦设置，就无法重置。相反，我们将在每次循环迭代中为训练数据创建一个新的生成器，其中我们将使用`batch()`方法指定当前的批量大小。
+- en: '[PRE1]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Outer loop for dynamic resetting of hyperparams during training
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 外层循环用于在训练期间动态重置超参数
+- en: ❷ Creates a new generator to reset the batch size
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建一个新的生成器以重置批量大小
+- en: ❸ Recompiles the model to reset the learning rate
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 重新编译模型以重置学习率
+- en: ❹ Trains the model with the reset number of epochs
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用重置的epoch数量训练模型
+- en: Let’s take a look at the abbreviated output from running our DIY version of
+    dynamically resetting hyperparameters while training. You can see in the first
+    iteration of the outer loop, the training accuracy is 51% on the 10th epoch. On
+    the second iteration, where the learning rate is halved and the batch size is
+    doubled, the training accuracy is 58% on the 10th epoch, and on the third iteration
+    it reaches 61%. As you can observe from the output, we were able to maintain a
+    consistent reduction in the loss and increase in accuracy over the three iterations,
+    as we narrow down into the loss space.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看运行我们的DIY版本动态重置训练中超参数的简略输出。您可以看到在外层循环的第一次迭代中，第10个epoch的训练准确率为51%。在第二次迭代中，学习率减半，批量大小加倍，第10个epoch的训练准确率为58%，在第三次迭代中达到61%。如您从输出中观察到的，我们在三个迭代中能够保持损失持续减少和准确率增加，因为我们逐渐缩小到损失空间。
+- en: '[PRE2]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 14.1.2 Distributed feeding with tf.Strategy
+  id: totrans-82
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.1.2 使用tf.Strategy进行分布式喂养
+- en: The TensorFlow module `tf.distribute.Strategy` provides a convenient and encapsulated
+    interface, with everything done for you, for distributed training across multiple
+    GPUs on the same compute instance, or across multiple TPUs. It implements a synchronous
+    parameter server as described earlier in the chapter. This TensorFlow module is
+    optimized for distributed training of TensorFlow models, as well as for distributed
+    training on parallel Google TPUs.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TensorFlow模块`tf.distribute.Strategy`提供了一个方便且封装的接口，为你完成所有工作，用于在同一个计算实例上的多个GPU之间或多个TPU之间进行分布式训练。它实现了本章前面描述的同步参数服务器。此TensorFlow模块针对TensorFlow模型的分布式训练以及并行Google
+    TPUs上的分布式训练进行了优化。
+- en: When training on a single compute instance with multiple GPUs, you use `tf .distribute.MirrorStrategy`,
+    and when training on TPUs, you use `tf.distribute .TPUStrategy`. We won’t cover
+    distributed training across machines in this chapter, other than noting you would
+    use `tf.distribute.experimental.ParameterServerStrategy`, which implements an
+    asynchronous parameter server across a network. The setup for distributed training
+    across multiple machines is somewhat complex, and would need a chapter in its
+    own right. I recommend using this approach, as well as studying TensorFlow documentation,
+    if you’re building TensorFlow models and meeting your business objectives requires
+    substantial or massive parallelism during training.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当在单个计算实例上使用多个GPU进行训练时，你使用 `tf .distribute.MirrorStrategy`，而当在TPU上进行训练时，你使用 `tf.distribute
+    .TPUStrategy`。在本章中，除了指出你将使用 `tf.distribute.experimental.ParameterServerStrategy`
+    以实现跨网络的异步参数服务器之外，我们不会涵盖跨机器的分布式训练。跨多个机器的分布式训练设置相对复杂，可能需要单独的一章。如果你在构建TensorFlow模型，并且训练过程中需要大量的并行处理以满足业务目标，我建议使用这种方法，并学习TensorFlow文档。
+- en: 'Here’s our approach for setting up a distributed training run on a single machine,
+    with multiple CPUs or GPUs:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们在单机上设置分布式训练运行的步骤，该机器具有多个CPU或GPU：
+- en: Instantiate a distribution strategy.
+  id: totrans-86
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 实例化一个分布策略。
+- en: Within the scope of the distribution strategy
+  id: totrans-87
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在分布策略的作用域内
+- en: Create the model.
+  id: totrans-88
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建模型。
+- en: Compile the model.
+  id: totrans-89
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编译模型。
+- en: Train the model.
+  id: totrans-90
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 训练模型。
+- en: These steps may seem counterintuitive, in that we set up the distribution strategy
+    when we build and compile the model, instead of when we train it. It’s a requirement
+    in TensorFlow that the construction of the model needs to be aware that it will
+    be trained using a distributed training strategy. As of this writing, the TensorFlow
+    team has recently released a newer experimental version for which the distribution
+    strategy can be set independent of compiling the model.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些步骤可能看起来有些不合常理，因为我们是在构建和编译模型时设置分布策略，而不是在训练时。在TensorFlow中，模型构建需要知道它将使用分布式训练策略进行训练。截至本文撰写时，TensorFlow团队最近发布了一个新的实验版本，其中分布策略可以在不编译模型的情况下设置。
+- en: 'And the following is the code for implementing the preceding three steps, and
+    two substeps, described here:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是实现前面三个步骤和两个子步骤的代码，这些步骤在此处描述：
+- en: We define the function `create_model()` to create an instance of the model to
+    train.
+  id: totrans-93
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们定义函数 `create_model()` 来创建用于训练的模型实例。
+- en: 'We instantiate the distribution strategy: `strategy = tf.distribute.MirrorStrategy()`.'
+  id: totrans-94
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们实例化分布策略：`strategy = tf.distribute.MirrorStrategy()`.
+- en: 'We set the distribution context: `with strategy.scope()`.'
+  id: totrans-95
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们设置分布上下文：`with strategy.scope()`.
+- en: 'Within the distribution context, we create an instance of the model: `model
+    = create_model()`. Then we compile it: `model.compile()`.'
+  id: totrans-96
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在分布上下文中，我们创建模型的实例：`model = create_model()`。然后我们编译它：`model.compile()`。
+- en: Finally, we train the model.
+  id: totrans-97
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，我们训练模型。
+- en: '[PRE3]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Function for creating an instance of the model
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建模型实例的函数
+- en: ❷ Instantiates the distribution strategy
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 实例化分布策略
+- en: ❸ Within the scope of the distribution strategy, creates and compiles the model
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在分布策略的作用域内创建和编译模型
+- en: ❹ Trains the model
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 训练模型
+- en: 'You may ask, can I use a model that has already been built? The answer is no;
+    you must build the model within the scope of the distribution strategy. For example,
+    the following code will cause an error indicating the model was not built within
+    the scope of the distribution strategy:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，我能否使用已经构建好的模型？答案是：不可以；你必须在分布策略的作用域内构建模型。例如，以下代码将导致错误，提示模型未在分布策略的作用域内构建：
+- en: '[PRE4]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Model is not built within the scope of the distribution strategy
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 模型未在分布策略的作用域内构建
+- en: 'Again, you might ask: I already have a prebuilt or pretrained model that was
+    not built for a distribution strategy; can I still do distributed training? The
+    answer here is yes. If you have an existing TF.Keras model saved to disk, when
+    you load it back into memory using `load_model()`, it implicitly builds the model.
+    The following is an example implementation of setting a distribution strategy
+    from a pretrained model:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次，你可能还会问：我已经有一个预先构建或预训练的模型，它不是为分布策略构建的；我还能进行分布式训练吗？这里的答案是：可以。如果你有一个保存到磁盘的TF.Keras模型，当你使用
+    `load_model()` 将其加载回内存时，它将隐式地构建模型。以下是从预训练模型设置分布策略的示例实现：
+- en: '[PRE5]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Model is implicitly rebuilt when loaded from disk
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从磁盘加载时模型会隐式重建
+- en: 'Likewise, when a prebuilt model is loaded from a model repository, there is
+    an implicit load and correspondingly an implicit build. The following code sequence
+    is an example of loading a model from the `tf.keras.applications` built-in model
+    repository, where the model is implicitly rebuilt:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，当从模型存储库加载预构建模型时，存在隐式的加载和相应的隐式构建。以下代码序列是加载`tf.keras.applications`内置模型存储库中模型的示例，其中模型被隐式重建：
+- en: '[PRE6]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Model is implicitly rebuilt when loaded from a repository
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从存储库加载时模型被隐式重建
+- en: 'By default, the mirrored strategy will use all the GPUs on the compute instance.
+    You can get the number of GPU or CPU cores that will be used with the property
+    `num_replicas_in_sync`. You can also explicitly set which GPUs, or cores, to use.
+    In the following code example, we set the distribution strategy to use two GPUs:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，镜像策略将使用计算实例上的所有GPU。您可以使用`num_replicas_in_sync`属性获取将要使用的GPU或CPU核心数。您还可以明确设置要使用的GPU或核心。在以下代码示例中，我们将分布策略设置为使用两个GPU：
+- en: '[PRE7]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'The preceding code example generates the following output:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码示例生成了以下输出：
+- en: '[PRE8]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 14.1.3 Model feeding with TFX
+  id: totrans-116
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.1.3 使用TFX进行模型喂养
+- en: 'Chapter 13 covered the data pipeline portion of a TFX end-to-end production
+    pipeline. This section covers the corresponding TFX model-feeding aspect of the
+    training pipeline components, as an alternative implementation. Figure 14.6 depicts
+    the training pipeline components and their relationships to the data pipeline.
+    The training pipeline consists of these components:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第13章涵盖了TFX端到端生产管道的数据管道部分。本节涵盖了训练管道组件的相应TFX模型喂养方面，作为另一种实现。图14.6描述了训练管道组件及其与数据管道的关系。训练管道由以下组件组成：
+- en: '*Trainer*—Trains the model'
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*训练器*—训练模型'
+- en: '*Tuner*—Tunes the hyperparameters (for example, the learning rate)'
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*调优器*—调整超参数（例如，学习率）'
+- en: '*Evaluator*—Evaluates the model’s objective(s), such as accuracy, and compares
+    the results against a baseline (for example, a previous version)'
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*评估器*—评估模型的客观指标，例如准确性，并将结果与基线（例如，上一个版本）进行比较'
+- en: '*Infra evaluator*—Tests the model in a sandbox serving environment, before
+    deployment'
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*基础设施评估器*—在部署前在沙盒服务环境中测试模型'
+- en: '![](Images/CH14_F06_Ferlitsch.png)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F06_Ferlitsch.png)'
+- en: Figure 14.6 TFX components that make up a training pipeline consist of the tuner,
+    trainer, evaluator, and infra-evaluator components.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.6 TFX训练管道由调优器、训练器、评估器和基础设施评估器组件组成。
+- en: Orchestration
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 编排
+- en: Let’s review the benefits of TFX and pipelines in general. If we execute each
+    step in training/deploying a model individually, we refer to this as a *task-aware
+    architecture*. Each component is aware of itself, but not aware of connecting
+    components or of the history of a previous execution.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一下TFX和管道的一般好处。如果我们单独执行训练/部署模型中的每个步骤，我们将其称为*任务感知架构*。每个组件都了解自己，但不知道连接的组件或之前执行的历史。
+- en: TFX implements *orchestration*. In orchestration, a management interface oversees
+    the execution of each component, remembers the execution of past components, and
+    maintains history. As previously covered in chapter 13, the output of each component
+    is artifacts; these are the results and history of the execution. In orchestration,
+    these artifacts, or references to them, are stored as metadata. For TFX, the metadata
+    is stored in a relational format, and thus can be stored and accessed via a SQL
+    database.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX实现了*编排*。在编排中，一个管理接口监督每个组件的执行，记住过去组件的执行情况，并维护历史记录。如第13章所述，每个组件的输出是工件；这些是执行的结果和历史。在编排中，这些工件或对其的引用被存储为元数据。对于TFX，元数据以关系格式存储，因此可以通过SQL数据库进行存储和访问。
+- en: 'Let’s dive a little deeper into the benefits of orchestration, and then we
+    will cover how within TFX model feeding works. With orchestration, which is depicted
+    in figure 14.7, we can do the following:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更深入地探讨编排的好处，然后我们将介绍TFX中模型喂养的工作方式。通过编排，如图14.7所示，我们可以做以下事情：
+- en: Schedule execution of a component after another component(s) is completed. For
+    example, we can schedule the execution of data transformations after completion
+    of generating a feature schema from training data.
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在另一个组件（或多个组件）完成后执行组件的调度。例如，我们可以在从训练数据生成特征模式后调度数据转换的执行。
+- en: Schedule execution of components in parallel when the execution of the components
+    is not dependent on one another. For example, we can schedule in parallel hyperparameter
+    tuning and training after completion of the data transformations.
+  id: totrans-129
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当组件的执行相互不依赖时，并行调度组件的执行。例如，在数据转换完成后，我们可以并行调度超参数调整和训练。
+- en: Reuse the artifacts from a previous execution of a component (cache) if nothing
+    has changed. For example, if the training data has not changed, the cached artifacts
+    (that is, the transform graph) from the transformation component can be reused
+    without re-execution.
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果组件的执行没有变化（缓存），则重用组件先前执行中的工件。例如，如果训练数据没有变化，转换组件的缓存工件（即转换图）可以在不重新执行的情况下重用。
+- en: Provision different instances of compute engines for each component. For example,
+    the data pipeline components may be provisioned on a CPU compute instance, and
+    the training component on a GPU compute instance.
+  id: totrans-131
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为每个组件提供不同的计算引擎实例。例如，数据管道组件可能配置在CPU计算实例上，而训练组件配置在GPU计算实例上。
+- en: If a task supports distribution, such as tuning and training, the task can be
+    distributed across multiple compute instances.
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果任务支持分布，例如调整和训练，则可以将任务分布到多个计算实例上。
+- en: Compare artifacts of a component to previous artifacts from previous executions
+    of the component. For example, the evaluator component can compare the model’s
+    objective (for example, accuracy), to previously trained versions of the model.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将组件的工件与组件先前执行的工件进行比较。例如，评估组件可以将模型的指标（例如，准确率）与先前训练的模型版本进行比较。
+- en: Debug and audit execution of the pipeline by being able to move forward and
+    backward through the generated artifacts.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过能够向前和向后移动通过生成的工件来调试和审计管道的执行。
+- en: '![](Images/CH14_F07_Ferlitsch.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F07_Ferlitsch.png)'
+- en: Figure 14.7 Orchestration ingests a pipeline represented as a graph, and provisions
+    instances and dispatches tasks.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.7编排器摄取表示为图的管道，并配置实例和调度任务。
+- en: Trainer component
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练组件
+- en: 'The `Trainer` component supports training TensorFlow estimators, TF.Keras models,
+    and other custom training loops. Since TensorFlow 2.*x* recommends phasing out
+    estimators, we will focus only on configuring a trainer component for TF.Keras
+    models, and feeding it data. The trainer component takes the following minimum
+    parameters:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Trainer`组件支持训练TensorFlow估计器、TF.Keras模型和其他自定义训练循环。由于TensorFlow 2.*x*建议逐步淘汰估计器，我们将仅关注配置TF.Keras模型的训练组件，并向其提供数据。训练组件需要以下最小参数：'
+- en: '`module_file`—This is the Python script for custom training the model. It must
+    contain a `run_fn()` function as the entry point for training.'
+  id: totrans-139
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`module_file`—这是用于自定义训练模型的Python脚本。它必须包含一个`run_fn()`函数作为训练的入口点。'
+- en: '`examples`—The examples to train the model, which come from the output of the
+    `ExampleGen` component, `example_gen.outputs[''examples'']`.'
+  id: totrans-140
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`examples`—用于训练模型的示例，这些示例来自`ExampleGen`组件的输出，`example_gen.outputs[''examples'']`。'
+- en: '`schema`—The dataset schema, which comes from the output of the `SchemaGen`
+    component, `schema_gen[''schema'']`.'
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`schema`—数据集模式，它来自`SchemaGen`组件的输出，`schema_gen[''schema'']`。'
+- en: '`custom_executor_spec`—The executor for a custom training, which will invoke
+    the `run_fn()` function in `module_file`.'
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`custom_executor_spec`—自定义训练的执行器，它将在`module_file`中调用`run_fn()`函数。'
+- en: '[PRE9]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Imports for custom training
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 自定义训练的导入
+- en: ❷ The custom training Python script
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 自定义训练的Python脚本
+- en: ❸ The training data source for feeding the model during training
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在训练过程中向模型提供数据的训练数据源
+- en: ❹ The schema inferred from the dataset
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 从数据集中推断出的模式
+- en: ❺ The custom executor for custom training
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 自定义训练的自定义执行器
+- en: 'If the training data is to be preprocessed by the `Transform` component, we
+    need to set the following two parameters:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果训练数据需要由`Transform`组件进行预处理，我们需要设置以下两个参数：
+- en: '`transformed_examples`—Set to the output of the `Transform` component, `transform.outputs[''transformed_examples'']`.'
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`transformed_examples`—设置为`Transform`组件的输出，`transform.outputs[''transformed_examples'']`。'
+- en: '`transform_graph`—The static transformation graph produced by the `Transform`
+    component, `transform.outputs[''transformed_graph'']`.'
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`transform_graph`—由`Transform`组件产生的静态转换图，`transform.outputs[''transformed_graph'']`。'
+- en: '[PRE10]'
+  id: totrans-152
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Training data is fed from the Transform component into the static transform
+    graph.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 训练数据从`Transform`组件馈送到静态转换图。
+- en: 'Generally, we want to pass other hyperparameters into the training module.
+    These can be passed as additional parameters `train_args` and `eval_args` to the
+    `Trainer` component. These parameters are set as a list of key/value pairs converted
+    to Google’s protobuf format. The following code passes the number of steps for
+    training and evaluation:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，我们希望将其他超参数传递到训练模块中。这些可以通过将 `train_args` 和 `eval_args` 作为附加参数传递给 `Trainer`
+    组件。这些参数被设置为键/值对列表，并转换为 Google 的 protobuf 格式。以下代码传递了训练和评估的步骤数：
+- en: '[PRE11]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Imports for the TFX protobuf format for passing hyperparameters
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入用于传递超参数的 TFX protobuf 格式
+- en: ❷ Hyperparameters passed into the Trainer component as protobuf messages
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将超参数作为 protobuf 消息传递到 Trainer 组件中
+- en: 'Let’s look now at the basic requirements for the `run_fn()` function in the
+    custom Python script. The arguments to `run_fn()` are constructed from the parameters
+    passed into the `Trainer` component, and are accessed as properties. In the following
+    example implementation, we do the following:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看自定义 Python 脚本中 `run_fn()` 函数的基本要求。`run_fn()` 的参数由传递给 `Trainer` 组件的参数构建，并且作为属性访问。在以下示例实现中，我们执行以下操作：
+- en: 'Extract the total number of steps for training: `training_args.train_steps`.'
+  id: totrans-159
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提取训练的总步骤数：`training_args.train_steps`。
+- en: 'Extract the number of steps for validation after each epoch: `training_args
+    .eval_steps`.'
+  id: totrans-160
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提取每个 epoch 后的验证步骤数：`training_args .eval_steps`。
+- en: 'Gets the TFRecord file paths for the training and eval data: `training_args
+    .train_files`. Note that `ExampleGen` is not feeding in-memory `tf.Examples`,
+    but on-disk TFRecords containing the `tf.Examples`.'
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 获取训练和评估数据的 TFRecord 文件路径：`training_args .train_files`。注意，`ExampleGen` 不会提供内存中的
+    `tf.Examples`，而是提供包含 `tf.Examples` 的磁盘上的 TFRecords。
+- en: Get the transform graph, `training_args.transform_output`, and construct a transform
+    execution function, `tft.TFTransformOutput()`.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 获取转换图，`training_args.transform_output`，并构建转换执行函数，`tft.TFTransformOutput()`。
+- en: Call the internal function `_input_fn()` to create the dataset iterators for
+    training and validation datasets.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用内部函数 `_input_fn()` 来创建训练和验证数据集的迭代器。
+- en: Build, or load, a TF.Keras model with the internal function `_build_model()`.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用内部函数 `_build_model()` 构建或加载 TF.Keras 模型。
+- en: Train the model with the `fit()` method.
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `fit()` 方法训练模型。
+- en: Get the serving directory to store the trained model, `training_args.output`,
+    which is optionally specified as the parameter `output` to the `Trainer` component.
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 获取存储训练模型的托管目录，`training_args.output`，该目录作为可选参数 `output` 传递给 `Trainer` 组件。
+- en: Save the trained model to the specified serving output location, `model.save
+    (serving_dir)`.
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将训练好的模型保存到指定的服务输出位置，`model.save (serving_dir)`。
+- en: '[PRE12]'
+  id: totrans-168
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Hyperparameters set as constants
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将超参数设置为常量
+- en: ❷ Training/validation steps passed as parameters to the Trainer component
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将训练/验证步骤作为参数传递给 Trainer 组件
+- en: ❸ Training/validation data passed as parameters to the Trainer component
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将训练/验证数据作为参数传递给 Trainer 组件
+- en: ❹ Creates the dataset iterators for training and validation data
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 为训练和验证数据创建数据集迭代器
+- en: ❺ Builds or loads the model to train
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 构建或加载用于训练的模型
+- en: ❻ Calculates the number of epochs
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 计算epoch数量
+- en: ❼ Trains the model
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 训练模型
+- en: ❽ Saves the model in SavedModel format to the specified serving directory
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 将模型以 SavedModel 格式保存到指定的服务目录
+- en: There are a lot of fine details and various directions we could go when constructing
+    the custom Python training script. For more details and directions, we recommend
+    reviewing TFX’s guide for the `Trainer` component ([www.tensorflow.org/tfx/guide/
+    trainer](https://www.tensorflow.org/tfx/guide/trainer)).
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在构建自定义 Python 训练脚本时，有很多细微之处和多种方向可以选择。有关更多详细信息和建议，我们建议查看 TFX 的 `Trainer` 组件指南（[www.tensorflow.org/tfx/guide/trainer](https://www.tensorflow.org/tfx/guide/trainer)）。
+- en: Tuner component
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tuner 组件
+- en: The `Tuner` component is an optional task in the training pipeline. You can
+    either hardwire the hyperparameters for training in the custom Python training
+    script, or use the tuner to find the best values for hyperparameters.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Tuner` 组件是训练流程中的可选任务。您可以在自定义 Python 训练脚本中硬编码训练的超参数，或者使用 Tuner 来找到超参数的最佳值。'
+- en: The parameters to the `Tuner` are very similar to the `Trainer`. That is, the
+    `Tuner` will do short training runs to find the best hyperparameters. But unlike
+    the `Trainer`, which returns a trained model, the `Tuner`’s outputs are the tuned
+    hyperparameter values. Two of the parameters that typically differ are the `train_args`
+    and `eval_args`. Since these will be shorter training runs, the number of steps
+    for the tuner is typically 20% or less than that of the full training.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Tuner` 的参数与 `Trainer` 非常相似。也就是说，`Tuner` 将进行短训练运行以找到最佳超参数。但与返回训练模型的 `Trainer`
+    不同，`Tuner` 的输出是调优的超参数值。通常不同的两个参数是 `train_args` 和 `eval_args`。由于这些将是较短的训练运行，因此调优器的步骤数通常是完整训练的
+    20% 或更少。'
+- en: The other requirement is that the custom Python training script, module_file,
+    contains the function entry point `tuner_fn()`. The typical practice is to have
+    a single Python training script that has both the `run_fn()` and `tuner_fn``()`
+    functions.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个要求是自定义的 Python 训练脚本 `module_file` 包含函数入口 `tuner_fn()`。典型的做法是使用一个包含 `run_fn()`
+    和 `tuner_fn()` 函数的单个 Python 训练脚本。
+- en: '[PRE13]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ The number of steps for shorter training runs when tuning
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 调优时较短的训练运行步骤数
+- en: 'Next, we will look at an example implementation of `tuner_fn()`. We will use
+    KerasTuner to do hyperparameter tuning, but you can use any tuner compatible with
+    your model framework. We previously covered using KerasTuner in chapter 10\. It
+    is a separate package from TensorFlow, so you need to install it as follows:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将查看 `tuner_fn()` 的一个示例实现。我们将使用 KerasTuner 进行超参数调优，但你可以使用与你的模型框架兼容的任何调优器。我们之前在第
+    10 章中介绍了使用 KerasTuner。它是一个独立的包，因此你需要按照以下方式安装它：
+- en: '[PRE14]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Like the `Trainer` component, the parameters and default values to the `Tuner`
+    component are passed in to `tuner_fn()` as properties of the parameter `tuner_args`.
+    Note that the function starts the same as `run_fn``()`, but differs when we get
+    to the training step. Instead of calling the `fit()` method and saving the trained
+    model, we do this:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `Trainer` 组件类似，将 `Tuner` 组件的参数和默认值作为 `tuner_args` 参数的属性传递给 `tuner_fn()`。请注意，函数的起始部分与
+    `run_fn()` 相同，但在到达训练步骤时有所不同。我们不是调用 `fit()` 方法并保存训练好的模型，而是这样做：
+- en: 'Instantiate a KerasTuner:'
+  id: totrans-187
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 实例化一个 KerasTuner：
+- en: We use `build_model()` as our hyperparameter model argument.
+  id: totrans-188
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们使用 `build_model()` 作为超参数模型参数。
+- en: Call an internal function `_get_hyperparameters()` to specify the hyperparameter
+    search space.
+  id: totrans-189
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用内部函数 `_get_hyperparameters()` 来指定超参数搜索空间。
+- en: The maximum number of trials is set to 6.
+  id: totrans-190
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将最大试验次数设置为 6。
+- en: Set the objective for selecting the best values for the hyperparameters. In
+    this case, it is validation accuracy.
+  id: totrans-191
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设置选择最佳超参数值的指标。在这种情况下，是验证准确率。
+- en: Pass the tuner and remaining parameters for training to an instance of `TunerFnResult()`,
+    which will execute the tuner.
+  id: totrans-192
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将调优器和剩余的训练参数传递给 `TunerFnResult()` 实例，该实例将执行调优。
+- en: Return the results from the tuning trials.
+  id: totrans-193
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 返回调优试验的结果。
+- en: '[PRE15]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ The entry point function for hyperparameter tuning
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 超参数调优的入口点函数
+- en: ❷ Instantiates KerasTuner for RandomSearch
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 为随机搜索实例化 KerasTuner
+- en: ❸ Retrieves the hyperparameter search space
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 获取超参数搜索空间
+- en: ❹ Instantiates and executes the tuning trials with the specified tuner instance
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用指定的调优实例实例化和执行调优试验
+- en: ❺ Training parameters for the short training runs during tuning
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 调优期间短训练运行的训练参数
+- en: 'Now let’s see how the `Tuner` and `Trainer` components are chained together
+    to form an executable pipeline. In the example implementation that follows, we
+    make a single modification to the instantiation to the `Trainer` component by
+    adding the optional parameter `hyperparameters` and connecting the input to the
+    output of the `Tuner` component. Now when we execute the `Trainer` instance with
+    `context.run()`, the orchestrator will see the dependency on the `Tuner` and will
+    schedule its execution prior to the full training by the `Trainer` component:'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看 `Tuner` 和 `Trainer` 组件是如何串联在一起形成一个可执行管道的。在下面的示例实现中，我们对 `Trainer` 组件的实例化进行了一次修改，添加了可选参数
+    `hyperparameters` 并将输入连接到 `Tuner` 组件的输出。现在，当我们使用 `context.run()` 执行 `Trainer`
+    实例时，协调器将看到对 `Tuner` 的依赖，并将它的执行安排在 `Trainer` 组件进行完整训练之前：
+- en: '[PRE16]'
+  id: totrans-201
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Gets the tuned hyperparameters from the Tuner component
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从 Tuner 组件获取调优的超参数
+- en: ❷ Executes the Tuner/Trainer pipeline
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 执行 Tuner/Trainer 管道
+- en: As with the trainer, the Python hyperparameter tuning script can be customized.
+    See TFX’s guide for the `Tuner` component ([www.tensorflow.org/tfx/guide/tuner](https://www.tensorflow.org/tfx/guide/tuner)).
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与训练器一样，Python超参数调整脚本可以自定义。请参阅TFX的指南了解`Tuner`组件([www.tensorflow.org/tfx/guide/tuner](https://www.tensorflow.org/tfx/guide/tuner))。
+- en: 14.2 Training schedulers
+  id: totrans-205
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.2 训练调度器
+- en: In research or development environments, training pipelines are typically manually
+    initiated; each task in the pipeline is manually initiated, such that each task
+    can be observed and debugged if necessary. On the production side, they are automated;
+    the automation makes executing the pipelines more efficient and less labor intensive
+    and more scalable. In this section, we’ll see how scheduling works in a production
+    environment, as large numbers of training jobs can be queued for training and/or
+    models are continuously retrained.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在研究或开发环境中，训练管道通常是手动启动的；管道中的每个任务都是手动启动的，这样如果需要，每个任务都可以被观察和调试。在生产方面，它们是自动化的；自动化使得执行管道更加高效，劳动强度更低，并且更具可扩展性。在本节中，我们将了解生产环境中调度的工作方式，因为大量的训练作业可以排队进行训练，并且/或者模型会持续重新训练。
+- en: 'The needs of a production environment differ from research and development,
+    as follows:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产环境的需求与研究和开发不同，如下所示：
+- en: The amount of compute and network I/O may vary substantially within a production
+    environment, where a vast number of models may be continuously retrained in parallel.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在生产环境中，计算和网络I/O的数量可能会有很大变化，因为在生产环境中，大量模型可能会并行持续重新训练。
+- en: Training jobs may have different priorities, in that they must be completed
+    within a delivery schedule for deployment.
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练作业可能有不同的优先级，因为它们必须在部署的交付时间表内完成。
+- en: Training jobs may have on-demand requirements, such as special hardware that
+    may be provisioned on a per-use basis, such as cloud instances.
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练工作可能需要按需资源，例如可能按使用情况配置的特殊硬件，如云实例。
+- en: Length of training jobs may vary because of restarts and hyperparameter tuning.
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练作业的长度可能会因重启和超参数调整而变化。
+- en: Figure 14.8 depicts a job scheduler for end-to-end production pipelines that
+    is typical for a massively scaled production environment with the aforementioned
+    needs. We use a conceptual view that job scheduling within a production environment
+    isn’t yet adequately supported by open source ML frameworks, but are supported
+    at varying degrees by paid ML services, such as cloud providers.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.8 描述了一个适用于具有上述需求的大规模生产环境的端到端生产管道作业调度器。我们使用一个概念视图，即生产环境中的作业调度尚未得到开源机器学习框架的充分支持，但由付费机器学习服务（如云提供商）以不同程度的支持。
+- en: '![](Images/CH14_F08_Ferlitsch.png)'
+  id: totrans-213
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F08_Ferlitsch.png)'
+- en: Figure 14.8 Job scheduling of pipelines in a massively scaled production environment
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.8 大规模生产环境中管道作业调度
+- en: 'Let’s dive into some of the assumptions for a production environment, as depicted
+    in figure 14.8, typical in an enterprise environment:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们深入探讨图14.8中所示的生产环境的一些假设，这在企业环境中是典型的：
+- en: There are no custom jobs. Although there may have been custom jobs during development
+    of a model, once a model enters into production, it is trained and deployed with
+    predefined pipelines that are version-controlled.
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 没有定制工作。尽管在模型开发过程中可能存在定制工作，但一旦模型进入生产阶段，它将使用预定义的、受版本控制的管道进行训练和部署。
+- en: Pipelines have defined dependencies. For example, a training pipeline for an
+    image-input model would have a dependency that can be combined only with data
+    pipelines that are specific for image data.
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管道有定义好的依赖关系。例如，一个用于图像输入模型的训练管道将有一个只能与特定于图像数据的数据管道结合的依赖关系。
+- en: Pipelines may have configurable attributes. For example, the source input and
+    output shape for a data pipeline is configurable.
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管道可能有可配置的属性。例如，数据管道的源输入和输出形状是可配置的。
+- en: If an upgrade is made to a pipeline, it becomes the next version. The previous
+    version and execution history is retained.
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果对管道进行了升级，它将成为下一个版本。保留上一个版本和执行历史。
+- en: A job request specifies the pipeline requirements. These may be specified either
+    referencing specific pipelines and versions, or by attributes, whereby the scheduler
+    determines the best matching pipelines. The requirements may also specify configurable
+    attributes, such as the output shape from a data pipeline.
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个作业请求指定了管道需求。这些需求可以通过引用特定的管道和版本来指定，或者通过属性来指定，调度器将确定最佳匹配的管道。需求还可以指定可配置的属性，例如数据管道的输出形状。
+- en: A job request specifies the execution requirements. For example, if it is using
+    an AutoML-like service, it might specify a maximum training budget in compute
+    time. In another example, it may specify early stop conditions, or conditions
+    for warm-starting or restarting a training job.
+  id: totrans-221
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作业请求指定了执行需求。例如，如果使用类似AutoML的服务，它可能指定计算时间内的最大训练预算。在另一个例子中，它可能指定提前停止条件，或者重新启动训练作业的条件。
+- en: A job request specifies the compute requirements. For example, if distributed
+    training, it may specify the number and type of compute instances. The requirements
+    generally include operating system and software requirements.
+  id: totrans-222
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作业请求指定了计算需求。例如，如果进行分布式训练，它可能指定计算实例的数量和类型。需求通常包括操作系统和软件要求。
+- en: A job request specifies the priority requirements. Typically, this is either
+    on-demand or batch. On-demand jobs are generally dispatched when compute resources
+    are available for provisioning. Batch requests are typically deferred until a
+    certain condition is met. For example, it may specify a time window for execution,
+    or wait for when the compute instances are most economical.
+  id: totrans-223
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作业请求指定了优先级需求。通常，这要么是按需，要么是批量。按需作业通常在计算资源可用于配置时调度。批量请求通常在满足一定条件后才会延迟。例如，它可能指定执行的时间窗口，或者等待计算实例最经济的时候。
+- en: An on-demand job may optionally set a priority condition. If not, typically
+    it is dispatched in a FIFO manner. Jobs that specify a priority may change their
+    position in the FIFO dispatch queue. For example, a job with estimated time length
+    of *X* and completed by time *Y* may get moved up in a queue to satisfy the requirement.
+  id: totrans-224
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 按需工作可以设置一个可选的优先级条件。如果没有设置，通常以先进先出（FIFO）的方式调度。指定了优先级的作业可能会改变其在FIFO调度队列中的位置。例如，一个估计时长为*X*并在时间*Y*完成的作业可能会被提升到队列中以满足需求。
+- en: Once a job is dispatched from a queue, its pipeline assembly, execution, and
+    compute requirements are handed off to the orchestrator.
+  id: totrans-225
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作业从队列中调度后，其管道组装、执行和计算需求将转交给调度器。
+- en: 14.2.1 Pipeline versioning
+  id: totrans-226
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.2.1 管道版本控制
+- en: 'In a production environment, a pipeline is version-controlled. In addition
+    to version control, each version of the pipeline will have metadata for tracking
+    purposes. That metadata might include the following:'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，管道是受版本控制的。除了版本控制之外，每个版本的管道都将包含用于跟踪的元数据。这些元数据可能包括以下内容：
+- en: When the pipeline was created and last updated
+  id: totrans-228
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管道创建和最后更新的时间
+- en: The last time the pipeline was used and with what job
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管道上次使用的时间和使用的作业
+- en: Virtual machine (VM) dependencies
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 虚拟机（VM）依赖项
+- en: Average execution time
+  id: totrans-231
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 平均执行时间
+- en: Failure rate
+  id: totrans-232
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 故障率
+- en: 'Figure 14.9 depicts a repository of data pipelines and corresponding reusable
+    components, under version control. In this example, we have two repositories of
+    reusable components:'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.9描述了一个数据管道和相应可重用组件的存储库，这些组件都处于版本控制之下。在这个例子中，我们有两个可重用组件的存储库：
+- en: '*On-disk image iterators*—Components for constructing a dataset iterator specific
+    to the format that the dataset is stored in'
+  id: totrans-234
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*磁盘上的图像迭代器*—用于构建特定于数据集存储格式的数据集迭代器的组件'
+- en: '*In-memory transformations*—Components for data preprocessing and transformations
+    for invariance'
+  id: totrans-235
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*内存中转换*—用于数据预处理和不变性转换的组件'
+- en: '![](Images/CH14_F09_Ferlitsch.png)'
+  id: totrans-236
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F09_Ferlitsch.png)'
+- en: Figure 14.9 Different versions of the same data pipeline that use a different
+    in-memory transformation reusable component
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.9展示了使用不同内存中可重用组件的相同数据管道的不同版本
+- en: In this example, we show a single data pipeline with two versions; v2 is configured
+    to use standardization in place of rescaling in v1\. Additionally, the history
+    for v2 has better training results than the history for v1\. The data pipeline
+    consists of an on-disk image iterator and an in-memory transformation reusable
+    component, as well as code specific to the pipeline. Version v1 uses rescaling
+    for normalizing the data. Let’s say that later we find that standardization gives
+    a better result, such as validation accuracy, for the data pipeline when training
+    on an image dataset. So we replace the rescaling with standardization, which creates
+    a new version v2 of the pipeline.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，我们展示了一个具有两个版本的单个数据管道；v2配置为使用标准化代替v1中的缩放。此外，v2的历史记录比v1的历史记录有更好的训练结果。数据管道由磁盘上的图像迭代器和内存中可重用转换组件以及针对管道的特定代码组成。版本v1使用缩放进行数据归一化。假设后来我们发现标准化在训练图像数据集时给出了更好的结果，例如验证准确率。因此，我们将缩放替换为标准化，从而创建了管道的新版本v2。
+- en: '![](Images/CH14_F10_Ferlitsch.png)'
+  id: totrans-239
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F10_Ferlitsch.png)'
+- en: Figure 14.10 Using a version manifest for identifying the versions of available
+    reusable components for a specific version of a pipeline
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.10 使用版本清单来识别特定版本管道中可重用组件的版本
+- en: Let’s now look at a versioning system that is less obvious (figure 14.10). We
+    will continue with our existing example with the data pipeline, but this time
+    the on-disk image iterator for TFRecords has been updated to v2, and v2 has a
+    5% performance improvement over v1.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看一个不太明显的版本控制系统（图14.10）。我们将继续使用现有的数据管道示例，但这次磁盘上的TFRecords迭代器已更新到v2，v2比v1有5%的性能提升。
+- en: 'Since this is a configurable attribute of the data pipeline, why would we update
+    the version number of the corresponding data pipeline, which itself has not changed?
+    If we want to reproduce or otherwise audit a training job that used the pipeline,
+    we need to know the version number of the reusable component at the time the job
+    was done. In our example, we do this as follows:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是数据管道的可配置属性，为什么我们要更新相应数据管道的版本号，而该数据管道本身并没有改变？如果我们想重现或审计使用该管道的训练作业，我们需要知道作业完成时的可重用组件的版本号。在我们的例子中，我们这样做如下：
+- en: Have a manifest for the reusable components and corresponding version numbers.
+  id: totrans-243
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为可重用组件和相应的版本号创建清单。
+- en: Update the data pipeline to include the updated manifest.
+  id: totrans-244
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更新数据管道以包含更新的清单。
+- en: Update the version number on the data pipeline.
+  id: totrans-245
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更新数据管道上的版本号。
+- en: 14.2.2 Metadata
+  id: totrans-246
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.2.2 元数据
+- en: Let’s now cover storing metadata with the pipeline and other resources, such
+    as a dataset, and how it affects the assembly, execution, and scheduling of a
+    training job. So what is metadata, and how is it different from artifacts and
+    history? *History* is about retaining information about the *execution* of a pipeline,
+    while *metadata* is about retaining information about the *state* of the pipeline.
+    *Artifacts* are a combination of the history and metadata.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来讨论如何使用管道和其他资源（如数据集）存储元数据，以及它如何影响训练作业的组装、执行和调度。那么什么是元数据，它与工件和历史记录有何不同？*历史记录*是关于保留管道*执行*的信息，而*元数据*是关于保留管道*状态*的信息。*工件*是历史记录和元数据的组合。
+- en: Referring to our example data pipeline, let’s assume we are using version v3,
+    but we use it with a new dataset resource. At the time, the only statistic we
+    have on the dataset resource is the number of examples in the dataset. What we
+    don’t know is the mean and standard deviation of the examples. As a result, when
+    the v3 data pipeline is assembled with the new dataset, the underlying pipeline
+    management would query the state of the dataset for the mean and standard deviation.
+    Since they are unknown, the pipeline management would add a component prior to
+    the standardization component to calculate the values needed for the standardization
+    component. The top half of figure 14.11 depicts the construction of the pipeline
+    when the state of mean and standard deviation is unknown.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 参考我们的示例数据管道，假设我们正在使用版本v3，但我们使用一个新的数据集资源。当时，我们在数据集资源上只有数据集中的示例数量这个统计数据。我们不知道的是示例的平均值和标准差。因此，当v3数据管道与新数据集组装时，底层的管道管理会查询数据集的平均值和标准差的状态。由于它们是未知的，管道管理会在标准化组件之前添加一个组件来计算标准化组件所需的值。图14.11的上半部分描述了当平均值和标准差的状态未知时管道的构建。
+- en: Now, let’s say we run this pipeline again without any changes to the dataset.
+    Do we recalculate the mean and standard deviation? No, when the pipeline management
+    queries the dataset and finds the values are known, it will instead add a component
+    to use the cached values. The bottom half of figure 14.11 depicts the construction
+    of the pipeline when the state of the mean and standard deviation is unknown.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，假设我们在没有任何更改数据集的情况下再次运行此管道。我们会重新计算平均值和标准差吗？不，当管道管理查询数据集并发现值已知时，它将添加一个组件来使用缓存的值。图14.11的下半部分描述了当平均值和标准差的状态未知时管道的构建。
+- en: '![](Images/CH14_F11_Ferlitsch.png)'
+  id: totrans-250
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F11_Ferlitsch.png)'
+- en: Figure 14.11 The pipeline management choosing to calculate the mean/stddev or
+    use cache value based on the state information from the dataset
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.11 管理管道选择根据数据集的状态信息计算平均值/标准差或使用缓存值
+- en: Now, let’s update the dataset by adding some new examples, and we will call
+    this version of the dataset v2\. Since the examples have been updated, this invalidates
+    the previous mean and standard deviation calculation, so the update reverts this
+    statistic back to “unknown.”
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们通过添加一些新示例来更新数据集，我们将这个数据集版本称为v2。由于示例已被更新，这使之前的均值和标准差计算无效，因此更新将此统计信息恢复为“未知”。
+- en: Since the statistic reverted to unknown, the next time v3 of the data pipeline
+    is used with the updated v2 of the dataset, the pipeline management will again
+    add the component to calculate the mean and standard deviation. Figure 14.12 depicts
+    this reconstruction of the data pipeline.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于统计信息恢复为未知状态，下一次使用更新后的v2数据集的v3数据管道版本时，管道管理将再次添加计算均值和标准差的组件。图14.12展示了这一数据管道的重构过程。
+- en: '![](Images/CH14_F12_Ferlitsch.png)'
+  id: totrans-254
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F12_Ferlitsch.png)'
+- en: Figure 14.12 Pipeline management adds recalculating the mean and standard deviation
+    to the pipeline after new examples are added to the dataset.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.12 管道管理在数据集中添加新示例后，将重新计算均值和标准差添加到管道中。
+- en: 14.2.3 History
+  id: totrans-256
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.2.3 历史
+- en: '*History* refers to the outcome of the execution of an instance of the pipeline.
+    For example, consider a training pipeline that performs hyperparameter search
+    before full training of the model. The hyperparameter search space and the selected
+    values from the search become part of the pipeline execution history.'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*历史*指的是管道实例执行的输出结果。例如，考虑一个在模型完整训练之前进行超参数搜索的训练管道。超参数搜索空间和搜索中选定的值成为管道执行历史的一部分。'
+- en: 'Figure 14.13 depicts the execution of an instance of a pipeline, which consists
+    of the following:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.13展示了管道实例的执行过程，它包括以下内容：
+- en: The version of the pipeline components, v1
+  id: totrans-259
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管道组件的版本，v1
+- en: The training data and corresponding state, the statistics
+  id: totrans-260
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练数据和对应状态，统计信息
+- en: The trained model resource and corresponding state, the metrics
+  id: totrans-261
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练模型资源及其对应状态，指标
+- en: The version of the execution instance, v1.1, and corresponding history, the
+    hyperparameters
+  id: totrans-262
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行实例的版本，v1.1，以及对应的历史，超参数
+- en: '![](Images/CH14_F13_Ferlitsch.png)'
+  id: totrans-263
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F13_Ferlitsch.png)'
+- en: Figure 14.13 An execution history of a pipeline instance where the artifacts
+    are the state, history, and resource
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.13 展示了管道实例的执行历史，其中工件包括状态、历史和资源
+- en: Now, how would we incorporate history into subsequent execution instances of
+    the same pipeline? Figure 14.14 depicts the same pipeline configuration as in
+    figure 14.13, but with a new version of the dataset, v2\. The v2 dataset differs
+    from v1 by the inclusion of a small number of new examples; this number of new
+    examples is substantially less than the total number of examples.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们如何将历史数据整合到相同管道的后续执行实例中？图14.14展示了与图14.13相同的管道配置，但使用了新的数据集版本v2。v2数据集与v1的不同之处在于包含少量新的示例；这些新示例的数量远小于示例总数。
+- en: '![](Images/CH14_F14_Ferlitsch.png)'
+  id: totrans-266
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F14_Ferlitsch.png)'
+- en: Figure 14.14 The pipeline management reusing selected hyperparameters from previous
+    execution history when the number of new examples is substantially small
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.14 管道管理在新增示例数量显著较少时重用之前执行历史中选定的超参数
+- en: During the assembly of the pipeline instance, the pipeline management can use
+    the history from the previous execution instance. In our example, the number of
+    new examples is sufficiently low that the pipeline management reuses the selected
+    hyperparameter values from the previous execution history, eliminating the overhead
+    of reperforming hyperparameter search.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在管道实例的组装过程中，管道管理可以使用之前执行实例的历史数据。在我们的示例中，新增示例的数量足够低，以至于管道管理可以重用之前执行历史中选定的超参数值，从而消除了重新执行超参数搜索的开销。
+- en: 'Figure 14.15 depicts an alternative approach for pipeline management in our
+    example. In this alternative, the pipeline management continues to configure the
+    task of performing hyperparameter search in the second execution instance, but
+    differs as follows:'
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.15展示了我们示例中管道管理的另一种方法。在这种替代方案中，管道管理继续在第二个执行实例中配置执行超参数搜索的任务，但有所不同：
+- en: Assumes that the new hyperparameter values for the second execution instance
+    will be in the vicinity of the selected values from the first execution
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 假设第二次执行实例的新超参数值将位于第一次执行中选定的值附近
+- en: Narrows the search space to a small epsilon around the selected parameters from
+    the first execution instance history
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将搜索空间缩小到第一个执行实例历史中选定参数周围的小ε范围内
+- en: So far, we have covered the data and training portion of an e2e production pipeline
+    and scheduling. The next section covers how models are evaluated prior to deployment
+    to a production environment.
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经涵盖了端到端生产管道和调度的数据与训练部分。下一节将介绍在将模型部署到生产环境之前如何评估模型。
+- en: '![](Images/CH14_F15_Ferlitsch.png)'
+  id: totrans-273
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F15_Ferlitsch.png)'
+- en: Figure 14.15 The pipeline management narrows the hyperparameter search space
+    to be within the vicinity of previous execution history when the number of new
+    examples is substantially small.
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.15 当新示例数量显著较少时，管道管理将超参数搜索空间缩小到先前执行历史附近的区域。
+- en: 14.3 Model evaluations
+  id: totrans-275
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.3 模型评估
+- en: In a production environment, the purpose of a model evaluation is to determine
+    its performance relative to a baseline prior to being deployed to production.
+    If it is the first time the model is to be deployed, the baseline is specified
+    by the production team, generally referred to as *ML operations*. Otherwise, the
+    baseline is the currently deployed production model, commonly referred to as the
+    *blessed model*. The model to evaluate against the baseline is called the *candidate
+    model*.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，模型评估的目的是在部署到生产之前确定其相对于基线的性能。如果是第一次部署模型，基线由生产团队指定，通常被称为*机器学习操作*。否则，基线是当前部署的生产模型，通常被称为*受祝福模型*。与基线进行比较的模型称为*候选模型*。
+- en: 14.3.1 Candidate vs. blessed model
+  id: totrans-277
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.3.1 候选模型与受祝福模型比较
+- en: Previously, we covered model evaluations in the context of experimenting and
+    development, in which the evaluation is based on objective metrics of a test (holdout)
+    dataset. In production, however, evaluation is based on an expanded set of factors,
+    such as resource consumption, scaling, and sample sets seen by the blessed model
+    in production (these are not part of the test dataset).
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前，我们在实验和开发的环境中介绍了模型评估，其中的评估基于测试（保留）数据集的客观指标。然而，在生产中，评估基于一系列更广泛的因素，例如资源消耗、扩展以及在生产中受祝福模型看到的样本集（这些不是测试数据集的一部分）。
+- en: For example, let’s assume we want to evaluate the next candidate version of
+    a production model. We want to do an apples-to-apples comparison. To do this,
+    we will evaluate both the blessed and the candidate models against the same test
+    data, making sure that the test data has the same sampling distribution as the
+    dataset used for training. We also want to test both models with the same subset
+    of production requests; those requests should have the same sampling distribution
+    that the blessed model actually saw during production. For the candidate model
+    to replace the blessed model and become the next version to deploy, the metrics
+    values (for example, accuracy for classification) must be better on both the test
+    and production sample. In figure 14.16, you can see how we’d set up this test.
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设我们想要评估生产模型的下一个候选版本。我们想要进行苹果对苹果的比较。为此，我们将评估受祝福模型和候选模型对相同的测试数据，确保测试数据具有与用于训练的数据集相同的采样分布。我们还想用相同的生产请求子集测试这两个模型；这些请求应该具有与受祝福模型在生产中实际看到的相同的采样分布。为了使候选模型取代受祝福模型并成为下一个部署的版本，测试和生产样本的指标值（例如，分类的准确率）必须在两者上都更好。在图14.16中，你可以看到我们如何设置这个测试。
+- en: 'So, you might ask, why don’t we just evaluate the candidate model against the
+    same test data as the blessed model? Well, the reality is that once a model is
+    deployed, the distribution in the examples that it makes predictions on is likely
+    not the same as it was trained on. We also want to evaluate the model against
+    what it will likely see after it’s deployed. Next we’ll cover two types of changes
+    in distribution from training and production: serving skew and data drift.'
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，你可能会问，为什么我们不直接用与受祝福模型相同的测试数据来评估候选模型呢？嗯，现实情况是，一旦模型部署，它在预测的例子中的分布很可能与训练时的分布不同。我们还想评估模型在部署后可能看到的分布。接下来，我们将介绍从训练和生成环境中分布变化的两种类型：服务偏差和数据漂移。
+- en: '![](Images/CH14_F16_Ferlitsch.png)'
+  id: totrans-281
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F16_Ferlitsch.png)'
+- en: Figure 14.16 Evaluation of a candidate model includes data distributions from
+    both training and production data.
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.16 候选模型的评估包括训练和生产数据的数据分布。
+- en: Serving skew
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务偏差
+- en: Let’s now dive deeper into why we evaluate the candidate model against production
+    data. In chapter 12, we discussed how your training is probably a sampling distribution
+    of a subpopulation, not a population. Let’s first assume that the prediction requests
+    to the deployed model are of the same subpopulation. For example, let’s assume
+    the model is trained to recognize 10 types of fruits, and that all the prediction
+    requests for the deployed model were of the same 10 types of fruit—the same subpopulation.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们深入探讨一下为什么我们要将候选模型与生产数据进行评估。在第12章中，我们讨论了你的训练可能是一个子群体的抽样分布，而不是整个群体。首先，我们假设部署模型的预测请求来自相同的子群体。例如，假设模型被训练来识别10种水果，并且所有部署模型的预测请求都是这10种水果——相同的子群体。
+- en: But now let’s say we don’t have the same sampling distribution. The frequency
+    per class seen by the production model is different from the training data. For
+    example, let’s say the training data is perfectly balanced with 10% examples for
+    each type of the 10 fruits, and that the overall classification accuracy was 97%
+    on the test data. But for one of the 10 classes (say, peaches), the accuracy was
+    75%. Now let’s say 40% of the prediction requests made to the deployed blessed
+    model are peaches. In this case, the subpopulation stayed the same, but the sampling
+    distribution changed between the training data and production requests. This is
+    known as *serving skew*.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但现在假设我们没有相同的抽样分布。生产模型看到的每个类的频率与训练数据不同。例如，假设训练数据完美平衡，每种水果有10%的示例，测试数据上的整体分类准确率为97%。但对于10个类别中的一个（比如桃子），准确率为75%。现在假设40%的预测请求是针对部署的幸运模型的桃子。在这种情况下，子群体保持不变，但训练数据和生产请求之间的抽样分布发生了变化。这被称为*服务偏差*。
+- en: So how do we do this? First, we must configure a system that captures a random
+    selection of predictions and corresponding results. Let’s say you want to collect
+    5% of all the predictions. You could create a uniform random distribution of integers
+    between 1 and 20, and for each prediction draw a value from the distribution.
+    If the drawn value is 1, you save the prediction and corresponding result. After
+    a sampling period, you then manually inspect the saved predictions/results and
+    determine the correct ground truth per prediction. You then compare the manually
+    labeled ground truths to the predicted results to determine the metric on the
+    deployed production model.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，我们如何做到这一点呢？首先，我们必须配置一个系统来捕获预测的随机选择及其对应的结果。假设你想要收集所有预测的5%。你可以创建一个介于1到20之间的整数均匀随机分布，并为每个预测从分布中抽取一个值。如果抽取的值是1，你保存预测及其对应的结果。在采样周期结束后，你手动检查保存的预测/结果，并确定每个预测的正确真实值。然后，你将手动标记的真实值与预测结果进行比较，以确定部署生产模型上的指标。
+- en: Then you evaluate the candidate model with the manually labeled version of the
+    same production sample.
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后你使用相同生产样本的手动标记版本评估候选模型。
+- en: Data drift
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据漂移
+- en: 'Now let’s say that the production sampling distribution is not from the same
+    subpopulation of the training data, but a different subpopulation. Let’s continue
+    with our example of 10 types of fruits, and assume the training consists of freshly
+    picked and ripe fruit. But our model is deployed on farm tractors in fruit orchards,
+    where fruit can be at various stages of ripeness: green, ripe, rotten. The green
+    and rotten versions of the fruit are a different subpopulation from the training
+    data. In this case, the sampling distributions stayed the same, but the subpopulations
+    changed between the training data and production requests. This is known as *data
+    drift*.'
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在假设生产抽样分布不是来自与训练数据相同的子群体，而是不同的子群体。继续我们的10种水果的例子，并假设训练数据包括新鲜成熟的果实。但我们的模型部署在果园的拖拉机上，那里的果实可以处于各种成熟阶段：绿色、成熟、腐烂。这些绿色和腐烂的果实是训练数据中的不同子群体。在这种情况下，抽样分布保持不变，但训练数据和生产请求之间的子群体发生了变化。这被称为*数据漂移*。
+- en: In this case, we want to separate out and partition the production sample into
+    one partition that is of the same subpopulation as the training data (for example,
+    ripe) and one that is of the different subpopulation as the training data (for
+    example, green and rotten). We would then do a separate evaluation for each partition
+    of the production sample.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们想要将生产样本分离并划分为两部分：一部分与训练数据的子群体相同（例如，成熟的果实），另一部分与训练数据的子群体不同（例如，绿色和腐烂的果实）。然后，我们对生产样本的每个部分进行单独评估。
+- en: Collectively, the test, serving skew, and data drift samples are each referred
+    to as an *evaluation slice*, which is depicted in figure 14.17\. An organization
+    may have a custom definition of evaluation slices that is specific to their production,
+    whereas this collection of test, serving skew, and data drift is the general rule
+    of thumb.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总的来说，测试、服务偏差和数据漂移样本分别被称为*评估切片*，如图14.17所示。一个组织可能对其生产有自定义的评估切片定义，而这一组测试、服务偏差和数据漂移是一般规则。
+- en: '![](Images/CH14_F17_Ferlitsch.png)'
+  id: totrans-292
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F17_Ferlitsch.png)'
+- en: Figure 14.17 Evaluation slices in production consisting of samples from the
+    training data, serving skew, and data drift of the production requests
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.17 生产中的评估切片，包括来自训练数据的样本、服务偏差和生产请求的数据漂移
+- en: Scaling
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 扩展
+- en: Let’s now say that our candidate model is at least equal to or better on at
+    least one metric for all the evaluation slices from the blessed model. Can we
+    now version the candidate and deploy it as a replacement for the blessed model?
+    Not yet. We don’t yet know how the candidate model will computationally perform
+    in comparison to the blessed model. Perhaps the candidate model takes more memory,
+    or perhaps the candidate model has longer latency.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在假设我们的候选模型在所有评估切片中至少在一个指标上与受祝福模型相等或更好。我们现在可以版本化候选模型并将其作为受祝福模型的替代品部署吗？还不行。我们还没有了解候选模型与受祝福模型相比在计算性能上的表现。也许候选模型需要更多的内存，或者也许候选模型的延迟更长。
+- en: Before we make the final determination, we should deploy the model to a sandboxed
+    environment that replicates the compute environment of the deployed blessed model.
+    We also want to make sure that, for the evaluation period, the prediction requests
+    in the production environment are duplicated in real time, and sent to both the
+    production and the sandbox environments. Our goal for the sandbox model is to
+    collect the utilization metric, such as compute and memory resources consumed,
+    and latency time for prediction results. You can see this sandbox set up in figure
+    14.18.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们做出最终决定之前，我们应该将模型部署到一个沙盒环境中，该环境复制了已部署的受祝福模型的计算环境。我们还想确保，在评估期间，生产环境中的预测请求实时复制，并发送到生产环境和沙盒环境。我们的目标是收集沙盒模型的利用率指标，例如消耗的计算和内存资源以及预测结果的延迟时间。你可以在图14.18中看到这个沙盒设置。
+- en: '![](Images/CH14_F18_Ferlitsch.png)'
+  id: totrans-297
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F18_Ferlitsch.png)'
+- en: Figure 14.18 The last step before deployment is to run the candidate model in
+    a sandbox environment, using the same prediction requests that the blessed model
+    uses.
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.18 在部署之前，最后一步是在沙盒环境中运行候选模型，使用与受祝福模型相同的预测请求。
+- en: You might ask why we need to test the candidate model in a sandbox environment.
+    We want to know that the new model continues to meet the business requirements
+    in serving performance. Perhaps the candidate model has a substantial increase
+    in matrix multiply operations so that the latency time to return a prediction
+    is longer and does not meet the business requirements. Perhaps the memory footprint
+    increased such that the model starts memory-to-page caching under high serving
+    loads.
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，为什么我们需要在沙盒环境中测试候选模型。我们想知道新模型在服务性能上是否继续满足业务需求。也许候选模型在矩阵乘法操作上有显著增加，以至于返回预测的延迟时间更长，不符合业务需求。也许内存占用增加，使得模型在高服务负载下开始进行内存到页面缓存。
+- en: Let’s now consider some scenarios. First, you might say that even if the memory
+    footprint or the compute scaling is larger, or the latency is longer, we can simply
+    add more compute and/or memory resources. But there are many reasons you may not
+    be able to just add more resources. If the model is deployed in a constrained
+    environment, such as a mobile device, for example, you don’t have the ability
+    to change the memory or compute device. Or perhaps the environment has fantastic
+    resources, but can’t be further modified, such as a spacecraft that has been launched
+    into space. Or maybe the model is used by a school district that has a fixed allocated
+    budget for the compute costs.
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们考虑一些场景。首先，你可能会说，即使内存占用或计算扩展更大，或者延迟更长，我们也可以简单地添加更多的计算和/或内存资源。但是，有许多原因你可能无法仅仅添加更多资源。如果模型部署在受限环境中，例如移动设备，例如，你无法更改内存或计算设备。或者也许环境拥有极好的资源，但不能进一步修改，例如已经发射到太空的航天器。或者也许模型被一个学区使用，该学区有固定的计算成本预算。
+- en: Regardless of the reason, a final scaling evaluation must be performed to determine
+    the resources it uses. For constrained environments, such as mobile phones or
+    IoT devices, you want to find out if the candidate model will continue to meet
+    the operating requirements of the deployed model. And if your environment is not
+    constrained, such as auto-scaled cloud compute instances, you need to know whether
+    the new model meets the cost requirements for the ROI.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论原因如何，都必须进行最终的缩放评估，以确定其使用的资源。对于受限制的环境，例如手机或物联网设备，您希望了解候选模型是否会继续满足已部署模型的运行要求。如果您的工作环境不受限制，例如自动扩展的云计算实例，您需要知道新模型是否符合ROI的成本要求。
+- en: 14.3.2 TFX evaluation
+  id: totrans-302
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.3.2 TFX评估
+- en: Now let’s see how to use TFX to evaluate the current trained model, so we can
+    decide whether it will become the next blessed model. Essentially, we use the
+    `Evaluator` and `InfraValidator` components.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看如何使用TFX评估当前训练的模型，以便我们可以决定它是否会成为下一个批准的模型。本质上，我们使用`Evaluator`和`InfraValidator`组件。
+- en: Evaluator
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Evaluator
+- en: The `Evaluator` component, which is executed after the completion of the `Trainer`
+    component, evaluates the model against a baseline. We feed the `Evaluator` an
+    evaluation dataset from the `ExampleGen` component, as well as the trained model
+    from the `Trainer` component.
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`Trainer`组件完成后执行的`Evaluator`组件评估模型与基线。我们将来自`ExampleGen`组件的评估数据集以及来自`Trainer`组件的训练模型输入到`Evaluator`中。
+- en: We also feed it the previous blessed model, if one exists. If there is no previous
+    blessed model, comparing against a baseline of a blessed model is skipped.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果存在之前批准的模型，我们也会将其输入。如果没有之前批准的模型，则跳过与批准模型基线的比较。
+- en: 'The `Evaluator` component uses the TensorFlow Model Analysis Metrics library,
+    which needs to be imported in addition to TFX, as shown here:'
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Evaluator`组件使用TensorFlow模型分析度量库，除了TFX之外还需要导入，如下所示：'
+- en: '[PRE17]'
+  id: totrans-308
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'The next code example demonstrates the minimum requirements for constructing
+    an `Evaluator` component into a TFX pipeline, with these parameters:'
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码示例演示了将`Evaluator`组件构建到TFX管道中的最小要求，这些参数包括：
+- en: '`examples`—The output from `ExampleGen`, which generates batches of examples
+    for evaluation'
+  id: totrans-310
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`examples`—`ExampleGen`的输出，它生成用于评估的示例批次'
+- en: '`model`—The output from `Trainer` of the trained model to evaluate'
+  id: totrans-311
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model`—用于评估的`Trainer`训练模型的输出'
+- en: '[PRE18]'
+  id: totrans-312
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Minimal requirements for parameters
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 参数的最小要求
+- en: ❷ No baseline model to compare to
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 没有用于比较的基线模型
+- en: ❸ Default dataset slice to evaluate against
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 用于评估的默认数据集切片
+- en: In the preceding example, the parameter `eval_config` is set to `None`. In this
+    case, the `Evaluator` will use the entire dataset for evaluation and the metrics
+    specified when the model was trained, such as the accuracy for a classification
+    model.
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的示例中，参数`eval_config`设置为`None`。在这种情况下，`Evaluator`将使用整个数据集进行评估，并使用在模型训练时指定的度量，例如分类模型的准确率。
+- en: 'The parameter `eval_config` when specified takes an instance of the `tfma.EvalConfig`,
+    which takes three parameters:'
+  id: totrans-317
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当指定`eval_config`参数时，它接受一个`tfma.EvalConfig`实例，该实例接受三个参数：
+- en: '`model_specs`—A specification of the model input and output. By default, assumes
+    the input is the default serving signature.'
+  id: totrans-318
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model_specs`—模型输入和输出的规范。默认情况下，假设输入是默认的服务签名。'
+- en: '`metrics_specs`—A specification of one or more metrics to use for evaluation.
+    If not specified, the metrics specified when the model was trained are used.'
+  id: totrans-319
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`metrics_specs`—用于评估的一个或多个度量的规范。如果没有指定，则使用在模型训练时指定的度量。'
+- en: '`slicing_specs`—A specification of one or more slices from the dataset to use
+    for evaluation. If not specified, the entire dataset is used.'
+  id: totrans-320
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`slicing_specs`—用于评估的数据集的一个或多个切片的规范。如果没有指定，则使用整个数据集。'
+- en: '[PRE19]'
+  id: totrans-321
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: The parameters for `EvalConfig` vary widely, and I recommend reading TensorFlow
+    TFX tutorials for the `Evaluator` component ([www.tensorflow.org/tfx/guide/evaluator](https://www.tensorflow.org/tfx/guide/evaluator))
+    for a deeper understanding than the scope I will cover here.
+  id: totrans-322
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`EvalConfig`的参数差异很大，我建议阅读TensorFlow TFX教程中的`Evaluator`组件([www.tensorflow.org/tfx/guide/evaluator](https://www.tensorflow.org/tfx/guide/evaluator))，以获得比我在这里涵盖的范围更深入的理解。'
+- en: If there is a previously blessed model to compare against, the `baseline_model`
+    parameter is set to an instance of the TFX component `ResolverNode`.
+  id: totrans-323
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果存在用于比较的先前批准的模型，则`baseline_model`参数设置为TFX组件`ResolverNode`的实例。
+- en: 'The following code example is the minimum specification for `ResolverNode`,
+    where the parameters are as follows:'
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的代码示例是 `ResolverNode` 的最小规范，其中参数如下：
+- en: '`instance_name`—This is the name to assign to the next blessed model, which
+    is stored as metadata.'
+  id: totrans-325
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`instance_name`—这是分配给下一个祝福模型的名称，该模型作为元数据存储。'
+- en: '`resolver_class`—This is the instance type of a resolver object to use. In
+    this case, we specify the instance type for blessing the latest model.'
+  id: totrans-326
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`resolver_class`—这是要使用的解析器对象的实例类型。在这种情况下，我们指定了实例类型以祝福最新的模型。'
+- en: '`model`—This specifies the model type to bless. In this case, `Channel (type=Model)`
+    can be either a TensorFlow estimator or TF.Keras model.'
+  id: totrans-327
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model`—这指定了要祝福的模型类型。在这种情况下，`Channel (type=Model)` 可以是TensorFlow估计器或TF.Keras模型。'
+- en: '`model_blessing`—This specifies how to store the blessed model in the metadata.'
+  id: totrans-328
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model_blessing`—这指定了如何在元数据中存储祝福的模型。'
+- en: '[PRE20]'
+  id: totrans-329
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: In the preceding code example, if this is the first time the `ResolverNode()`
+    instance is called for the model, then the current model becomes the blessed model
+    and is stored in metadata as a blessed model with the instance name `blessed_model`.
+  id: totrans-330
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的代码示例中，如果这是第一次为该模型调用 `ResolverNode()` 实例，则当前模型成为祝福的模型，并以 `blessed_model`
+    的实例名称存储在元数据中作为祝福模型。
+- en: Otherwise, the current model is evaluated against the previous blessed model,
+    which is identified as `blessed_model` and retrieved from the metadata store accordingly.
+    In this case, both models are evaluated against the same evaluation slices, and
+    their corresponding metrics are compared. If the new model improves on the metrics,
+    it becomes the next version of the `blessed_model` instance.
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 否则，当前模型将与之前祝福的模型进行比较，该模型被标识为 `blessed_model`，并从元数据存储中相应地检索。在这种情况下，两个模型将与相同的评估片段进行比较，并比较它们相应的指标。如果新模型在指标上有所改进，它将成为下一个版本的
+    `blessed_model` 实例。
+- en: InfraValidator
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: InfraValidator
+- en: Next in the pipeline is the `InfraValidator` component. *Infra* refers to *infrastructure*.
+    This component is called only if the current trained model becomes the new blessed
+    model. The purpose of this component is to determine whether the model can be
+    loaded and queried in a sandbox environment that mimics the production environment.
+    It is up to the user to define the sandbox environment. In other words, it is
+    up to the user to decide how close the sandboxed environment is to the production
+    environment, and therefore how accurate the *InfraValidator* test is.
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在管道中的下一个组件是 `InfraValidator`。*Infra* 指的是 *基础设施*。只有当当前训练模型成为新的祝福模型时，才会调用此组件。此组件的目的是确定模型是否可以在模拟生产环境的沙盒环境中加载和查询。用户负责定义沙盒环境。换句话说，用户决定沙盒环境与生产环境的接近程度，因此决定了
+    *InfraValidator* 测试的准确性。
+- en: 'The next code example shows the minimum parameter requirements for the `InfraValidator`:'
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个代码示例展示了 `InfraValidator` 的最小参数要求：
+- en: '`model`—The trained model (in this example, the currently trained model from
+    the `Trainer` component)'
+  id: totrans-335
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model`—训练模型（在此示例中，来自 `Trainer` 组件的当前训练模型）'
+- en: '`serving_spec`—The specification for the sandbox environment'
+  id: totrans-336
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`serving_spec`—沙盒环境的规范'
+- en: '[PRE21]'
+  id: totrans-337
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ The trained model to deploy to the sandbox environment
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 部署到沙盒环境的训练模型
+- en: ❷ The specification for the sandbox environment
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 沙盒环境的规范
+- en: 'The serving specification consists of two parts:'
+  id: totrans-340
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务规范由两部分组成：
+- en: The type of serving binary. As of TFX version 0.22, only TensorFlow Serving
+    is supported.
+  id: totrans-341
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务二进制的类型。截至TFX版本0.22，仅支持TensorFlow Serving。
+- en: The type of serving platform, which can be either
+  id: totrans-342
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务平台的类型，可以是
+- en: Kubernetes
+  id: totrans-343
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes
+- en: Local Docker container
+  id: totrans-344
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 本地Docker容器
+- en: 'This example shows the minimum requirements for specifying a serving specification
+    using TensorFlow Serving and a Kubernetes cluster:'
+  id: totrans-345
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此示例展示了使用TensorFlow Serving和Kubernetes集群指定服务规范的最小要求：
+- en: '[PRE22]'
+  id: totrans-346
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: TFX documentation on the ServingSpec is currently sparse and will redirect you
+    to read the protobuf definition ([http://mng.bz/6NqA](http://mng.bz/6NqA)) in
+    the GitHub repository for more information.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX关于ServingSpec的文档目前很少，并将您重定向到GitHub存储库中的protobuf定义([http://mng.bz/6NqA](http://mng.bz/6NqA))以获取更多信息。
+- en: 14.4 Serving predictions
+  id: totrans-348
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.4 提供预测服务
+- en: Now that we have the new blessed model, we will look at how a model is deployed
+    into production for serving predictions. A production model is generally deployed
+    for either on-demand (live) or batch prediction.
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了新的祝福模型，我们将探讨如何将模型部署到生产环境中以提供预测服务。生产模型通常用于按需（实时）或批量预测。
+- en: 'How is a batch prediction different from on-demand (live) prediction from a
+    deployed model? There is one key difference, but otherwise they are essentially
+    the same as far as outcome:'
+  id: totrans-350
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量预测与从部署的模型中进行的按需（实时）预测有何不同？有一个关键的区别，但除此之外，它们在结果上基本上是相同的：
+- en: '*On-demand (live)*—Does an on-demand prediction for the entire set of instances
+    (one or more data items) and returns the results in real time'
+  id: totrans-351
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*按需（实时）*——为整个实例集（一个或多个数据项）进行按需预测，并实时返回结果'
+- en: '*Batch prediction service*—Does a queued (batch) prediction for the entire
+    set of instances in the background and stores the results in a cloud storage bucket
+    when ready'
+  id: totrans-352
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*批量预测服务*——在后台为整个实例集进行排队（批量）预测，并在准备好时将结果存储在云存储桶中'
+- en: 14.4.1 On-demand (live) serving
+  id: totrans-353
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.4.1 按需（实时）服务
+- en: For on-demand prediction, such as an online request via an interactive website,
+    the model is deployed to one or more compute instances, and receives prediction
+    requests as HTTP requests. A prediction request can consist of one or more individual
+    predictions; each prediction is typically referred to as an *instance*. You can
+    have single-instance requests, where the user wants to classify just one image,
+    or multi-instance requests, where the model will return predictions for multiple
+    images.
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于按需预测，例如通过交互式网站进行的在线请求，模型被部署到一个或多个计算实例上，并接收作为HTTP请求的预测请求。一个预测请求可以包含一个或多个单个预测；每个预测通常被称为*实例*。您可以有单实例请求，其中用户只想对一张图像进行分类，或者多实例请求，其中模型将为多张图像返回预测。
+- en: 'Let’s say the model receives single-instance requests: the user submits an
+    image and wants to get back a prediction, like a classification or an image caption.
+    These are live, on-demand requests coming over the internet. They may come from
+    a web application running in a user’s web browser, for example, or a backend application
+    on the server obtaining predictions as a microservice.'
+  id: totrans-355
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设模型接收单实例请求：用户提交一个图像并希望得到一个预测，如分类或图像标题。这些都是通过互联网实时到达的按需请求。例如，它们可能来自用户浏览器中运行的Web应用程序，或者服务器上的后端应用程序作为微服务获取预测。
+- en: Figure 14.19 shows this process. In this depiction, the model is contained in
+    a serving binary, which consists of a web server, serving function, and the blessed
+    model. The web server receives the prediction request as an HTTP request packet,
+    extracts the request content, and passes the content to the serving function.
+    The serving function then preprocesses the content into a format and shape expected
+    by the blessed model’s input layer, which is then inputted to the blessed model.
+    The blessed model returns the prediction to the serving function, which performs
+    any post-processing for final delivery, which is then passed back to the web server,
+    which returns the post-processed predictions as an HTTP response packet.
+  id: totrans-356
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.19展示了这个过程。在这个描述中，模型包含在一个服务二进制文件中，该文件由一个Web服务器、服务功能和受祝福的模型组成。Web服务器接收预测请求作为一个HTTP请求包，提取请求内容，并将内容传递给服务功能。服务功能随后将内容预处理成受祝福模型输入层期望的格式和形状，然后输入到受祝福模型中。受祝福模型将预测返回给服务功能，服务功能执行任何后处理以进行最终交付，然后将其返回给Web服务器，Web服务器将后处理的预测作为HTTP响应包返回。
+- en: '![](Images/CH14_F19_Ferlitsch.png)'
+  id: totrans-357
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F19_Ferlitsch.png)'
+- en: Figure 14.19 A production model on a serving binary receiving on-demand prediction
+    requests over the internet
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.19 一个在生产二进制文件上的模型通过互联网接收按需预测请求
+- en: As you can see in figure 14.19, on the client side, one or more prediction requests
+    are passed to a web client. The web client will then create either a single or
+    multi-instance prediction HTTP request packet. The prediction requests are encoded,
+    generally as base64, for safe transmission over the internet, and placed into
+    the content section of the HTTP request packet.
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您在图14.19中看到的，在客户端，一个或多个预测请求被传递给一个Web客户端。Web客户端随后将创建一个单实例或多实例的预测HTTP请求包。预测请求被编码，通常为base64，以确保通过互联网安全传输，并放置在HTTP请求包的内容部分。
+- en: The web server receives the HTTP request, decodes the content section, and passes
+    the single or multiple prediction requests to the serving function.
+  id: totrans-360
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Web服务器接收HTTP请求，解码内容部分，并将单个或多个预测请求传递给服务功能。
+- en: Let’s now take a deeper look into the purpose and construction of a serving
+    function. Typically, on the client side, the content (such as images, videos,
+    text, and structured data) are sent in raw format to the serving binary without
+    any preprocessing. The web server, upon receiving the request, extracts the content
+    from the request packet and passes it to the serving function. The content may
+    or may not be decoded, such as base64 decoding, prior to passing the serving function.
+  id: totrans-361
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来深入探讨服务函数的目的和构建方式。通常，在客户端，内容（如图片、视频、文本和结构化数据）以原始格式发送到服务二进制文件，而不进行任何预处理。当网络服务器接收到请求后，它会从请求包中提取内容并将其传递给服务函数。在传递给服务函数之前，内容可能需要进行解码，例如base64解码。
+- en: 'Let’s assume that the content is a single-instance request consisting of a
+    compressed image, such as in JPG or PNG format. Assume the input layer to the
+    model is uncompressed image bytes in the format of a multidimensional array, such
+    as a TensorFlow tensor or NumPy array. At a minimum, the serving function has
+    to perform any preprocessing that is not part of the model (for example, the pre-stem).
+    Assuming the model has no pre-stem, the serving function will need to do the following:'
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设内容是一个包含单个实例请求的内容，例如JPG或PNG格式的压缩图像。假设模型的输入层是不压缩的图像字节，格式为多维数组，例如TensorFlow张量或NumPy数组。至少，服务函数必须执行模型之外的任何预处理（例如，预茎）。假设模型没有预茎，服务函数需要执行以下操作：
+- en: Determine the compressed format of the image data, such as from the MIME type
+  id: totrans-363
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确定图像数据的压缩格式，例如从MIME类型。
+- en: Decompress the image into raw bytes
+  id: totrans-364
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将图像解压缩为原始字节。
+- en: Reshape the raw bytes into height × width × channel (for example, RGB)
+  id: totrans-365
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将原始字节重塑为高度 × 宽度 × 通道（例如，RGB）。
+- en: Resize the image to match the input shape of the model
+  id: totrans-366
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将图像调整大小以匹配模型的输入形状。
+- en: Rescale the pixel data for normalization or standardization
+  id: totrans-367
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对像素数据进行缩放，以进行归一化或标准化。
+- en: Next is an example implementation of a serving function for an image classification
+    model, where the preprocessing of the image data happens upstream from the model,
+    without a pre-stem. In this example, the method `serving_fn()` is registered with
+    the web server in the serving binary by assigning the method as the signature
+    `serving_ default` for the model. We added to the serving function the decorator
+    `@tf.function`, which instructs the AutoGraph compiler to convert the Python code
+    to a static graph, which can then be run on the GPU along with the model. In this
+    example, it is assumed the web server passes the extracted content from the prediction
+    request (in this case, the JPG compressed bytes) as a TensorFlow string. The call
+    to `tf.saved_model.save``()` saves the serving function to the same storage location
+    as the model, which is specified by the parameter `export_path`.
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来是一个图像分类模型的服务函数示例实现，其中图像数据的预处理发生在模型上游，没有预茎。在这个例子中，`serving_fn()`方法通过将方法分配为模型的签名`serving_default`在服务二进制文件中的网络服务器上注册。我们在服务函数中添加了装饰器`@tf.function`，该装饰器指示AutoGraph编译器将Python代码转换为静态图，然后可以在GPU上与模型一起运行。在这个例子中，假设网络服务器将提取的预测请求内容（在这种情况下，JPG压缩字节）作为TensorFlow字符串传递。对`tf.saved_model.save()`的调用将服务函数保存到与模型相同的存储位置，该位置由参数`export_path`指定。
+- en: 'Let’s now look into the body of this serving function. In the following code
+    example, we assume the web server in the serving binary extracts the content from
+    the HTTP request packet, decodes the base64 encoding, and passes the content (compressed
+    JPG image bytes) as a TensorFlow string data type, `tf.string`. The serving function
+    then performs the following:'
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看这个服务函数的主体。在下面的代码示例中，我们假设服务二进制文件中的网络服务器从HTTP请求包中提取内容，解码base64编码，并将内容（压缩的JPG图像字节）作为TensorFlow字符串数据类型`tf.string`传递。然后服务函数执行以下操作：
+- en: Calls a preprocessing function `preprocess_fn()` to decode the JPG image into
+    raw bytes and resize and rescale to match the input layer of the underlying model,
+    as a multidimensional TensorFlow array.
+  id: totrans-370
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用一个预处理函数`preprocess_fn()`，将JPG图像解码为原始字节，并调整大小和缩放以匹配底层模型的输入层，作为一个多维TensorFlow数组。
+- en: Passes the multidimensional TensorFlow array to the underlying model, `m_call()`.
+  id: totrans-371
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将多维TensorFlow数组传递给底层模型`m_call()`。
+- en: Returns the prediction `prob` from the underlying model back to the web server.
+  id: totrans-372
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将底层模型返回的预测`prob`返回给网络服务器。
+- en: The web server in the serving binary packages the prediction result into the
+    HTTP response packet back to the web client.
+  id: totrans-373
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务二进制文件中的Web服务器将预测结果打包到HTTP响应数据包中，返回给Web客户端。
+- en: '[PRE23]'
+  id: totrans-374
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ❶ Definition of the serving function that receives the content of the prediction
+    request via the serving binary’s web server
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 定义接收通过服务二进制文件的Web服务器内容的服务函数
+- en: ❷ The method that converts the content to match the input layer of the underlying
+    model
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将内容转换为与底层模型输入层匹配的方法
+- en: ❸ The preprocessed data is passed to the underlying model for prediction.
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将预处理数据传递给底层模型进行预测。
+- en: ❹ The prediction result is returned to the serving binary’s web server to return
+    as the HTTP response.
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 预测结果被返回到服务二进制文件的Web服务器，作为HTTP响应返回。
+- en: ❺ Saves the serving function as a static graph with the underlying model
+  id: totrans-379
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 将服务函数作为静态图与底层模型保存
+- en: 'The following is an example implementation of the preprocessing step of the
+    serving function. In this example, the function `preprocess_fn()` takes as input
+    the base64-decoded TensorFlow string from the web server and does the following:'
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个服务函数预处理步骤的示例实现。在这个例子中，函数`preprocess_fn()`接收来自Web服务器的base64解码后的TensorFlow字符串，并执行以下操作：
+- en: Calls the TensorFlow static graph operation `tf.io.decode_jpeg()` to decompress
+    the input into a decompressed image as a multidimensional TensorFlow array.
+  id: totrans-381
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用TensorFlow静态图操作`tf.io.decode_jpeg()`将输入解压缩为一个解压缩图像，作为多维TensorFlow数组。
+- en: Calls the TensorFlow static graph operation `tf.image.convert_image_dtype``()`
+    to both convert the integer pixel values to 32-bit float values and rescale the
+    values to the range 0 to 1 (normalization).
+  id: totrans-382
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用TensorFlow静态图操作`tf.image.convert_image_dtype()`将整数像素值转换为32位浮点值，并将值缩放到0到1的范围（归一化）。
+- en: Calls the TensorFlow static graph operation `tf.image.resize``()` to resize
+    the image to fit the input shape of the model. In this example, that would be
+    (192, 192, 3), where the value 3 is the number of channels.
+  id: totrans-383
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用TensorFlow静态图操作`tf.image.resize()`将图像调整大小以适应模型的输入形状。在这个例子中，那将是(192, 192, 3)，其中值3是通道数。
+- en: Passes the preprocessed image data to the underlying model’s input layer, designated
+    by the layer’s signature `numpy_inputs`.
+  id: totrans-384
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将预处理后的图像数据传递给底层模型的输入层，该输入层由层的签名`numpy_inputs`指定。
+- en: '[PRE24]'
+  id: totrans-385
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Decodes the TensorFlow string as encoded JPG into TensorFlow multidimensional
+    decompressed image raw bytes
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将TensorFlow字符串解码为编码的JPG，并将其转换为TensorFlow多维解压缩图像原始字节数据。
+- en: ❷ Converts and rescales the pixels to 32-bit floating-point values
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将像素转换为32位浮点值并缩放
+- en: ❸ Resizes the image to the input shape of the underlying model
+  id: totrans-388
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将图像调整大小以适应底层模型的输入形状
+- en: ❹ Preprocesses each image in the request
+  id: totrans-389
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 预处理请求中的每个图像
+- en: ❺ Passes the preprocessed images to the input layer of the underlying model
+  id: totrans-390
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 将预处理图像传递给底层模型的输入层
+- en: 'The following is an example implementation of the call to the underlying model,
+    described here:'
+  id: totrans-391
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是对底层模型调用的示例实现，此处进行了描述：
+- en: The parameter `model` is the compiled TF.Keras model, in which the method `call``()`
+    is the model’s method for forward-feeding a prediction.
+  id: totrans-392
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 参数`model`是编译后的TF.Keras模型，其中`call()`方法是模型的前向馈预测方法。
+- en: The method `get_concrete_function``()` constructs a wrapper around the underlying
+    model for execution. The wrapper provides the interface from switching execution
+    as a static graph in the serving function to a dynamic graph in the underlying
+    model.
+  id: totrans-393
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`get_concrete_function()`方法构建了一个围绕底层模型的包装器，用于执行。包装器提供了从服务函数中的静态图切换到底层模型中的动态图的接口。'
+- en: '[PRE25]'
+  id: totrans-394
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 14.4.2 Batch prediction
+  id: totrans-395
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.4.2 批量预测
+- en: '*Batch* *prediction* differs from deploying a model for on-demand prediction.
+    In on-demand prediction, you create a serving binary and serving platform for
+    deploying the model to; we call this the *endpoint*. Then you deploy the model
+    to that endpoint. Finally, users make on-demand (live) prediction requests to
+    the endpoint.'
+  id: totrans-396
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*批量* *预测*与部署模型进行按需预测不同。在按需预测中，你创建一个服务二进制文件和服务平台来部署模型；我们称之为*端点*。然后你将模型部署到该端点。最后，用户向端点发出按需（实时）预测请求。'
+- en: In contrast, batch prediction starts with creating a batch job for predictions.
+    The job service then provisions resources for the batch-prediction request, and
+    the results get returned to the caller. Then the job service unprovisions the
+    resources for the request.
+  id: totrans-397
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相比之下，批量预测从创建一个用于预测的批量作业开始。作业服务随后为批量预测请求分配资源，并将结果返回给调用者。然后作业服务释放请求的资源。
+- en: Batch prediction is generally used when there is no need for an immediate response,
+    so the response can be deferred; the number of predictions to process is massive
+    (in the millions); and allocation of compute resources is needed only for processing
+    the batch.
+  id: totrans-398
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量预测通常用于不需要立即响应的情况，因此响应可以延迟；需要处理的预测数量巨大（数百万）；并且只需要为处理批量分配计算资源。
+- en: As an example, consider a financial institution that at the end of each banking
+    day has a million transactions, and it has a model for forecasting out over the
+    next 10 days the amount of deposits and cash on hand. Since forecasting is time-series,
+    it doesn’t make sense and would be inefficient to send one transaction at a time
+    on a live prediction service. Instead, at the end of the banking day, the transaction
+    data is extracted (for example, from a SQL database) and submitted as a single
+    batch job. The compute resources for the serving binary and platform are then
+    provisioned, the job is processed, and serving binary and platform are deprovisioned
+    (the resources are deallocated).
+  id: totrans-399
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑一家金融机构，在银行日结束时有一百万笔交易，并且它有一个模型可以预测未来 10 天的存款和现金余额。由于预测是时间序列的，逐笔发送交易到实时预测服务是没有意义且效率低下的。相反，在银行日结束时，交易数据被提取（例如，从
+    SQL 数据库中）并作为一个单独的批量作业提交。然后为服务二进制文件和平台分配计算资源，处理作业，并释放服务二进制文件和平台（释放资源）。
+- en: 'Figure 14.20 shows a batch prediction service. This process has five major
+    steps:'
+  id: totrans-400
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.20 展示了一个批量预测服务。此过程有五个主要步骤：
+- en: The accumulated data is extracted and packaged into a batch request, such as
+    from a SQL database.
+  id: totrans-401
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 累积的数据被提取并打包成批量请求，例如从 SQL 数据库中提取。
+- en: The batch request is queued, and the queue manager determines compute resource
+    requirements and priority.
+  id: totrans-402
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 批量请求已排队，队列管理器确定计算资源需求和优先级。
+- en: The batch job, when ready, gets de-queued to the dispatcher.
+  id: totrans-403
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当批量作业准备就绪时，它将从队列中出队到调度器。
+- en: The dispatcher provisions the serving binary and platform, then submits the
+    batch job.
+  id: totrans-404
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调度器为服务二进制文件和平台分配资源，然后提交批量作业。
+- en: Upon completion of the batch job, the results are stored, and the dispatcher
+    deprovisions the allocated compute resources.
+  id: totrans-405
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 批量作业完成后，结果被存储，调度器释放分配的计算资源。
+- en: '![](Images/CH14_F20_Ferlitsch.png)'
+  id: totrans-406
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F20_Ferlitsch.png)'
+- en: Figure 14.20 A queue and dispatcher coordinate the provision and deprovisioning
+    serving binary and platform on a per job basis.
+  id: totrans-407
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.20 一个队列和调度器根据每个作业协调服务二进制文件和平台的分配和释放。
+- en: Next, we will cover how models are deployed in TFX for both on-demand and batch
+    prediction.
+  id: totrans-408
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将介绍如何在 TFX 中部署模型以进行按需和批量预测。
+- en: 14.4.3 TFX pipeline components for deployment
+  id: totrans-409
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.4.3 TFX 部署管道组件
+- en: In TFX, the deployment pipeline consists of the components `Pusher` and `Bulk
+    Inference`, as well as a serving binary and platform. The serving platform can
+    be cloud-based, local-based, edge devices, or browser-based. For cloud-based models,
+    the recommended serving platform is TensorFlow Serving.
+  id: totrans-410
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 TFX 中，部署管道由组件 `Pusher` 和 `Bulk Inference` 以及一个服务二进制文件和平台组成。服务平台可以是基于云的、本地化的、边缘设备或基于浏览器的。对于基于云的模型，推荐的服务平台是
+    TensorFlow Serving。
+- en: Figure 14.21 depicts the components for the TFX deployment pipeline. The `Pusher`
+    component deploys models for either on-demand prediction or batch prediction.
+    The component `Bulk Inference` handles batch predictions.
+  id: totrans-411
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.21 展示了 TFX 部署管道的组件。`Pusher` 组件用于部署模型以进行按需预测或批量预测。`Bulk Inference` 组件处理批量预测。
+- en: '![](Images/CH14_F21_Ferlitsch.png)'
+  id: totrans-412
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F21_Ferlitsch.png)'
+- en: Figure 14.21 A TFX deployment pipeline can deploy a model for on-demand serving
+    and/or bulk prediction.
+  id: totrans-413
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.21 一个 TFX 部署管道可以部署模型以进行按需服务和/或批量预测。
+- en: Pusher
+  id: totrans-414
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pusher
+- en: 'The following is an example implementation that shows the minimal requirements
+    for instantiating the `Pusher` component for deploying a model to a serving binary:'
+  id: totrans-415
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个示例实现，展示了实例化 `Pusher` 组件以部署模型到服务二进制文件所需的最小要求：
+- en: '`model`—The trained model to deploy to a serving binary and platform (in this
+    case, the currently trained model instance from the `Trainer` component)'
+  id: totrans-416
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model`—要部署到服务二进制文件和平台的训练模型（在这种情况下，来自 `Trainer` 组件的当前训练模型实例）'
+- en: '`push_destination`—The directory location within a serving binary to install
+    the model'
+  id: totrans-417
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`push_destination`—在服务二进制文件中安装模型的目录位置'
+- en: '[PRE26]'
+  id: totrans-418
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ❶ The trained model to deploy
+  id: totrans-419
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 要部署的训练模型
+- en: ❷ The destination of a serving binary to deploy the model to
+  id: totrans-420
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 部署模型的二进制文件目标
+- en: ❸ A directory location within the serving binary to install the model
+  id: totrans-421
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在服务二进制文件中的目录位置安装模型
+- en: 'In a production environment, we typically incorporate into the deployment pipeline,
+    deploying the model only if it is the new blessed model. The following is an example
+    implementation of the minimal parameters where the model is deployed only if it
+    is the new blessed model:'
+  id: totrans-422
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，我们通常将其纳入部署管道中，只有当它是新的受祝福模型时才部署模型。以下是一个示例实现，其中只有当模型是新的受祝福模型时才部署模型：
+- en: '`model`—The currently trained model from the `Trainer` component'
+  id: totrans-423
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model`—来自`Trainer`组件的当前训练的模型'
+- en: '`model_blessing`—The currently blessed model from the `Evaluator` component'
+  id: totrans-424
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model_blessing`—来自`Evaluator`组件的当前受祝福的模型'
+- en: 'In this example, the model is deployed only if both the model and blessed model
+    are the same model instance:'
+  id: totrans-425
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，只有在模型和受祝福的模型是相同的模型实例时，才会部署模型：
+- en: '[PRE27]'
+  id: totrans-426
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: ❶ The currently trained model
+  id: totrans-427
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当前训练的模型
+- en: ❷ The currently blessed model instance
+  id: totrans-428
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当前受祝福的模型实例
+- en: Next, we will cover doing bulk prediction in TFX.
+  id: totrans-429
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将介绍在TFX中进行批量预测。
+- en: Bulk inferrer
+  id: totrans-430
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量推理器
+- en: 'The `BulkInferrer` component performs the batch prediction service, which the
+    TFX documentation refers to *as bulk inference*. The following code is an example
+    implementation of the minimal parameters for performing batch prediction with
+    the currently trained model:'
+  id: totrans-431
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`BulkInferrer`组件执行批量预测服务，TFX文档将其称为*批量推理*。以下代码是使用当前训练的模型进行批量预测的最小参数的示例实现：'
+- en: '`examples`—The examples to do predictions for. In this case, they come from
+    an instance of the `ExampleGen` component.'
+  id: totrans-432
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`examples`—用于进行预测的示例。在这种情况下，它们来自`ExampleGen`组件的一个实例。'
+- en: '`model`—The model to use for the batch prediction (in this case, the currently
+    trained model).'
+  id: totrans-433
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`model`—用于批量预测的模型（在这种情况下，当前训练的模型）。'
+- en: '`inference_result`—Where to store the batch prediction results.'
+  id: totrans-434
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`inference_result`—存储批量预测结果的位置。'
+- en: '[PRE28]'
+  id: totrans-435
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: ❶ The examples to do batch prediction for
+  id: totrans-436
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 批量预测的示例
+- en: ❷ The model used for the batch prediction
+  id: totrans-437
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 用于批量预测的模型
+- en: ❸ The location for storing the prediction results
+  id: totrans-438
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 存储预测结果的位置
+- en: The following is an example implementation of the minimal parameters for performing
+    batch prediction with the currently trained model only if it is the blessed model,
+    which is specified by the parameter `model_blessing`. In this example, the batch
+    prediction is performed only if the currently trained model and the blessed model
+    instance are the same.
+  id: totrans-439
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个示例实现，仅当当前训练的模型是受祝福的模型时，使用当前训练的模型进行批量预测的最小参数。在这个例子中，只有在当前训练的模型和受祝福的模型实例相同时，才会执行批量预测。
+- en: '[PRE29]'
+  id: totrans-440
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: ❶ The current blessed model instance
+  id: totrans-441
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当前受祝福的模型实例
+- en: 14.4.4 A/B testing
+  id: totrans-442
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.4.4 A/B测试
+- en: We’ve now completed two tests of our newly trained model to see whether it is
+    ready to become the next production version, the blessed model. We’ve done a direct
+    comparison of model metrics between the two models, using predetermined evaluation
+    data. And we’ve tested the candidate model in the sandbox-simulated production
+    environment.
+  id: totrans-443
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经完成了对新训练的模型的两次测试，以查看它是否准备好成为下一个生产版本，即受祝福的模型。我们使用预定的评估数据在两个模型之间进行了模型指标的直接比较。我们还测试了候选模型在沙盒模拟的生产环境中。
+- en: Yet without actually deploying the candidate, we are still not sure that it
+    is the better model. We need to evaluate the candidate’s performance in the *live
+    production environment*. To do this, we feed the candidate a subset of the live
+    predictions, and measure the outcome per prediction between the candidate and
+    the current production model. Then we analyze the measured data, or metrics, to
+    see whether the candidate model is actually a better model.
+  id: totrans-444
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管没有实际部署候选模型，但我们仍然不确定它是否是更好的模型。我们需要在*实时生产环境*中评估候选模型的性能。为此，我们向候选模型提供实时预测的子集，并测量候选模型和当前生产模型之间每个预测的结果。然后我们分析测量的数据或指标，以查看候选模型是否实际上是一个更好的模型。
+- en: This is *A/B testing* in an ML production environment. Figure 14.22 demonstrates
+    the process. As you can see, both the models are deployed to the same live production
+    environment, with the prediction traffic split between the current blessed (A)
+    and the candidate blessed (B). Each model sees a randomly chosen selection of
+    predictions, which is based on a percentage.
+  id: totrans-445
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是在机器学习生产环境中的A/B测试。图14.22展示了这个过程。如图所示，两个模型都部署到了同一个实时生产环境中，预测流量在当前受祝福的（A）和候选受祝福的（B）之间分配。每个模型都看到基于百分比的随机选择的预测选择。
+- en: '![](Images/CH14_F22_Ferlitsch.png)'
+  id: totrans-446
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F22_Ferlitsch.png)'
+- en: Figure 14.22 A/B testing of current and candidate model in live production environment,
+    where the candidate model gets a small percentage of the live predictions
+  id: totrans-447
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.22 在实时生产环境中对当前模型和候选模型进行A/B测试，其中候选模型获得一小部分实时预测
+- en: We don’t want to have a bad result in production if the candidate model is less
+    good than the current model. So, we generally keep the percentage of traffic as
+    small as possible, but enough to measure the difference between the two. A typical
+    split is 5% for the candidate model and 95% for the production model.
+  id: totrans-448
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果候选模型不如当前模型好，我们不希望在生产环境中得到一个糟糕的结果。因此，我们通常将流量百分比保持尽可能小，但足以测量两者之间的差异。一个典型的分配是候选模型5%，生产模型95%。
+- en: The next question is, what do you measure? You’ve already measured and compared
+    the model’s objective metrics, so there’s not much value in repeating that, especially
+    if the evaluation slices include both serving skew and data drift. What you want
+    to measure here is how good the outcome is for a business objective.
+  id: totrans-449
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来的问题是，你要测量什么？你已经测量并比较了模型的客观指标，所以重复这些指标的价值不大，尤其是如果评估切片包括服务倾斜和数据漂移。你在这里想要测量的是业务目标的结果有多好。
+- en: 'For example, assume your model is an image classification model deployed to
+    a manufacturing assembly line that looks for defects. For each model, you have
+    two bins: one for good parts, and one for defects. After a specified period of
+    time, your QA personnel manually inspect a sampling distribution from the bins
+    of both the production model and the candidate model, and then compare the two.
+    In particular, they want to answer two questions:'
+  id: totrans-450
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设你的模型是一个部署到制造装配线上的图像分类模型，用于寻找缺陷。对于每个模型，你有两个桶：一个用于好零件，一个用于缺陷。在指定的时间段后，你的QA人员会手动检查来自生产模型和候选模型桶中的采样分布，然后比较两者。特别是，他们想要回答两个问题：
+- en: Does the candidate model detect an equal or greater number of defects than the
+    production model detects? These are the true positives.
+  id: totrans-451
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 候选模型检测到的缺陷数量是否与生产模型检测到的数量相等或更多？这些都是真阳性。
+- en: Does the candidate detect an equal or lesser number of non-defects? These are
+    false positives.
+  id: totrans-452
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 候选模型检测到的非缺陷数量是否与缺陷数量相等或更少？这些都是假阳性。
+- en: 'As in this example, you have to determine the business objective: increasing
+    true positives, decreasing false positives, or both.'
+  id: totrans-453
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如这个例子所示，你必须确定业务目标：增加真阳性，减少假阳性，或者两者都要。
+- en: Let’s consider one more example. Let’s say we are working on a language model
+    on an e-commerce site, which does tasks such as image captioning, has a chatbot
+    for questions on transactions, and language translation for chatbot responses
+    to users. In this case, the metric we measure might be the total number of completed
+    transactions or the average revenue from each transaction. In other words, does
+    the candidate model reach a larger audience and/or make more revenue?
+  id: totrans-454
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们再考虑一个例子。假设我们正在为一个电子商务网站上的语言模型工作，这个模型执行的任务包括图像标题生成、为交易问题提供聊天机器人，以及为聊天机器人对用户的响应进行语言翻译。在这种情况下，我们可能测量的指标可能是完成交易的总数或每笔交易的平均收入。换句话说，候选模型是否能触及更广泛的受众并/或创造更多的收入？
+- en: 14.4.5 Load balancing
+  id: totrans-455
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.4.5 负载均衡
+- en: Once a model is deployed to an on-demand production environment, the volume
+    of prediction requests over time could vary substantially. Ideally, the model
+    would meet demand at the highest peak level within a latency constraint, and also
+    minimize the compute costs.
+  id: totrans-456
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦模型部署到按需生产环境，预测请求的量随时间可能会大幅变化。理想情况下，模型应在延迟约束内满足最高峰的需求，同时也要最小化计算成本。
+- en: We could meet the first requirement simply by increasing the compute resources
+    or number of GPUs, if the model is monolithic, meaning it is deployed as a single
+    model instance. But this would undermine the second requirement, to minimize the
+    compute costs.
+  id: totrans-457
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果模型是单体模型，即作为一个单一模型实例部署，我们可以简单地通过增加计算资源或GPU数量来满足第一个要求。但这样做会损害第二个要求，即最小化计算成本。
+- en: Like other contemporary cloud applications, when request traffic varies substantially,
+    we use autoscaling and load balancing for distributed processing of the requests.
+    Let’s see how autoscaling works for ML.
+  id: totrans-458
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像其他当代云应用一样，当请求流量有显著变化时，我们使用自动扩展和负载均衡来进行请求的分布式处理。让我们看看自动扩展在机器学习中的应用是如何工作的。
+- en: The terms *autoscaling* and *load balancing* may seem to be used interchangeably.
+    But they are really two separate processes that work in conjunction. In *autoscaling*,
+    the process is provisioning (adding) and deprovisioning (deleting) compute instances,
+    in response to the overall current prediction request load. In *load balancing*,
+    the process is determining how to distribute the current prediction request load
+    across existing provisioned compute instances, and determining when to instruct
+    the autoscaling process to provision or deprovision compute instances.
+  id: totrans-459
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 术语*自动扩展*和*负载均衡*可能看起来可以互换使用。但实际上，它们是两个独立的过程，协同工作。在*自动扩展*中，过程是响应整体当前预测请求负载进行提供（添加）和取消提供（删除）计算实例。在*负载均衡*中，过程是确定如何将当前预测请求负载分配到现有的已提供计算实例，并确定何时指令自动扩展过程提供或取消提供计算实例。
+- en: Figure 14.23 depicts a load-balancing scenario for an ML production environment.
+    Essentially, a load-balancing compute node receives the prediction requests, then
+    reroutes them to a serving binary, which receives the prediction responses and
+    routes them back to the client caller.
+  id: totrans-460
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.23描述了一个适用于机器学习生产环境的负载均衡场景。本质上，负载均衡计算节点接收预测请求，然后将它们重定向到服务二进制，该服务二进制接收预测响应并将它们返回给客户端调用者。
+- en: '![](Images/CH14_F23_Ferlitsch.png)'
+  id: totrans-461
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F23_Ferlitsch.png)'
+- en: Figure 14.23 A load balancer distributes requests across serving binaries that
+    are dynamically provisioned and deprovisioned by an autoscaling node.
+  id: totrans-462
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.23 一个负载均衡器将请求分配给由自动扩展节点动态提供和取消提供的多个服务二进制。
+- en: Let’s go deeper into figure 14.23\. The load balancer monitors traffic loads,
+    such as the frequency of prediction requests per unit of time, the inbound and
+    outbound volume of network traffic, and the latency time in returning a response
+    to a prediction request.
+  id: totrans-463
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更深入地看看图14.23。负载均衡器监控流量负载，例如单位时间内的预测请求频率、网络流量的进出量以及返回预测请求响应的延迟时间。
+- en: This monitored data is fed in real time to an autoscaling node. The autoscaling
+    node is configured by the MLOps personnel to meet a performance criteria. If the
+    performance is below a prespecified threshold and length of time, the autoscaler
+    will dynamically provision one or more new duplicated instances of the serving
+    binary. Likewise, if the performance is above a prespecified threshold and length
+    of time, the autoscaler will dynamically deprovision one or more existing duplicated
+    instances of the serving binary.
+  id: totrans-464
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这监控数据实时输入到自动扩展节点。自动扩展节点由MLOps人员配置以满足性能标准。如果性能低于预设的阈值和时长，自动扩展器将动态地提供一个或多个新的服务二进制副本实例。同样，如果性能高于预设的阈值和时长，自动扩展器将动态地取消提供一个或多个现有的服务二进制副本实例。
+- en: As the autoscaler adds serving binaries, it registers the serving binaries with
+    the load balancer. Likewise, as it removes serving binaries, it unregisters the
+    serving binaries with the load balancer. This tells the load balancer which serving
+    binaries are active that the load balancer can distribute the prediction results.
+  id: totrans-465
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着自动扩展器添加服务二进制，它将服务二进制注册到负载均衡器。同样，随着它移除服务二进制，它将服务二进制注销到负载均衡器。这告诉负载均衡器哪些服务二进制是活跃的，以便负载均衡器可以分配预测结果。
+- en: Typically, the load balancer is configured with a health monitor to monitor
+    the health of each serving binary. If the serving binary is determined to be unhealthy,
+    the health monitor instructs the autoscaling node to deprovision the serving binary
+    and provision a new serving binary as a replacement.
+  id: totrans-466
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，负载均衡器配置了健康监控器来监控每个服务二进制的健康状态。如果确定服务二进制不健康，健康监控器将指令自动扩展节点取消提供该服务二进制并提供一个新的服务二进制作为替代。
+- en: 14.4.6 Continuous evaluation
+  id: totrans-467
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.4.6 持续评估
+- en: Continuous evaluation (CE) is an ML production extension of the software development
+    process continuous integration (CI) and continuous deployment (CD). This extension
+    is commonly denoted as CI/CD/CE. *Continuous evaluation* means that we monitor
+    the prediction requests and responses that the model receives after being deployed
+    to production, and perform evaluations on the prediction responses. This is similar
+    to what is done in evaluating the model with the existing test, serving skew,
+    and data drift slices. This is done to detect a deterioration in the model performance
+    due to changes in the prediction requests over time seen in production.
+  id: totrans-468
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续评估（CE）是软件开发过程中的持续集成（CI）和持续部署（CD）的机器学习生产扩展。这个扩展通常表示为CI/CD/CE。*持续评估*意味着我们在模型部署到生产后，监控模型接收到的预测请求和响应，并对预测响应进行评估。这与使用现有的测试、服务偏差和数据漂移切片评估模型所做的工作类似。这样做是为了检测由于生产中预测请求随时间变化而导致的模型性能下降。
+- en: 'The typical process for continuous evaluation is as follows:'
+  id: totrans-469
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续评估的典型过程如下：
+- en: A preconfigured percent (for example, 2%) of prediction requests and responses
+    will be saved for manual evaluation.
+  id: totrans-470
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将预配置的百分比（例如，2%）的预测请求和响应保存以供手动评估。
+- en: The prediction requests and responses that are saved are randomly chosen.
+  id: totrans-471
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 保存的预测请求和响应是随机选择的。
+- en: At some periodic basis, the saved prediction requests and response are manually
+    reviewed and evaluated against the model’s objective metrics.
+  id: totrans-472
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在某个周期性基础上，保存的预测请求和响应会手动审查并评估与模型的目标指标。
+- en: If the evaluation determines that the model is performing below the model’s
+    pre-deployment evaluation of the objective metrics, the manual evaluators identify
+    underperforming examples that are a result of serving skew, data drift, and any
+    unanticipated situation. These are anomalies.
+  id: totrans-473
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果评估确定模型在目标指标上的表现低于模型部署前的评估，手动评估人员将识别出由于服务偏差、数据漂移和任何未预见到的情况导致的性能不佳的示例。这些都是异常情况。
+- en: The identified examples are manually labeled and added to the training dataset,
+    and a portion is set aside as corresponding evaluation slices.
+  id: totrans-474
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确定的示例会手动标记并添加到训练数据集中，其中一部分被保留为相应的评估切片。
+- en: The model is either incrementally retrained or fully retrained.
+  id: totrans-475
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型要么是增量重新训练，要么是全面重新训练。
+- en: Figure 14.24 depicts a CI/CD/CE approach of integrating continuous evaluation
+    from a deployed production model into the model development process.
+  id: totrans-476
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.24描述了将部署的生产模型中的持续评估集成到模型开发过程中的CI/CD/CE方法。
+- en: '![](Images/CH14_F24_Ferlitsch.png)'
+  id: totrans-477
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH14_F24_Ferlitsch.png)'
+- en: Figure 14.24 A production-deployed model is continuously evaluated to identify
+    underperforming examples, which are then added to the dataset for retraining the
+    model.
+  id: totrans-478
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.24 一个生产部署的模型会持续评估以识别表现不佳的示例，然后这些示例将被添加到数据集中以重新训练模型。
+- en: 14.5 Evolution in production pipeline design
+  id: totrans-479
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.5 生产管道设计演变
+- en: Let’s wrap up the book with a brief discussion on how the concepts and necessity
+    of a pipeline evolved when machine learning went from research to full-scale production.
+    You may find the part on model amalgamation particularly interesting in that it
+    is one of the next forefronts in deep learning.
+  id: totrans-480
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们以对机器学习从研究到全面生产的概念和必要性如何演变的简要讨论来结束这本书。你可能对模型融合的部分特别感兴趣，因为它是深度学习下一个前沿领域之一。
+- en: How did the evolution in machine learning approaches affect how we actually
+    do machine learning? The development of deep learning models evolved from experimentation
+    in the lab to deployment and serving in a full-scale production environment.
+  id: totrans-481
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习方法的演变是如何影响我们实际进行机器学习的方式的？深度学习模型的发展从实验室的实验到在全面的生产环境中部署和服务的演变。
+- en: 14.5.1 Machine learning as a pipeline
+  id: totrans-482
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.5.1 机器学习作为管道
+- en: 'You’ve likely seen this before. A successful ML engineer will need to decompose
+    a machine learning solution into the following steps:'
+  id: totrans-483
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能之前见过这种情况。一个成功的机器学习工程师需要将机器学习解决方案分解为以下步骤：
+- en: Identify the type of model for the problem.
+  id: totrans-484
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 确定问题的模型类型。
+- en: Design the model.
+  id: totrans-485
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 设计模型。
+- en: Prepare the data for the model.
+  id: totrans-486
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 准备模型的数据。
+- en: Train the model.
+  id: totrans-487
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 训练模型。
+- en: Deploy the model.
+  id: totrans-488
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 部署模型。
+- en: ML engineer(s) organized these steps into a two-stage e2e pipeline. The first
+    e2e pipeline consists of the first three steps, which is depicted in figure 14.25
+    as modeling, data engineering, and training. Once the ML engineer(s) is successful
+    with this stage, it would be coupled with the deployment step to form a second
+    e2e pipeline. Typically, the model was deployed into a container environment and
+    accessed via a REST-based or microservice interface.
+  id: totrans-489
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 机器学习工程师将这些步骤组织成一个两阶段端到端管道。第一个端到端管道包括前三个步骤，如图14.25所示为建模、数据工程和训练。一旦机器学习工程师在这个阶段取得成功，它将与部署步骤相结合，形成一个第二个端到端管道。通常，模型被部署到容器环境中，并通过基于REST或微服务接口访问。
+- en: '![](Images/CH14_F25_Ferlitsch.png)'
+  id: totrans-490
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F25_Ferlitsch.png)'
+- en: Figure 14.25 2017 prevailing practice for end-to-end machine learning pipeline
+  id: totrans-491
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.25 2017年端到端机器学习管道的流行实践
+- en: That was the prevailing practice in 2017\. I refer to it as the *discovery phase*.
+    What are the parts and how do they fit together?
+  id: totrans-492
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那是2017年的流行做法。我将其称为*发现阶段*。组成部分是什么以及它们是如何相互配合的？
+- en: 14.5.2 Machine learning as a CI/CD production process
+  id: totrans-493
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.5.2 将机器学习作为CI/CD生产过程
+- en: In 2018, businesses were formalizing the CI/CD production process, which I refer
+    to as the *exploration phase*. Figure 14.26 is a slide I used in a Google presentation
+    to business decision makers in late 2018 that captures where we were then. It
+    wasn’t just a technical process anymore, but included the integration of planning
+    and quality assurance. The data engineering became more defined as extraction,
+    analysis, transformation, management, and serving steps. Model designing and training
+    included feature engineering, and the deployment expanded to include continuous
+    learning.
+  id: totrans-494
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在2018年，企业正在正式化CI/CD生产过程，我将其称为*探索阶段*。图14.26是我2018年末在谷歌演示中向商业决策者展示的幻灯片，捕捉了那时的我们所在的位置。这不仅仅是一个技术过程，还包括了计划和质量管理。数据工程变得更加明确，包括提取、分析、转换、管理和服务步骤。模型设计和训练包括特征工程，部署扩展到包括持续学习。
+- en: '![](Images/CH14_F26_Ferlitsch.png)'
+  id: totrans-495
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F26_Ferlitsch.png)'
+- en: Figure 14.26 By 2018, Google and other large enterprise businesses were formalizing
+    the production process to include the planning and quality assurance stages as
+    well as the technical process.
+  id: totrans-496
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.26 到2018年，谷歌和其他大型企业已经开始正式化生产过程，包括计划和质量管理阶段以及技术过程。
+- en: 14.5.3 Model amalgamation in production
+  id: totrans-497
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 14.5.3 生产中的模型合并
+- en: Models today in production don’t have a single output layer. Instead they have
+    multiple output layers, from essential feature extraction (common layers), representational
+    space, latent space (feature vectors, encodings), and probability distribution
+    space (soft and hard labels). The models now are the whole application; there
+    is no backend.
+  id: totrans-498
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '今天的生产模型没有单一的输出层。相反，它们有多个输出层，从基本特征提取（常见层）、表示空间、潜在空间（特征向量、编码）和概率分布空间（软标签和硬标签）。现在的模型是整个应用；没有后端。 '
+- en: These models learn the optimal way to interface and data communication. The
+    enterprise ML engineer of 2021 is now guiding the search space within the model
+    amalgamation, a generalized example of which is depicted in figure 14.27.
+  id: totrans-499
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些模型学习最佳的接口和数据通信方式。2021年的企业机器学习工程师现在正在指导模型合并中的搜索空间，其一个通用示例在图14.27中有所描述。
+- en: '![](Images/CH14_F27_Ferlitsch.png)'
+  id: totrans-500
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH14_F27_Ferlitsch.png)'
+- en: Figure 14.27 Model amalgamation—when the models become the entire application!
+  id: totrans-501
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.27 模型合并——当模型成为整个应用时！
+- en: 'Let’s break down this generalized example. On the left side is the input to
+    the amalgamation. The input is processed by a common set of convolutional layers
+    into what is called the *shared model bottom*. The output from the shared model
+    bottom in this depiction has four learned output representations: 1) high-dimensional
+    latent space, 2) low-dimensional latent space, 3) pre-activation conditional probability
+    distribution, and 4) post-activation independent probability distribution.'
+  id: totrans-502
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们分解这个通用示例。在左侧是合并的输入。输入通过一组常见的卷积层进行处理，形成所谓的*共享模型底部*。在这个描述中，共享模型底部的输出有四个学习到的输出表示：1)
+    高维潜在空间，2) 低维潜在空间，3) 预激活条件概率分布，和4) 后激活独立概率分布。
+- en: Each of these learned output representations are reused by specialized downstream
+    learned tasks that perform an action (for example, state transition change or
+    transformation). Each task, represented in the figure as tasks 1, 2, 3, and 4,
+    reuses the output representation that is the most optimal (size, speed, accuracy)
+    for the task’s goal. These individual tasks may then produce multiple learned
+    output representations or combine learned representations from multiple tasks
+    (dense embeddings) for reuse for further downstream tasks, as you saw in the sports
+    broadcasting example in chapter 1.
+  id: totrans-503
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些学习到的输出表示被专门的下游学习任务重复使用，这些任务执行某些操作（例如，状态转换变化或转换）。图中的每个任务（1、2、3和4）都重复使用对任务目标最优化（大小、速度、准确性）的输出表示。这些个别任务可能随后产生多个学习到的输出表示，或者将来自多个任务的学习表示（密集嵌入）组合起来，以供进一步的下游任务使用，正如你在第1章的体育广播示例中看到的。
+- en: Not only do serving pipelines enable these types of solutions, but the components
+    within the pipelines can be version-controlled and reconfigured. This enables
+    these components to be reusable, which is a fundamental principle in modern software
+    engineering.
+  id: totrans-504
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不仅服务管道能够实现这些类型的解决方案，而且管道内的组件可以进行版本控制和重新配置。这使得这些组件可重用，这是现代软件工程的基本原则之一。
+- en: Summary
+  id: totrans-505
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: The basic components of a training pipeline are model feeding, model evaluation,
+    and training schedulers.
+  id: totrans-506
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 训练管道的基本组件包括模型喂养、模型评估和训练调度器。
+- en: The objective metrics of each instance of a model are saved as metadata. A model
+    instance is blessed when its objective metrics are better than the current blessed
+    model.
+  id: totrans-507
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 模型每个实例的目标指标被保存为元数据。当模型实例的目标指标优于当前受祝福的模型时，该模型实例被祝福。
+- en: Each blessed model is tracked and versioned in a model repository.
+  id: totrans-508
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个受祝福的模型都在模型存储库中进行跟踪和版本控制。
+- en: When a model is fed for distributed training, the batch size is increased to
+    smooth out variances among the different batches that are fed in parallel.
+  id: totrans-509
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当模型用于分布式训练时，批次大小会增加，以平滑不同批次之间并行馈送时的差异。
+- en: In orchestration, a management interface oversees the execution of each component,
+    remembers the execution of past components, and maintains history.
+  id: totrans-510
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在编排中，管理接口监督每个组件的执行，记住过去组件的执行情况，并维护历史记录。
+- en: Evaluation slices consist of examples of the same distribution as the training
+    data, and from out-of-distribution examples seen in production. These include
+    serving skew and data drift.
+  id: totrans-511
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 评估切片包括与训练数据相同分布的示例，以及在生产中看到的分布外示例。这包括服务偏差和数据漂移。
+- en: The basic components of a deployment pipeline are deployment, serving, scaling,
+    and continuous evaluation.
+  id: totrans-512
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署管道的基本组件包括部署、服务、扩展和持续评估。
+- en: A/B testing is used in live production environments to determine whether the
+    candidate model is better than the current production model, such as not to disrupt
+    production if something unexpected occurs.
+  id: totrans-513
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在实时生产环境中使用A/B测试来确定候选模型是否优于当前生产模型，例如，如果发生意外情况，不要干扰生产。
+- en: Continuous evaluation is used in live production environments to identify serving
+    skews, data drift, and anomalies, from which new labeled data can be added to
+    the dataset and the model further retrained.
+  id: totrans-514
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在实时生产环境中使用持续评估来识别服务偏差、数据漂移和异常，从而可以向数据集添加新的标记数据，并对模型进行进一步的重训练。

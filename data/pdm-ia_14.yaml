@@ -1,0 +1,2197 @@
+- en: 10 Security container isolation
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 10 安全容器隔离
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: All Linux security features used to keep containers isolated from each other
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有用于保持容器彼此隔离的Linux安全功能
+- en: Read-only access to kernel filesystems needed for processes within a container
+    but which must be blocked from write access
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 容器内进程需要的对内核文件系统的只读访问，但必须阻止写入访问
+- en: Masking of kernel filesystems to hide information from the host system
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 隐藏内核文件系统以从宿主系统隐藏信息
+- en: Linux capabilities limiting the power of root
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Linux能力限制root的权力
+- en: The PID, IPC and network namespaces, which hide most of the operating system
+    from processes within containers
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PID、IPC和网络命名空间，它们隐藏了操作系统的大部分内容，使容器内的进程无法访问。
+- en: The mount namespace, which along with SELinux limit the container processes’
+    access to only the designated image and volumes
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 挂载命名空间，它与SELinux一起限制容器进程只能访问指定的镜像和卷
+- en: The user namespace, which allows you to write root processes inside of a container
+    that are not root outside of a container
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户命名空间，它允许您在容器内写入不是root的root进程
+- en: In this chapter and chapter 11, I review and demonstrate some additional security
+    considerations when using Podman to run containers. Some of the content was covered
+    in other chapters, but I think it is useful to concentrate on these features from
+    a security perspective.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章和第11章中，我回顾并演示了使用Podman运行容器时的一些额外的安全考虑。其中一些内容在其他章节中已经介绍过，但我认为从安全角度集中关注这些功能是有用的。
+- en: One of the most frequent problems I see with people running containers is that
+    when the container process is denied some access, the user’s first reaction is
+    to run the container in `--privileged` mode, which turns off all security separation
+    for your container. Understanding how to deal with the security features discussed
+    in this chapter helps you avoid needing to do this.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我看到人们在运行容器时最常见的问题之一是，当容器进程被拒绝某些访问时，用户的第一个反应就是以`--privileged`模式运行容器，这会关闭您容器的所有安全隔离。了解如何处理本章中讨论的安全功能可以帮助您避免需要这样做。
+- en: When I look at containers from a security point of view, I examine how to protect
+    the host kernel and filesystem from the processes inside the container. I wrote
+    a coloring book, *The Container Coloring Book* ([https://red.ht/3gfVlHF](https://red.ht/3gfVlHF)),
+    illustrated by Máirín Duffy (@marin), describing the security features of containers
+    based on the three pigs (figure 10.1).
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我从安全的角度看待容器时，我检查如何保护宿主内核和文件系统免受容器内进程的侵害。我写了一本彩绘书，《容器彩绘书》([https://red.ht/3gfVlHF](https://red.ht/3gfVlHF))，由Máirín
+    Duffy (@marin) 插图，描述了基于三只猪的容器安全功能（图10.1）。
+- en: '![](../../OEBPS/Images/10-01.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/10-01.png)'
+- en: Figure 10.1 *The Container Coloring Book* ([https://red.ht/3gfVlHF](https://red.ht/3gfVlHF))
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1 *容器彩绘书* ([https://red.ht/3gfVlHF](https://red.ht/3gfVlHF))
+- en: The analogy I use in the book is that the three pigs are applications. I then
+    discuss where they live and their choices of housing compared to computer systems.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在书中使用的类比是三只猪是应用程序。然后我讨论了它们的生活方式和与计算机系统相比的住房选择。
+- en: The single-family house is equivalent to one application on a single isolated
+    node. Living in a duplex is equivalent to running each application in a separate
+    VM. Living in a hotel or apartment building is similar to containers, where you
+    get your own apartment, but you rely on the security of the front desk to control
+    the access to your living space. If the front desk is compromised, then your apartment
+    is going to be compromised. Containers are similar to this in that they rely on
+    the security of the kernel. If one container can take over the host kernel, then
+    it can take over all of the container applications running on the system. Also,
+    if they escape to the underlying filesystem, they might be able to read and write
+    all of the data of the containers on the system.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单户住宅相当于单个隔离节点上的一个应用程序。住在联排别墅中相当于在单独的虚拟机中运行每个应用程序。住在酒店或公寓楼中类似于容器，您有自己的公寓，但您依赖于前台的安全来控制您生活空间的使用。如果前台被攻破，那么您的公寓也将被攻破。容器在这方面类似，因为它们依赖于内核的安全。如果一个容器可以接管宿主内核，那么它可以接管系统上运行的所有的容器应用程序。此外，如果它们逃逸到底层文件系统，它们可能能够读取和写入系统上所有容器的所有数据。
+- en: From this perspective, I see the number-one goal of the host as being to protect
+    the host kernel and filesystems from the container processes. The rest of this
+    chapter describes the tools used to protect the host kernel and filesystem from
+    container processes.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从这个角度来看，我认为宿主机的首要目标是保护宿主内核和文件系统免受容器进程的侵害。本章的其余部分描述了用于保护宿主内核和文件系统免受容器进程侵害的工具。
+- en: Protecting the kernel from potentially hostile containers is the primary goal
+    of container security. If the kernel is vulnerable, then the rest of the system
+    and all containers are vulnerable. In many cases, the only exposure to the host
+    system for a container is the host kernel itself.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保护内核免受潜在敌对容器的侵害是容器安全的首要目标。如果内核存在漏洞，那么整个系统和所有容器都将面临风险。在许多情况下，容器对宿主系统的唯一暴露就是宿主内核本身。
+- en: Processes within a container can interact with the kernel in many different
+    ways. This section examines these communications and the operating system features
+    used to secure the container processes.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器内的进程可以通过许多不同的方式与内核进行交互。本节将检查这些通信以及用于保护容器进程的操作系统功能。
+- en: The Linux kernel provides filesystems that allow processes to communicate and
+    configure the kernel. Protecting these filesystems from confined container processes
+    is the first security feature you will examine.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux内核提供了允许进程进行通信和配置内核的文件系统。保护这些文件系统免受受限制的容器进程的侵害是您将首先检查的安全功能。
+- en: 10.1 Read-only Linux kernel pseudo filesystems
+  id: totrans-20
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.1 只读Linux内核伪文件系统
+- en: These Linux kernel pseudo filesystems are generally mounted under /proc and
+    /sys. Table 10.1 lists some of the Linux kernel pseudo filesystems mounted on
+    my machine.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些Linux内核伪文件系统通常挂载在/proc和/sys下。表10.1列出了我机器上挂载的一些Linux内核伪文件系统。
+- en: Table 10.1 Filesystems mounted as read only
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表10.1 仅作为只读挂载的文件系统
+- en: '| Filesystem mount point | Pseudo filesystem description |'
+  id: totrans-23
+  prefs: []
+  type: TYPE_TB
+  zh: '| 文件系统挂载点 | 伪文件系统描述 |'
+- en: '| /sys | The sysfs filesystem allows viewing and manipulating objects from
+    `user-space`, which are created and destroyed by kernel space. |'
+  id: totrans-24
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys | sysfs文件系统允许从`用户空间`查看和操作由内核空间创建和销毁的对象。|'
+- en: '| /sys/kernel/security | The security pseudo filesystem is used to read and
+    configure general security modules. An example is the Integrity Measurement Architecture
+    (IMA) model. |'
+  id: totrans-25
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys/kernel/security | 安全伪文件系统用于读取和配置通用安全模块。一个例子是完整性测量架构（IMA）模型。|'
+- en: '| /sys/fs/cgroup | The cgroup filesystem is used to manage control groups.
+    |'
+  id: totrans-26
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys/fs/cgroup | cgroup文件系统用于管理控制组。|'
+- en: '| /sys/fs/pstore | The pstore filesystem stores nonvolatile information useful
+    for diagnosing the cause of a system crash. |'
+  id: totrans-27
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys/fs/pstore | pstore文件系统存储对诊断系统崩溃原因有用的非易失性信息。|'
+- en: '| /sys/fs/bpf | The Berkeley Packet Filter (BPF) filesystem is a mechanism
+    to instrument the Linux kernel with user programs that reveal kernel information
+    and control the way processes run on a system. |'
+  id: totrans-28
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys/fs/bpf | 勃朗克斯包过滤器（BPF）文件系统是一种机制，允许用户程序对Linux内核进行仪器化，以揭示内核信息并控制系统上进程的运行方式。|'
+- en: '| /sys/fs/selinux | The SELinux filesystem is used to configure SELinux in
+    the kernel (see section 10.2.7). |'
+  id: totrans-29
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys/fs/selinux | SELinux文件系统用于在内核中配置SELinux（见第10.2.7节）。|'
+- en: '| /sys/kernel/config | The configfs filesystem is for creating, managing, and
+    destroying kernel objects from `user-space`. |'
+  id: totrans-30
+  prefs: []
+  type: TYPE_TB
+  zh: '| /sys/kernel/config | configfs文件系统用于从`用户空间`创建、管理和销毁内核对象。|'
+- en: Most processes require read access to these pseudo kernel filesystems to succeed,
+    but only administrator processes require write access. Normally, the kernel relies
+    on the separation of root from non-root or possession of the `CAP_SYS_ADMIN` capability
+    (see section 10.2.2) to modify these filesystems.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数进程需要读取这些伪内核文件系统的访问权限才能成功，但只有管理员进程需要写入访问权限。通常，内核依赖于根用户与非根用户或拥有`CAP_SYS_ADMIN`能力（见第10.2.2节）来修改这些文件系统。
+- en: Often containers need to run as root, requiring container security to use other
+    means to prevent the writing of these kernel filesystems by the root process.
+    Podman does not mount most of these advanced kernel pseudo filesystems. It does
+    mount /sys, /sys/fs/cgroup, and /sys/fs/selinux as read only. When you are in
+    a PID namespace, the /proc filesystem changes, meaning the /proc inside a container
+    is not the host’s /proc. Processes within the container can only affect other
+    processes within the container.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常容器需要以 root 用户身份运行，需要容器安全使用其他方法来防止 root 进程写入这些内核文件系统。Podman 不挂载大多数这些高级内核伪文件系统。它只以只读方式挂载
+    /sys, /sys/fs/cgroup, 和 /sys/fs/selinux。当您处于 PID 命名空间中时，/proc 文件系统会发生变化，这意味着容器内的
+    /proc 不是主机的 /proc。容器内的进程只能影响容器内的其他进程。
+- en: The /sys filesystems and the namespaced /proc filesystem sometimes leak host
+    information into the container. Because of this, Podman mounts /dev/null over
+    files and mounts read-only tmpfs filesystems over directories to prevent container
+    access. Podman also bind mounts certain subdirectories as read only over themselves
+    to prevent the container process from writing to them. See table 10.2 for a complete
+    list of files and directories that Podman masks over for security purposes.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: /sys 文件系统和命名空间的 /proc 文件系统有时会将主机信息泄露到容器中。因此，Podman 在文件上挂载 /dev/null，并在目录上挂载只读
+    tmpfs 文件系统，以防止容器访问。Podman 还将某些子目录以只读方式绑定挂载到自身，以防止容器进程写入它们。请参阅表 10.2 以获取 Podman
+    为安全目的覆盖的文件和目录的完整列表。
+- en: Table 10.2 Filesystem fields masked over with Podman
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10.2 Podman 覆盖的文件系统字段
+- en: '| Type of masking | Paths |'
+  id: totrans-35
+  prefs: []
+  type: TYPE_TB
+  zh: '| 隐藏类型 | 路径 |'
+- en: '| Read-only tmpfs mounted over the directory | /proc/acpi, /proc/kcore, /proc/keys,
+    /proc/latency_stats, /proc/timer_list, /proc/timer_stats, /proc/sched_debug, /proc/scsi,
+    /sys/firmware, /sys/fs/selinux, /sys/dev/block |'
+  id: totrans-36
+  prefs: []
+  type: TYPE_TB
+  zh: '| 只读 tmpfs 挂载覆盖目录 | /proc/acpi, /proc/kcore, /proc/keys, /proc/latency_stats,
+    /proc/timer_list, /proc/timer_stats, /proc/sched_debug, /proc/scsi, /sys/firmware,
+    /sys/fs/selinux, /sys/dev/block |'
+- en: '| Read-only bind mount over the directory | /proc/asound, /proc/bus, /proc/fs,
+    /proc/irq, /proc/sys, /proc/sysrq-trigger |'
+  id: totrans-37
+  prefs: []
+  type: TYPE_TB
+  zh: '| 只读绑定挂载覆盖目录 | /proc/asound, /proc/bus, /proc/fs, /proc/irq, /proc/sys, /proc/sysrq-trigger
+    |'
+- en: I have found that almost all container images run fine with this additional
+    security. Sometimes a containerized application may need additional access to
+    one of these masked-over directories.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我发现几乎所有的容器镜像都运行得很好，并带有这种额外的安全性。有时容器化的应用程序可能需要访问这些被覆盖的目录之一。
+- en: 10.1.1 Unmasking the masked paths
+  id: totrans-39
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.1 揭示被隐藏的路径
+- en: 'Rather than force the container to run `--privileged` mode, you can tell Podman
+    to unmask a directory. In the following example, you run a container and see there
+    are no files or directories under /proc/scsi because it is mounted over with a
+    tmpfs:'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是强制容器以 `--privileged` 模式运行，您可以告诉 Podman 揭示一个目录。在以下示例中，您运行一个容器并看到 /proc/scsi
+    下没有文件或目录，因为它被 tmpfs 覆盖：
+- en: '[PRE0]'
+  id: totrans-41
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'You can use the `--security-opt` `unmask=/proc/scsi` flag to remove the mount
+    point and expose the underlying files and directories:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 `--security-opt` `unmask=/proc/scsi` 标志来移除挂载点并暴露底层文件和目录：
+- en: '[PRE1]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'You can even use a `*` to unmount all directories under a certain path:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您甚至可以使用 `*` 来卸载特定路径下的所有目录：
+- en: '[PRE2]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Unmasking makes your container slightly less secure, but it is much better
+    than going all the way to `--privileged` and turning off all of the security.
+    In certain situations, you might want to make the system more secure by masking
+    over parts of the pseudo filesystems. The `podman` `run` man pages list the masked
+    filesystems:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 揭示会使您的容器稍微不太安全，但比完全使用 `--privileged` 并关闭所有安全措施要好得多。在特定情况下，您可能希望通过覆盖伪文件系统的一部分来提高系统的安全性。`podman`
+    的 `run` 手册页列出了被隐藏的文件系统：
+- en: '[PRE3]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 10.1.2 Masking additional paths
+  id: totrans-48
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.2 隐藏其他路径
+- en: 'If you are very security conscious or have a container you don’t trust with
+    certain access provided to containers, you can add additional masked paths with
+    the `--security-opt` mask flag. For example, if you want to prevent a container
+    process from seeing the devices in /proc/sys/dev, run the following:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您非常注重安全性或有一个您不信任的容器，它提供了某些访问权限给容器，您可以使用 `--security-opt` mask 标志添加额外的隐藏路径。例如，如果您想防止容器进程看到
+    /proc/sys/dev 中的设备，请运行以下命令：
+- en: '[PRE4]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'You can mask over it with the `--security-opt` `mask=/proc/sys/dev` flag:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 `--security-opt` `mask=/proc/sys/dev` 标志来覆盖它：
+- en: '[PRE5]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: You saw how Podman prevents root processes from reading and, more importantly,
+    writing to pseudo filesystems. The container processes can actually see what is
+    mounted over within the container by looking at /proc/self/mountinfo.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你看到了Podman如何防止root进程读取和，更重要的是，写入伪文件系统。容器进程实际上可以通过查看/proc/self/mountinfo来看到容器内挂载了什么。
+- en: Listing 10.1 The mount table within a Podman container
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.1 Podman容器内的挂载表
+- en: '[PRE6]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Shows /dev/null mounted over /proc/kcore
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 显示/dev/null挂载在/proc/kcore上
+- en: ❷ Shows a tmpfs mounted read-only over /sys/firmware
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 显示tmpfs以只读方式挂载在/sys/firmware上
+- en: You might be asking yourself, “If the container knows what has been mounted,
+    what prevents the root user within the container from removing the mounts or remounting
+    filesystems’ read/write and then attacking the host kernel?
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能自己在想，“如果容器知道已经挂载了什么，那么是什么阻止容器内的root用户移除挂载或重新挂载文件系统的读写，然后攻击宿主内核？
+- en: 10.2 Linux capabilities
+  id: totrans-59
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.2 Linux能力
+- en: 'Most Linux people understand Linux has two types of users: root (privileged
+    process) and everyone else (nonprivileged processes). Root is all powerful, and
+    non-root has much more limited powers, specifically when configuring and modifying
+    the kernel. Sometimes a non-privileged process needs privileges to execute a certain
+    command-line `ping` or `sudo`. Linux supports a way to mark these files as `setuid`,
+    and when a nonprivileged process executes them, the new process gains the privilege.'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数Linux用户都了解Linux有两种类型的用户：root（特权进程）和所有人（非特权进程）。root拥有全部权力，而non-root的权力则受到很大限制，特别是在配置和修改内核时。有时非特权进程需要特权来执行某些命令行`ping`或`sudo`。Linux支持一种标记这些文件为`setuid`的方式，当非特权进程执行它们时，新进程会获得特权。
+- en: The binary difference between privileged and unprivileged processes ended in
+    Linux around 2000\. Kernel engineers broke down the power of root into a group
+    of different privileged capabilities. Currently, on my system, the Linux kernel
+    supports 41\. You can see the complete list of capabilities using the `capsh`
+    program. Execute the `capsh` program to see the list of capabilities on your system.
+    You will see the `current` set of capabilities for your processes as being empty.
+    The `Bounding` set of capabilities is the set of capabilities your process can
+    get from executing a `setuid` program.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Linux中，特权进程和非特权进程之间的二进制差异大约在2000年结束。内核工程师将root的权力分解为不同的特权能力组。目前，在我的系统中，Linux内核支持41个。你可以使用`capsh`程序查看能力的完整列表。执行`capsh`程序以查看系统上的能力列表。你会看到你的进程的`current`能力集为空。`Bounding`能力集是进程可以通过执行`setuid`程序获得的能力集。
+- en: Listing 10.2 `capsh` `–print` showing the capabilities available to your user’s
+    process
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.2 `capsh` `–print` 显示用户进程可用的能力
+- en: '[PRE7]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ The Current set of capabilities shows no capabilities.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当前能力集显示没有能力。
+- en: ❷ The Bounding set of capabilities shows all (41) capabilities.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 限制能力集显示所有（41）能力。
+- en: ❸ Because you ran the capsh command as a normal user, you see your UID and GID
+    listed.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 因为你是以普通用户身份运行`capsh`命令的，所以你看到你的UID和GID被列出。
+- en: This means your user process can execute the `sudo` command and get the full
+    set of capabilities as root. You can read information about what each capability
+    does in the capabilities man page by executing `man` `capabilities`. Over the
+    years, the community has figured out that almost all containers do not require
+    the full list of capabilities because they seldom modify the kernel.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着你的用户进程可以执行`sudo`命令并获得与root相同的全部能力。你可以通过执行`man capabilities`来阅读关于每个能力做什么的信息。多年来，社区已经发现几乎所有的容器都不需要完整的能力列表，因为它们很少修改内核。
+- en: 10.2.1 Dropped Linux capabilities
+  id: totrans-68
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.1 丢弃的Linux能力
+- en: Because container-confined processes are not supposed to manipulate the operating
+    system, and specifically the kernel, Podman can run root within its containers
+    with far fewer capabilities. You can examine the default list of capabilities
+    available within a Podman container by executing the same `capsh` program.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于容器限制进程不应该操作操作系统，特别是内核，Podman可以在其容器中以远少于root的能力运行。你可以通过执行相同的`capsh`程序来检查Podman容器内可用的默认能力列表。
+- en: Listing 10.3 The default list of capabilities available within a Podman container
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.3 Podman容器内可用的默认能力列表
+- en: '[PRE8]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ The Current set of capabilities shows just 11 capabilities, since the container
+    process is running as root.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当前能力集只显示11个能力，因为容器进程是以root身份运行的。
+- en: ❷ The Bounding set of capabilities shows the same (11) capabilities.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 能力的边界集显示了相同的能力（11个）。
+- en: ❸ Because containers default to running as root, you see the UID and GID as
+    root.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 因为容器默认以root身份运行，所以你看到UID和GID都是root。
+- en: As you observe, Podman, by default, dropped 30 capabilities—from 41 down to
+    11—when running a container. Even though the container has root privileges, it
+    is far less powerful than root on the system.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，Podman默认在运行容器时放弃了30个能力——从41个减少到11个。即使容器具有root权限，它也比系统上的root权限弱得多。
+- en: 'Note Docker also drops capabilities but leaves 14 capabilities. Podman runs
+    with tighter security by dropping the following additional capabilities: `CAP_
+    MKNOD`, `CAP_AUDIT_WRITE`, and `CAP_NET_RAW`.'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意Docker也放弃了能力，但留下了14个能力。Podman通过放弃以下附加能力来运行更严格的安全：`CAP_ MKNOD`、`CAP_AUDIT_WRITE`和`CAP_NET_RAW`。
+- en: The list of capabilities still allowed within a container mainly concern controlling
+    multiple processes; for example, `CAP_SETUID` and `CAP_SETGID` allow processes
+    inside the container to change to different UIDs. An example of where this is
+    important is running your web application as `UID=60`, but when the container
+    process started, it needed to run as root for a short time before changing its
+    UID to `60`. If Podman dropped `CAP_SETUID`, then the root process within the
+    container is not allowed to change to the web services UID.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器内允许的能力列表主要涉及控制多个进程；例如，`CAP_SETUID`和`CAP_SETGID`允许容器内的进程更改到不同的UID。一个重要的例子是运行你的Web应用作为`UID=60`，但当容器进程启动时，它需要短暂地以root身份运行，然后将其UID更改为`60`。如果Podman放弃了`CAP_SETUID`，那么容器内的root进程不允许更改到Web服务的UID。
+- en: Another interesting capability Podman allows is `CAP_NET_BIND_SERVICE`, which
+    enables a process to bind to a network port less than `1024`—for example, port
+    `80`. Recall from chapter 2 that you cannot bind port `80` on your host to port
+    `80` within the container. User processes do not have `CAP_NET_BIND_SERVICE`,
+    so they cannot bind to port `80`. Table 10.3 lists the default capabilities available
+    to root running within a container with Podman. This list can be modified in the
+    containers.conf file using the `default_capabilities` field under the containers
+    table.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman允许的另一个有趣的能力是`CAP_NET_BIND_SERVICE`，它使进程能够绑定到小于`1024`的网络端口——例如端口`80`。回想第2章，你无法将主机上的端口`80`绑定到容器内的端口`80`。用户进程没有`CAP_NET_BIND_SERVICE`，因此它们无法绑定到端口`80`。表10.3列出了Podman在容器中允许的默认能力。此列表可以通过在容器表下的`default_capabilities`字段中修改容器.conf文件来修改。
+- en: Table 10.3 Default list of capabilities allowed root processes in a container
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表10.3 Podman在容器中允许root进程的默认能力列表
+- en: '| Option | Description |'
+  id: totrans-80
+  prefs: []
+  type: TYPE_TB
+  zh: '| 选项 | 描述 |'
+- en: '| `CAP_CHOWN` | Make arbitrary changes to file UIDs and GIDs. |'
+  id: totrans-81
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_CHOWN` | 对文件UID和GID进行任意更改。 |'
+- en: '| `CAP_DAC_OVERRIDE` | Bypass file read, write, and execute permission checks.
+    |'
+  id: totrans-82
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_DAC_OVERRIDE` | 绕过文件读取、写入和执行权限检查。 |'
+- en: '| `CAP_FOWNER` | Bypass permission checks on operations on the filesystem UID.
+    |'
+  id: totrans-83
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_FOWNER` | 在对文件系统UID的操作中绕过权限检查。 |'
+- en: '| `CAP_SETFSID` | Don''t clear `set-user-ID` and `set-group-ID` mode bits when
+    modifying a file. |'
+  id: totrans-84
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_SETFSID` | 修改文件时不要清除`set-user-ID`和`set-group-ID`模式位。 |'
+- en: '| `CAP_KILL` | Bypass permission checks for sending signals. |'
+  id: totrans-85
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_KILL` | 绕过发送信号的权限检查。 |'
+- en: '| `CAP_NET_BIND_SERVICE` | Bind a socket to internet domain privileged ports
+    (port numbers less than `1024`). |'
+  id: totrans-86
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_NET_BIND_SERVICE` | 将套接字绑定到互联网域的特权端口（端口号小于`1024`）。 |'
+- en: '| `CAP_SETFCAP` | Set arbitrary capabilities on a file. |'
+  id: totrans-87
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_SETFCAP` | 在文件上设置任意能力。 |'
+- en: '| `CAP_SETGID` | Change a process’s group ID (GID) or supplementary GID list.
+    |'
+  id: totrans-88
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_SETGID` | 更改进程的组ID（GID）或附加GID列表。 |'
+- en: '| `SET_SETPCAP` | Add and drop any capability from the calling thread''s bounding
+    set. |'
+  id: totrans-89
+  prefs: []
+  type: TYPE_TB
+  zh: '| `SET_SETPCAP` | 从调用线程的边界集中添加和删除任何能力。 |'
+- en: '| `CAP_SETUID` | Make arbitrary manipulations of the process user ID (UID).
+    |'
+  id: totrans-90
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_SETUID` | 对进程用户ID（UID）进行任意操作。 |'
+- en: '| `CAP_SYS_CHROOT` | Allow `chroot`, and change mount namespaces. |'
+  id: totrans-91
+  prefs: []
+  type: TYPE_TB
+  zh: '| `CAP_SYS_CHROOT` | 允许`chroot`，并更改挂载命名空间。 |'
+- en: I introduced section 10.2 by asking what prevents the root process from unmounting
+    or remounting the read-only filesystems. The answer is Podman dropping the `CAP_
+    SYS_ADMIN` c`apability`.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我通过询问什么阻止了root进程卸载或重新挂载只读文件系统来引入第10.2节。答案是Podman放弃了`CAP_ SYS_ADMIN`能力。
+- en: 10.2.2 Dropped CAP_SYS_ADMIN
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.2 放弃CAP_SYS_ADMIN
+- en: 'The most powerful Linux capability is `CAP_SYS_ADMIN`. I describe this capability
+    in the following way: Imagine you are a kernel engineer adding a new feature into
+    the kernel, and this feature requires privilege access. You look to see the list
+    of capabilities, and you don’t find a capability that is a great match for the
+    access. Kernel engineers can go through the hassle of creating a new capability;
+    or, say this is something a system administrator needs to do and there is a `CAP_SYS_ADMIN`.
+    I might as well require that capability. If you look at the man capabilities information,
+    you see multiple pages of features the `CAP_SYS_ADMIN` capability blocks.'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最强大的 Linux 能力是 `CAP_SYS_ADMIN`。我这样描述这个能力：想象你是一名内核工程师，正在内核中添加一个新特性，而这个特性需要特权访问。你查看能力列表，但没有找到与访问非常匹配的能力。内核工程师可以通过创建一个新的能力来避免麻烦；或者，可以说这是系统管理员需要做的事情，而有一个
+    `CAP_SYS_ADMIN`。我可能需要这个能力。如果你查看 man 能力信息，你会看到 `CAP_SYS_ADMIN` 能力阻止了多个页面的功能。
+- en: One feature `CAP_SYS_ADMIN` controls is the ability to mount and unmount filesystems.
+    Because this capability is dropped by default, root processes in Podman containers
+    cannot unmount or remount the read-only mount points.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`CAP_SYS_ADMIN` 能力控制的一个功能是挂载和卸载文件系统的能力。因为这个能力默认被移除，Podman 容器中的 root 进程无法卸载或重新挂载只读挂载点。'
+- en: As you learned previously, 11 capabilities are still allowed. In most cases,
+    your containerized process does not even need those capabilities, meaning you
+    can drop additional ones.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你之前所学，仍有 11 个能力被允许。在大多数情况下，你的容器化进程甚至不需要那些能力，这意味着你可以移除额外的能力。
+- en: 10.2.3 Dropping capabilities
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.3 移除能力
+- en: I recommend people run their applications with the least privileges possible.
+    One way of increasing the security of the system is dropping additional capabilities.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我建议人们尽可能以最低的权限运行他们的应用程序。提高系统安全性的一个方法就是移除额外的能力。
+- en: Imagine your containerized process does not need to bind to ports < `1024`.
+    You can execute Podman with the `--cap-drop=CAP_NET_BIND_SERVICE` flag and drop
+    that capability from your container.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象你的容器化进程不需要绑定到小于 `1024` 的端口。你可以使用 `--cap-drop=CAP_NET_BIND_SERVICE` 标志执行 Podman，并从你的容器中移除这个能力。
+- en: Listing 10.4 Capabilities inside a container when you drop `CAP_NET_BIND_SERVICE`
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.4 当移除 `CAP_NET_BIND_SERVICE` 时的容器内能力
+- en: '[PRE9]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Notice the list of Current capabilities no longer includes CAP_NET_BIND_SERVICE.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 注意当前能力列表不再包括 CAP_NET_BIND_SERVICE。
+- en: ❷ Notice that the list of Bounding capabilities no longer includes CAP_NET_BIND_SERVICE.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 注意边界能力列表不再包括 CAP_NET_BIND_SERVICE。
+- en: 'You can even drop all capabilities using the `--cap-drop=all` flag:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你甚至可以使用 `--cap-drop=all` 标志移除所有能力：
+- en: '[PRE10]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Even though your container is running as root, it has no capabilities to modify
+    the kernel. Sometimes your container fails to run with the limited list of capabilities
+    provided by Podman; in this case, you can add required capabilities.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使你的容器以 root 身份运行，它也没有修改内核的能力。有时你的容器因为 Podman 提供的有限能力列表而无法运行；在这种情况下，你可以添加所需的能力。
+- en: 10.2.4 Adding capabilities
+  id: totrans-107
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.4 添加能力
+- en: In some situations, your container might fail because it does not have a certain
+    capability. You can simply run `--privileged` and turn off all security in these
+    cases, but a better solution is just adding required capabilities.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，如果你的容器没有某个能力，它可能会失败。你可以简单地运行 `--privileged` 并关闭所有安全设置，但更好的解决方案是仅添加所需的能力。
+- en: 'Imagine you have a container that wants to create a raw IP packet on its namespaced
+    network, which requires `CAP_NET_RAW`. Podman, by default, does not allow this.
+    Rather than running the container as `--privileged`, you can use the `--cap-add`
+    `CAP_NET_RAW` flag:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象你有一个容器，它想在它的命名空间网络中创建原始 IP 数据包，这需要 `CAP_NET_RAW`。默认情况下，Podman 不允许这样做。与其以 `--privileged`
+    运行容器，你可以使用 `--cap-add` `CAP_NET_RAW` 标志：
+- en: '[PRE11]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'If this is the only capability needed by your container, you can both drop
+    all capabilities and just add back in this `CAP_NET_RAW` by using the `--cap-drop`
+    and `--cap-add` flags at the same time:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这是你的容器所需唯一的权限，你可以同时使用 `--cap-drop` 和 `--cap-add` 标志来移除所有能力并仅添加回 `CAP_NET_RAW`：
+- en: '[PRE12]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 10.2.5 No new privileges
+  id: totrans-113
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.5 没有新权限
+- en: Podman has an option, `--security-opt` `no-new-privileges`, which disables the
+    ability for container processes to gain additional privileges. Basically, it locks
+    the processes into the group of Linux capabilities they have when they are started.
+    Even if they can execute a `setuid` program, the kernel denies it from gaining
+    additional capabilities. The `no-new-privileges` option also affects SELinux and
+    prevents SELinux label transitions. Even if SELinux had a bug in its rules database,
+    the container process would not be allowed to change its label.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman有一个选项`--security-opt` `no-new-privileges`，它禁用了容器进程获取额外权限的能力。基本上，它将进程锁定在它们启动时拥有的Linux能力组中。即使它们可以执行`setuid`程序，内核也会拒绝它们获取额外的能力。`no-new-privileges`选项还会影响SELinux并防止SELinux标签转换。即使SELinux在其规则数据库中存在错误，容器进程也不允许更改其标签。
+- en: 10.2.6 Root with no capabilities is still dangerous
+  id: totrans-115
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.6 没有能力的root仍然危险
+- en: Dropping capabilities means your container is running much more securely, but
+    running all of your containers without any Linux capabilities is much more secure.
+    Another problem to consider when running a container as root, even if you drop
+    all capabilities, is that the process is still running as root. The root process
+    is allowed to modify all files on the system that are owned by root. The root
+    process can modify a system file and trick a privileged administrator into executing
+    it. Also, some client-server applications trust the client side of the connection
+    simply if it is running as root (e.g., Docker). Podman can solve both of these
+    problems by using the user namespace.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 降级能力意味着您的容器运行得更加安全，但运行没有任何Linux能力的所有容器会更加安全。当以root身份运行容器时，即使您降级了所有能力，也要考虑的一个问题是进程仍然以root身份运行。root进程允许修改属于root的所有系统文件。root进程可以修改系统文件，并诱使特权管理员执行它。此外，一些客户端-服务器应用程序仅当客户端以root身份运行时才信任连接的客户端（例如，Docker）。Podman可以通过使用用户命名空间来解决这两个问题。
+- en: '10.3 UID isolation: User namespace'
+  id: totrans-117
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.3 UID隔离：用户命名空间
+- en: Back in section 6.1.1, I introduced the concept of the user namespace. Recall
+    that UIDs were allocated via the /etc/subuid and /etc/subgid files for a rootless
+    user. For my accounts, the range of UIDs from `100000`–`165535` was allocated
+    along with my UID `3265` and was used by Podman when launching containers. See
+    figure 10.2 for a description of the user namespace mapping.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在6.1.1节中，我介绍了用户命名空间的概念。回想一下，UID是通过`/etc/subuid`和`/etc/subgid`文件为无根用户分配的。对于我的账户，UID的范围从`100000`到`165535`被分配，并使用我的UID
+    `3265`，由Podman在启动容器时使用。参见图10.2，了解用户命名空间映射的描述。
+- en: '![](../../OEBPS/Images/10-02.png)'
+  id: totrans-119
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/10-02.png)'
+- en: Figure 10.2 The mapping of UIDs used by rootless Podman for my account
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.2 无根Podman为我账户使用的UID映射
+- en: This user namespace allows my account to have root access within the container
+    that is not root on the host. Running containers in a user namespace eliminates
+    the problem of having processes running as the root user, and the inherent trust
+    is built into some daemons.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个用户命名空间允许我的账户在宿主机上不是root的容器内拥有root访问权限。在用户命名空间中运行容器消除了进程以root用户身份运行的问题，并且固有的信任被内置到某些守护程序中。
+- en: One problem with rootless users is that, by default, all of the containers run
+    with the same user namespace. Theoretically, from a user namespace point of view,
+    one container can attack another container, since they run with duplicate UIDs.
+    Also, if the container processes break out, they can read/write content in your
+    home directory, since the root processes within the containers are running with
+    your UID.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无根用户的一个问题是，默认情况下，所有容器都使用相同的用户命名空间。从用户命名空间的角度来看，理论上一个容器可以攻击另一个容器，因为它们运行时具有重复的UID。此外，如果容器进程越界，它们可以读取/写入您的主目录内容，因为容器内的根进程是以您的UID运行的。
+- en: 10.3.1 Isolating containers using the - -userns=auto flag
+  id: totrans-123
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.1 使用`- -userns=auto`标志隔离容器
+- en: Podman has a feature for allocating unique ranges of UIDs for every container
+    it launches. Since there are limited UIDs allocated for each user account, this
+    feature works best when launched by the root user.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman为它启动的每个容器分配唯一的UID范围。由于为每个用户账户分配的UID有限，因此当由root用户启动时，此功能效果最佳。
+- en: To launch multiple containers within their own user namespace, you need to first
+    allocate the UIDs and GIDs to be used for these containers. On a Linux system,
+    there are 4 billion UIDs available. Podman recommends that you allocate the highest
+    2 billion UIDs for your containers. You can do this by adding the following containers
+    line to your /etc/subuid and /etc/subgid file.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在各自的用户命名空间内启动多个容器，你首先需要为这些容器分配要使用的 UIDs 和 GIDs。在 Linux 系统上，有 40 亿个 UIDs 可用。Podman
+    建议你为容器分配最高的 20 亿个 UIDs。你可以通过将以下容器行添加到你的 /etc/subuid 和 /etc/subgid 文件中来实现这一点。
+- en: Listing 10.5 The contents of the /etc/subuid and /etc/subgid files
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.5 /etc/subuid 和 /etc/subgid 文件的内容
+- en: '[PRE13]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Allocates the top 2 billion UIDs to the container user used by Podman. Adding
+    this line tells other tools on your system, like useradd, to avoid allocating
+    UIDs and GIDs within this range.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为 Podman 使用的容器用户分配前 20 亿个 UIDs。添加此行会告诉系统上的其他工具，如 useradd，避免在此范围内分配 UIDs 和
+    GIDs。
+- en: 'You can launch a container within a unique user namespace using the `--userns=auto`
+    option. Podman allocates the UIDs for the container starting with UID `2147483647`,
+    which you specified in the /etc/subuid file. Podman then examines the container
+    image for all UIDs defined within it as well as the /etc/passwd file if it exists
+    in the image and then uses this to allocate the number of UIDs required to run
+    the container with a default minimum of `1024`:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用 `--userns=auto` 选项在独特的用户命名空间内启动容器。Podman 从 UID `2147483647` 开始为容器分配 UIDs，这是你在
+    /etc/subuid 文件中指定的。然后 Podman 检查容器镜像中定义的所有 UIDs，以及如果镜像中存在 /etc/passwd 文件，还会检查该文件，然后使用这些信息来分配运行容器所需的
+    UIDs 数量，默认最小值为 `1024`：
+- en: '[PRE14]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'If I run a second container with a specific user `2000`, then the allocation
+    of UIDs reflects this. You see that the number of UIDs allocated is `2001`—UID
+    `2000` plus one for the root user:'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我使用特定的用户 `2000` 运行第二个容器，那么 UIDs 的分配将反映这一点。你会看到分配的 UIDs 数量为 `2001`——UID `2000`
+    加上根用户的 UIDs：
+- en: '[PRE15]'
+  id: totrans-132
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Also, note that the starting UID for the first container was `2147483647,` while
+    the starting UID for the second container was `2147484671`. Subtracting the first
+    UID `2147483647` from the second UID `2147484671` gives you `1024`, which is the
+    number of UIDs allocated for the first container. No UID within the first container
+    overlaps with the second container, meaning no process within the first container
+    can attack processes within the second container, and vice versa.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，请注意，第一个容器的起始 UID 为 `2147483647`，而第二个容器的起始 UID 为 `2147484671`。从第一个 UID `2147483647`
+    减去第二个 UID `2147484671` 得到 `1024`，这是第一个容器分配的 UIDs 数量。第一个容器内的任何 UID 都不会与第二个容器重叠，这意味着第一个容器内的任何进程都不能攻击第二个容器内的进程，反之亦然。
+- en: 'You can override the default size of the user namespace used within the container
+    with a size option if Podman does not allocate enough UIDs or GIDs for your container.
+    In this example, you tell Podman to allocate `5000` UIDs for the container with
+    `--userns=auto:size=5000`:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你发现 Podman 为你的容器分配的 UIDs 或 GIDs 数量不足，你可以使用大小选项覆盖容器内使用的用户命名空间的默认大小。在这个例子中，你告诉
+    Podman 使用 `--userns=auto:size=5000` 为容器分配 `5000` 个 UIDs：
+- en: '[PRE16]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'When containers are removed, Podman reclaims the UIDs used for the deleted
+    containers and uses those UIDs for the next container created with the `--userns=auto`
+    `flag`. You see this when you launch back-to-back containers with the `--rm` option.
+    Notice that they start with the same UID. In the following example, both containers
+    start with UID `2147491672`:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当容器被移除时，Podman 会回收用于已删除容器的 UIDs，并将这些 UIDs 用于下一个使用 `--userns=auto` 标志创建的容器。当你使用
+    `--rm` 选项连续启动容器时，你会看到这一点。注意，它们以相同的 UID 开始。在以下示例中，两个容器都以 UID `2147491672` 开始：
+- en: '[PRE17]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: The name used in /etc/subuid and the minimum and maximum number of UIDs used
+    for user namespaces is defined in the storage.conf file described in table 10.4.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 /etc/subuid 中使用的名称以及用于用户命名空间的 UIDs 的最小和最大数量在表 10.4 中描述的 storage.conf 文件中定义。
+- en: Table 10.4  The fields used within storage.conf files to override the user namespace
+    auto settings
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10.4 在 storage.conf 文件中用于覆盖用户命名空间自动设置的字段
+- en: '| Option | Description |'
+  id: totrans-140
+  prefs: []
+  type: TYPE_TB
+  zh: '| 选项 | 描述 |'
+- en: '| `root-auto-userns-user` | Defines the username used to look up one or more
+    UID/GID ranges in the /etc/subuid and /etc/subgid file. These ranges are partitioned
+    into containers configured to create a user namespace automatically. Containers
+    configured to automatically create a user namespace can still overlap with containers
+    with an explicit mapping set. The `root-auto-userns-user` setting is ignored by
+    rootless users. It defaults to `containers`. |'
+  id: totrans-141
+  prefs: []
+  type: TYPE_TB
+  zh: '| `root-auto-userns-user` | 定义用于在`/etc/subuid`和`/etc/subgid`文件中查找一个或多个UID/GID范围的用户名。这些范围被分配给配置为自动创建用户命名空间的容器。配置为自动创建用户命名空间的容器还可以与设置了显式映射的容器重叠。`root-auto-userns-user`设置被无根用户忽略。默认为`containers`。|'
+- en: '| `auto-userns-min-size` | Defines the minimum size for a user namespace created
+    automatically. It defaults to `1024`. |'
+  id: totrans-142
+  prefs: []
+  type: TYPE_TB
+  zh: '| `auto-userns-min-size` | 定义自动创建的用户命名空间的最小大小。默认为`1024`。|'
+- en: '| `auto-userns-max-size` | Defines the maximum size for a user namespace created
+    automatically. It defaults to `65536`. |'
+  id: totrans-143
+  prefs: []
+  type: TYPE_TB
+  zh: '| `auto-userns-max-size` | 定义自动创建的用户命名空间的最大大小。默认为`65536`。|'
+- en: 10.3.2 User-namespaced Linux capabilities
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.2 用户命名空间Linux功能
+- en: In section 10.2 you learned about Linux capabilities and how they are used to
+    break up the power of root. When a container is launched within a user namespace,
+    it can have Linux capabilities. These capabilities can only affect the UIDs and
+    GIDs mapped into the user namespace. Capabilities that do not involve UIDs and
+    GIDs are limited. Usually, they only affect the other namespaces that are mapped
+    with the user namespace.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第10.2节中，您学习了Linux功能以及它们是如何用来分割root的权力的。当一个容器在用户命名空间内启动时，它可以具有Linux功能。这些功能只能影响映射到用户命名空间中的UID和GID。不涉及UID和GID的功能是有限的。通常，它们只会影响与用户命名空间一起映射的其他命名空间。
+- en: For example, `CAP_NET_ADMIN` is the capability that allows you to manipulate
+    the network stack. It allows a process to set up firewall rules and network routing
+    tables. A process with a namespaced `CAP_NET_ADMIN` is only allowed to modify
+    the namespaced network assigned to the user namespace, not the host’s network
+    namespace.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，`CAP_NET_ADMIN`是允许您操作网络堆栈的功能。它允许进程设置防火墙规则和网络路由表。具有命名空间`CAP_NET_ADMIN`的进程只能修改分配给用户命名空间的名字空间网络，而不能修改主机的网络命名空间。
+- en: 'In the following example, the list of capabilities within a user-namespaced
+    container is the same as when you launch one without a user namespace. In the
+    second command using the `--userns=auto` flag, the capabilities are namespaced
+    capabilities:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下示例中，用户命名空间容器内的功能列表与您在没有用户命名空间的情况下启动容器时相同。在第二个命令中使用`--userns=auto`标志时，这些功能是命名空间功能：
+- en: '[PRE18]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'To prove this, attempt to `chown` a file within a container to a nonexistent
+    UID. It fails because the `CAP_CHOWN` capability only allows the root process
+    inside a container to `chown` files to any UID as long as the UID is mapped to
+    the user namespace:'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了证明这一点，尝试在容器内将文件的所有权`chown`给一个不存在的UID。它失败了，因为`CAP_CHOWN`功能只允许容器内的root进程将文件的所有权`chown`给任何UID，只要该UID映射到用户命名空间：
+- en: '[PRE19]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'It succeeds if you `chown` to a UID mapped within the user namespace:'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您将`chown`到用户命名空间内映射的UID，则操作成功：
+- en: '[PRE20]'
+  id: totrans-152
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Suppose you launch all of your system containers with the `--userns=auto` `flag`.
+    In that case, you get the benefit of running the container within its unique user
+    namespace isolated from all other containers and UIDs on the host system. You
+    also get root privileges with limited capabilities, and these processes outside
+    the container have no capabilities on the host system.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设您使用`--userns=auto`标志启动了所有系统容器。在这种情况下，您将获得在独特的用户命名空间中运行容器的利益，该命名空间与其他所有容器和主机系统上的UID隔离。您还获得了有限的root权限，并且这些容器外的进程在主机系统上没有权限。
+- en: 10.3.3 Rootless Podman with the - -userns=auto flag
+  id: totrans-154
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.3 使用`- -userns=auto`标志的无根Podman
+- en: 'The `--userns=auto` works with rootless containers, based on the number of
+    UIDs available to the user. But this number is very limited. You can run the previous
+    examples and see that the user namespaces start at UID `1`. UID `1` is relative
+    to the user namespace of the rootless user:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--userns=auto`与无根容器一起工作，基于用户可用的UID数量。但这个数量非常有限。您可以运行前面的示例并看到用户命名空间从UID `1`开始。UID
+    `1`相对于无根用户的用户命名空间：'
+- en: '[PRE21]'
+  id: totrans-156
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'If you examine your user namespace, you’ll see that UID `1` in your user namespace
+    is `100000`:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您检查您的用户命名空间，您会看到您的用户命名空间中的UID `1`是`100000`：
+- en: '[PRE22]'
+  id: totrans-158
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: This means the first rootless user-namespace container is running UID `0` mapped
+    to UID `1` in the rootless user namespace. UID `1` is the rootless UID `100000`
+    on the host system. A couple of problems with rootless users of `--userns=auto`
+    is that since the default user only gets 65,536 UIDS, at max, you can launch 64
+    containers, and you cannot run any containers that require more than 65,536 UIDs.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着第一个无root用户命名空间容器正在运行UID `0`，映射到无root用户命名空间的UID `1`。UID `1`是主机系统上的无root UID
+    `100000`。使用`--userns=auto`的rootless用户的几个问题是，由于默认用户只能获得65,536个UID，最多可以启动64个容器，并且不能运行需要超过65,536个UID的任何容器。
+- en: Note If you launch a container without using the `--userns=auto` flag, the UIDs
+    mapped to the user namespace can and probably do overlap with the UIDs in the
+    user-namespaced isolated containers. You need to be careful that none of the UIDs
+    used within such containers use those UIDs because those UIDs are vulnerable to
+    attack from a UID perspective. To avoid overlaps, I suggest using a high range
+    of UIDs.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：如果你不使用`--userns=auto`标志启动容器，映射到用户命名空间的UID可能会并且很可能与用户命名空间隔离容器中的UID重叠。你需要小心，确保这些容器内使用的UID中没有任何一个使用这些UID，因为这些UID从UID的角度来看容易受到攻击。为了避免重叠，我建议使用高范围的UID。
+- en: 10.3.4 User volumes with the - -userns=auto flag
+  id: totrans-161
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.4 使用带有`- -userns=auto`标志的用户卷
+- en: When using the user namespace, it is difficult to determine which user’s UID
+    needs to own the volume you’re mounting into a container to allow access. In the
+    following example, you first create a directory and then volume mount it into
+    the container and attempt to create a file in it.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用用户命名空间时，很难确定哪个用户的UID需要拥有你挂载到容器中的卷以允许访问。在下面的示例中，你首先创建一个目录，然后将卷挂载到容器中，并尝试在其中创建一个文件。
+- en: Listing 10.6 Drawbacks of using volumes within a user namespace
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.6 使用用户命名空间内卷的缺点
+- en: '[PRE23]'
+  id: totrans-164
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ❶ The directory is owned by root on the host.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 该目录由主机上的root所有。
+- en: ❷ The directory is listed as the user nobody, since the root UID=0 is not mapped
+    into the user namespace. All files and directories owned by UIDs not mapped to
+    the container are treated as the nobody user. The :Z tells Podman to relabel for
+    SELinux.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 目录列出的用户为nobody，因为root UID=0没有映射到用户命名空间。所有未映射到容器的UID的所有文件和目录都被视为nobody用户。`:Z`告诉Podman重新标记SELinux。
+- en: ❸ Even root is not allowed to write into a directory of an unmapped user, unless
+    the directory is world writable.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 即使root也不允许写入未映射用户的目录，除非目录是可写给所有人的。
+- en: 'Podman supports a special option on the `--volume` flag `U``,` which tells
+    Podman to `chown` all files or directories in the source directory to match the
+    UID of the container’s primary process:'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman在`--volume`标志上支持一个特殊选项`U``,`，它告诉Podman将源目录中的所有文件或目录的所有权`chown`为与容器主进程的UID匹配：
+- en: '[PRE24]'
+  id: totrans-169
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ After adding the U option, processes within the container can write to the
+    volume.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 添加U选项后，容器内的进程可以写入卷。
+- en: ❷ Podman chowned the source volume to 2147503960 to match the root user mapping
+    in the container.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ Podman将源卷的所有权更改为2147503960，以匹配容器中的root用户映射。
+- en: 'A new, advanced feature of the Linux kernel is called `idmapped` `mounts`.
+    It allows users to remap the UIDs inside a source volume to match the user namespace
+    without actually `chown`ing the files on disk. In the next example, you will recreate
+    the /mnt/test directory and, this time, mount it with the `idmap` option. When
+    the ID-mapped volume shows up inside the container, the files appear to be owned
+    by the root of the user namespace, and you are allowed to read and write the files
+    based on standard permissions. When you finish writing the files, they are mapped
+    back correctly into the user namespace, unlike the `U` option, which writes them
+    back based on the real UID of the container process:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux内核的一个新、高级特性被称为`idmapped` `mounts`。它允许用户将源卷内的UID重新映射以匹配用户命名空间，而无需实际上在磁盘上`chown`文件。在下一个示例中，你将重新创建/mnt/test目录，这次使用`idmap`选项挂载它。当ID映射卷出现在容器内时，文件看起来是由用户命名空间的root拥有的，并且你可以根据标准权限读取和写入文件。当你完成文件编写后，它们会被正确映射回用户命名空间，与`U`选项不同，它根据容器进程的真实UID将它们写回：
+- en: '[PRE25]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Reset the source volume to root ownership.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将源卷的所有权重置为root。
+- en: ❷ Mount the source volume /mnt/test into the container with the idmap option.
+    Notice the path is owned by root within the container.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用idmap选项将源卷/mnt/test挂载到容器中。注意路径在容器内属于root。
+- en: ❸ Create a file within the source directory to prove the container can write
+    to the directory.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在源目录内创建一个文件，以证明容器可以写入该目录。
+- en: ❹ Notice on the host system that the newly created file is owned by the real
+    root.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 注意在主机系统上，新创建的文件属于真实根用户。
+- en: Note The `idmap` features are brand new as of writing and are not available
+    on all filesystems. It is only supported in privileged mode at this time, but
+    hopefully, this changes soon. Currently, the OCI runtime that supports this feature
+    is `crun`.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 `idmap` 功能是写作时新出现的，并且不是所有文件系统都支持。目前，它只支持在特权模式下运行，但希望这种情况很快会改变。目前，支持此功能的 OCI
+    运行时是 `crun`。
+- en: Understanding the security benefits of running containers with user namespaces
+    is very important. Next, I’ll show you some security benefits in the other namespaces.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解运行带有用户命名空间的容器所带来的安全优势非常重要。接下来，我将向你展示其他命名空间的一些安全优势。
+- en: '10.4 Process isolation: PID namespace'
+  id: totrans-180
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.4 进程隔离：PID 命名空间
+- en: I often say that namespaces were not intended as a security mechanism, but in
+    reality, they do provide additional security via isolation and information masking.
+    The PID namespace hides the fact that there are other processes running on a system.
+    Being aware that a particular application is running on a system can be valuable
+    to someone hacking a container. When you run a container within its own PID namespace,
+    it is only able to see the other processes running within the container. By default,
+    Podman runs containers within their own PID namespaces.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我经常说命名空间并非旨在作为安全机制，但事实上，它们通过隔离和信息隐藏提供了额外的安全。PID 命名空间隐藏了系统上运行着其他进程的事实。意识到某个应用程序正在系统上运行对于攻击容器的人来说可能是有价值的。当你在一个容器内运行其自己的
+    PID 命名空间时，它只能看到容器内运行的其它进程。默认情况下，Podman 在其自己的 PID 命名空间内运行容器。
+- en: 'Some applications shipped as container images require additional access to
+    the system. If you have such an application that needs to monitor the processes
+    on the host, you’ll need to turn off the PID namespace to expose all the processes
+    on the system. Turning off the PID namespace with Podman is simple: just add the
+    `--pid=host` flag. In the next couple of examples, you see that with the PID namespace,
+    you only see the container process within the container. The second command exposes
+    all processes within the system to the container.'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些作为容器镜像分发的应用程序需要额外的系统访问权限。如果你有一个需要监控主机进程的应用程序，你需要关闭 PID 命名空间以暴露系统上的所有进程。使用
+    Podman 关闭 PID 命名空间很简单：只需添加 `--pid=host` 标志。在接下来的几个示例中，你会看到，有了 PID 命名空间，你只能看到容器内的容器进程。第二个命令将系统内的所有进程暴露给容器。
+- en: Listing 10.7 The differences between using the `pid` namespace and disabling
+    it
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.7 使用 `pid` 命名空间和不使用它的区别
+- en: '[PRE26]'
+  id: totrans-184
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ❶ Running the find command looking for all processes within the container, you
+    see only one process.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 运行查找容器内所有进程的 find 命令，你只能看到一个进程。
+- en: ❷ Running the find command in a --pid=host container, you see all of the processes
+    on the system.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在 `--pid=host` 容器中运行 find 命令，你将看到系统上的所有进程。
+- en: Note On an SELinux system, exposing the host’s processes via the `--pid=host`
+    option also has a side effect of disabling SELinux separation. SELinux blocks
+    access to the host’s processes and causes problems when processes within the container
+    interact with these processes. Other security mechanisms, like dropped capabilities
+    and user namespaces, are not dropped and can block access to the processes.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 在 SELinux 系统上，通过 `--pid=host` 选项暴露主机的进程也会产生禁用 SELinux 分隔的副作用。SELinux 会阻止对主机进程的访问，当容器内的进程与这些进程交互时会引起问题。其他安全机制，如丢弃的能力和用户命名空间，不会被丢弃并且可以阻止对进程的访问。
+- en: '10.5 Network isolation: Network namespace'
+  id: totrans-188
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.5 网络隔离：网络命名空间
+- en: 'The network namespace sets up isolation from the host network. It allows Podman
+    to set up virtual private networks to control which containers can talk to other
+    containers. Podman has the ability to create multiple networks and then assign
+    containers within those networks. By default, all containers run within the host
+    network. But it is simple to set up additional networks using the `podman` `network`
+    `create` command. In the next example, you will create two networks—`net1` and
+    `net2`:'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网络命名空间为主机网络设置隔离。它允许 Podman 设置虚拟专用网络，以控制哪些容器可以与其他容器通信。Podman 有能力创建多个网络，并将这些网络中的容器分配到这些网络中。默认情况下，所有容器都在主机网络中运行。但使用
+    `podman` `network` `create` 命令设置额外的网络很简单。在下一个示例中，你将创建两个网络——`net1` 和 `net2`：
+- en: '[PRE27]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'When you create new containers, you can assign them to a specific network with
+    the `--network` `net1` option:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你创建新的容器时，你可以使用 `--network` `net1` 选项将它们分配到特定的网络：
+- en: '[PRE28]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: ❶ Start a background container in network net1.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在网络 net1 中启动一个后台容器。
+- en: ❷ Make sure the container is reachable from another container within the network.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 确保容器可以从网络中的另一个容器访问。
+- en: 'If you attempt to ping the network from the default network namespace via the
+    container name, or even the IP address, it fails:'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您尝试通过容器名称或甚至 IP 地址从默认网络命名空间ping网络，它将失败：
+- en: '[PRE29]'
+  id: totrans-196
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: ❶ Make sure the cnet1 container is still available by the IP address.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 确保cnet1容器仍然可以通过IP地址访问。
+- en: 'Similarly, if you attempt to ping it from a different network, `--network`
+    `net2`, it also fails:'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似地，如果您尝试从不同的网络 `--network` `net2` ping 它，它也会失败：
+- en: '[PRE30]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: Creating private networks for your containers allows you to isolate them from
+    each other, even over the network, using the network namespace.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为您的容器创建私有网络允许您使用网络命名空间将它们彼此隔离，即使在网络上也是如此。
+- en: Note For these examples, I used the alpine image because it comes with the ping
+    package installed, while the ubi8 image does not include it. You can easily add
+    the ping executable to ubi8 via a Containerfile and `podman` `build`.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：对于这些示例，我使用了 alpine 镜像，因为它自带安装了 ping 包，而 ubi8 镜像则没有包含它。您可以通过 Containerfile
+    和 `podman` `build` 容器轻松添加 ping 可执行文件。
+- en: You can expose your host network to the container using the `--net=host` option,
+    allowing a container to bind to ports on the host. In certain situations, you
+    can get better performance when you eliminate the network namespace.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 `--net=host` 选项将主机网络暴露给容器，允许容器绑定到主机上的端口。在某些情况下，当您消除网络命名空间时，您可以获得更好的性能。
+- en: '10.6 IPC isolation: IPC namespace'
+  id: totrans-203
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.6 IPC 隔离：IPC 命名空间
+- en: The inter-process communication (IPC) namespace isolates certain IPC resources,
+    namely, System V IPC objects and POSIX message queues. It also isolates the /dev/shm
+    tmpfs from the host and other containers. The IPC namespace allows containers
+    to create named IPCs with the same name as other containers on the same system,
+    without causing a conflict.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进程间通信（IPC）命名空间隔离了某些 IPC 资源，即 System V IPC 对象和 POSIX 消息队列。它还隔离了主机和其他容器中的 /dev/shm
+    tmpfs。IPC 命名空间允许容器创建与同一系统上其他容器具有相同名称的命名 IPC，而不会引起冲突。
+- en: Thus, IPC isolation prevents one container from attacking another via an IPC
+    or /dev/shm. You can join two IPC-namespaced containers together using the `--ipc=container:NAME`
+    or run them within a pod. They share the same IPC namespace. They can use IPC
+    together but are still isolated from the host.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，IPC 隔离防止一个容器通过 IPC 或 /dev/shm 攻击另一个容器。您可以使用 `--ipc=container:NAME` 将两个 IPC-命名空间容器连接在一起，或者在一个
+    pod 中运行它们。它们共享相同的 IPC 命名空间。它们可以一起使用 IPC，但仍然与主机隔离。
+- en: Listing 10.8 IPC namespace keeping /dev/shm private to each container
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.8 IPC 命名空间保持 /dev/shm 对每个容器私有
+- en: '[PRE31]'
+  id: totrans-207
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: ❶ Create a container named ipc1, touch /dev/shm/ipc1, and then go to sleep.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个名为 ipc1 的容器，触摸 /dev/shm/ipc1，然后进入睡眠状态。
+- en: ❷ Run a second container to see that the /dev/shm/ipc does not exist because
+    the container is running in a separate IPC namespace.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 运行第二个容器以查看 /dev/shm/ipc 是否不存在，因为容器正在运行在独立的 IPC 命名空间中。
+- en: ❸ Run a container with a shared IPC namespace, and you will see that the /dev/shm
+    is shared and the IPC file exists.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 运行一个具有共享 IPC 命名空间的容器，您将看到 /dev/shm 是共享的，并且 IPC 文件存在。
+- en: You can share the host’s IPC namespace with your container by executing the
+    `--ipc=host` option.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过执行 `--ipc=host` 选项将主机的 IPC 命名空间与您的容器共享。
+- en: Note On SELinux systems, Podman modifies all containers that share the same
+    IPC namespace to share the same SELinux label. Otherwise, SELinux blocks the IPC
+    communications between containers when the labels do not match. Using the `--ipc=host`
+    option causes SELinux separation to be disabled; otherwise, SELinux blocks access
+    to the host’s IPC.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在 SELinux 系统上，Podman 将所有共享相同 IPC 命名空间的容器修改为共享相同的 SELinux 标签。否则，当标签不匹配时，SELinux
+    会阻止容器之间的 IPC 通信。使用 `--ipc=host` 选项会导致 SELinux 分隔被禁用；否则，SELinux 会阻止对主机 IPC 的访问。
+- en: '10.7 Filesystem isolation: Mount namespace'
+  id: totrans-213
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.7 文件系统隔离：挂载命名空间
+- en: The next, and perhaps most important, namespace isolation is the mount namespace.
+    The mount namespace hides the entire host filesystem from the container processes.
+    The container processes only see the filesystem content defined to be in the mount
+    namespace. Podman creates the filesystem mount point `rootfs` and bind mounts
+    all volumes onto it. Podman then executes the OCI runtime, which then executes
+    the `pivot_root` syscall, which in turn changes the root mount in the mount namespace
+    of the calling process. It moves the root mount to the rootfs directory. Thus,
+    all of the content of the host operating system disappears, and the container
+    processes only see the provided content. By dropping the `CAP_SYS_ADMIN` capability,
+    the processes inside the container have no ability to affect the mounts of the
+    rootfs to expose the underlying filesystems.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，也许是最重要的，是命名空间隔离，即挂载命名空间。挂载命名空间隐藏了整个主机文件系统，使其对容器进程不可见。容器进程只能看到挂载命名空间中定义的文件系统内容。Podman创建文件系统挂载点`rootfs`并将所有卷绑定到它上。然后Podman执行OCI运行时，该运行时再执行`pivot_root`系统调用，这反过来又改变了调用进程的挂载命名空间中的根挂载。它将根挂载移动到`rootfs`目录。因此，主机操作系统的所有内容都消失了，容器进程只能看到提供的内容。通过丢弃`CAP_SYS_ADMIN`能力，容器内的进程无法影响根fs的挂载，从而暴露底层文件系统。
+- en: 'Note Read the `pivot_root(2)` man page to find out more about the `pivot_ root`
+    system call: `man` `2` `pivot_root`.'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：阅读`pivot_root(2)`手册页以了解更多关于`pivot_root`系统调用的信息：`man 2 pivot_root`。
+- en: 'While the mount namespace and the lack of `CAP_SYS_ADMIN` provide excellent
+    isolation, there have been some container escapes to the underlying filesystem,
+    which is where SELinux steps in. One example of this was a flaw in the OCI runtime
+    `runc` (CVE-2019-5736), which allowed container processes to overwrite the `runc`
+    executable in rootful containers. This exploit allowed containers to escape their
+    containment and take over users’ systems. This exploit affected all container
+    engines, including Podman, Docker, CRI-O, and containerd. The good news is that
+    well-configured SELinux can stop it. Podman is mainly run in rootless mode, and
+    rootless Podman is protected in two ways: SELinux and not running as root. I wrote
+    about this exploit in this “Latest container exploit (runc) can be blocked by
+    SELinux” blog post, available on Red Hat’s website ([http://mng.bz/Qn6j](http://mng.bz/Qn6j)).'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然挂载命名空间和缺少`CAP_SYS_ADMIN`提供了优秀的隔离，但已经有一些容器逃逸到底层文件系统，这正是SELinux介入的地方。一个例子是OCI运行时`runc`（CVE-2019-5736）中的漏洞，该漏洞允许容器进程在rootful容器中覆盖`runc`可执行文件。这个漏洞允许容器逃出它们的容器并接管用户的系统。这个漏洞影响了所有容器引擎，包括Podman、Docker、CRI-O和containerd。好消息是，配置良好的SELinux可以阻止它。Podman主要在无根模式下运行，无根Podman通过两种方式得到保护：SELinux和不以root身份运行。我在这篇“最新的容器漏洞（runc）可以通过SELinux阻止”博客文章中讨论了这个漏洞，该文章可在Red
+    Hat网站上找到（[http://mng.bz/Qn6j](http://mng.bz/Qn6j)）。
+- en: '10.8 Filesystem isolation: SELinux'
+  id: totrans-217
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.8 文件系统隔离：SELinux
+- en: SELinux is a labeling system, where every process and filesystem object gets
+    labeled. Then rules are written to the kernel about how the process labels interact
+    with the filesystem labels as well as other process labels. SELinux supports multiple
+    different security mechanisms; containers take advantage of two of these. The
+    first is called *type enforcement*, with which SELinux controls what processes
+    can do based on their type. The second is called *MCS enforcement*, and it additionally
+    uses categories assigned to processes.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux是一个标签系统，其中每个进程和文件系统对象都会被标记。然后，将规则写入内核，关于进程标签如何与文件系统标签以及其他进程标签交互。SELinux支持多种不同的安全机制；容器利用了其中两种。第一种被称为*类型强制*，通过它SELinux根据进程的类型控制进程可以做什么。第二种被称为*MCS强制*，它还使用分配给进程的类别。
+- en: SELinux is not supported on all distributions. Fedora, RHEL, and other Red Hat
+    distributions support SELinux, while Debian-based distributions, like Ubuntu,
+    often do not. If your Linux distribution does not support SELinux, you might want
+    to skip this section.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux并非在所有发行版上都得到支持。Fedora、RHEL和其他Red Hat发行版支持SELinux，而基于Debian的发行版，如Ubuntu，通常不支持。如果你的Linux发行版不支持SELinux，你可能想跳过这一节。
+- en: 10.8.1 SELinux type enforcement
+  id: totrans-220
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.8.1 SELinux类型强制
+- en: 'The SELinux labels have four components: the SELinux user, role, type, and
+    MCS level (see table 10.5).'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux标签有四个组成部分：SELinux用户、角色、类型和MCS级别（见表10.5）。
+- en: Table 10.5 SELinux label type examples
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表10.5 SELinux标签类型示例
+- en: '| Object | User | Role | Type | MCS level |'
+  id: totrans-223
+  prefs: []
+  type: TYPE_TB
+  zh: '| 对象 | 用户 | 角色 | 类型 | MCS级别 |'
+- en: '| Container process | `system_u` | `system_r` | `container_t` | `s0:c1,c2`
+    |'
+  id: totrans-224
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器进程 | `system_u` | `system_r` | `container_t` | `s0:c1,c2` |'
+- en: '| Container process | `system_u` | `system_r` | `container_t` | `s0:c361,c871`
+    |'
+  id: totrans-225
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器进程 | `system_u` | `system_r` | `container_t` | `s0:c361,c871` |'
+- en: '| Container file | `system_u` | `object_r` | `container_file_t` | `s0:c1,c2`
+    |'
+  id: totrans-226
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器文件 | `system_u` | `object_r` | `container_file_t` | `s0:c1,c2` |'
+- en: '| Container file | `system_u` | `object_r` | `container_file_t` | `s0:s361,c871`
+    |'
+  id: totrans-227
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器文件 | `system_u` | `object_r` | `container_file_t` | `s0:s361,c871` |'
+- en: '| /etc/shadow label | `system_u` | `object_r` | `shadow_t` | `s0` |'
+  id: totrans-228
+  prefs: []
+  type: TYPE_TB
+  zh: '| /etc/shadow标签 | `system_u` | `object_r` | `shadow_t` | `s0` |'
+- en: '| Container process | `system_u` | `system_r` | `spc_t` | `s0` |'
+  id: totrans-229
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器进程 | `system_u` | `system_r` | `spc_t` | `s0` |'
+- en: '| User process | `unconfined_u` | `unconfined_r` | `unconfined_t` | `s0-s0:c0.c1023`
+    |'
+  id: totrans-230
+  prefs: []
+  type: TYPE_TB
+  zh: '| 用户进程 | `unconfined_u` | `unconfined_r` | `unconfined_t` | `s0-s0:c0.c1023`
+    |'
+- en: In this section, you will concentrate on the SELinux type. I wrote *The SELinux
+    Coloring Book* to explain the labeling, using the analogy of cats and dogs (figure
+    10.3).
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，你将专注于SELinux类型。我写了*SELinux彩色画册*来解释标签，使用了猫和狗的类比（图10.3）。
+- en: '![](../../OEBPS/Images/10-03.png)'
+  id: totrans-232
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/10-03.png)'
+- en: Figure 10.3 *The SELinux Coloring Book* ([http://mng.bz/Xay6](http://mng.bz/Xay6))
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.3 *SELinux彩色画册* ([http://mng.bz/Xay6](http://mng.bz/Xay6))
+- en: As the coloring book explains, imagine you have a group of processes labeled
+    as `cat` types and another group of processes labeled as `dog` types. Imagine
+    you also have objects on the filesystem labeled as `dog` `food` type and `cat`
+    `food` type. Finally, imagine you write rules to the kernel saying that `cat`
+    types are allowed to eat `cat` `food` types, and `dog` types can eat `dog` `food`
+    types. With SELinux, anything that is not explicitly allowed is denied. The `cat`
+    processes can eat the `cat` `food`, and the `dog` processes can eat the `dog`
+    `food`, but if a `dog` type attempts to eat `cat` `food`, the Linux kernel steps
+    in and blocks the access.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如彩色画册所述，想象你有一组被标记为`cat`类型的进程和另一组被标记为`dog`类型的进程。想象你还有在文件系统中被标记为`dog` `food`类型和`cat`
+    `food`类型的对象。最后，想象你向内核写入规则，说明`cat`类型可以吃`cat` `food`类型，而`dog`类型可以吃`dog` `food`类型。使用SELinux，任何未明确允许的行为都会被拒绝。`cat`进程可以吃`cat`
+    `food`，而`dog`进程可以吃`dog` `food`，但如果一个`dog`类型尝试吃`cat` `food`，Linux内核会介入并阻止访问。
+- en: Containers work the same way. Podman labels each container process with the
+    `container_t` type. All the files within the container are labeled as a `container_file_t`
+    type. Rules are written into the kernel, saying the `container_t` processes are
+    allowed to read, write, and execute files labeled with the `container_file_t`
+    type.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器的工作方式相同。Podman将每个容器进程标记为`container_t`类型。容器内的所有文件都被标记为`container_file_t`类型。规则被写入内核，说明`container_t`进程可以读取、写入和执行标记为`container_file_t`类型的文件。
+- en: Note SELinux does not care about ownerships and permissions, so you can, for
+    example, define a process type that has access to all filesystem types and is
+    not confined by SELinux, often called an *unconfined type*. You can see a couple
+    of unconfined types running on your Linux system. The `id` `-Z` command shows
+    your user processes are running with the `unconfined_t` type and a privileged
+    container runs with the `spc_t` type.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意SELinux不关心所有权和权限，因此你可以定义一个进程类型，它有权访问所有文件系统类型，并且不受SELinux的限制，通常称为*未限制类型*。你可以在Linux系统上看到一些未限制类型的运行。`id`
+    `-Z`命令显示你的用户进程以`unconfined_t`类型运行，而特权容器以`spc_t`类型运行。
+- en: 'When Podman constructs the rootfs for the container, it labels all of the files
+    in the rootfs as `container_file_t`. This means the container process can read,
+    write, and execute all of the files within the container’s rootfs, but if they
+    escape to the host filesystem, the SELinux kernel blocks access to the host filesystem
+    objects. In the next few examples, you can examine what is happening in containers
+    with SELinux. In this first example, you can see the label of the containerized
+    process; notice the type is `container_t`. But when you run with the `--privileged`
+    flag, Podman changes the label to `spc_t`, an unconfined domain:'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当Podman为容器构建rootfs时，它会将rootfs中的所有文件标记为`container_file_t`。这意味着容器进程可以读取、写入和执行容器rootfs中的所有文件，但如果它们逃逸到宿主文件系统，SELinux内核会阻止对宿主文件系统对象的访问。在接下来的几个示例中，你可以检查SELinux容器中发生的情况。在这个第一个示例中，你可以看到容器化进程的标签；注意类型是`container_t`。但是当你使用`--privileged`标志运行时，Podman将标签更改为`spc_t`，一个未限制域：
+- en: '[PRE32]'
+  id: totrans-238
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: 'Examine the files within the container, using the `ls` `-Z` command. You see
+    the files are all labeled as `container_file_t`:'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`ls` `-Z`命令检查容器内的文件。你看到所有文件都被标记为`container_file_t`：
+- en: '[PRE33]'
+  id: totrans-240
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'Because Podman configured the SELinux environment properly, container processes
+    have full access to all of the objects within the container’s rootfs, and SELinux
+    pretty much stays out of the way, unless something else breaks down and somehow
+    the container process escapes out of the rootfs into the host operating system.
+    At that point, SELinux starts blocking access. Imagine the container process you
+    are running on your system broke out of the container and attempted to read the
+    SSH keys in your home directory. Let’s look at the labels on those files. You
+    see that those files are labeled with the `ssh_home_t` type:'
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Podman正确配置了SELinux环境，容器进程可以完全访问容器rootfs中的所有对象，SELinux基本上不会干涉，除非其他事情出了问题，并且容器进程从rootfs逃逸到宿主操作系统。在这种情况下，SELinux开始阻止访问。想象一下，您在系统上运行的容器进程从容器中逃逸出来，试图读取您家目录中的SSH密钥。让我们看看这些文件的标签。您会看到这些文件被标记为`ssh_home_t`类型：
+- en: '[PRE34]'
+  id: totrans-242
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'Because there is no rule in SELinux policy allowing a `container_t` process
+    to read an `ssh_home_t` file, the SELinux kernel blocks access. You can demonstrate
+    this by volume mounting the .ssh directory into a container. When you attempt
+    to list the directory, the container process gets `Permission` `denied`:'
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于SELinux策略中没有允许`container_t`进程读取`ssh_home_t`文件的规则，SELinux内核阻止了访问。您可以通过将.ssh目录挂载到容器中来演示这一点。当您尝试列出目录时，容器进程会收到`Permission`
+    `denied`：
+- en: '[PRE35]'
+  id: totrans-244
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: As you learned in section 3.1.2, Podman has SELinux volume options `z` and `Z`,
+    which tell SELinux to relabel the content of the source volume to make it usable
+    inside of the container. This is not a good idea to do with the .ssh directory.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您在3.1.2节中学到的，Podman有SELinux卷选项`z`和`Z`，这些选项告诉SELinux重新标记源卷的内容，使其在容器内可用。对于.ssh目录来说，这样做并不是一个好主意。
+- en: Instead, let’s create a temporary file and show the SELinux labels in action.
+    First, create a temporary file in your home directory named foo. Label it `user_home_t`.
+    Volume mount it into the container, and see that the container process is denied
+    access.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，让我们创建一个临时文件并展示SELinux标签的实际应用。首先，在您的家目录中创建一个名为foo的临时文件。将其标记为`user_home_t`。将其挂载到容器中，并查看容器进程被拒绝访问。
+- en: Listing 10.9 How SELinux works with volumes inside Podman containers
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.9 Podman容器内卷的SELinux工作方式
+- en: '[PRE36]'
+  id: totrans-248
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: ❶ Files created in your home directory default to the user_home_t type.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在您的家目录中创建的文件默认为user_home_t类型。
+- en: ❷ By default, container processes are not allowed to write to content in the
+    user's home directory. Podman does not change the labels on volumes by default.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 默认情况下，容器进程不允许写入用户主目录中的内容。Podman默认不会更改卷的标签。
+- en: ❸ The --privileged flag causes SELinux separation to be disabled, running the
+    container with an unconfined type (spc_t). The command simulates a container escape,
+    showing that without SELinux, an escaped container is allowed to write to the
+    filesystem.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ `--privileged`标志会导致SELinux隔离被禁用，以未限制的类型（spc_t）运行容器。该命令模拟容器逃逸，显示在没有SELinux的情况下，逃逸的容器被允许写入文件系统。
+- en: ❹ The file created by the privileged container has the label of the user home
+    directory (user_home_t).
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 由特权容器创建的文件具有用户主目录的标签（user_home_t）。
+- en: ❺ The :Z option on the volume mount tells Podman to relabel the content of the
+    directory to match the labels of files within the rootfs (container_file_t).
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 卷挂载上的`:Z`选项告诉Podman将目录内容重新标记以匹配rootfs（container_file_t）内文件的标签。
+- en: ❻ The labels of the newly created file match the label within the container.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 新创建的文件标签与容器内的标签相匹配。
+- en: SELinux type enforcement has shown itself to be invaluable in blocking container
+    escape when no other mechanism was available. Table 10.6 shows a list of container
+    escapes that have been blocked by SELinux.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux类型强制执行已经证明在阻止容器逃逸方面非常有价值，当没有其他机制可用时。表10.6显示了由SELinux阻止的容器逃逸列表。
+- en: SELinux type enforcement does a great job protecting the host operating system
+    from container processes. The problem is that `type` `enforcement` does not protect
+    you from one container attacking another.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux类型强制执行在保护宿主操作系统免受容器进程侵害方面做得很好。问题是类型强制执行并不能保护您免受一个容器攻击另一个容器。
+- en: Table 10.6 Major container exploits blocked by SELinux
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表10.6 SELinux阻止的主要容器漏洞
+- en: '| Common vulnerabilities and exposures | Description |'
+  id: totrans-258
+  prefs: []
+  type: TYPE_TB
+  zh: '| 常见漏洞和暴露 | 描述 |'
+- en: '| CVE-2019-5736 | Execution of malicious containers allows for container escape
+    and access to the host filesystem. |'
+  id: totrans-259
+  prefs: []
+  type: TYPE_TB
+  zh: '| CVE-2019-5736 | 恶意容器的执行允许容器逃逸并访问宿主文件系统。 |'
+- en: '| CVE-2015-3627 | Insecure opening of file-descriptor 1, leading to privilege
+    escalation |'
+  id: totrans-260
+  prefs: []
+  type: TYPE_TB
+  zh: '| CVE-2015-3627 | 不安全地打开文件描述符 1，导致权限提升 |'
+- en: '| CVE-2015-3630 | Read/write proc paths allow host modification and information
+    disclosure. |'
+  id: totrans-261
+  prefs: []
+  type: TYPE_TB
+  zh: '| CVE-2015-3630 | 读写 proc 路径允许主机修改和信息泄露。 |'
+- en: '| CVE-2015-3631 | Volume mounts allow Linux Security Modules (LSM) profile
+    escalation. |'
+  id: totrans-262
+  prefs: []
+  type: TYPE_TB
+  zh: '| CVE-2015-3631 | 卷挂载允许 Linux 安全模块（LSM）配置文件提升。 |'
+- en: '| CVE-2016-9962 | `runc` exec vulnerability |'
+  id: totrans-263
+  prefs: []
+  type: TYPE_TB
+  zh: '| CVE-2016-9962 | `runc` 执行漏洞 |'
+- en: 10.8.2 SELinux Multi-Category Security separation
+  id: totrans-264
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.8.2 SELinux 多类别安全分隔
+- en: SELinux does not block processes of one type from attacking other processes
+    of the same type. One way to think about this is going back to the cats and dogs
+    analogy. Type enforcement prevents the `dog` from eating the `cat` `food`, but
+    it does not prevent `cat-A` from eating `cat-B`’s `cat` `food`.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux 不会阻止同一类型的进程攻击同一类型的其他进程。一种思考方式是回到猫和狗的类比。类型强制防止 `狗` 吃 `猫` 的 `食物`，但它不会阻止
+    `猫-A` 吃 `猫-B` 的 `猫` `食物`。
+- en: Recall when I introduced this section, I said there were two types of SELinux
+    security Podman takes advantage of. SELinux has a mechanism to enforce process
+    separation based on the Multi-Category Security (MCS) level field. SELinux defines
+    1,024 categories, which can be combined together to give a level to each container.
+    Podman allocates two categories for each container and then makes sure the process
+    label level matches the filesystem label levels. Then the SELinux kernel enforces
+    the MCS levels matching, or the access is denied.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想当我介绍这个部分时，我说过 Podman 利用 SELinux 安全性有两种类型。SELinux 有一种机制可以根据多类别安全（MCS）级别字段强制执行进程分隔。SELinux
+    定义了 1,024 个类别，可以组合在一起为每个容器提供一个级别。Podman 为每个容器分配两个类别，然后确保进程标签级别与文件系统标签级别相匹配。然后
+    SELinux 内核强制执行 MCS 级别匹配，否则拒绝访问。
+- en: Note MCS Separation is actually about dominance. Each category must dominate
+    the MCS level. A level of `S0:C1,C2` can write to levels `S0:C1,C2`, `S0:C1`,
+    `S0:C2`, and `S0`. But the `S0:C1,C2` is not allowed to write to `S0:C1,C3`, since
+    the original label does not include the `C3`. In practice, Podman only uses two
+    categories or no categories. When you use the `:z` option on a volume, Podman
+    relabels the source directory with the level `s0`—no categories. The `s0` allows
+    processes from any container to read and write filesystem objects with this level,
+    from an SELinux perspective.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，MCS 分隔实际上关于支配性。每个类别必须支配 MCS 级别。`S0:C1,C2` 级别可以写入 `S0:C1,C2`、`S0:C1`、`S0:C2`
+    和 `S0` 级别，但 `S0:C1,C2` 级别不允许写入 `S0:C1,C3`，因为原始标签不包括 `C3`。在实践中，Podman 只使用两个类别或没有类别。当你在一个卷上使用
+    `:z` 选项时，Podman 会将源目录重新标记为 `s0` 级别——没有类别。`s0` 级别允许来自任何容器的进程以该级别读取和写入文件系统对象，从 SELinux
+    的角度来看。
+- en: Revisit table 10.4, but this time concentrate on the MCS level field (table
+    10.7).
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新查看表 10.4，但这次专注于 MCS 级别字段（表 10.7）。
+- en: Table 10.7 Container process labels, with MCS level highlighted
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10.7 容器进程标签，MCS 级别已突出显示
+- en: '| Object | User | Role | Type | MCS level |'
+  id: totrans-270
+  prefs: []
+  type: TYPE_TB
+  zh: '| 对象 | 用户 | 角色 | 类型 | MCS 级别 |'
+- en: '| Container process | `system_u` | `system_r` | `container_t` | `s0:c1,c2`
+    |'
+  id: totrans-271
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器进程 | `system_u` | `system_r` | `container_t` | `s0:c1,c2` |'
+- en: '| Container process | `system_u` | `system_r` | `container_t` | `s0:c361,c871`
+    |'
+  id: totrans-272
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器进程 | `system_u` | `system_r` | `container_t` | `s0:c361,c871` |'
+- en: '| Container file | `system_u` | `object_r` | `container_file_t` | `s0:c1,c2`
+    |'
+  id: totrans-273
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器文件 | `system_u` | `object_r` | `container_file_t` | `s0:c1,c2` |'
+- en: '| Container file | `system_u` | `object_r` | `container_file_t` | `s0:s361,c871`
+    |'
+  id: totrans-274
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器文件 | `system_u` | `object_r` | `container_file_t` | `s0:s361,c871` |'
+- en: '| /etc/shadow label | `system_u` | `object_r` | `shadow_t` | `s0` |'
+  id: totrans-275
+  prefs: []
+  type: TYPE_TB
+  zh: '| /etc/shadow 标签 | `system_u` | `object_r` | `shadow_t` | `s0` |'
+- en: '| Container process | `system_u` | `system_r` | `spc_t` | `s0` |'
+  id: totrans-276
+  prefs: []
+  type: TYPE_TB
+  zh: '| 容器进程 | `system_u` | `system_r` | `spc_t` | `s0` |'
+- en: '| User process | `unconfined_u` | `unconfined_r` | `unconfined_t` | `s0-s0:c0.c1023`
+    |'
+  id: totrans-277
+  prefs: []
+  type: TYPE_TB
+  zh: '| 用户进程 | `unconfined_u` | `unconfined_r` | `unconfined_t` | `s0-s0:c0.c1023`
+    |'
+- en: 'Now look at how MCS leveling works with Podman. If you run containers back
+    to back and examine the SELinux label, you notice that each container’s MCS level
+    is unique:'
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在看看 MCS 级别如何与 Podman 一起工作。如果你连续运行容器并检查 SELinux 标签，你会注意到每个容器的 MCS 级别是唯一的：
+- en: '[PRE37]'
+  id: totrans-279
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: This MCS level prevents the processes from attacking each other. Recall that
+    in section 10.2.8, you created the foo/bar file with a container private label.
+    If you volume mount this file into another container and then try to write to
+    the file, you get permission denied.
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个 MCS 级别阻止进程相互攻击。回想一下在 10.2.8 节中，你使用容器私有标签创建了 foo/bar 文件。如果你将此文件挂载到另一个容器中，然后尝试写入文件，你会得到权限被拒绝。
+- en: Listing 10.10 SELinux preventing different containers from sharing a volume
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.10 SELinux 阻止不同容器共享卷
+- en: '[PRE38]'
+  id: totrans-282
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: ❶ The file foo/bar has a private MCS level, which Podman does not give to another
+    container.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 文件 foo/bar 有一个私有的 MCS 级别，Podman 不会将其提供给另一个容器。
+- en: ❷ Other containers are not allowed to access the foo/bar file based on having
+    a different MCS level.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 其他容器不允许根据不同的 MCS 级别访问 foo/bar 文件。
+- en: ❸ If you force the container MCS level to match the previous container’s label,
+    SELinux allows the access.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果您强制容器 MCS 级别与上一个容器的标签匹配，SELinux 允许访问。
+- en: Recall that the `Z` volume option tells Podman to label the container private
+    to the container, while the `z` volume option tells Podman to label the container
+    shared for all containers. You can use this option if you have a directory you
+    want to allow multiple containers to use.
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，`Z` 卷选项告诉 Podman 将容器标记为对容器私有，而 `z` 卷选项告诉 Podman 将容器标记为对所有容器共享。如果您有一个希望允许多个容器使用的目录，可以使用此选项。
+- en: Listing 10.11 Volume option `z` causing Podman to relabel volumes with a shared
+    label
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.11 卷选项 `z` 导致 Podman 重新标记卷为共享标签
+- en: '[PRE39]'
+  id: totrans-288
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: ❶ The -v ./foo:/foo:z tells Podman to label the volume as shared.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ `-v ./foo:/foo:z` 告诉 Podman 将卷标记为共享。
+- en: ❷ Podman uses the :s0 MCS level because all containers are allowed to write
+    to it.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ Podman 使用 :s0 MCS 级别，因为所有容器都被允许写入。
+- en: ❸ Other containers with different MCS levels can successfully modify the content.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 其他具有不同 MCS 级别的容器可以成功修改内容。
+- en: Note SELinux has 1,024 categories, and Podman chooses two categories for each
+    container. Level `s0:c1,c1` is not allowed. These categories must not match, and
+    the order is not important. Level `s0:c1,c2` is the same as `s0:c2,c1`. There
+    are 1024 x 1024 ÷ 2 – 1024 = ~500,000 unique combinations available, meaning you
+    can create half a million unique containers on your system.
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 SELinux 有 1,024 个类别，Podman 为每个容器选择两个类别。级别 `s0:c1,c1` 是不允许的。这些类别不得匹配，顺序也不重要。级别
+    `s0:c1,c2` 与 `s0:c2,c1` 相同。有 1024 x 1024 ÷ 2 – 1024 = ~500,000 种独特的组合，这意味着您可以在系统上创建五十万个独特的容器。
+- en: 'Sometimes it is necessary to disable SELinux container separation for your
+    container. For example, you might want to share your home directory within a container.
+    It is a bad idea to relabel your home directory with the `Z` or `z` options. Recall
+    that when relabeling volumes, they need to be private to the container. Relabeling
+    the home directory can cause other SELinux problems with other confined domains.
+    You can run the container with the `--privileged` flag, but you probably want
+    the other security mechanisms to still be enforced. To achieve this, you can use
+    the `--security-opt` `label:disable` flag:'
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时有必要禁用 SELinux 容器隔离以适应您的容器。例如，您可能希望在容器内共享您的家目录。使用 `Z` 或 `z` 选项重新标记您的家目录是一个糟糕的想法。回想一下，当重新标记卷时，它们需要对容器是私有的。重新标记家目录可能会引起其他受限域的
+    SELinux 问题。您可以使用带有 `--privileged` 标志的容器运行，但您可能希望其他安全机制仍然得到执行。为了实现这一点，您可以使用 `--security-opt`
+    `label:disable` 标志：
+- en: '[PRE40]'
+  id: totrans-294
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: Note The udica project’s ([https://github.com/containers/udica](https://github.com/containers/udica))
+    goal is to generate SELinux policies for containers. Basically, Udica examines
+    a container you have created via `podman` `inspect` and then writes a policy type
+    that allows access to the volumes you want to mount into the container.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 udica 项目（[https://github.com/containers/udica](https://github.com/containers/udica)）的目标是为容器生成
+    SELinux 策略。基本上，Udica 通过 `podman` `inspect` 检查您创建的容器，然后编写一个策略类型，允许访问您想要挂载到容器中的卷。
+- en: SELinux is a very powerful tool for protecting the host operating system from
+    the containers. It is easy to deal with for containers as long as you understand
+    how to handle volumes. Understanding how to protect the filesystem, it is time
+    now to look at protecting the Linux kernel from potentially vulnerable system
+    calls.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SELinux 是一种非常强大的工具，可以保护宿主操作系统免受容器的影响。只要您了解如何处理卷，它就很容易处理容器。了解如何保护文件系统后，现在应该看看如何保护
+    Linux 内核免受可能存在漏洞的系统调用的影响。
+- en: 10.9\. System call isolation seccomp
+  id: totrans-297
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.9\. 系统调用隔离 seccomp
+- en: A *system call*, often called a *syscall*, is how a computer program requests
+    a service from the kernel of the operating system on which it is executed. Common
+    syscalls are `open`, `read`, `write`, `fork`, and `exec`. In Linux, there are
+    over 700 system calls.
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*系统调用*，通常称为 *syscall*，是计算机程序请求其执行的操作系统内核上的服务的方式。常见的 syscalls 包括 `open`、`read`、`write`、`fork`
+    和 `exec`。在 Linux 中，有超过 700 个系统调用。'
+- en: Recall from the beginning of this chapter that the Linux kernel is the single
+    point of failure hostile containers can attack to escape confinement. If a bug
+    exists in the Linux kernel that can be attacked via a system call, the container
+    processes might escape. The Linux kernel feature seccomp allows processes to voluntarily
+    limit the number of system calls they and their children can make. Podman, by
+    default, eliminates hundreds of the system calls using this feature. Suppose the
+    Linux kernel has a flaw in one of its system calls, which a container process
+    can use to escape, but Podman eliminated it from the table of system calls available
+    to the container. In that case, the container is blocked from using it.
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下本章开头的内容，Linux 内核是敌意容器可以攻击以逃离限制的单一点。如果 Linux 内核中存在可以通过系统调用攻击的漏洞，容器进程可能会逃逸。Linux
+    内核的 seccomp 功能允许进程自愿限制它们及其子进程可以调用的系统调用数量。默认情况下，Podman 通过此功能消除了数百个系统调用。假设 Linux
+    内核在其系统调用中的一个存在缺陷，容器进程可以使用它来逃逸，但 Podman 已将其从容器可用的系统调用表中删除。在这种情况下，容器将无法使用它。
+- en: Podman’s seccomp filters are stored as a JSON file in the /usr/share/containers/seccomp.json
+    file. Podman also modifies the list of seccomp filters based on the capabilities
+    you allow to the container. When you add a capability, Podman adds the system
+    calls required for that capability. Capabilities and seccomp are both enforced
+    separately; Podman just tries to make it easier for the user. If the user provides
+    their own seccomp JSON file, it needs to be similar to the default one for the
+    capability modifications to work.
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman 的 seccomp 过滤器存储在 `/usr/share/containers/seccomp.json` 文件中，以 JSON 格式保存。Podman
+    还会根据您允许容器拥有的能力来修改 seccomp 过滤器的列表。当您添加一个能力时，Podman 会添加实现该能力所需的系统调用。能力和 seccomp
+    都会分别强制执行；Podman 只是试图让用户更容易操作。如果用户提供了自己的 seccomp JSON 文件，它需要与默认文件相似，以便能力修改才能生效。
+- en: You can modify the seccomp filter by editing this file. In the following example,
+    you remove the `mkdir` syscall from seccomp.json, and then run a container in
+    which you try to make a directory. The seccomp filter blocks the syscall, and
+    your container fails.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过编辑此文件来修改 seccomp 过滤器。在以下示例中，您从 seccomp.json 中删除了 `mkdir` 系统调用，然后在一个尝试创建目录的容器中运行。seccomp
+    过滤器阻止了系统调用，您的容器失败。
+- en: Listing 10.12 How seccomp filters can block syscalls within a Podman container
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.12 如何使用 seccomp 过滤器在 Podman 容器内阻止系统调用
+- en: '[PRE41]'
+  id: totrans-303
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: ❶ Use the sed command to delete all entries that make mkdir and create /tmp/seccomp.json.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 sed 命令删除所有创建 mkdir 和 /tmp/seccomp.json 的条目。
+- en: ❷ Use the diff command to show the removed mkdir entries.
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用 diff 命令显示已删除的 mkdir 条目。
+- en: ❸ Use the --security-opt seccomp=/tmp/seccomp.json flag to use an alternative
+    seccomp filter; the mkdir command fails because the mkdir system call is not available.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用 `--security-opt seccomp=/tmp/seccomp.json` 标志使用替代的 seccomp 过滤器；mkdir 命令失败，因为
+    mkdir 系统调用不可用。
+- en: ❹ Run the same command again with a default filter to show the mkdir succeeds.
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 再次运行相同的命令，使用默认过滤器以显示 mkdir 成功。
+- en: 'Note Not many people modify the seccomp filters because it is difficult to
+    figure out the number of system calls required by a container. There are tools
+    to generate this list of system calls using the Berkeley Packet Filter (BPF).
+    The package at the following webpage is a hook that monitors a container and automatically
+    generates a seccomp.json file to use later to lock down the container: [https://github.com/containers/oci-seccomp-bpf-hook/](https://github.com/containers/oci-seccomp-bpf-hook/).'
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：由于难以确定容器所需的系统调用数量，因此修改 seccomp 过滤器的人不多。有工具可以使用伯克利包过滤器（BPF）生成系统调用列表。以下网页上的软件包是一个钩子，它监控容器并自动生成
+    seccomp.json 文件，稍后可用于锁定容器：[https://github.com/containers/oci-seccomp-bpf-hook/](https://github.com/containers/oci-seccomp-bpf-hook/)。
+- en: Sometimes the default container seccomp.json file is too tight. Your container
+    might not work because it needs a system call that is not available. In this case,
+    you can disable seccomp filtering by using the `--security-opt` `seccomp=unconfined`
+    flag.
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时默认的容器 seccomp.json 文件过于严格。您的容器可能无法工作，因为它需要不可用的系统调用。在这种情况下，您可以使用 `--security-opt`
+    `seccomp=unconfined` 标志来禁用 seccomp 过滤。
+- en: As you see, system call filtering is powerful and can really limit the container
+    processes’ access to the host kernel. The next level is to use KVM isolation.
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，系统调用过滤功能强大，确实可以限制容器进程对宿主内核的访问。下一级是使用 KVM 隔离。
+- en: 10.10 Virtual machine isolation
+  id: totrans-311
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.10 虚拟机隔离
+- en: At the beginning of this chapter, I compared process isolation based on where
+    the three pigs chose to live. They could live in separate houses, a duplex, or
+    a condominium. Each one was getting slightly less secure. Container security,
+    by default, is living in a condo. But you can use VM isolation, which basically
+    puts your container into a VM, to get better isolation.
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的开头，我比较了基于三只小猪选择居住地点的过程隔离。它们可以选择住在单独的房子里、一栋联排别墅，或者公寓。每一个选择都稍微降低了安全性。默认情况下，容器安全就是住在公寓里。但你可以使用虚拟机隔离，这基本上是将你的容器放入虚拟机中，以获得更好的隔离。
+- en: In appendix B, I cover how different OCI runtimes, Kata and libkrun, take advantage
+    of Kernel-based Virtual Machine (KVM) to run their containers within a lightweight
+    virtual machine. These virtual machines run their own kernel and initialization
+    tools to launch the container. By doing this, almost all of the host kernels’
+    system calls are eliminated, making it much more difficult to escape confinement.
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在附录B中，我介绍了不同的OCI运行时，如Kata和libkrun，如何利用基于内核的虚拟机（KVM）在轻量级虚拟机中运行它们的容器。这些虚拟机运行它们自己的内核和初始化工具来启动容器。通过这种方式，几乎消除了宿主机的所有系统调用，使得逃逸隔离变得更加困难。
+- en: The problem with this isolation is that it comes at a cost. As with a duplex,
+    you end up sharing fewer services between your containers. Memory management,
+    CPU, and other resources are harder to share. Sharing volumes into a container
+    is also going to perform worse.
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种隔离的问题在于它是有代价的。就像联排别墅一样，你最终会在容器之间共享更少的服务。内存管理、CPU和其他资源更难共享。将卷共享到容器中也会表现得更差。
+- en: Now you’ve finished examining Podman security features used for container isolation.
+    Next let’s look at other security features.
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经完成了对用于容器隔离的Podman安全特性的检查。接下来，让我们看看其他的安全特性。
+- en: Summary
+  id: totrans-316
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Container security is all about protecting the Linux kernel and host filesystem
+    from hostile container processes.
+  id: totrans-317
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 容器安全全部关乎保护Linux内核和宿主机文件系统免受敌对容器进程的侵害。
+- en: Defense in depth means your container tooling takes advantage of as many security
+    mechanisms as possible. If one security mechanism fails, others might still protect
+    your system.
+  id: totrans-318
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 多层次防御意味着你的容器工具利用尽可能多的安全机制。如果一个安全机制失败，其他机制可能仍然可以保护你的系统。

@@ -1,0 +1,1596 @@
+- en: 6 Troubleshooting large-scale network errors
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 6 大规模网络错误的故障排除
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Confirming cluster functionality with Sonobuoy
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 Sonobuoy 确认集群功能
+- en: Tracing a Pod’s data path
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 跟踪 Pod 的数据路径
+- en: Using the `arp` and `ip` commands to inspect CNI routing
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `arp` 和 `ip` 命令检查 CNI 路由
+- en: A deeper look at kube-proxy and iptables
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 深入了解 kube-proxy 和 iptables
+- en: An introduction to Layer 7 networking (the ingress resource)
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 层 7 网络简介（入口资源）
+- en: In this chapter, we’ll go over a few touchpoints for troubleshooting large-scale
+    network errors. We also introduce *Sonobuoy*, a Swiss Army knife for certifying,
+    diagnosing, and testing the functionality of live Kubernetes clusters, which is
+    a commonly used diagnosis tool for Kubernetes.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论一些用于故障排除大规模网络错误的触点。我们还介绍了 *Sonobuoy*，这是一个瑞士军刀，用于认证、诊断和测试实时 Kubernetes
+    集群的功能，它是 Kubernetes 中常用的诊断工具。
+- en: Sonobuoy compared with the Kubernetes e2e (end-to-end) tests
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Sonobuoy 与 Kubernetes e2e（端到端）测试的比较
+- en: Sonobuoy runs the Kubernetes e2e testing suite in a container and makes it easy
+    to retrieve, store, and archive the overall results.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Sonobuoy 在容器中运行 Kubernetes e2e 测试套件，并简化了整体结果的检索、存储和归档。
+- en: For advanced Kubernetes users that commonly work on Kubernetes from the source
+    tree, you can directly use the test/e2e/ directory (found at [http://mng.bz/Dgx9](http://mng.bz/Dgx9))
+    as an alternative to Sonobuoy. We recommend it as an entry point to learn more
+    about how to run specific Kubernetes tests.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于经常从源代码树中工作的高级 Kubernetes 用户，您可以直接使用 test/e2e/ 目录（位于 [http://mng.bz/Dgx9](http://mng.bz/Dgx9)）作为
+    Sonobuoy 的替代方案。我们建议将其作为学习如何运行特定 Kubernetes 测试的入门点。
+- en: Sonobuoy is based on the Kubernetes e2e testing library. Sonobuoy is used to
+    verify Kubernetes releases and validate whether the software correctly follows
+    the Kubernetes API specification. After all, Kubernetes is ultimately just an
+    API, and so the way that we define a Kubernetes cluster is as a set of nodes that
+    can successfully pass the Kubernetes conformance test suite.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Sonobuoy 基于 Kubernetes e2e 测试库。Sonobuoy 用于验证 Kubernetes 发布版本，并验证软件是否正确遵循 Kubernetes
+    API 规范。毕竟，Kubernetes 最终只是一个 API，因此我们定义 Kubernetes 集群的方式是一组可以成功通过 Kubernetes 合规性测试套件的节点。
+- en: Trying out kind-local-up.sh
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尝试运行 kind-local-up.sh
+- en: Exploring different CNIs is a great way to practice troubleshooting real-world
+    network issues that you might hit in the wild. You can use the kind recipes at
+    [http://mng.bz/2jg0](http://mng.bz/2jg0) to run different variants of Kubernetes
+    clusters that have different CNI providers. For example, if you clone this project,
+    you can run `CLUSTER=calico CONFIG=calico-conf.yaml ./kind-local-up.sh` to create
+    a Calico-based cluster. Other CNI options (Antrea and Cillium, for instance) are
+    also available and readable from the kind-local-up.sh script as well. As an example,
+    to create an Antrea cluster to follow along with the examples in this chapter,
+    you can run
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 探索不同的 CNI 是练习解决现实世界中可能遇到的网络问题的好方法。您可以使用 [http://mng.bz/2jg0](http://mng.bz/2jg0)
+    上的 kind 菜单来运行具有不同 CNI 提供商的不同 Kubernetes 集群变体。例如，如果您克隆此项目，您可以通过运行 `CLUSTER=calico
+    CONFIG=calico-conf.yaml ./kind-local-up.sh` 来创建基于 Calico 的集群。其他 CNI 选项（例如 Antrea
+    和 Cillium）也可用，并且可以从 kind-local-up.sh 脚本中读取。例如，为了创建一个 Antrea 集群以跟随本章中的示例，您可以运行
+- en: '[PRE0]'
+  id: totrans-14
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: You can then modify the `CLUSTER` option to use a different CNI type, such as
+    `calico` or `cillium`. Once your cluster is created, if you check all the Pods
+    in the `kube- system` namespace, you should see the CNI Pods running happily.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，您可以修改 `CLUSTER` 选项以使用不同的 CNI 类型，例如 `calico` 或 `cillium`。一旦您的集群创建完成，如果您检查
+    `kube-system` 命名空间中的所有 Pods，您应该会看到 CNI Pods 正在愉快地运行。
+- en: Note Feel free to file an issue on the repo ([https://github.com/jayunit100/
+    k8sprototypes](https://github.com/jayunit100/k8sprototypes)) if you would like
+    to see a new CNI recipe added or if a particular version is causing problems for
+    you in a `kind` environment.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：如果您希望看到添加新的 CNI 菜单或特定版本在 `kind` 环境中引起问题，请随时在仓库（[https://github.com/jayunit100/k8sprototypes](https://github.com/jayunit100/k8sprototypes)）中提交问题。
+- en: '6.1 Sonobuoy: A tool for confirming your cluster is functioning'
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.1 Sonobuoy：一个确认您的集群是否正常工作的工具
+- en: 'The conformance test suite consists of hundreds of tests to confirm everything
+    from storage volumes, networking, Pod scheduling, and the ability to run a few
+    basic applications. The Sonobuoy project ([https://sonobuoy.io/](https://sonobuoy.io/))
+    packages a set of Kubernetes e2e tests that we can run on any cluster. This tells
+    us specifically which parts of our clusters might not be working properly. In
+    general, you can download Sonobuoy and then run the following command:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一套符合性测试包括数百个测试，以确认从存储卷、网络、Pod 调度以及运行一些基本应用程序的能力。Sonobuoy 项目（[https://sonobuoy.io/](https://sonobuoy.io/））打包了一套
+    Kubernetes e2e 测试，我们可以在任何集群上运行。这告诉我们集群的哪些部分可能工作不正常。一般来说，您可以下载 Sonobuoy，然后运行以下命令：
+- en: '[PRE1]'
+  id: totrans-19
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: This example installs on MacOS, so please use the appropriate binary for your
+    operating system. Tests generally take anywhere from 1 to 2 hours on a healthy
+    cluster. After this, you can run `sonobuoy status` to get a readout of whether
+    your cluster is working or not. To test networking specifically, a good test to
+    run is
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此示例适用于 MacOS，因此请使用适合您操作系统的相应二进制文件。测试通常在健康的集群上需要 1 到 2 小时。之后，您可以通过运行 `sonobuoy
+    status` 来获取集群是否正常工作的读数。要特别测试网络，可以运行以下测试：
+- en: '[PRE2]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'This test confirms that every node in your cluster can communicate to Pods
+    on other nodes in your cluster. It confirms that your CNI’s core functionality
+    and that of your network proxy (`kube-proxy`) are working correctly. For example:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此测试确认您的集群中每个节点都可以与其他节点上的 Pod 进行通信。它确认了您的 CNI 的核心功能以及您的网络代理（`kube-proxy`）是否正常工作。例如：
+- en: '[PRE3]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 6.1.1 Tracing data paths for Pods in a real cluster
+  id: totrans-24
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.1 在真实集群中追踪 Pod 的数据路径
+- en: 'The NetworkPolicy API allows you to create application-centric firewall rules
+    in a Kubernetes native manner and is a central part of planning for secure cluster
+    communication. It operates at the Pod level, meaning that a connection from one
+    Pod to another is blocked or allowed by a NetworkPolicy rule that exists in a
+    specific namespace. NetworkPolicies, services, and CNI providers have a delicate
+    interplay, which we attempt to illustrate in figure 6.1\. The logical data path
+    between any two Pods in a production cluster might be generalized like that shown
+    in the figure, where:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: NetworkPolicy API 允许您以 Kubernetes 原生方式创建以应用程序为中心的防火墙规则，并且是安全集群通信规划的核心部分。它在 Pod
+    层面上操作，这意味着一个 Pod 到另一个 Pod 的连接是否被阻止或允许，取决于特定命名空间中存在的 NetworkPolicy 规则。NetworkPolicies、服务和
+    CNI 提供者之间有着微妙的相互作用，我们试图在图 6.1 中说明。生产集群中任意两个 Pod 之间的逻辑数据路径可以概括如图所示，其中：
+- en: A Pod from 100.96.1.2 sends traffic to a service IP that it receives via a DNS
+    query (not shown in the figure).
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 来自 100.96.1.2 的 Pod 通过 DNS 查询（图中未显示）发送流量到它接收到的服务 IP。
+- en: The service then routes the traffic from the Pod to an IP determined by iptables.
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 然后，服务将来自 Pod 的流量路由到 iptables 确定的 IP。
+- en: The iptables rule routes the traffic to a Pod on a different node.
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: iptables 规则将流量路由到不同节点上的 Pod。
+- en: The node receives the packet, and an iptables (or OVS) rule determines if it
+    is in violation of a network policy.
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 节点接收到数据包，然后 iptables（或 OVS）规则确定它是否违反了网络策略。
+- en: The packet is delivered to the 100.96.1.3 endpoint.
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据包被发送到 100.96.1.3 终端。
+- en: '![](../Images/CH06_F01_Love.png)'
+  id: totrans-31
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH06_F01_Love.png)'
+- en: Figure 6.1 The logical data path between any two Pods in a production cluster
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.1 生产集群中任意两个 Pod 之间的逻辑数据路径
+- en: The data path does not take into account several caveats that can go wrong.
+    For example, in the real world
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据路径没有考虑到可能出错的一些注意事项。例如，在现实世界中
+- en: The first Pod can also be subject to network policy rules.
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第一个 Pod 也可能受到网络策略规则的约束。
+- en: There may be a firewall at the interface between nodes 10.1.2.3 and 10.1.2.4.
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在节点 10.1.2.3 和 10.1.2.4 之间的接口可能存在防火墙。
+- en: The CNI may be down or malfunctioning, meaning that the routing of the packet
+    between nodes might go to the wrong place.
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CNI 可能会宕机或出现故障，这意味着节点间数据包的路由可能会错误地到达其他地方。
+- en: Often, in the real world, a Pod’s access to other Pods might require mTLS (mutual
+    TLS) certificates.
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在现实世界中，Pod 访问其他 Pod 可能需要 mTLS（相互 TLS）证书。
+- en: As you likely know by now, iptables rules consist of *chains* and *rules*. Each
+    iptables table has different chains, and those chains consist of rules that determine
+    the overall flow of packets. The following chains are managed by the `kube-proxy`
+    service during a typical flow of a packet through a cluster. (In the next section,
+    we’ll look at what exactly we mean by a *route device*.)
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所知，iptables规则由*链*和*规则*组成。每个iptables表都有不同的链，这些链由规则组成，这些规则决定了数据包的整体流向。以下链在数据包通过集群的典型流中由`kube-proxy`服务管理。（在下一节中，我们将探讨我们所说的*路由设备*究竟是什么。）
+- en: '[PRE4]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 6.1.2 Setting up a cluster with the Antrea CNI provider
+  id: totrans-40
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.2 使用Antrea CNI提供者设置集群
+- en: In the previous chapter, we talked about network traffic with Calico. In this
+    chapter, we’ll do this again. We’ll also look at the Antrea CNI provider that
+    uses OpenVSwitch (OVS) as an alternative to the technologies used by Calico for
+    IP routing. This means
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们讨论了使用Calico的网络流量。在这一章中，我们还将这样做。我们还将查看使用OpenVSwitch（OVS）作为Calico用于IP路由的技术替代品的Antrea
+    CNI提供者。这意味着
+- en: Instead of BGP broadcasting of IPs that are routable on all nodes, OVS runs
+    a switch on every node, which routes traffic as it comes in.
+  id: totrans-42
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与在所有节点上可路由的IP的BGP广播不同，OVS在每个节点上运行一个交换机，按接收到的流量进行路由。
+- en: Instead of using iptables to create network policy rules, the OVS router makes
+    rules to implement the Kubernetes NetworkPolicy API.
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与使用iptables创建网络策略规则不同，OVS路由器制定规则以实现Kubernetes NetworkPolicy API。
+- en: We’ll repeat some concepts here because, in our opinion, seeing the same material
+    from a different angle greatly aids your understanding of production networking
+    in the real world. This time, however, we’re going to go a little faster because
+    we assume that you understand some of the concepts from the previous networking
+    chapters. These concepts include services, iptables rules, CNI providers, and
+    Pod IP addresses.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这里会重复一些概念，因为，据我们看来，从不同的角度看待相同的材料极大地有助于你理解现实世界中的生产级网络。然而，这次我们将加快速度，因为我们假设你已经理解了之前网络章节中的一些概念。这些概念包括服务、iptables规则、CNI提供者和Pod
+    IP地址。
+- en: 'To set up a cluster with the Antrea provider, we’ll use `kind` similarly to
+    what we did with Calico; however, this time, we’ll directly use the “recipes”
+    provided by the Antrea project. To create an Antrea-enabled `kind` cluster, run
+    the following steps:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用Antrea提供者设置集群，我们将使用`kind`，就像我们使用Calico时做的那样；然而，这次，我们将直接使用Antrea项目提供的“食谱”。要创建一个启用Antrea的`kind`集群，请运行以下步骤：
+- en: '[PRE5]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: warning The tutorial in this chapter is somewhat advanced. To reduce verbosity,
+    we’re going to assume that you are able to switch contexts between clusters. If
+    you don’t have both an Antrea and a Calico cluster up and running, reading along
+    and trying some of these commands along the way might be easier than attempting
+    to follow this section verbatim. As always, when hacking around with networking
+    internals, you might need to run `apt-get` `update;` `apt-get` `install` `net-tools`
+    in your `kind` cluster if you haven’t already done so.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：本章中的教程相对高级。为了减少冗余，我们假设你能够在不同集群之间切换上下文。如果你还没有同时启动并运行Antrea和Calico集群，沿着阅读并尝试一些这些命令可能比试图逐字跟随本节更容易。像往常一样，当在网络的内部进行修改时，如果你还没有这样做，你可能需要在你的`kind`集群上运行`apt-get
+    update; apt-get install net-tools`。
+- en: 6.2 Inspecting CNI routing on different providers with the arp and ip commands
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.2 使用arp和ip命令检查不同提供者的CNI路由
+- en: This time we skipped Kind
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这次我们跳过了Kind
+- en: Although you can run Antrea in a `kind` cluster, for this chapter, we will show
+    examples from a VMware Tanzu cluster. If you are interested in reproducing this
+    content using Antrea on `kind`, you can run the recipes at [http://mng.bz/2jg0](http://mng.bz/2jg0),
+    which enable either Calico, Cillium, or Antrea on a `kind` cluster. Cillium and
+    Antrea are both CNI providers that require a little finagling to get them to work
+    properly on a `kind` cluster due to their reliance on advanced Linux networking
+    that needs a small amount of extra configuration (eBPF and OVS, respectively).
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然你可以在`kind`集群中运行Antrea，但为了本章，我们将展示来自VMware Tanzu集群的示例。如果你对在`kind`集群上使用Antrea重现此内容感兴趣，你可以运行[http://mng.bz/2jg0](http://mng.bz/2jg0)中的食谱，这些食谱在`kind`集群上启用Calico、Cillium或Antrea。Cillium和Antrea都是CNI提供者，由于它们依赖于需要少量额外配置的先进Linux网络（分别对应eBPF和OVS），因此在`kind`集群上正确运行需要一些调整。
+- en: The entire concept of IP networking is based on the idea that IP addresses ultimately
+    send you to a hardware device of some sort, which operates one layer below (Layer
+    2) the abstraction of IP (Layer 3) and is, thus, only addressable on machines
+    that understand information about each other’s MAC addresses. Often, the first
+    step to inspecting how your network is operating is to run `ip` `a`. This gives
+    you a bird’s-eye view of what network interfaces your host is aware of and the
+    devices that are ultimately targeted as the network endpoints in your cluster.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 整个IP网络的概念基于这样一个想法：IP地址最终会将你引导到某种类型的硬件设备，该设备在IP（第3层）抽象的下一层（第2层）操作，因此，只能在理解彼此MAC地址信息的机器上寻址。通常，检查你的网络是如何运行的第一步是运行`ip
+    a`命令。这会给你一个俯瞰图，了解你的主机知道哪些网络接口，以及你的集群中作为网络端点的最终目标设备。
+- en: In an Antrea cluster, we can `exec` into any node using the same `docker` `exec`
+    commands from our previous chapters and issue the `arp` `-na` command to look
+    at what devices a given node is aware of. In this chapter’s examples, we’ll show
+    real VMs so that you can use this as a reference for looking at Antrea networks,
+    which will be (virtually) identical to the output that you’ll get from your local
+    cluster.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Antrea集群中，我们可以使用与上一章相同的`docker exec`命令进入任何节点，并发出`arp -na`命令来查看给定节点知道哪些设备。在本章的示例中，我们将展示真实的虚拟机，这样你可以将其作为查看Antrea网络的参考，这些网络将（在虚拟上）与你在本地集群中获得的输出相同。
+- en: 'To start, let’s `exec` into a node and look at the IP addresses it knows by
+    running the `arp` command. For addresses of Pods that the node can reach, we’ll
+    grep IP addresses out with the `100` filter, as in this case. We’re running this
+    demo in a bare metal cluster with machines in the 100 subnet:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们进入一个节点并运行`arp`命令来查看它知道的IP地址。对于节点可以到达的Pod的地址，我们将使用`100`过滤器grep IP地址，就像这个案例一样。我们在这个裸金属集群中运行这个演示，机器位于100子网：
+- en: '[PRE6]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: The addresses that are local to the node include
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 节点本地的地址包括
+- en: '[PRE7]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 6.2.1 What is an IP tunnel and why do CNI providers use them?
+  id: totrans-57
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.1 什么是IP隧道，为什么CNI提供者会使用它们？
+- en: You might be wondering what that `antrea-gw0` device is. If you ran these commands
+    on a Calico cluster, you may have seen a `tun0` device as well. In any event,
+    these are known as *tunnels*, and they are the construct that allow *flat* networking
+    between Pods in a cluster. In the previous example, the `antrea-gw0` devices correspond
+    to the OVS gateway that manages traffic for the Antrea CNI. This gateway traffic
+    is smart enough to “mask” the traffic from one Pod to another, so that the traffic
+    flows to a node first. In Calico clusters, you will see a similar pattern, wherein
+    a protocol (such as IPIP) is used to mask such traffic. Both the Calico and Antrea
+    CNI providers are smart enough to know *when* to mask traffic for performance
+    reasons.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想知道那个`antrea-gw0`设备是什么。如果你在Calico集群上运行了这些命令，你可能也看到了`tun0`设备。无论如何，这些被称为*隧道*，它们是允许集群中Pod之间*扁平*网络连接的构造。在前面的例子中，`antrea-gw0`设备对应于管理Antrea
+    CNI流量的OVS网关。这个网关流量足够智能，可以“隐藏”来自一个Pod到另一个Pod的流量，使得流量首先流向节点。在Calico集群中，你会看到类似的模式，其中使用协议（如IPIP）来隐藏此类流量。Calico和Antrea
+    CNI提供者都足够智能，知道何时为了性能原因隐藏流量。
+- en: Now, let’s see where Antrea and Calico CNI’s begin to differ somewhat interestingly.
+    In our Calico cluster, running `ip a` shows us that we have a tunl0 interface.
+    This is created by the `calico_node` container via the `brd` service, which is
+    responsible for routing traffic through the IPIP tunnel in the cluster. We contrast
+    that with the `ip` `a` command for Antrea in the second code snippet.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看Antrea和Calico CNI的起点是如何有趣地开始有所不同的。在我们的Calico集群中，运行`ip a`命令会显示我们有一个`tunl0`接口。这个接口是由`calico_node`容器通过`brd`服务创建的，该服务负责在集群中通过IPIP隧道路由流量。我们将它与第二个代码片段中Antrea的`ip
+    a`命令进行对比。
+- en: '[PRE8]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Now, in both clusters, run `kubectl` `scale` `deployment` `coredns` `--replicas=10`
+    `-n` `kube-system`. Then rerun the previous commands. You’ll see new IP entries
+    for the containers.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，在两个集群中，运行`kubectl scale deployment coredns --replicas=10 -n kube-system`。然后重新运行之前的命令。你会看到容器的新IP条目。
+- en: 6.2.2 How many packets are flowing through the network interfaces for our CNI?
+  id: totrans-62
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.2 我们的网络接口上流过多少数据包？
+- en: 'We know that all packets may be getting shoved into special tunnels so that
+    they end up in the right physical node before going to a Pod. Because each node
+    is then aware of all the Pod-local traffic, we can use standard Linux tools to
+    monitor Pod traffic without actually relying on any knowledge of Kubernetes itself.
+    The `ip` command has a `-s` option to show us if traffic is flowing. Running this
+    command on a node of either a Calico or Antrea cluster tells us exactly what interface
+    traffic is flowing into our Pod and at what rate. Here’s the output:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道所有数据包可能都被推送到特殊隧道中，以便在到达Pod之前最终到达正确的物理节点。因为每个节点都知道所有Pod本地流量，我们可以使用标准的Linux工具来监控Pod流量，而实际上并不依赖于对Kubernetes本身的任何了解。`ip`命令有一个`-s`选项来显示流量是否在流动。在Calico或Antrea集群的节点上运行此命令会告诉我们确切哪个接口的流量流入我们的Pod以及流量速率。以下是输出：
+- en: '[PRE9]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: At this point, we now have a high-level view of how network connectivity is
+    working in our clusters. If no traffic goes into a Calico- or Antrea-related interface,
+    then (obviously) our CNI is broken because most Kubernetes clusters will have
+    at least *some* traffic flowing between Pods during steady state operations. For
+    example, even without a user creating any Pods in a `kind` cluster, you’ll see
+    that `kube-proxy` Pod and CoreDNS Pod will be actively communicating about network
+    traffic via the CoreDNS service endpoint. Seeing these Pods in the Running state
+    is a good sanity test (especially with CoreDNS, which requires a Pod network to
+    function) and also will be a good way to verify that your CNI provider is healthy.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们现在对集群中网络连接的工作方式有一个高级的视图。如果没有流量进入与Calico或Antrea相关的接口，那么（显然）我们的CNI出了问题，因为大多数Kubernetes集群在稳定状态操作期间至少会有一些Pod之间的流量流动。例如，即使在没有用户在`kind`集群中创建任何Pod的情况下，你也会看到`kube-proxy`
+    Pod和CoreDNS Pod会通过CoreDNS服务端点积极通信关于网络流量。看到这些Pod处于运行状态是一个良好的合理性测试（特别是对于CoreDNS，它需要一个Pod网络才能工作），并且也将是验证你的CNI提供商是否健康的好方法。
+- en: 6.2.3 Routes
+  id: totrans-66
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.3 路由
+- en: The next level of our journey into the Pod network path involves seeing how
+    these devices are wired to IP addresses. In figure 6.2, we again depict the architecture
+    of a Kubernetes network. This time, however, we include the tunneling information
+    that was revealed in the previous commands.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们对Pod网络路径的探索的下一级涉及查看这些设备是如何连接到IP地址的。在图6.2中，我们再次描绘了Kubernetes网络的架构。然而，这一次，我们包括了之前命令中揭示的隧道信息。
+- en: '![](../Images/CH06_F02_Love.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH06_F02_Love.png)'
+- en: Figure 6.2 Tunneling information added to the architecture of a Kubernetes network
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.2 将隧道信息添加到Kubernetes网络架构中
+- en: 'Now that we know what a tunnel is, let’s see how our CNI manages routing traffic
+    to tunnels via programming the Linux routing table. Running `route -n` in our
+    Calico cluster shows the following routing table in the kernel, where the `cali`
+    interfaces are Pods local to a node, and the tunl0 interfaces are special interfaces
+    created by Calico itself for sending traffic to a gateway node:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经知道了什么是隧道，让我们看看我们的CNI是如何通过编程Linux路由表来管理路由到隧道的流量的。在Calico集群中运行`route -n`显示了内核中的以下路由表，其中`cali`接口是节点本地的Pod，而`tunl0`接口是Calico自己创建的用于将流量发送到网关节点的特殊接口：
+- en: '[PRE10]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: In this table for Calico, we can see that
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个Calico的路由表中，我们可以看到
+- en: 172 nodes are gateways for some of our Pods.
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 172个节点是某些Pod的网关。
+- en: 192 IP addresses within specific ranges (shown in the Genmask column) are routed
+    to specific nodes.
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在特定的范围内（在Genmask列中显示）的192个IP地址被路由到特定的节点。
+- en: 'What about on our Antrea CNI provider? On a similar cluster, we won’t see a
+    new destination IP for every device. Instead, we’ll see that there is a `.1` Antrea
+    gateway:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那我们的Antrea CNI提供商呢？在类似的集群中，我们不会看到每个设备都有一个新的目标IP。相反，我们会看到有一个`.1` Antrea网关：
+- en: '[PRE11]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: In this table for Antrea, we can see that
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个Antrea的路由表中，我们可以看到
+- en: '*Any traffic destined for the 100.96.0.0 IP range gets routed directly to IP
+    address 100.96.0.1.* This is a *reserved* IP address on the CNI network that Antrea
+    uses for its OVS-routing mechanism. Thus, instead of sending things directly to
+    a node IP address, it sends all traffic to an IP address on the Pod network on
+    which Antrea itself manages a switch service.'
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*任何目的地为100.96.0.0 IP范围的流量都会直接路由到IP地址100.96.0.1。* 这是CNI网络上Antrea使用的OVS路由机制的一个*保留*IP地址。因此，而不是直接发送到节点IP地址，它将所有流量发送到Antrea自己管理交换服务的Pod网络上的一个IP地址。'
+- en: '*Unlike Calico, all traffic (including local traffic) goes directly to the
+    Antrea gateway device.* The only thing that differentiates its final destination
+    is the gateway IP.'
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*与Calico不同，所有流量（包括本地流量）都直接发送到Antrea网关设备。唯一区分其最终目的地的是网关IP。*'
+- en: Thus, we can see that
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们可以看到
+- en: Antrea has one routing table entry *per node*.
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Antrea在每个节点上有一个路由表条目*每个节点*。
+- en: Calico has one routing table entry *per Pod*.
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Calico在每个Pod上有一个路由表条目*每个Pod*。
+- en: '6.2.4 CNI-specific tooling: Open vSwitch (OVS)'
+  id: totrans-83
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.4 CNI特定工具：Open vSwitch (OVS)
+- en: 'Antrea and Calico CNI plugins both run as Pods in our clusters. This isn’t
+    necessarily true for all CNI providers, but when it is, we will be able to use
+    a lot of nice Kubernetes features to debug the networking data path if necessary.
+    Once we start getting into the internals of CNIs, we will need to actually look
+    at tools such as `ovs-vsctl`, `antctl`, `calicoctl`, and so on. We’re not going
+    to go over all of these here, but we will introduce you to the `ovs-vsctl` tool
+    that can be run easily from inside an Antrea container on your clusters. We can
+    then ask OVS to tell us more about this interface via the `ovs-vsctl` tool. In
+    order to use this tool, you can directly execute into an Antrea container with
+    `kubectl exec` `-t` `-i` `antrea-agent-1234` `-n` `kube-system` `/bin/bash`, create
+    a shell, and then run a command such as the following:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Antrea和Calico CNI插件都在我们的集群中以Pod的形式运行。这并不一定适用于所有CNI提供者，但如果是的话，我们将在必要时能够使用许多优秀的Kubernetes功能来调试网络数据路径。一旦我们开始深入了解CNIs，我们实际上需要查看像`ovs-vsctl`、`antctl`、`calicoctl`等工具。我们不会在这里介绍所有这些工具，但我们将介绍可以在你的集群中Antrea容器内轻松运行的`ovs-vsctl`工具。然后我们可以通过`ovs-vsctl`工具让OVS告诉我们更多关于这个接口的信息。为了使用这个工具，你可以直接使用`kubectl
+    exec` `-t` `-i` `antrea-agent-1234` `-n` `kube-system` `/bin/bash`进入Antrea容器，创建一个shell，然后运行以下命令之类的命令：
+- en: '[PRE12]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'There are several command-line tools that give you the ability to diagnose
+    low-level CNI issues in clusters. For CNI specific debugging, you can use `antctl`
+    or `calicoctl`:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几个命令行工具可以让你在集群中诊断低级CNI问题。对于CNI特定的调试，你可以使用`antctl`或`calicoctl`：
+- en: '`antctl` lists enabled Antrea features, gets debugging information about agents,
+    and does fine-grained analysis of Antrea NetworkPolicy targets.'
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`antctl`列出启用的Antrea功能，获取代理的调试信息，并对Antrea NetworkPolicy目标进行细粒度分析。'
+- en: '`calicoctl` analyzes NetworkPolicy objects, prints information about network
+    diagnostics, and turns off common networking features (as an alternative to manually
+    editing YAML files).'
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`calicoctl`分析NetworkPolicy对象，打印关于网络诊断的信息，并关闭常见的网络功能（作为手动编辑YAML文件的替代方案）。'
+- en: If you are interested in a generic Linux-centric debugging of clusters, you
+    can use tools like Sonobuoy to run a gamut of e2e tests on a cluster. You can
+    also consider using the [https://github.com/sarun87/k8snetlook](https://github.com/sarun87/k8snetlook)
+    tool, which runs realistic cluster diagnostics for fine-grained networking features
+    (for example, API server connectivity, Pod connectivity, and so on).
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你对集群的通用Linux-centric调试感兴趣，可以使用像Sonobuoy这样的工具在集群上运行一系列端到端测试。你也可以考虑使用[https://github.com/sarun87/k8snetlook](https://github.com/sarun87/k8snetlook)工具，该工具为细粒度的网络功能（例如，API服务器连接性、Pod连接性等）运行实际的集群诊断。
+- en: Depending on how sophisticated your networking configuration is, the amount
+    of troubleshooting you need to do in the real world will vary. It’s quite common
+    to have 100+ Pods per node, and some level of inspection or reasoning about these
+    concepts will be increasingly important.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据你的网络配置复杂程度，你需要在现实世界中进行的故障排除量会有所不同。每个节点有100+个Pod是很常见的，对这些概念进行一定程度的检查或推理将变得越来越重要。
+- en: 6.2.5 Tracing the data path of active containers with tcpdump
+  id: totrans-91
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.5 使用tcpdump追踪活动容器的数据路径
+- en: 'Now that you have some intuition around how a packet flows from one place to
+    another in various CNIs, let’s pop back up the stack and look at one of our favorite
+    traditional network diagnostic tools: `tcpdump`. Because we have traced the relationship
+    between our host to the underlying Linux networking tools that route traffic,
+    we may want to look at things from the container’s perspective. The most common
+    tool for doing this is `tcpdump`. Let’s grab one of our CoreDNS containers and
+    look at its traffic. In Calico, we can directly sniff the packets on the `cali`
+    devices like so:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们对数据包如何在各种CNIs中从一个地方流向另一个地方有了些直觉，让我们回到栈的顶部，看看我们最喜欢的传统网络诊断工具之一：`tcpdump`。因为我们已经追踪了主机与底层Linux网络工具之间的关系，这些工具负责路由流量，我们可能想从容器的角度来查看这些事情。最常用的工具是`tcpdump`。让我们抓取我们的CoreDNS容器之一，并查看其流量。在Calico中，我们可以直接嗅探`cali`设备上的数据包，如下所示：
+- en: '[PRE13]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'The 10.96.0.1 IP address is the internal Kubernetes service address. This IP
+    (the API server) acknowledges receipt of a request from the CoreDNS server to
+    get a DNS record. If we look at a typical node in our cluster, where we are running
+    the CoreDNS Pod, our Antrea Pods will be named like so:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 10.96.0.1 IP地址是内部Kubernetes服务地址。这个IP（API服务器）确认收到了CoreDNS服务器获取DNS记录的请求。如果我们查看我们集群中的一个典型节点，在那里我们运行CoreDNS
+    Pod，我们的Antrea Pods将被命名为如下：
+- en: '[PRE14]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'This means we can directly sniff the packets going to this node by attaching
+    to this veth device with `tcpdump`. The following code snippet shows how to do
+    this:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着我们可以通过连接到这个veth设备并使用`tcpdump`来直接嗅探发送到该节点的数据包。以下代码片段展示了如何进行此操作：
+- en: '[PRE15]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: When you run this command, you should see traffic from different Pods that are
+    attempting to resolve Kubernetes DNS records. We often use the `-n` option so
+    that our IP addresses don’t get hidden from us when using `tcpdump`.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行此命令时，你应该会看到来自不同Pod的流量，这些Pod正在尝试解析Kubernetes DNS记录。我们经常使用`-n`选项，这样在使用`tcpdump`时我们的IP地址就不会被隐藏。
+- en: 'If you specifically want to see if one Pod is talking to another, you can go
+    to the node on the Pod where you are receiving traffic and scrape all TCP traffic,
+    which includes one of the Pod’s IP addresses. Let’s say a Pod that sends traffic
+    is 100.96.21.21\. Running this command gives you a raw dump of anything with,
+    for example, a 192 address and a 9153 port:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你只想查看一个Pod是否在与其他Pod通信，你可以前往接收流量的Pod所在的节点，并抓取所有包含Pod IP地址之一的TCP流量。比如说，一个发送流量的Pod的IP地址是100.96.21.21。运行此命令会给你一个包含例如192地址和9153端口的原始数据包转储：
+- en: '[PRE16]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: The `tcpdump` tool is often used for live debugging of traffic from one container
+    to another. In particular, if you don’t see an `ack` from the receiving Pod to
+    the sending Pod, this might mean that your Pod is not receiving traffic. This
+    might be due to something such as a network policy or an iptables rule that is
+    interfering with normal `kube-proxy` forwarding information.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tcpdump`工具通常用于对容器之间的流量进行实时调试。特别是，如果你没有从接收Pod到发送Pod的`ack`响应，这可能意味着你的Pod没有收到流量。这可能是由于网络策略或iptables规则干扰了正常的`kube-proxy`转发信息。'
+- en: Note Traditional IT shops often use tools such as Puppet to configure and manage
+    iptables rules. It is difficult to combine `kube-proxy` with iptables rules managed
+    by other IT-based networking rules, and often, it’s best to just run your nodes
+    in an environment that is isolated from the regular rules maintained by your network
+    administrators.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：传统的IT商店通常使用Puppet等工具来配置和管理iptables规则。将`kube-proxy`与其他基于IT的网络安全规则管理的iptables规则结合起来是困难的，通常，在由网络管理员维护的常规规则之外的环境中运行你的节点是最好的选择。
+- en: 6.3 The kube-proxy and iptables
+  id: totrans-103
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.3 kube-proxy和iptables
+- en: 'The most important thing to remember about the network proxy is that its operations
+    are, generally speaking, independent of the operations of your CNI provider. Of
+    course, like all other things in Kubernetes, this statement is not without a caveat:
+    some CNI providers have considered implementing their own service proxy as an
+    alternative to the iptables (or IPVS) service proxying that Kubernetes comes with
+    out of the box. That said, this is not the typical way most clusters run. In most
+    clusters, you should conceptually separate the concepts of service proxying, which
+    is done by the `kube-proxy`, from the concept of traffic routing, which is done
+    by your CNI provider (such as OVS) that manages Linux primitives.'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于网络代理，最重要的记住的事情是，其操作通常与你的CNI提供者的操作是独立的。当然，就像Kubernetes中的所有其他事物一样，这个说法并不是没有例外：一些CNI提供者已经考虑实现自己的服务代理，作为Kubernetes自带iptables（或IPVS）服务代理的替代方案。但话虽如此，这并不是大多数集群运行的标准方式。在大多数集群中，你应该在概念上将服务代理的概念（由`kube-proxy`执行）与流量路由的概念（由管理Linux原语（如OVS）的CNI提供者执行）分开。
+- en: This deep dive has reiterated a few basic Kubernetes networking concepts. So
+    far, we have seen
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这次深入探讨重申了一些基本的Kubernetes网络概念。到目前为止，我们已经看到
+- en: How the host maps Pod traffic with the IP and routes commands
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 主机如何将Pod流量映射到IP和路由命令
+- en: How you can verify incoming Pod traffic and look up IP tunneling information
+    from the host
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你如何验证传入的Pod流量并从主机查找IP隧道信息
+- en: How to sniff traffic on specific IP addresses using `tcpdump`
+  id: totrans-108
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何使用`tcpdump`在特定IP地址上嗅探流量
+- en: Let’s now take a look at `kube-proxy`. Even though it’s not part of your CNI,
+    understanding `kube-proxy` is integral when diagnosing networking issues.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看`kube-proxy`。尽管它不是你的CNI的一部分，但在诊断网络问题时理解`kube-proxy`是至关重要的。
+- en: 6.3.1 iptables-save and the diff tool
+  id: totrans-110
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3.1 iptables-save和diff工具
+- en: 'The simplest thing you can do when looking for all service endpoints is to
+    run `iptables-save` on a cluster. This command stores every iptables rule at some
+    point in time. Along with tools such as `diff`, it can be used to measure the
+    delta between two Kubernetes networking states. From here, you can look for the
+    comment rules, which tell you the services that are associated with a rule. A
+    typical run of `iptables-save` results in several lines of rules like so:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当寻找所有服务端点时，你可以对集群运行`iptables-save`命令。此命令在某个时间点存储每个iptables规则。结合`diff`等工具，它可以用来测量两个Kubernetes网络状态之间的差异。从这里，你可以查找注释规则，这些规则告诉你与规则关联的服务。典型的`iptables-save`运行会产生如下几行规则：
+- en: '[PRE17]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: After looking at these services, you’ll want to find the corresponding `SEP`
+    rules for them. We can use `grep` to find all rules associated with a specific
+    service. In this case, `SEP-QI...` corresponds to the CoreDNS container in our
+    cluster.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在查看这些服务之后，你将想要找到它们对应的`SEP`规则。我们可以使用`grep`来查找与特定服务相关的所有规则。在这种情况下，`SEP-QI...`对应于我们集群中的CoreDNS容器。
+- en: Note We use CoreDNS in many examples because it is a standard Pod that can be
+    scaled up and down, and likely runs in almost any cluster. You can complete this
+    exercise with any other Pod that is available behind an internal Kubernetes service
+    and that is using a CNI plugin for its IP address (it isn’t using the host network).
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们在许多示例中使用CoreDNS，因为它是一个可以扩展和缩放的标准化Pod，很可能运行在几乎任何集群中。你可以使用任何其他Pod来完成这个练习，该Pod位于内部Kubernetes服务后面，并使用CNI插件为其IP地址（它不使用主机网络）。
+- en: '[PRE18]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: This step is the same in any CNI provider. Because of that, we don’t provide
+    an Antrea/Calico comparison.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个步骤在所有CNI提供者中都是相同的。正因为如此，我们不会提供Antrea/Calico的比较。
+- en: 6.3.2 Looking at how network policies modify CNI rules
+  id: totrans-117
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3.2 查看网络策略如何修改CNI规则
+- en: Ingress rules and NetworkPolicies are two of the sharpest features of Kubernetes
+    networking, largely because these are both defined by the API but implemented
+    by external services that are considered optional in a cluster. Ironically, NetworkPolicies
+    and ingress routing are table stakes for most IT administrators. So, although
+    these features are theoretically optional, you likely are going to use them if
+    you’re reading this book.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 入站规则和网络策略是Kubernetes网络中最锐利的特性之一，这主要是因为这两个都是由API定义的，但由集群中认为是可选的外部服务实现。具有讽刺意味的是，网络策略和入站路由对于大多数IT管理员来说是基本要求。因此，尽管这些功能在理论上可能是可选的，但如果你正在阅读这本书，你很可能会使用它们。
+- en: 'NetworkPolicies in Kubernetes support blocking traffic for ingress/egress calls
+    or both on any Pod. In general, Pods are not secured at all in a Kubernetes cluster,
+    so NetworkPolicies are considered essential as part of a secure Kubernetes production
+    cluster. The NetworkPolicy API can be quite difficult to use for beginners, so
+    we’ll keep it simple to get you started:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes中的NetworkPolicies支持在任何Pod上阻止入口/出口调用或两者。一般来说，Pod在Kubernetes集群中根本不受保护，因此NetworkPolicies被视为安全Kubernetes生产集群的重要组成部分。NetworkPolicy
+    API对于初学者来说可能相当难以使用，所以我们将保持简单以帮助您入门：
+- en: NetworkPolicies are created in a specific namespace and target Pods by label.
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: NetworkPolicies在特定的命名空间中创建，并通过标签针对Pod。
+- en: NetworkPolicies must define a type (ingress is the default).
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: NetworkPolicies必须定义一个类型（默认为ingress）。
+- en: NetworkPolicies are additive and are *allow-only*, meaning that they deny things
+    by default and can be layered to allow more and more traffic whitelisting
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: NetworkPolicies是累加的，并且是*仅允许*的，这意味着它们默认拒绝事物，并且可以分层以允许更多和更多的流量白名单
+- en: Both Calico and Antrea implement the Kubernetes NetworkPolicy API differently.
+    Calico creates new iptables rules, whereas Antrea creates OVS rules.
+  id: totrans-123
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Calico和Antrea对Kubernetes NetworkPolicy API的实现方式不同。Calico创建新的iptables规则，而Antrea创建OVS规则。
+- en: Some CNIs, like Flannel, don’t implement the NetworkPolicy API at all.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一些CNIs，如Flannel，根本不实现NetworkPolicy API。
+- en: Some CNIs, like Cillium and OVN, (Open Virtual Network) Kubernetes, don’t implement
+    the entire Kubernetes API’s NetworkPolicy specification (for example, Cillium
+    doesn’t implement the recently added PortRange policy, which is Beta at the time
+    of this publication, and OVN Kubernetes doesn’t implement the NamedPort functionality).
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一些CNIs，如Cillium和OVN（Open Virtual Network）Kubernetes，并没有实现整个Kubernetes API的NetworkPolicy规范（例如，Cillium没有实现最近添加的PortRange策略，该策略在本文发表时处于Beta版本，而OVN
+    Kubernetes没有实现NamedPort功能）。
+- en: 'It’s important to realize that Calico does not use iptables for anything other
+    than network policies. All other routing is done via the BGP routing rules, which
+    we saw in a previous section. In this section, we’ll create a network policy and
+    see how it affects the routing rules in both Calico and Antrea. To begin looking
+    at how network policies might affect traffic, we’ll run a NetworkPolicy test where
+    we block all traffic to a Pod named `web`:'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要意识到，Calico除了网络策略之外不使用iptables进行任何操作。所有其他路由都通过BGP路由规则完成，我们之前已经讨论过。在本节中，我们将创建一个网络策略，并查看它如何影响Calico和Antrea中的路由规则。为了开始了解网络策略可能如何影响流量，我们将运行一个NetworkPolicy测试，其中阻止所有流向名为`web`的Pod的流量：
+- en: '[PRE19]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ This NetworkPolicy acts on the app:web container in the default namespace.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 此NetworkPolicy作用于默认命名空间中的app:web容器。
+- en: ❷ Denies all traffic because we haven’t actually defined any ingress rules
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 由于我们没有实际定义任何入口规则，因此拒绝所有流量
+- en: 'If we wanted to define an ingress rule, our policy might look something like
+    this:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想要定义一个入口规则，我们的策略可能看起来像这样：
+- en: '[PRE20]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Allows traffic, but we limit it to the port our web server serves on, 80
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 允许流量，但我们将其限制在我们的web服务器服务的端口上，即80
+- en: ❷ Allows the web Pod’s to respond to incoming traffic from our web2 Pod
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 允许web Pod响应来自我们的web2 Pod的入站流量
+- en: Note that in the second snippet, the web2 Pod would also be able to receive
+    traffic from the web Pod. That’s because the web Pod has not defined any egress
+    policies, which means all egress is allowed by default. Thus, in order to fully
+    lock down the web Pod, we would want to
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，在第二个片段中，web2 Pod也将能够从web Pod接收流量。这是因为web Pod没有定义任何出口策略，这意味着默认情况下允许所有出口。因此，为了完全锁定web
+    Pod，我们希望
+- en: Define an *egress* NetworkPolicy that only allows outgoing traffic to essential
+    services
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义一个仅允许流向关键服务的出口NetworkPolicy
+- en: Define an *ingress* NetworkPolicy that only allows incoming traffic from essential
+    services
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义一个仅允许来自关键服务的入口NetworkPolicy
+- en: Add port numbers to both of the preceding policies so that only essential ports
+    are allowed
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在前两个策略中添加端口号，以便仅允许关键端口
+- en: Defining these sorts of YAML policies can be very painstaking. If you want to
+    deeply explore this area, see [http://mng.bz/XWEl](http://mng.bz/XWEl), which
+    has several tutorials to introduce you to crafting specific network policies for
+    different use cases.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义这类YAML策略可能非常繁琐。如果您想深入了解这个领域，请参阅[http://mng.bz/XWEl](http://mng.bz/XWEl)，其中包含几个教程，可介绍您如何为不同的用例创建特定的网络策略。
+- en: A good way to uniformly test these policies created by our CNI is to define
+    a DaemonSet running the same container in all nodes. Note that the fact that our
+    CNI provider creates rules for NetworkPolicies is a feature of the CNI provider
+    itself. This is not part of the CNI interface. Because most CNI providers are
+    built for Kubernetes, the implementation of the Kubernetes NetworkPolicy API is
+    an obvious add-on that they provide.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试我们CNI创建的这些策略的一个好方法是在所有节点上定义一个运行相同容器的DaemonSet。请注意，我们的CNI提供程序为NetworkPolicies创建规则是CNI提供程序本身的一个特性。这不是CNI接口的一部分。因为大多数CNI提供程序是为Kubernetes构建的，所以Kubernetes
+    NetworkPolicy API的实现是他们提供的一个明显的附加功能。
+- en: 'Now, let’s test our policy by creating a Pod that it can target. The following
+    DaemonSet runs a Pod on every node. Each Pod is secured by the policy above it,
+    which results in a specific set of iptables rules written by the Calico CNI (or,
+    alternatively, OVS rules written by our Antrea CNI). We can test our policy with
+    the code in this snippet:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们通过创建一个策略可以针对的Pod来测试我们的策略。以下DaemonSet在所有节点上运行Pod。每个Pod都由上面的策略保护，这导致Calico
+    CNI（或，作为替代，我们的Antrea CNI编写的OVS规则）编写一组特定的iptables规则。我们可以使用此代码片段中的代码来测试我们的策略：
+- en: '[PRE21]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ Runs a Pod on every node
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在每个节点上运行Pod
+- en: 6.3.3 How are these policies implemented?
+  id: totrans-143
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3.3 这些策略是如何实现的？
+- en: We can use `diff` or `git diff` to compare iptables rules before and after our
+    policy is created. In Calico, you’ll see policies such as this. This is where
+    the `drop` rule for a policy is implemented. To do this
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用`diff`或`git diff`来比较创建策略前后iptables规则的变化。在Calico中，您将看到此类策略。这就是策略的`drop`规则实现的地方。要完成此操作
+- en: Create the DaemonSet in the previous code snippet and then run `iptables-save`
+    `>` `a1` on any node.
+  id: totrans-145
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在前面的代码片段中创建DaemonSet，然后在任何节点上运行`iptables-save > a1`。
+- en: Create the network policy that blocks this traffic, again running `iptables-save`
+    `>` `a2`, and save it to a different file.
+  id: totrans-146
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个网络策略来阻止此流量，再次运行`iptables-save > a2`，并将其保存到不同的文件中。
+- en: Run a command such as `git` `diff` `a1` `a2` and look at the difference.
+  id: totrans-147
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行类似于`git diff a1 a2`的命令并查看差异。
+- en: 'In this case, you’ll see the following new rules for policies:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此情况下，您将看到以下关于策略的新规则：
+- en: '[PRE22]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'Antrea also implements network policies but uses OVS flows and writes these
+    flows to table 90\. Running a similar workload in Antrea, you’ll see these policies
+    created. An easy way to do this is to call `ovs-ofctl`. Typically, this is done
+    from inside a container because Antrea agents are fully configured with all OVS
+    administrative binaries. This can also work from the host as well, if needed,
+    just by installing the OVS utilities. To run the following example in an Antrea
+    cluster, you can use the `kubectl` client. This command line shows us how Antrea
+    implements network policies:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Antrea也实现了网络策略，但使用OVS流并将其写入表90。在Antrea中运行类似的工作负载，您将看到创建的这些策略。完成此操作的一个简单方法是调用`ovs-ofctl`。通常，这是在容器内部完成的，因为Antrea代理已经完全配置了所有OVS管理二进制文件。如果需要，也可以从主机安装OVS实用程序来完成此操作。要在Antrea集群中运行以下示例，您可以使用`kubectl`客户端。此命令行显示了Antrea如何实现网络策略：
+- en: '[PRE23]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ❶ Antrea uses the conjunction rules written by OVS when it sees that it needs
+    to apply a network policy to a specific Pod.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当Antrea看到需要将网络策略应用于特定Pod时，它会使用OVS编写的联合规则。
+- en: OVS, similar to iptables, defines rules that designate the flow of packets.
+    There are several OVS flow tables that Antrea uses, and each of these tables have
+    specific logic programming for different Pods. The number of flows that are actively
+    in use by OVS can be monitored in real time using a tool like Prometheus if you
+    want to run Antrea at large scales and confirm any specific details around the
+    use of OVS in your data center.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: OVS，类似于iptables，定义了指定数据包流的规则。Antrea使用几个OVS流表，每个表都有针对不同Pod的具体逻辑编程。如果您想在大规模上运行Antrea并确认数据中心中OVS使用的任何特定细节，可以使用像Prometheus这样的工具实时监控OVS中活跃使用的流数量。
+- en: Remember, both OVS and iptables are integrated within the Linux kernel, so you
+    don’t have to do anything special to your data center in order to use these technologies.
+    For more information on how to monitor OVS with Prometheus, a companion blog post
+    to this book exists at [http://mng.bz/1jaj](http://mng.bz/1jaj). There we walk
+    you through the details of setting up Prometheus as a monitoring tool for Antrea.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，OVS和iptables都集成在Linux内核中，所以您不需要对数据中心做任何特殊操作来使用这些技术。有关如何使用Prometheus监控OVS的更多信息，本书的配套博客文章可在[http://mng.bz/1jaj](http://mng.bz/1jaj)找到。在那里，我们将向您详细介绍如何设置Prometheus作为Antrea的监控工具。
+- en: Cyclonus and the NetworkPolicy e2e tests
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cyclonus和NetworkPolicy e2e测试
+- en: If you are interested in learning more about NetworkPolicies, you can run the
+    Kubernetes e2e tests for them using Sonobuoy. You’ll get a beautiful list of tables
+    that print exactly which Pods can (and can’t) talk to each other, given a policy
+    specification. Another even more powerful tool for investigating the NetworkPolicy
+    features of your CNI provider is Cyclonus, which can be easily run from a source
+    (see [https://github.com/mattfenwick/cyclonus](https://github.com/mattfenwick/cyclonus)).
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想了解更多关于NetworkPolicies的信息，你可以使用Sonobuoy运行Kubernetes e2e测试。你将得到一个漂亮的表格列表，它精确地打印出哪些Pod可以在（和不能）根据策略规范相互通信。另一个用于调查你的CNI提供者NetworkPolicy功能的更强大的工具是Cyclonus，它可以从源轻松运行（见[https://github.com/mattfenwick/cyclonus](https://github.com/mattfenwick/cyclonus))）。
+- en: Cyclonus generates hundreds of network policy scenarios and probes whether your
+    CNI provider properly implements them. From time to time, CNI providers might
+    regress in their implementation of the complex NetworkPolicy API, so it’s a great
+    idea to run this in production to verify the conformance of your CNI provider
+    to the Kubernetes API specification.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cyclonus生成数百个网络策略场景，并检查你的CNI提供者是否正确实现了它们。有时，CNI提供者可能会在实现复杂的NetworkPolicy API时出现回归，因此在生产环境中运行这个工具来验证你的CNI提供者是否符合Kubernetes
+    API规范是一个很好的主意。
+- en: 6.4 Ingress controllers
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.4 入口控制器
+- en: '*Ingress controllers* allow you to route all traffic to your cluster through
+    a single IP address (and are a great way to save money on cloud IP addresses).
+    However, they can be tricky to debug, largely because they are add-on components.
+    As a way to deal with this, the Kubernetes community has discussed shipping a
+    default ingress controller.'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*入口控制器*允许你通过单个IP地址将所有流量路由到你的集群（并且是节省云IP地址成本的好方法）。然而，它们可能很难调试，主要是因为它们是附加组件。为了解决这个问题，Kubernetes社区讨论了提供默认入口控制器的方案。'
+- en: NGINX, Contour, and the Gateway API
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: NGINX、Contour和网关API
+- en: 'The original ingress API for Kubernetes was implemented by NGINX as a canonical
+    standard. However, soon after, two large shifts occurred:'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes的原始入口API是由NGINX实现的规范标准。然而，不久之后，发生了两个重大转变：
+- en: Contour ([https://projectcontour.io/](https://projectcontour.io/)) emerged as
+    an alternative CNCF (Cloud Native Computing Foundation) ingress controller.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Contour ([https://projectcontour.io/](https://projectcontour.io/))成为了一个替代的CNCF（云原生计算基金会）入口控制器。
+- en: The Gateway API emerged as an alternative way to provide a better multi-tenant
+    solution to the problem of exposing routes from a Kubernetes cluster.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 网关API作为一种提供更好的多租户解决方案来暴露Kubernetes集群路由的替代方式出现。
+- en: At the time of publication, the ingress API is “on the ropes” and soon to be
+    replaced by the Gateway API, which is much more descriptive and capable of describing
+    different types of Layer 7 resources to developers in a way that is more flexible.
+    Thus, although we encourage you to learn the material in this section, we note
+    that you should use this material as a springboard to begin researching the Gateway
+    API and how it might be able to suit your needs in the future. To read more about
+    the Gateway API, you can spend some time at [https://gateway-api.sigs.k8s.io/](https://gateway-api.sigs.k8s.io/).
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在发布时，入口API处于“困境”之中，很快将被网关API取代，后者描述性更强，能够以更灵活的方式向开发者描述不同类型的第7层资源。因此，尽管我们鼓励你学习本节的内容，但我们指出，你应该将这部分内容作为一个跳板，开始研究网关API及其如何可能满足你未来的需求。要了解更多关于网关API的信息，你可以花些时间在[https://gateway-api.sigs.k8s.io/](https://gateway-api.sigs.k8s.io/)上。
+- en: To implement an ingress controller (or a Gateway API), you need to decide how
+    to route traffic to it because the IP addresses for it are not regular ClusterIP
+    services. If your ingress controller goes down, all traffic into your cluster
+    will also break, so you will likely want to run it as a DaemonSet (if running
+    it in the cluster) on all nodes.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现一个入口控制器（或网关API），你需要决定如何将流量路由到它，因为它的IP地址不是常规的ClusterIP服务。如果你的入口控制器宕机，所有进入你的集群的流量也会中断，所以你可能会希望将其作为DaemonSet（如果它在集群中运行）在所有节点上运行。
+- en: Contour uses a technology, called the *Envoy* proxy, under the hood as the basis
+    for its service proxying. Envoy can be used to build ingress controllers, service
+    meshes, and other sorts of networking technologies that transparently forward
+    or manage traffic for you. As you read this, note that the Kubernetes Services
+    API is an ongoing area of innovation in the upstream Kubernetes community. As
+    clusters become larger and larger, the need for increasingly sophisticated models
+    for routing traffic will emerge over the next few years.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Contour 在其服务代理的基础上使用一种称为 *Envoy* 代理的技术。Envoy 可以用来构建入口控制器、服务网格以及其他类型的网络技术，这些技术可以透明地为你转发或管理流量。当你阅读这段内容时，请注意，Kubernetes
+    服务 API 是上游 Kubernetes 社区持续创新的领域。随着集群变得越来越大，在接下来的几年中，将出现越来越复杂的流量路由模型的需求。
+- en: 6.4.1 Setting up Contour and kind to explore ingress controllers
+  id: totrans-167
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.4.1 设置 Contour 和 kind 以探索入口控制器
+- en: The purpose of ingress controllers is to provide named access to the outside
+    world for the myriad of Kubernetes services you’ll run. If you’re on a cloud with
+    limitless public IPs, this might have slightly less value than otherwise, but
+    an ingress controller also serves the purpose of allowing you to cleanly set up
+    HTTPS passthrough, monitor all services being exposed, and create policies around
+    externally accessible URLs.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 入口控制器的作用是为你将要运行的众多 Kubernetes 服务提供对外界的命名访问。如果你在一个拥有无限公共 IP 的云上，这可能会比其他情况下稍微少一些价值，但入口控制器还允许你干净地设置
+    HTTPS 透传，监控所有暴露的服务，并围绕外部可访问的 URL 创建策略。
+- en: 'To explore how you add an ingress controller to your existing Kubernetes cluster,
+    we’ll create a trusty `kind` cluster. This time, however, we’ll set it up to forward
+    ingress traffic to port 80\. This traffic will be resolved by the Contour ingress
+    controller, which allows us to bind multiple services by name to port 80 on our
+    cluster:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了探索如何将入口控制器添加到现有的 Kubernetes 集群中，我们将创建一个可靠的 `kind` 集群。然而，这次，我们将设置它将入口流量转发到端口
+    80。这些流量将由 Contour 入口控制器解析，这允许我们将多个服务通过名称绑定到集群的端口 80：
+- en: '[PRE24]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Defines extraPortMappings to reach port 80 from our local terminal and to
+    forward into port 80 on our kind nodes
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 定义额外的端口映射，以便从我们的本地终端访问端口 80 并将其转发到我们的 kind 节点上的端口 80
+- en: 'The extra port mappings in this code snippet allow us to reach port 80 on our
+    local terminal and to get forwarded into that port from our `kind` nodes. Note
+    that this configuration only works with single-node clusters because you only
+    have one port to expose when running Docker-based Kubernetes nodes on a local
+    machine. After we create our _kind_ cluster, we will then install Calico, as shown
+    in the following example. You will have a working, basic Pod-to-Pod network:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码片段中的额外端口映射使我们能够从我们的本地终端访问端口 80，并从我们的 `kind` 节点将流量转发到该端口。请注意，此配置仅适用于单节点集群，因为当在本地机器上运行基于
+    Docker 的 Kubernetes 节点时，你只有一个端口可以暴露。在我们创建我们的 _kind_ 集群后，我们将安装 Calico，如下例所示。你将拥有一个工作良好的、基本的
+    Pod 到 Pod 网络：
+- en: '[PRE25]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: OK, now our infrastructure is all set up. Let’s start learning about ingress!
+    In this section, we’ll expose a Kubernetes service from bottom to top. As always,
+    we’ll use our trusty `kind` cluster to do the dirty work. This time, however,
+    we will
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好的，现在我们的基础设施都已经设置好了。让我们开始学习入口！在本节中，我们将从底部到顶部暴露 Kubernetes 服务。像往常一样，我们将使用我们可靠的
+    `kind` 集群来完成这项工作。然而，这次，我们将
+- en: Access a service from inside the cluster as a sanity check
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从集群内部访问服务以进行合理性检查
+- en: Use the Contour ingress controller as a way to manage this service by its hostname,
+    along with a fleet of other services
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 Contour 入口控制器通过主机名管理此服务，以及其他一系列服务
+- en: 6.4.2 Setting up a simple web server Pod
+  id: totrans-177
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.4.2 设置简单的 Web 服务器 Pod
+- en: 'To get started, let’s create our `kind` cluster as done in previous chapters.
+    Once we’re up and running, we’ll then create a simple web application. Because
+    NGINX is often used as an ingress controller, this time, we’ll create a Python
+    web app like so:'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始，让我们创建我们的 `kind` 集群，就像之前章节中做的那样。一旦我们启动并运行，我们就会创建一个简单的 Web 应用程序。由于 NGINX 经常被用作入口控制器，这次，我们将创建一个类似的
+    Python Web 应用程序：
+- en: '[PRE26]'
+  id: totrans-179
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ❶ Our service selects this label.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们的服务选择此标签。
+- en: 'Next, we’ll expose the `containerPort` via a standard ClusterIP service. This
+    is the simplest of all Kubernetes services; it does nothing other than tell the
+    `kube-proxy` to create a single virtual IP address (the `KUBE_SEP` endpoints we
+    saw earlier) in one of our Python Pods:'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将通过标准 ClusterIP 服务公开 `containerPort`。这是所有 Kubernetes 服务中最简单的一个；它除了告诉 `kube-proxy`
+    在我们的 Python Pod 中创建一个虚拟 IP 地址（我们之前看到的 `KUBESEP` 端点）之外，什么都不做：
+- en: '[PRE27]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: ❶ Specifies this Pod as an endpoint of our service
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将此 Pod 指定为我们的服务端点
+- en: 'Thus far, we’ve created a little web app that receives traffic from a service.
+    The web app that we’ve created serves traffic internally on port 8080, and our
+    service uses that port as well. Let’s try to access it locally. We’ll create a
+    simple Docker image that we can use to poke around in our cluster services (this
+    image is forked from [https:// github.com/arunvelsriram/utils](https://github.com/arunvelsriram/utils)):'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经创建了一个小型的 Web 应用程序，它接收来自服务的流量。我们创建的 Web 应用程序在端口 8080 内部提供服务，我们的服务也使用该端口。让我们尝试本地访问它。我们将创建一个简单的
+    Docker 镜像，我们可以用它来探索我们的集群服务（此镜像是从 [https://github.com/arunvelsriram/utils](https://github.com/arunvelsriram/utils)
+    分支出来的）：
+- en: '[PRE28]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'Now, from inside this image, let’s see if we can `curl` down our service. The
+    following `curl` command outputs all the lines of the /etc/passwd file in our
+    container. You can also write a file, such as hello.html, to the / directory of
+    your container if you prefer something a little friendlier:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，从该镜像内部，让我们看看我们是否可以 `curl` 下载我们的服务。以下 `curl` 命令输出容器中 /etc/passwd 文件的所有行。如果您更喜欢更友好的东西，也可以将文件，例如
+    hello.html，写入容器中的 / 目录：
+- en: '[PRE29]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: ❶ Outputs all lines in the /etc/passwd file
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 输出 /etc/passwd 文件中的所有行
+- en: It worked! For this to work, we know that
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它成功了！为了使其工作，我们知道
+- en: The Pod is running and serving all files in the OS on port 8080.
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod 正在运行并在 OS 的 8080 端口上提供所有文件。
+- en: Every Pod in the cluster is capable of accessing this service via port 8080
+    because of the `my-service` service we created previously.
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于我们之前创建的 `my-service` 服务，集群中的每个 Pod 都能够通过端口 8080 访问此服务。
+- en: The `kube-proxy` forwards traffic from `my-service` to the `example-pod` and
+    writes relevant iptables forwarding rules.
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`kube-proxy` 将流量从 `my-service` 转发到 `example-pod` 并写入相关的 iptables 转发规则。'
+- en: Our CNI provider *is* capable of making necessary routing rules (which we explored
+    earlier in the chapter) and forwarding traffic between the IP address of the `check`
+    Pod to the `example-pod` once the iptables rule forwards this packet.
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的 CNI 提供商 *能够* 创建必要的路由规则（我们在本章前面已经探讨过）并在 iptables 规则转发此数据包后，将流量从 `check` Pod
+    的 IP 地址转发到 `example-pod`。
+- en: Let’s say we want to access this service from the outside world. To do this,
+    we need to
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们想从外部世界访问此服务。为此，我们需要
+- en: Add it to an ingress resource so that the Kubernetes API can tell an ingress
+    controller to forward traffic to it
+  id: totrans-195
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将其添加到入口资源中，以便 Kubernetes API 可以告诉入口控制器将其流量转发到它
+- en: Run an ingress controller that forwards traffic from the outside world to the
+    internal service
+  id: totrans-196
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 运行一个入口控制器，它将来自外部世界的流量转发到内部服务
+- en: 'There are a few different ingress controllers out there. The popular ones are
+    NGINX and Contour. In this case, we’ll use Contour to access this service:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前有几种不同的入口控制器。流行的有 NGINX 和 Contour。在这种情况下，我们将使用 Contour 来访问此服务：
+- en: '[PRE30]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'Now you have an ingress controller installed that will manage all external
+    traffic for you. Next, we’ll add an entry to our /etc/hosts file on our local
+    machine, which tells us to access the previous service on localhost:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您已经安装了一个入口控制器，它将为您管理所有外部流量。接下来，我们将在本地机器的 /etc/hosts 文件中添加一个条目，它告诉我们要在 localhost
+    上访问之前的服务：
+- en: '[PRE31]'
+  id: totrans-200
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'Now, we’ll create an ingress resource:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们将创建一个入口资源：
+- en: '[PRE32]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: ❶ Names the service we put into our laptop at 127.0.0.1
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 命名我们放在笔记本电脑 127.0.0.1 上的服务
+- en: ❷ Names the internal Kubernetes service
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 命名内部 Kubernetes 服务
+- en: 'We can issue a `curl` command from our local computer to the `kind` cluster.
+    The way this will work is as follows:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以从本地计算机向 `kind` 集群发出 `curl` 命令。这样工作的方式如下：
+- en: Locally, our client tries to issue `curl my-service.local` on port 80\. This
+    resolves the IP address to 127.0.0.1.
+  id: totrans-206
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 本地，我们的客户端尝试在端口 80 上发出 `curl my-service.local`。这解析 IP 地址为 127.0.0.1。
+- en: The traffic to our localhost gets intercepted by the Docker node in our `kind`
+    cluster listening on 80.
+  id: totrans-207
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 流向我们的 localhost 的流量被我们的 `kind` 集群中监听 80 的 Docker 节点拦截。
+- en: The Docker node forwards the traffic to the Contour ingress controller, which
+    sees that we are trying to access my-service.local.
+  id: totrans-208
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Docker 节点将流量转发到 Contour 入口控制器，该控制器看到我们正在尝试访问 my-service.local。
+- en: Contour’s ingress controller forwards the my-service.local traffic to the my-service
+    backend.
+  id: totrans-209
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Contour 的入口控制器将 my-service.local 流量转发到 my-service 后端。
+- en: 'When this process is complete, we’ll see the same output that we got in our
+    sleep container in an earlier example. The following code snippet shows this process,
+    using the Envoy server to listen on the other end. That’s because the ingress
+    controller uses Envoy (a service proxy used by Contour under the hood) as a gateway
+    into the cluster:'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当此过程完成后，我们将看到与之前示例中我们在 sleep 容器中得到的相同输出。以下代码片段显示了此过程，使用 Envoy 服务器在另一端进行监听。这是因为入口控制器使用
+    Envoy（Contour 在底层使用的服务代理）作为进入集群的网关：
+- en: '[PRE33]'
+  id: totrans-211
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: ❶ Resolves my-service.local to localhost
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将 my-service.local 解析为 localhost
+- en: ❷ The Envoy server responding to the HTTP request
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ Envoy 服务器正在响应 HTTP 请求
+- en: We now can access content hosted by the Python SimpleHTTPServer using both internal
+    `curl` commands on the ClusterIP as well as `curl` commands from our local machine
+    by running an ingress controller service that forwards to the ClusterIP under
+    the hood. As mentioned earlier, the ingress API is going to eventually be subsumed
+    by a newer Gateway API.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以通过运行一个将流量转发到 ClusterIP 的入口控制器服务，使用集群 IP 上的内部 `curl` 命令以及从我们的本地机器运行的 `curl`
+    命令来访问由 Python SimpleHTTPServer 托管的内容。如前所述，入口 API 最终将被新的 Gateway API 所取代。
+- en: The Gateway API in Kubernetes allows for sophisticated decoupling of different
+    tenants in a cluster, replacing the ingress resource with gateways, gateway classes,
+    and routes that can be configured by different personas in an enterprise. Nevertheless,
+    the concepts from the Gateway and ingress APIs are functionally similar and most
+    of what we’ve learned in this chapter transfers to the Gateway API naturally.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 中的 Gateway API 允许在集群中对不同的租户进行复杂的解耦，用网关、网关类和路由替换入口资源，这些都可以由企业中的不同角色进行配置。尽管如此，网关和入口
+    API 的概念在功能上是相似的，并且本章中我们学到的许多内容可以自然地转移到 Gateway API。
+- en: Summary
+  id: totrans-216
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Traffic forwarding in CNI plugins involves routing Pod traffic between nodes
+    through networking interfaces.
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 CNI 插件中的流量转发涉及通过网络接口在节点之间路由 Pod 流量。
+- en: CNI plugins can be bridged or unbridged, and in each case, the way they forward
+    traffic is different.
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CNI 插件可以是桥接的或非桥接的，在每种情况下，它们转发流量的方式都不同。
+- en: Network policies can be implemented using many different underlying technologies,
+    such as Antrea OpenVSwitch (OVS) and Calico iptables.
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以使用许多不同的底层技术来实现网络策略，例如 Antrea OpenVSwitch (OVS) 和 Calico iptables。
+- en: Layer 7 network policies are implemented with ingress controllers.
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 层 7 网络策略是通过入口控制器实现的。
+- en: Contour is an ingress controller that solves the same problems that CNIs solve
+    for Pods at the Layer 7 level and works with any CNI provider.
+  id: totrans-221
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Contour 是一个入口控制器，它解决了 CNIs 在层 7 为 Pods 解决的相同问题，并且可以与任何 CNI 提供商一起工作。
+- en: In the future, the Gateway API will replace the Ingress API with a more flexible
+    API schema, but what you learn in this chapter transfers to the Gateway API naturally.
+  id: totrans-222
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在未来，Gateway API 将用更灵活的 API 架构取代 Ingress API，但本章中你学到的内容可以自然地转移到 Gateway API。

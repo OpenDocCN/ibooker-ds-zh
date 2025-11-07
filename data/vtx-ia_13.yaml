@@ -1,0 +1,1653 @@
+- en: 11 End-to-end real-time reactive event processing
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 11 端到端实时反应式事件处理
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Combining RxJava operators and Vert.x clients to support advanced processing
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 结合 RxJava 操作符和 Vert.x 客户端以支持高级处理
+- en: Using RxJava operators to perform content enrichment and aggregate data processing
+    on top of event streams
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 RxJava 操作符在事件流上执行内容丰富和聚合数据处理
+- en: Extending the Vert.x event bus to web applications to unify backend and frontend
+    communication models
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将 Vert.x 事件总线扩展到网络应用程序以统一后端和前端通信模型
+- en: Managing state in a stream-processing setting
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在流处理环境中管理状态
+- en: In this chapter we’ll explore advanced reactive stream processing, where application
+    state is subject to live changes based on events. By performing transformations
+    and aggregations on events, we will compute live statistics about what is happening
+    in the larger 10k steps application. You will also see how event streams can impact
+    real-time web applications by unifying Java and JavaScript code under the Vert.x
+    event-bus umbrella.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨高级反应式流处理，其中应用程序状态根据事件进行实时变化。通过对事件进行转换和聚合，我们将计算有关更大 10k 步应用程序中正在发生的事情的实时统计数据。您还将看到事件流如何通过在
+    Vert.x 事件总线下统一 Java 和 JavaScript 代码来影响实时网络应用程序。
+- en: This chapter starts by looking at advanced stream processing with RxJava operators
+    and Vert.x clients. We’ll then discuss the topic of real-time web applications
+    connected over the event bus, and we’ll finish with techniques for properly dealing
+    with state (and especially *initial* state) in a context of continuous events.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章首先探讨使用 RxJava 操作符和 Vert.x 客户端的高级流处理。然后，我们将讨论通过事件总线连接的实时网络应用程序的主题，最后我们将讨论在连续事件的环境中正确处理状态（尤其是
+    *初始* 状态）的技术。
+- en: 11.1 Advanced stream data processing with Kafka and RxJava
+  id: totrans-8
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.1 使用 Kafka 和 RxJava 进行高级流数据处理
+- en: 'In previous chapters we used RxJava operators to process events of all kinds:
+    HTTP requests, AMQP messages, and Kafka records. RxJava is a versatile library
+    for *reactive programming*, and it is especially well suited for processing event
+    streams with the `Flowable` type for back-pressured streams. Kafka provides solid
+    middleware for event streaming, while Vert.x provides a rich ecosystem of reactive
+    clients that connect to other services, databases, or messaging systems.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们使用了 RxJava 操作符来处理各种类型的事件：HTTP 请求、AMQP 消息和 Kafka 记录。RxJava 是一个多功能的响应式编程库，它特别适合使用
+    `Flowable` 类型处理背压流的事件流。Kafka 为事件流提供了坚实的中间件，而 Vert.x 提供了一个丰富的反应式客户端生态系统，这些客户端可以连接到其他服务、数据库或消息系统。
+- en: 'The *event stats* service is an event-driven reactive service that consumes
+    Kafka records and produces some statistics as other Kafka records. We will look
+    at how we can use RxJava operators to efficiently address three common operations
+    on event streams:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*事件统计* 服务是一个事件驱动的响应式服务，它消费 Kafka 记录并产生一些统计信息作为其他 Kafka 记录。我们将探讨如何使用 RxJava
+    操作符高效地处理事件流上的三个常见操作：'
+- en: Enriching data
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 丰富数据
+- en: Aggregating data over time windows
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在时间窗口内聚合数据
+- en: Aggregating data by grouping elements using a key or a function
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过使用键或函数对元素进行分组来聚合数据
+- en: 11.1.1 Enriching daily device updates to generate user updates
+  id: totrans-14
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.1.1 丰富每日设备更新以生成用户更新
+- en: 'The `daily.step.updates` Kafka topic is populated with records sent from the
+    activity service. The records contain three entries: the device identifier, a
+    timestamp of when the record was produced, and a number of steps.'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`daily.step.updates` Kafka 主题由活动服务发送的记录填充。这些记录包含三个条目：设备标识符、记录产生的时间戳和步数。'
+- en: Whenever a device update is processed by the activity service, it stores the
+    update to a PostgreSQL database and then produces a Kafka record with the number
+    of steps on the current day for the corresponding device. For instance, when device
+    `abc` receives an update of, say, 300 steps recorded at 11:25, it sends a Kafka
+    record to `daily.step .updates` with the number of steps for the day corresponding
+    to device `abc`.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当活动服务处理设备更新时，它将更新存储到 PostgreSQL 数据库中，然后产生一个 Kafka 记录，其中包含对应设备的当前天的步数。例如，当设备
+    `abc` 收到在 11:25 记录的 300 步更新时，它将向 `daily.step.updates` 发送一个 Kafka 记录，其中包含对应设备 `abc`
+    的当天步数。
+- en: 'The event stats service consumes these events to enrich them with user data,
+    so other services can be updated in real time about the number of steps recorded
+    on the current day for any user. To do that, we take the records from the `daily.step.updates`
+    Kafka topic, and add the data from the user API: user name, email, city, and whether
+    the data shall be public. The enriched data is then sent as records to the `event-stats.user-activity.updates`
+    topic. The steps for enriching data are illustrated in figure 11.1.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件统计服务消费这些事件，以便用用户数据丰富它们，这样其他服务就可以实时更新关于任何用户当前记录的步数。为此，我们从`daily.step.updates`
+    Kafka 主题中获取记录，并添加来自用户 API 的数据：用户名、电子邮件、城市以及数据是否公开。丰富后的数据随后作为记录发送到`event-stats.user-activity.updates`主题。丰富数据的过程在图
+    11.1 中展示。
+- en: '![](../Images/CH11_F01_Ponge.png)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH11_F01_Ponge.png)'
+- en: Figure 11.1 Enriching device updates with user data
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.1 使用用户数据丰富设备更新
+- en: Tip This is an implementation technique for the *content enricher* messaging
+    pattern in the seminal *Enterprise Integration Patterns* book by Gregor Hohpe
+    and Bobby Woolf (Addison-Wesley Professional, 2003).
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：这是 Gregor Hohpe 和 Bobby Woolf 在其开创性的《企业集成模式》（Addison-Wesley Professional，2003年）一书中提出的*内容丰富器*消息模式的实现技术。
+- en: 'For each incoming Kafka record, we do the following:'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于每个传入的 Kafka 记录，我们执行以下操作：
+- en: Make a request to the user profile API to determine who the device belongs to.
+  id: totrans-22
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 向用户配置文件 API 发送请求以确定设备属于谁。
+- en: Make another request to the user profile API to get all the data from the user,
+    and merge it with the incoming record data.
+  id: totrans-23
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 向用户配置文件 API 发送另一个请求以获取用户的所有数据，并将其与传入的记录数据合并。
+- en: Write the enriched record to the `event-stats.user-activity.updates` Kafka topic,
+    and commit it.
+  id: totrans-24
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将丰富后的记录写入`event-stats.user-activity.updates` Kafka 主题，并提交。
+- en: The following listing shows the corresponding RxJava pipeline.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表显示了相应的 RxJava 管道。
+- en: Listing 11.1 RxJava pipeline for generating user updates
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.1 用于生成用户更新的 RxJava 管道
+- en: '[PRE0]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Subscribe to the source Kafka topic.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 订阅源 Kafka 主题。
+- en: ❷ Get who owns the device from the record.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从记录中获取设备所有者信息。
+- en: ❸ Fetch the user data and merge it with the record.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 获取用户数据并将其与记录合并。
+- en: ❹ Commit to the target Kafka topic.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 提交到目标 Kafka 主题。
+- en: The RxJava pipeline composes asynchronous operations with `flatMapSingle` and
+    `flatMapCompletable`. This is because doing an HTTP request produces a (single)
+    result, whereas committing a Kafka record is an operation with no return value
+    (hence it is completable). You can also see the common error handling logic from
+    earlier chapters with a delayed re-subscription.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: RxJava 管道使用`flatMapSingle`和`flatMapCompletable`组合异步操作。这是因为发送 HTTP 请求会产生一个（单一）结果，而提交
+    Kafka 记录是一个没有返回值的操作（因此它是可完成的）。您还可以看到来自早期章节的常见错误处理逻辑，包括延迟重新订阅。
+- en: The next listing shows the implementation of the `addDeviceOwner` method.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了`addDeviceOwner`方法的实现。
+- en: Listing 11.2 Adding a device owner
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.2 添加设备所有者
+- en: '[PRE1]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ This is the incoming Kafka record.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这是传入的 Kafka 记录。
+- en: ❷ Make an HTTP request to the user profile API.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 向用户配置文件 API 发送 HTTP 请求。
+- en: ❸ Extract the HTTP response body (a JsonObject).
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 提取 HTTP 响应体（一个 JsonObject）。
+- en: ❹ Return the JSON data merge.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 返回 JSON 数据合并。
+- en: This method makes an HTTP request whose result is a JSON object, and it returns
+    the merge of the source Kafka record’s JSON data with the request result data.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法发送一个结果为 JSON 对象的 HTTP 请求，并返回源 Kafka 记录的 JSON 数据与请求结果数据的合并。
+- en: Once this is done, we know who the device of the record belongs to, so we can
+    chain with another request to get the user data from the user profile API, as
+    shown next.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦完成，我们就知道记录中的设备属于谁，因此我们可以通过另一个请求从用户配置文件 API 获取用户数据，如下所示。
+- en: Listing 11.3 Adding owner data
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.3 添加所有者数据
+- en: '[PRE2]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ This is the data returned by addDeviceOwner.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这是`addDeviceOwner`方法返回的数据。
+- en: ❷ Make the HTTP request.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 发送 HTTP 请求。
+- en: ❸ Merge the data.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 合并数据。
+- en: This method follows the same pattern as `addDeviceOwner`, as it takes the result
+    from the previous operation as a parameter, makes an HTTP request to the user
+    profile API, and then returns merged data.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法遵循与`addDeviceOwner`相同的模式，因为它将前一个操作的结果作为参数，向用户配置文件 API 发送 HTTP 请求，然后返回合并后的数据。
+- en: The last operation is that of the `publishActivityUpdate` method, shown in the
+    following listing.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一个操作是`publishActivityUpdate`方法，如下所示。
+- en: Listing 11.4 Publishing a user activity update Kafka record
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.4 发布用户活动更新 Kafka 记录
+- en: '[PRE3]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Write the Kafka record.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 编写 Kafka 记录。
+- en: The implementation writes the Kafka record to the target `event-stats.user-activity
+    .updates` topic.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现将 Kafka 记录写入目标 `event-stats.user-activity.updates` 主题。
+- en: 11.1.2 Computing device-update ingestion throughput using time-window aggregates
+  id: totrans-53
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.1.2 使用时间窗口聚合计算设备更新摄入吞吐量
+- en: The ingestion service receives the incoming device updates from HTTP and AMQP,
+    and then publishes them to the `incoming.steps` Kafka topic. The ingestion throughput
+    is typical of a dashboard metric, where the value is frequently updated with the
+    number of device updates ingested per second. This is a good indicator of the
+    stress level on the larger application, as every update triggers further events
+    that are processed by other microservices.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 摄入服务接收来自 HTTP 和 AMQP 的传入设备更新，然后将它们发布到 `incoming.steps` Kafka 主题。摄入吞吐量是仪表板指标中典型的值，该值经常更新为每秒摄入的设备更新数量。这是衡量更大应用程序压力水平的好指标，因为每个更新都会触发其他微服务处理的事件。
+- en: To compute the ingestion throughput, we need to listen for records on the `incoming.steps`
+    topic, aggregate records over a fixed time window, and count how many records
+    have been received. This is illustrated in figure 11.2.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了计算摄入吞吐量，我们需要监听 `incoming.steps` 主题上的记录，在固定时间窗口内聚合记录，并计算接收到的记录数量。这如图 11.2 所示。
+- en: '![](../Images/CH11_F02_Ponge.png)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像](../Images/CH11_F02_Ponge.png)'
+- en: Figure 11.2 Throughput computation from ingestion records
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.2 从摄入记录计算吞吐量
+- en: The following listing shows the RxJava pipeline for computing the throughput
+    and publishing the results to the `event-stats.throughput` Kafka topic.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表显示了计算吞吐量并将结果发布到 `event-stats.throughput` Kafka 主题的 RxJava 管道。
+- en: Listing 11.5 RxJava pipeline for computing ingestion throughput
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.5 计算摄入吞吐量的 RxJava 管道
+- en: '[PRE4]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Subscribe to the source Kafka topic.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 订阅源 Kafka 主题。
+- en: ❷ Buffer records in windows of five seconds
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在五秒窗口中缓冲记录
+- en: ❸ Compute and publish the throughput.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 计算并发布吞吐量。
+- en: The `buffer` operator is one of several aggregation operators that you can use
+    in RxJava. It aggregates events for a time period and then passes the result as
+    a `List`. You can see that we pass a Vert.x scheduler from the `RxHelper` class;
+    this is because `buffer` delays event processing and by default will call the
+    next operators on an RxJava-specific thread. The Vert.x scheduler ensures that
+    operators are instead called from the original Vert.x context so as to preserve
+    the Vert.x threading model.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`buffer` 操作符是 RxJava 中可用的几个聚合操作符之一。它会在一个时间段内聚合事件，然后将结果作为 `List` 传递。您可以看到我们从
+    `RxHelper` 类传递了一个 Vert.x 调度器；这是因为 `buffer` 会延迟事件处理，并且默认情况下将在 RxJava 特定的线程上调用下一个操作符。Vert.x
+    调度器确保操作符从原始 Vert.x 上下文中调用，以保留 Vert.x 线程模型。'
+- en: Once `buffer` has aggregated all Kafka records over the last five seconds, the
+    `publishThroughput` method computes and publishes the throughput as shown next.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦 `buffer` 聚合了最后五秒内的所有 Kafka 记录，`publishThroughput` 方法就会计算并发布吞吐量，如下所示。
+- en: Listing 11.6 Publish the ingestion throughput
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.6 发布摄入吞吐量
+- en: '[PRE5]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Payload as a JSON object
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将有效载荷作为 JSON 对象
+- en: ❷ Compute the throughput.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 计算吞吐量。
+- en: ❸ Write the Kafka record.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 写入 Kafka 记录。
+- en: Given the `records` list, we can easily compute a throughput and publish a new
+    record. We take care to indicate the number of records and time window size in
+    seconds, so that event consumers have all the information and not just the raw
+    result.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定 `records` 列表，我们可以轻松计算吞吐量并发布新的记录。我们注意指出记录数量和时间窗口大小（以秒为单位），以便事件消费者拥有所有信息，而不仅仅是原始结果。
+- en: 11.1.3 Computing per-city trends using aggregation discriminants and time windows
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.1.3 使用聚合区分器和时间窗口计算每城市趋势
+- en: Let’s now look at another form of data aggregation based on RxJava operators
+    by computing per-city trends. More specifically, we’ll compute periodically how
+    many steps have been recorded in each city on the current day. To do that, we
+    can reuse the events published to the `event-stats.user-activity.updates` Kafka
+    topic by the very same event stats service, since they contain the number of steps
+    a user has recorded today, along with other data, including the city.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看另一种基于 RxJava 操作符的数据聚合形式，通过计算每城市趋势。更具体地说，我们将定期计算当前每天每个城市记录了多少步。为此，我们可以重用由相同的事件统计服务发布的
+    `event-stats.user-activity.updates` Kafka 主题中的事件，因为它们包含了用户今天记录的步数，以及其他数据，包括城市。
+- en: We could reuse the `buffer` operator, as in listing 11.5, and then iterate over
+    the list of records. For each record, we could update a hash table entry where
+    the key would be the city and the value would be the number of steps. We could
+    then publish an update for each city based on the values in the hash table.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以重用 `buffer` 操作符，如列表 11.5 所示，然后遍历记录列表。对于每条记录，我们可以在一个散列表条目中更新，其中键是城市，值是步数。然后我们可以根据散列表中的值为每个城市发布一个更新。
+- en: We can, however, write a more idiomatic RxJava processing pipeline thanks to
+    the `groupBy` operator, as shown in the following listing and figure 11.3.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我们可以通过 `groupBy` 操作符编写一个更符合 RxJava 风格的处理管道，如下一列表和图 11.3 所示。
+- en: Listing 11.7 RxJava pipeline to compute per-city trends
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.7 使用 RxJava 管道计算每个城市的趋势
+- en: '[PRE6]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Group by city.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 按城市分组。
+- en: ❷ Buffer by windows of five seconds.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 以五秒的窗口缓冲。
+- en: ❸ Publish a Kafka record.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 发布 Kafka 记录。
+- en: '![](../Images/CH11_F03_Ponge.png)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 11.3 Ponge](../Images/CH11_F03_Ponge.png)'
+- en: Figure 11.3 Computing per-city trends from user activity records
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.3 从用户活动记录中计算每个城市的趋势
+- en: As events enter the pipeline, the `groupBy` operator dispatches them to *groups*
+    based on the city values found in the records (the *discriminant*). You can think
+    of `groupBy` as the equivalent of `GROUP BY` in an SQL statement. The filtering
+    function `city` is shown in the next listing and extracts the city value from
+    the Kafka record.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当事件进入管道时，`groupBy` 操作符根据记录中找到的城市值将它们分配到 *组* 中（该 *判别器*）。你可以将 `groupBy` 视为 SQL
+    语句中 `GROUP BY` 的等价物。过滤函数 `city` 在下一列表中显示，并从 Kafka 记录中提取城市值。
+- en: Listing 11.8 Filter based on the city value
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.8 根据城市值进行过滤
+- en: '[PRE7]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: The `groupBy` operator in listing 11.7 returns a `Flowable` of `GroupedFlowable`
+    of Kafka records. Each `GroupedFlowable` is a flowable that is dedicated to the
+    grouped records of a city, as dispatched by `groupBy` using the `city` function.
+    For each group, the `flatMap` operator is then used to group events in time windows
+    of five seconds, meaning that per-city steps are updated every five seconds.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.7 中的 `groupBy` 操作符返回一个 `GroupedFlowable` 的 `Flowable`，其中每个 `GroupedFlowable`
+    是一个为城市分组记录而专门设计的流式处理程序，这是通过 `groupBy` 使用 `city` 函数分发的。对于每个组，`flatMap` 操作符随后用于将事件分组到五秒的时间窗口中，这意味着每个城市的步数每五秒更新一次。
+- en: Finally, the `publishCityTrendUpdate` method prepares a new record with updated
+    stats for each city, as shown in the following listing.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，`publishCityTrendUpdate` 方法准备一个新的记录，其中包含每个城市的更新统计数据，如下一列表所示。
+- en: Listing 11.9 Publishing per-city stats
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.9 发布每个城市的统计数据
+- en: '[PRE8]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ Check if records have been received in the time window.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 检查时间窗口内是否已收到记录。
+- en: ❷ All records have the same city, so the first one identifies it.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 所有记录具有相同的城市，因此第一个识别它。
+- en: ❸ Extract the step counts.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 提取步数。
+- en: ❹ Compute the sum.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 计算总和。
+- en: ❺ Write the Kafka record.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 写入 Kafka 记录。
+- en: ❻ If there was no record, just report a completed operation.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 如果没有记录，则报告已完成的操作。
+- en: 'The `publishCityTrendUpdate` method receives a list of Kafka records for a
+    given city and from a time window. We first have to check if there is a record,
+    because otherwise there is nothing to do. With records, we can use Java streams
+    to compute the sum with a `reduce` operator and then prepare a Kafka record with
+    several entries: a timestamp, the time window duration in seconds, the city, how
+    many steps have been recorded, and how many updates were observed during the time
+    window. Once this is done, we write the record to the `event-stats.city-trend.updates`
+    Kafka topic.'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`publishCityTrendUpdate` 方法接收给定城市和时间窗口的 Kafka 记录列表。我们首先必须检查是否有记录，因为没有记录就没有事情可做。有了记录，我们可以使用
+    Java 流与 `reduce` 操作符计算总和，然后准备一个包含多个条目的 Kafka 记录：一个时间戳，时间窗口持续时间（以秒为单位），城市，记录的步数，以及时间窗口内观察到的更新数量。完成这些后，我们将记录写入
+    `event-stats.city-trend.updates` Kafka 主题。'
+- en: Now that we’ve looked at performing advanced event-streaming processing with
+    RxJava and Vert.x, let’s see how we can propagate events to reactive web applications.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了如何使用 RxJava 和 Vert.x 进行高级事件流处理，让我们看看我们如何将事件传播到反应式 Web 应用程序。
+- en: 11.2 Real-time reactive web applications
+  id: totrans-98
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.2 实时反应式 Web 应用程序
+- en: 'As specified in chapter 7, the dashboard web application consumes events from
+    the stats service and displays the following:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如第 7 章所述，仪表板 Web 应用程序从统计服务中消费事件并显示以下内容：
+- en: Ingestion throughput
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 摄入吞吐量
+- en: Rankings of public users
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 公共用户的排名
+- en: Per-city trends
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个城市的趋势
+- en: This application is updated live, as soon as new data is received, which makes
+    for a nice case of end-to-end integration between backend services and web browsers.
+    The application is a microservice, as illustrated in figure 11.4.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此应用程序实时更新，一旦接收到新数据，就在后端服务和网页浏览器之间实现了端到端集成的一个很好的案例。该应用程序是一个微服务，如图11.4所示。
+- en: '![](../Images/CH11_F04_Ponge.png)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH11_F04_Ponge.png)'
+- en: Figure 11.4 Reactive web application overview
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.4反应式Web应用程序概述
+- en: 'The dashboard service is made of two parts:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仪表板服务由两部分组成：
+- en: A Vue.js application
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Vue.js应用程序
+- en: 'A Vert.x service that does the following:'
+  id: totrans-108
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个Vert.x服务执行以下操作：
+- en: Serves the Vue.js resources
+  id: totrans-109
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提供Vue.js资源
+- en: Connects to Kafka and forwards updates to the Vert.x event bus
+  id: totrans-110
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 连接到Kafka并将更新转发到Vert.x事件总线
+- en: Bridges between the connected web browsers and the Vert.x event bus
+  id: totrans-111
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 连接的网页浏览器和Vert.x事件总线之间的桥梁
+- en: Let’s start with the forwarding from Kafka to the event bus.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从Kafka到事件总线的转发开始。
+- en: 11.2.1 Forwarding Kafka records to the Vert.x event bus
+  id: totrans-113
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.2.1将Kafka记录转发到Vert.x事件总线
+- en: Both throughput and city trend updates are directly forwarded to the Vue.js
+    application code. These are the records received on the `event-stats.throughput`
+    and `event-stats.city-trend.updates` Kafka topics.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过率和城市趋势更新都直接转发到Vue.js应用程序代码。这些是在`event-stats.throughput`和`event-stats.city-trend.updates`Kafka主题上接收到的记录。
+- en: In `DashboardWebAppVerticle`, we put in place the RxJava pipelines, as follows.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`DashboardWebAppVerticle`中，我们按照以下方式实施RxJava管道。
+- en: Listing 11.10 RxJava pipelines to forward throughput and city trend updates
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.10转发通过率和城市趋势更新的RxJava管道
+- en: '[PRE9]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Subscribe to the Kafka topic.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶订阅Kafka主题。
+- en: ❷ Forward to the event bus.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷转发到事件总线。
+- en: These two RxJava pipelines have no complicated logic, as they forward to the
+    `client .updates.throughput` and `client.updates.city-trend` event bus destinations.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个RxJava管道没有复杂的逻辑，因为它们将数据转发到`client.updates.throughput`和`client.updates.city-trend`事件总线目标。
+- en: The next listing shows the implementation of the `forwardKafkaRecord` method.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表显示了`forwardKafkaRecord`方法的实现。
+- en: Listing 11.11 Forwarding a Kafka record to the event bus
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.11将Kafka记录转发到事件总线
+- en: '[PRE10]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Publish to the event bus.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 发布到事件总线。
+- en: Since the Kafka record values are of type `JsonObject`, there is no data conversion
+    to perform to publish them to the Vert.x event bus.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Kafka记录值是`JsonObject`类型，因此无需进行数据转换即可将其发布到Vert.x事件总线。
+- en: 11.2.2 Bridging the event bus and web applications
+  id: totrans-126
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.2.2桥接事件总线和Web应用程序
+- en: The dashboard web application starts an HTTP server, as shown in the following
+    excerpt.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仪表板Web应用程序启动一个HTTP服务器，如下面的摘录所示。
+- en: Listing 11.12 Dashboard service HTTP server
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.12仪表板服务HTTP服务器
+- en: '[PRE11]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ A Vert.x web router to dispatch HTTP requests
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶一个Vert.x网络路由器用于分发HTTP请求
+- en: ❷ See listing 11.13.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷参见列表11.13。
+- en: ❸ Serve static files from the webroot/assets resource folder.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸从webroot/assets资源文件夹中提供静态文件。
+- en: ❹ Redirect traffic on /* to /index.html.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 将流量重定向到/*到/index.html。
+- en: ❺ Start the HTTP server.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 启动HTTP服务器。
+- en: 'Listing 11.12 shows an HTTP server for serving static files. This is only an
+    excerpt: we now need to see how the Vert.x event bus can be connected to web applications.'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.12显示了一个用于提供静态文件的HTTP服务器。这只是一个摘录：我们现在需要了解Vert.x事件总线如何连接到Web应用程序。
+- en: Vert.x offers an event-bus integration using the SockJS library ([https://github.com/
+    sockjs](https://github.com/sockjs)). SockJS is an emulation library for the WebSocket
+    protocol ([https://tools.ietf .org/html/rfc6455](https://tools.ietf.org/html/rfc6455)),
+    which allows browsers and servers to communicate in both directions on top of
+    a persistent connection. The Vert.x core APIs offer support for WebSockets, but
+    SockJS is interesting because not every browser in the market properly supports
+    WebSockets, and some HTTP proxies and load balancers may reject WebSocket connections.
+    SockJS uses WebSockets whenever it can, and it falls back to other mechanisms
+    such as long polling over HTTP, AJAX, JSONP, or iframe.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vert.x使用SockJS库（[https://github.com/sockjs](https://github.com/sockjs)）提供事件总线集成。SockJS是WebSocket协议（[https://tools.ietf.org/html/rfc6455](https://tools.ietf.org/html/rfc6455)）的模拟库，它允许浏览器和服务器在持久连接的基础上双向通信。Vert.x核心API提供对WebSocket的支持，但SockJS很有趣，因为市场上并非所有浏览器都正确支持WebSocket，一些HTTP代理和负载均衡器可能会拒绝WebSocket连接。SockJS尽可能使用WebSocket，并在必要时回退到其他机制，如HTTP长轮询、AJAX、JSONP或iframe。
+- en: The Vert.x web module offers a handler for SockJS connections that bridge the
+    event bus, so the same programming model can be used from the server side (in
+    Vert.x) and the client side (in JavaScript). The following listing shows how to
+    configure it.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vert.x Web 模块提供了一个用于 SockJS 连接的处理器，它桥接事件总线，因此可以在服务器端（在 Vert.x 中）和客户端（在 JavaScript
+    中）使用相同的编程模型。以下列表显示了如何配置它。
+- en: Listing 11.13 Configuring the SockJS event-bus bridge
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.13 配置 SockJS 事件总线网桥
+- en: '[PRE12]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ SockJS handler
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ SockJS 处理器
+- en: ❷ Accept inbound event-bus messages from destinations that start with client.updates.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 接受以 client.updates 开头的目标的事件总线消息。
+- en: ❸ Accept outbound event-bus messages to destinations that start with client.updates.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 接受以 client.updates 开头的目标的事件总线消息。
+- en: ❹ Install the bridge.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 安装网桥。
+- en: ❺ SockJS clients endpoint
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ SockJS 客户端端点
+- en: The bridge relies on a handler for SockJS client connections, with a set of
+    permissions to allow only certain event-bus destinations to be bridged. It is
+    indeed important to limit the events that flow between the connected web applications
+    and backend, both for security and performance reasons. In this case, I decided
+    that only the destinations starting with `client.updates` will be available.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 网桥依赖于 SockJS 客户端连接的处理器，并设置了一组权限，仅允许桥接某些事件总线目标。确实，出于安全和性能原因，限制连接的 Web 应用程序和后端之间流动的事件非常重要。在这种情况下，我决定只有以
+    `client.updates` 开头的目标将可用。
+- en: On the web application side, the Vert.x project offers the `vertx3-eventbus-client`
+    library, which can be downloaded manually or by using a tool like `npm` (the Node
+    package manager). With this library we can connect to the event bus, as outlined
+    in the following listing.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Web 应用程序端，Vert.x 项目提供了 `vertx3-eventbus-client` 库，可以通过手动下载或使用 `npm`（Node 包管理器）等工具下载。使用这个库，我们可以连接到事件总线，如下面的列表所示。
+- en: Listing 11.14 Using the JavaScript SockJS event-bus client
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.14 使用 JavaScript SockJS 事件总线客户端
+- en: '[PRE13]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Import the JavaScript module.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入 JavaScript 模块。
+- en: ❷ Connect to the event-bus endpoint.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 连接到事件总线端点。
+- en: ❸ Automatically reconnect when the connection is lost.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 自动重连当连接丢失时。
+- en: ❹ Called when the connection to the event bus has been established
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 当与事件总线的连接建立时被调用
+- en: ❺ Register an event-bus destination handler.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 注册事件总线目标处理器。
+- en: ❻ Publish a message to the event bus.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 向事件总线发布消息。
+- en: The full code for using the Vert.x event bus in a Vue.js component is in the
+    part2-steps-challenge/dashboard-webapp/src/App.vue file from the source code repository.
+    As you can see, we have the same programming model in the JavaScript code; we
+    can register event-bus handlers and publish messages, just like we would in Vert.x
+    code.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在源代码仓库的 part2-steps-challenge/dashboard-webapp/src/App.vue 文件中，你可以找到使用 Vert.x
+    事件总线在 Vue.js 组件中的完整代码。正如你所见，JavaScript 代码中具有相同的编程模型；我们可以注册事件总线处理器并发布消息，就像在 Vert.x
+    代码中做的那样。
+- en: 11.2.3 From Kafka to live web application updates
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.2.3 从 Kafka 到实时 Web 应用程序更新
+- en: The dashboard uses Vue.js, just like the public web application service that
+    you saw earlier. The whole application essentially fits in the App.vue component,
+    which can be found in the project source code. The component data model is made
+    of three entries, as follows.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仪表板使用 Vue.js，就像你之前看到的公共 Web 应用程序服务一样。整个应用程序基本上都包含在项目源代码中的 App.vue 组件中。组件数据模型由以下三个条目组成。
+- en: Listing 11.15 Data model of the Vue.js component
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.15 Vue.js 组件的数据模型
+- en: '[PRE14]'
+  id: totrans-159
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ Current throughput
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当前吞吐量
+- en: ❷ City trend data
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 城市趋势数据
+- en: ❸ Public rankings
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 公共排名
+- en: These entries are updated when events are received from the Vert.x event bus.
+    To do that, we use the Vue.js `mounted` life-cycle callback to connect to the
+    event bus, and then register handlers as follows.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当从 Vert.x 事件总线接收到事件时，这些条目会被更新。为此，我们使用 Vue.js 的 `mounted` 生命周期回调来连接到事件总线，然后按照以下方式注册处理器。
+- en: Listing 11.16 Event-bus handlers in the Vue.js component
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.16 Vue.js 组件中的事件总线处理器
+- en: '[PRE15]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Subscribe to throughput updates.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 订阅吞吐量更新。
+- en: ❷ Update the model.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 更新模型。
+- en: The handlers update the model based on what is received from the event bus.
+    Since Vue.js is a reactive web application framework, the interface is updated
+    when the data model changes. For instance, when the value of `throughput` changes,
+    so does the value displayed by the HTML template in the following listing.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理器根据从事件总线接收到的内容更新模型。由于 Vue.js 是一个响应式 Web 应用程序框架，当数据模型发生变化时，界面也会更新。例如，当 `throughput`
+    的值发生变化时，下面列表中 HTML 模板显示的值也会变化。
+- en: Listing 11.17 Throughput Vue.js HTML template
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.17 通过 Vue.js HTML 模板进行吞吐量
+- en: '[PRE16]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Binds to the throughput data value
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 绑定到吞吐量数据值
+- en: The city-trends view rendering is a more elaborated template.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 城市趋势视图的渲染是一个更复杂的模板。
+- en: Listing 11.18 City trends vue.js HTML template
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.18 城市趋势vue.js HTML模板
+- en: '[PRE17]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ Iterate over all city entries.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 遍历所有城市条目。
+- en: ❷ City name
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 城市名称
+- en: ❸ Step count
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 步数
+- en: ❹ Format the timestamp with the Moment.js library.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用Moment.js库格式化时间戳。
+- en: 'The template iterates over all city data and renders a table row for each city.
+    When a city has an update, the city row is updated thanks to the `item.city` binding,
+    which ensures uniqueness in the rows generated by the `v-for` loop. The `transition-group`
+    tag is specific to Vue.js and is used for animation purposes: when the data order
+    changes, the row order changes with an animation. The loop iterates over `cityTrendRanking`,
+    which is a computed property shown in the following listing.'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模板遍历所有城市数据并为每个城市渲染一个表格行。当一个城市有更新时，城市行会通过`item.city`绑定进行更新，这确保了由`v-for`循环生成的行中的唯一性。`transition-group`标签是Vue.js特有的，用于动画目的：当数据顺序改变时，行顺序会随着动画改变。循环遍历`cityTrendRanking`，这是一个在以下列表中显示的计算属性。
+- en: Listing 11.19 Computed ranking property
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.19 计算排名属性
+- en: '[PRE18]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Order by step count.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 按步数排序。
+- en: The `cityTrendRanking` computed property ranks entries by their number of steps,
+    so the dashboard shows cities with the most steps on top.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`cityTrendRanking`计算属性根据步数对条目进行排名，因此仪表板显示步数最多的城市在最上面。'
+- en: The throughput and city trends are updated every five seconds, with updates
+    coming from Kafka records and JSON payloads being forwarded to the dashboard web
+    application. This works well because updates are frequent and cover aggregated
+    data, but as you’ll see next, things are more complicated for the users’ ranking.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 吞吐量和城市趋势每五秒更新一次，更新来自Kafka记录和JSON有效载荷被转发到仪表板Web应用程序。这效果很好，因为更新频繁且覆盖了聚合数据，但正如你将看到的，用户的排名会更复杂。
+- en: 11.3 Streams and state
+  id: totrans-185
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.3 流和状态
+- en: The dashboard web application shows a live ranking of users based on the number
+    of steps they have taken over the last 24 hours. Users can be ranked based on
+    the updates produced by the event stats service and sent to the `event-stats.user-activity
+    .updates` Kafka topic.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仪表板Web应用程序显示了用户在过去24小时内所走步数的实时排名。用户可以根据事件统计服务产生的更新并发送到`event-stats.user-activity
+    .updates` Kafka主题的更新进行排名。
+- en: 11.3.1 A stream of updates
+  id: totrans-187
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.3.1 一系列更新
+- en: Each record sent to `event-stats.user-activity.updates` contains the latest
+    number of steps for a given user. The dashboard service can observe these events,
+    update its state to keep track of how many steps a given user has taken, and update
+    the global ranking accordingly. The problem here is that we need some state to
+    start with, because when it starts (or restarts!), the dashboard service doesn’t
+    know about the earlier updates.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发送到`event-stats.user-activity.updates`的每个记录都包含给定用户的最新步数。仪表板服务可以观察这些事件，更新其状态以跟踪给定用户所走的步数，并相应地更新全局排名。问题在于我们需要一些初始状态，因为当它启动（或重启）时，仪表板服务不知道之前的更新。
+- en: We could configure the Kafka subscriber to restart from the beginning of the
+    stream, but it could potentially span several days’ or even weeks’ worth of data.
+    Replaying all records when the dashboard service starts would in theory allow
+    us to compute an accurate ranking, but this would be a costly operation. Also,
+    we would need to wait until all the records have been processed before sending
+    updates to the connected web applications, because this would create a lot of
+    traffic on the event bus.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将Kafka订阅者配置为从流的开始处重新启动，但这可能涉及几天甚至几周的数据。当仪表板服务启动时重新播放所有记录从理论上讲可以让我们计算准确的排名，但这将是一个昂贵的操作。此外，我们需要等待所有记录被处理完毕后再向连接的Web应用程序发送更新，因为这会在事件总线上产生大量流量。
+- en: Another solution is to start by asking the activity service what the current
+    day rankings are, which is a straightforward SQL query built into the service.
+    We’ll call this the *hydration* phase. We can then update the rankings as we receive
+    updates from the `event-stats.user-activity.updates` Kafka topic.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种解决方案是先询问活动服务当前日的排名情况，这是一个内置在服务中的简单SQL查询。我们将这个阶段称为*激活*阶段。然后，我们可以随着从`event-stats.user-activity.updates`
+    Kafka主题接收更新来更新排名。
+- en: 11.3.2 Hydrating the ranking state
+  id: totrans-191
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.3.2 激活排名状态
+- en: The dashboard service maintains a `publicRanking` field, which is a map where
+    keys are user names and values are the latest user update entries as JSON data.
+    When the service starts, this collection is empty, so the first step is to fill
+    it with data.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仪表板服务维护一个`publicRanking`字段，它是一个映射，键是用户名，值是最新用户更新条目作为JSON数据。当服务启动时，此集合为空，因此第一步是用数据填充它。
+- en: To do that, the `hydrate` method is called from the `DashboardWebAppVerticle`
+    initialization method (`rxStart`), right after the Kafka consumers have been set,
+    as in listing 11.10\. This method assembles ranking data by calling the activity
+    and user profile services, as shown in the following listing.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现这一点，需要在`DashboardWebAppVerticle`初始化方法（`rxStart`）中调用`hydrate`方法，紧随Kafka消费者设置之后，如列表11.10所示。此方法通过调用活动和用户配置文件服务来组装排名数据，如下面的列表所示。
+- en: Listing 11.20 Implementation of the `hydrate` method
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.20 `hydrate`方法的实现
+- en: '[PRE19]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Activity service ranking endpoint
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 活动服务排名端点
+- en: ❷ Allow a delay when the service starts.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 允许服务启动时的延迟。
+- en: ❸ Allow five retries if the activity service is not available.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果活动服务不可用，允许重试五次。
+- en: ❹ For each device ranking entry, find the owner.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 对于每个设备排名条目，找到所有者。
+- en: ❺ Fill with the user details.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 填充用户详细信息。
+- en: ❻ Track only the users who’ve opted to be public.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 只跟踪选择公开的用户。
+- en: The implementation of the `hydrate` method relies on getting a ranking of the
+    devices over the last 24 hours. The service returns a JSON array ordered by the
+    number of steps. We allow an arbitrary five-second delay before making the request,
+    and allow five retries in case the activity service is not available. Once we
+    have ranking data, the `whoOwnsDevice` method (listing 11.21) and `fillWithUserProfile`
+    method (listing 11.22) correlate the pedometer-centric data with a user. Finally,
+    the `hydrateEntryIfPublic` method in listing 11.23 fills the `publicRanking` collection
+    with data from users who opted to be in public rankings.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`hydrate`方法的实现依赖于获取过去24小时内设备的排名。服务返回一个按步数数量排序的JSON数组。我们在发出请求前允许任意五秒的延迟，并在活动服务不可用时允许重试五次。一旦我们有了排名数据，`whoOwnsDevice`方法（列表11.21）和`fillWithUserProfile`方法（列表11.22）将计步器相关的数据与用户关联起来。最后，列表11.23中的`hydrateEntryIfPublic`方法使用选择公开排名的用户的数据填充`publicRanking`集合。'
+- en: Listing 11.21 Finding who owns a device
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.21 查找设备所有者
+- en: '[PRE20]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Request to find a device owner.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 查找设备所有者的请求。
+- en: ❷ Merge JSON data.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 合并JSON数据。
+- en: The `whoOwnsDevice` method performs an HTTP request to determine who owns a
+    device, and then merges the resulting JSON data. At this point, we need to fill
+    the remaining user data, which is done via the `fillWithUserProfile` method, shown
+    next.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`whoOwnsDevice`方法执行HTTP请求以确定设备的所有者，然后合并生成的JSON数据。此时，我们需要填充剩余的用户数据，这通过`fillWithUserProfile`方法完成，如下所示。'
+- en: Listing 11.22 Adding user data to the ranking data
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.22 向排名数据添加用户数据
+- en: '[PRE21]'
+  id: totrans-209
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ Get user data.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取用户数据。
+- en: ❷ Merge JSON data.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 合并JSON数据。
+- en: This code is very similar to that of the `whoOwnsDevice` method.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码与`whoOwnsDevice`方法的代码非常相似。
+- en: Last but not least, the `hydrateEntryIfPublic` method in the following listing
+    adds data to the `publicRanking` collection.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后但同样重要的是，下面的列表中的`hydrateEntryIfPublic`方法向`publicRanking`集合添加数据。
+- en: Listing 11.23 Hydration of public user data
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.23 公开用户数据的水合
+- en: '[PRE22]'
+  id: totrans-215
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ❶ Only store public users.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 只存储公开用户。
+- en: ❷ Insert a local timestamp for the update.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 插入更新操作的本地时间戳。
+- en: ❸ Store the user data.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 存储用户数据。
+- en: Hydration is a process that’s started asynchronously when the verticle starts,
+    and eventually the `publicRanking` collection holds accurate data. Note that at
+    this stage we have not pushed any ranking data to the dashboard web application
+    clients. Let’s now see what happens next.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水合是一个异步启动的过程，当verticle启动时，最终`publicRanking`集合将包含准确的数据。请注意，在这个阶段，我们尚未将任何排名数据推送到仪表板Web应用程序客户端。现在让我们看看接下来会发生什么。
+- en: 11.3.3 Periodically updating rankings from the updates stream
+  id: totrans-220
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.3.3 从更新流中定期更新排名
+- en: The user ranking is updated every five seconds. To do so, we collect updates
+    from users for five seconds, update the public ranking data, and push the result
+    to the dashboard web application. We batch data over spans of five seconds to
+    pace the dashboard refresh, but you can reduce the time window or even get rid
+    of it if you want a more lively dashboard. The following listing shows the RxJava
+    pipeline to manage this process.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户排名每五秒更新一次。为此，我们收集五秒内的用户更新，更新公共排名数据，并将结果推送到仪表板 Web 应用程序。我们按五秒的时间跨度批量处理数据以控制仪表板刷新，但你可以减少时间窗口，甚至完全去掉它，如果你想要一个更活跃的仪表板。下一个列表展示了用于管理此过程的
+    RxJava 管道。
+- en: Listing 11.24 RxJava pipeline to update user rankings
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.24 用于更新用户排名的 RxJava 管道
+- en: '[PRE23]'
+  id: totrans-223
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ❶ Subscribe to the updates.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 订阅更新。
+- en: ❷ Keep only the public users.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 仅保留公共用户。
+- en: ❸ Group events over five seconds.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在五秒内分组事件。
+- en: ❹ Update rankings and push data.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 更新排名并推送数据。
+- en: The `filter` operator is used to keep only Kafka records where the user data
+    is public, and the `buffer` operator makes five-second windows of events.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `filter` 操作符仅保留用户数据为公共的 Kafka 记录，而 `buffer` 操作符创建五秒的事件窗口。
+- en: The following listing shows the implementation of the `updatePublicRanking`
+    method that processes these event batches.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了处理这些事件批次的 `updatePublicRanking` 方法的实现。
+- en: Listing 11.25 Public ranking maintenance process
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.25 公共排名维护过程
+- en: '[PRE24]'
+  id: totrans-231
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Merge the data.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 合并数据。
+- en: ❷ Discard older data.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 丢弃旧数据。
+- en: ❸ Compute ranking and send to the event bus
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 计算排名并发送到事件总线
+- en: 'The method describes the process in three steps:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该方法将过程描述为三个步骤：
+- en: Use the collected data to update ranking data.
+  id: totrans-236
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用收集到的数据更新排名数据。
+- en: Discard older entries.
+  id: totrans-237
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 丢弃旧条目。
+- en: Compute a new ranking and send it to the connected web applications over the
+    event bus.
+  id: totrans-238
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 计算新的排名并通过事件总线发送到连接的 Web 应用程序。
+- en: The next listing shows the implementation of the `copyBetterScores` method.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了 `copyBetterScores` 方法的实现。
+- en: Listing 11.26 Updating ranking data
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.26 更新排名数据
+- en: '[PRE25]'
+  id: totrans-241
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Get the proposed update number of steps.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取建议的步数更新数量。
+- en: ❷ Update only when there are more steps.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 仅在步数更多时更新。
+- en: The preceding method updates the `publicRanking` collection when a collected
+    entry has a higher step count than the previous one, because there could potentially
+    be a conflict between a hydration process and a user update.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面的方法在收集到的条目步数高于前一个条目时更新 `publicRanking` 集合，因为可能存在水合过程和用户更新之间的冲突。
+- en: The next listing shows the `pruneOldEntries` method.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了 `pruneOldEntries` 方法。
+- en: Listing 11.27 Pruning older data
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.27 修剪旧数据
+- en: '[PRE26]'
+  id: totrans-247
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ❶ Get the current time.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取当前时间。
+- en: ❷ Iterate over all ranking data.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 遍历所有排名数据。
+- en: ❸ Remove entries after a day.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 一天后删除条目。
+- en: This method simply iterates over all ranking data entries in the `publicRanking`
+    collection and removes entries older than one day.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法简单地遍历 `publicRanking` 集合中所有排名数据条目，并删除超过一天的条目。
+- en: The ranking is produced by the `computeRanking` method, shown next.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 排名由 `computeRanking` 方法生成，如下所示。
+- en: Listing 11.28 Computing the ranking
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.28 计算排名
+- en: '[PRE27]'
+  id: totrans-254
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: ❶ Extract values in publicRanking.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 提取 publicRanking 中的值。
+- en: ❷ Sort by decreasing step count.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 按递减的步数排序。
+- en: ❸ Copy values.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 复制值。
+- en: ❹ Wrap as a JSON array.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 包装为 JSON 数组。
+- en: The method sorts public ranking data and produces a JSON array, where entries
+    are ranked in reverse order (the first value is the user with most steps over
+    the last 24 hours, and so on).
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该方法对公共排名数据进行排序，并生成一个 JSON 数组，其中条目按逆序排列（第一个值是过去 24 小时内步数最多的用户，依此类推）。
+- en: The `compareStepsCountInReverseOrder` method used to compare and sort entries
+    is shown in the following listing.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于比较和排序条目的 `compareStepsCountInReverseOrder` 方法如下所示。
+- en: Listing 11.29 Comparing user data against their step count
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.29 比较用户数据与其步数
+- en: '[PRE28]'
+  id: totrans-262
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: ❶ Delegates to compareTo in the java.lang.Long class
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 委托给 java.lang.Long 类中的 compareTo
+- en: The comparison returns -1 when `b` has fewer steps than `a`, 0 when they are
+    equal, and 1 when `b` has more steps than `a`.
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 `b` 的步数少于 `a` 时，比较返回 -1，当它们相等时返回 0，当 `b` 的步数多于 `a` 时返回 1。
+- en: The Vue.js template for rendering the user ranking table is shown in the next
+    listing.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了用于渲染用户排名表的 Vue.js 模板。
+- en: Listing 11.30 User ranking template in Vue.js
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.30 Vue.js 中的用户排名模板
+- en: '[PRE29]'
+  id: totrans-267
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: ❶ Iterate over the data.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 遍历数据。
+- en: The Vue.js code for the web application receives the ranking array over the
+    event bus and updates the `publicRanking` data entry. Whenever this happens, the
+    display is updated to reflect the changes. Just like the city trends table, entries
+    move using an animation as their order changes.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Web应用的Vue.js代码通过事件总线接收排名数组并更新`publicRanking`数据条目。每当发生这种情况时，显示都会更新以反映这些变化。就像城市趋势表一样，条目会根据它们的顺序变化使用动画移动。
+- en: This concludes the end-to-end stream processing, from Kafka records to reactive
+    web applications. The next chapter focuses on resilience and fault-tolerance in
+    reactive systems.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这完成了从Kafka记录到反应式Web应用的端到端流处理。下一章将重点介绍反应式系统中的弹性和容错性。
+- en: Summary
+  id: totrans-271
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: RxJava offers advanced operators like `buffer` and `groupBy` that can be composed
+    to perform aggregate data processing.
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: RxJava提供了高级操作符如`buffer`和`groupBy`，可以将它们组合起来执行聚合数据处理。
+- en: A microservice does not have to expose an HTTP API. The event stats service
+    only consumes and produces Kafka records.
+  id: totrans-273
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 微服务不必暴露HTTP API。事件统计服务仅消费和产生Kafka记录。
+- en: There are stream-processing works that can start at any point of a stream, like
+    computing a throughput, while other works require some initial state, like maintaining
+    a live ranking of users over the last 24 hours.
+  id: totrans-274
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有一些流处理工作可以在流的任何位置开始，例如计算吞吐量，而其他工作则需要一些初始状态，例如维护过去24小时内用户的实时排名。
+- en: The Vert.x event bus can be extended to web applications using the SockJS protocol,
+    offering the same communication model across service and web code bases.
+  id: totrans-275
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Vert.x事件总线可以通过SockJS协议扩展到Web应用，提供跨服务和Web代码库相同的通信模型。
+- en: Vert.x allows you to build end-to-end reactive systems, where events trigger
+    computations in services and impact user-facing web applications.
+  id: totrans-276
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Vert.x允许你构建端到端反应式系统，其中事件在服务中触发计算并影响面向用户的Web应用。

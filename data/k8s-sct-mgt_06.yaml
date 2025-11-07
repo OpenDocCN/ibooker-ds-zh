@@ -1,0 +1,1426 @@
+- en: 4 Encrypting data at rest
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 4 加密静态数据
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Data encryption at rest for Kubernetes cluster storage
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes集群存储的静态数据加密
+- en: Enabling the KMS provider for data encryption
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 启用数据加密的 KMS 提供商
+- en: In chapter 3, you learned how to protect secrets when storing them in Git, but
+    this is just one place secrets can be stored. In this chapter, we’ll discuss storing
+    them inside the Kubernetes cluster.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 3 章中，你学习了如何在 Git 中存储密钥时保护密钥，但这只是密钥可以存储的一个地方。在本章中，我们将讨论在 Kubernetes 集群内部存储密钥。
+- en: We’ll demonstrate that secrets are not encrypted by default by directly querying
+    the `etcd` database. Then we’ll walk through the process of encrypting data at
+    rest as well as enabling it in Kubernetes to encrypt secrets (figure 4.1).
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过直接查询 `etcd` 数据库来证明密钥默认情况下未加密。然后我们将介绍加密静态数据的过程，以及在 Kubernetes 中启用它以加密密钥（图
+    4.1）。
+- en: '![](../Images/CH04_F01_Sotobueno3.png)'
+  id: totrans-6
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F01_Sotobueno3.png)'
+- en: Figure 4.1 From plain text secrets to encrypted secrets
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.1 从纯文本密钥到加密密钥
+- en: Finally, we will make the process secure using a key management service (KMS)
+    to manage encryption keys, as shown in figure 4.2.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们将使用关键管理服务（KMS）来管理加密密钥，以确保过程安全，如图 4.2 所示。
+- en: '![](../Images/CH04_F02_Sotobueno3.png)'
+  id: totrans-9
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F02_Sotobueno3.png)'
+- en: Figure 4.2 Key management service for managing keys
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.2 管理密钥的关键管理服务
+- en: 4.1 Encrypting secrets in Kubernetes
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.1 在 Kubernetes 中加密密钥
+- en: Imagine you have an application that needs to connect to a database server;
+    obviously, a username and password are required to access it. These configuration
+    values are secrets, and they need to be stored correctly, so if the system (or
+    the cluster) is compromised, they are kept secret and the attacker will not be
+    able to exploit them to access any part of your application. The solution is encrypting
+    these secrets, so if they are compromised, the attacker would only get a chunk
+    of bytes instead of the real values.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，你有一个需要连接到数据库服务器的应用程序；显然，需要用户名和密码来访问它。这些配置值是密钥，它们需要正确存储，以便如果系统（或集群）被入侵，它们将保持保密，攻击者将无法利用它们访问应用程序的任何部分。解决方案是加密这些密钥，这样如果它们被入侵，攻击者只能得到一些字节数据，而不是真实值。
+- en: 4.1.1 Data at rest vs. data in motion
+  id: totrans-13
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.1 静态数据与传输数据
+- en: We detailed the characteristics of *data at rest*—persisted data that is infrequently
+    changed—extensively in chapter 3\. On the other hand, *data in transit*, or *data
+    in motion*, is data that is moving from one location to another, usually through
+    the network. You can protect data in transit by using the mutual TLS protocol
+    during communication between parties (figure 4.3), but this is outside the scope
+    of this book; we will instead focus on how to protect data at rest. Before you
+    address the problem of not encrypting data at rest, you’ll need to create a plain
+    text secret and get it by directly querying the `etcd` server, as an attacker
+    might do.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在第 3 章中详细介绍了 *静态数据* 的特征——持久数据，很少更改——广泛地。另一方面，*传输中的数据*，或 *运动中的数据*，是指从一个位置移动到另一个位置的数据，通常通过网络。您可以通过在各方通信期间使用相互
+    TLS 协议来保护传输中的数据（图 4.3），但这超出了本书的范围；我们将专注于如何保护静态数据。在解决不加密静态数据的问题之前，您需要创建一个纯文本密钥，并通过直接查询
+    `etcd` 服务器来获取它，就像攻击者可能做的那样。
+- en: '![](../Images/CH04_F03_Sotobueno3.png)'
+  id: totrans-15
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F03_Sotobueno3.png)'
+- en: Figure 4.3 Data in transit needs to be encrypted at the communication level
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.3 传输中的数据需要在通信级别加密
+- en: 4.1.2 Plain secrets
+  id: totrans-17
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.2 纯文本密钥
+- en: Let’s create a secret using the `kubectl` tool by querying the etcd server using
+    the `etcdctl` CLI.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们使用 `kubectl` 工具通过使用 `etcdctl` CLI 查询 etcd 服务器来创建一个密钥。
+- en: Creating the secret
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建密钥
+- en: 'In a terminal window, move to the `default` Kubernetes namespace, and create
+    a new secret with two key–value entries:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在终端窗口中，切换到 `default` Kubernetes 命名空间，并创建一个新的密钥，包含两个键值对：
+- en: '[PRE0]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'We can list the created secret using `kubectl` tool:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 `kubectl` 工具列出创建的密钥：
+- en: '[PRE1]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Installing etcdctl
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装 etcdctl
+- en: '`etcdctl` is a command-line client for interacting with the `etcd` server used
+    for querying keys stored in the database, among other operations. This tool can
+    be helpful for understanding how data is stored in the `etcd` database.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`etcdctl` 是一个用于与 `etcd` 服务器交互的命令行客户端，用于查询数据库中存储的键，以及其他操作。这个工具可以帮助理解数据是如何存储在
+    `etcd` 数据库中的。'
+- en: The installation process of the tool may differ, depending on the OS you are
+    using; for more detailed instructions, see the official installation guide of
+    the `etcd` version we use in this book to query the database ([https://github.com/etcd-io/etcd/releases/tag/v3.4.14](https://github.com/etcd-io/etcd/releases/tag/v3.4.14)).
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工具的安装过程可能因您使用的操作系统而异；有关更详细的说明，请参阅本书中使用的 `etcd` 版本的官方安装指南（[https://github.com/etcd-io/etcd/releases/tag/v3.4.14](https://github.com/etcd-io/etcd/releases/tag/v3.4.14)）。
+- en: Accessing etcd
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 访问 etcd
+- en: 'The `etcd` server is running in the `kube-system` namespace under the 2379
+    port. Since you are using minikube, you can use the port forwarding feature to
+    access the `etcd` server directly from your local machine. In a terminal window,
+    run the following command to expose `etcd` in the `localhost` host:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`etcd` 服务器正在 `kube-system` 命名空间下运行，端口为 2379。由于您正在使用 minikube，您可以使用端口转发功能直接从您的本地机器访问
+    `etcd` 服务器。在终端窗口中，运行以下命令以在 `localhost` 主机上暴露 `etcd`：'
+- en: '[PRE2]'
+  id: totrans-29
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'ImportanT If you run the previous commands you will get the following error:
+    `Error from server (NotFound): pods "etcd-minikube" not found`. Run the following
+    command to get the name of your environment:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '重要 如果您运行前面的命令，您将得到以下错误：`Error from server (NotFound): pods "etcd-minikube"
+    not found`。运行以下命令以获取您环境的名称：'
+- en: '[PRE3]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: In this case, the `etcd` Pod name is `etcd-vault-book`.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此情况下，`etcd` Pod 的名称是 `etcd-vault-book`。
+- en: 'The second step to access the `etcd` server is copying the `etcd` certificates
+    from the running Pod to the local machine. Open a new terminal window, and copy
+    the certificates using the `kubectl` tool:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 访问 `etcd` 服务器的第二步是将正在运行的 Pod 中的 `etcd` 证书复制到本地机器。打开一个新的终端窗口，并使用 `kubectl` 工具复制证书：
+- en: '[PRE4]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ImportanT etcd-minikube is a directory that matches the `etcd` Pod name. Modify
+    it according to your environment.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要 etcd-minikube 是一个与 `etcd` Pod 名称匹配的目录。根据您的环境进行修改。
+- en: 'Finally, you can configure `etcdctl` to connect to the `etcd` server and query
+    for the secret created in the previous step. `etcd` organizes its content in key–value
+    format; for the specific case of secret objects, the content is stored in keys
+    in the following format:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，您可以将 `etcdctl` 配置为连接到 `etcd` 服务器并查询之前步骤中创建的密钥。`etcd` 以键值格式组织其内容；对于密钥对象的特定情况，内容存储在以下格式的键中：
+- en: '[PRE5]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Execute the following commands in a terminal window as shown.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 按照终端窗口中所示执行以下命令。
+- en: Listing 4.1 Configures `etcdctl`
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.1 配置 `etcdctl`
+- en: '[PRE6]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ① Configures etcdctl using environment variables
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 使用环境变量配置 etcdctl
+- en: ② Query the etcd database to get the secret.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 查询 etcd 数据库以获取密钥。
+- en: The output should be similar to the one shown in the following listing. Notice
+    that, although the output is not perfectly clear, it is not difficult to see the
+    secret content.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出应该类似于以下列表所示。请注意，尽管输出并不完全清晰，但并不难看出密钥内容。
+- en: Listing 4.2 `etcdctl` output
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.2 `etcdctl` 输出
+- en: '[PRE7]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ① Secrets are not encrypted but stored in plain text.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 密钥未加密，但以纯文本形式存储。
+- en: You can stop the port forwarding, as you do not need it for now, by aborting
+    the process (ctrl-C on the first terminal)
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过终止进程（在第一个终端上按 Ctrl-C）来停止端口转发，因为您目前不需要它。
+- en: You should understand now that if the `etcd` server is compromised, nothing
+    will block an attacker from getting all secrets in plain text. In the following
+    section, you will explore the first solution for storing encrypted secrets.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在应该明白，如果 `etcd` 服务器被入侵，将没有任何东西阻止攻击者以纯文本形式获取所有密钥。在下一节中，您将探索存储加密密钥的第一个解决方案。
+- en: 4.1.3 Encrypting secrets
+  id: totrans-49
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.3 加密密钥
+- en: To use encryption data at rest, you’ll need to introduce a new Kubernetes object
+    named `EncryptionConfiguration`. In this object, you will specify which Kubernetes
+    object you want to encrypt; it can be a secret object, but it’s actually possible
+    to encrypt any other Kubernetes object. You will also need to specify the secrets
+    provider, which is a pluggable system where you specify the encryption algorithm
+    and encryption keys to be used.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用静态加密数据，您需要引入一个新的 Kubernetes 对象，名为 `EncryptionConfiguration`。在这个对象中，您将指定您想要加密的
+    Kubernetes 对象；它可以是密钥对象，但实际上可以加密任何其他 Kubernetes 对象。您还需要指定密钥提供者，这是一个可插拔的系统，您在其中指定要使用的加密算法和加密密钥。
+- en: 'At the time of writing, the following providers are supported:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在撰写本文时，以下提供者是受支持的：
+- en: '*identity*—No encryption enabled; the resources are written as is.'
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*身份*—未启用加密；资源按原样写入。'
+- en: '*aescbc*—AES-CBC with PKCS#7 padding algorithm; it is the best option for encryption
+    at rest.'
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*aescbc*—使用 PKCS#7 填充算法的 AES-CBC；这是静态加密的最佳选项。'
+- en: '*secretbox*—XSalsa20 and Poly1305 algorithm; it is a new standard, but it might
+    not be suitable in environments with high levels of review.'
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*secretbox*—使用 XSalsa20 和 Poly1305 算法；这是一个新标准，但在审查级别高的环境中可能不适用。'
+- en: '*aesgcm*—AES-GCM with a random nonce algorithm; it is only recommended if you
+    implement an automatic key rotation.'
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*aesgcm*—使用随机 nonce 算法的 AES-GCM；仅在您实现自动密钥轮换时推荐。'
+- en: '*kms*—Uses an envelope encryption schema; key encryption keys are managed by
+    the configured KMS. This is the most secure method, and you will explore it later
+    in this chapter.'
+  id: totrans-56
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*kms*—使用信封加密模式；密钥加密密钥由配置的 KMS 管理。这是最安全的方法，您将在本章后面探索它。'
+- en: To examine how encryption data at rest works in Kubernetes, repeat the exercise
+    from the previous section, except with Kubernetes configured to encrypt secrets.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检查 Kubernetes 中静态加密数据的工作方式，重复上一节中的练习，但这次将 Kubernetes 配置为加密机密。
+- en: Enabling data encryption at rest
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启用静态数据加密
+- en: It is important to understand that data encryption at rest happens on the `kube-apiserver`
+    running in a master Node. If it is enabled, every time a Kubernetes object is
+    sent to the Kubernetes cluster, the `kube-apiserver` delegates to the encryption
+    configuration part to encrypt the objects before they are sent to the etcd database
+    to be stored. Obviously, when a secret needs to be consumed, it is decrypted automatically,
+    so from the point of view of a developer, nothing special is required; they work
+    as usual (figure 4.4).
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要理解，静态数据加密发生在运行在主节点上的 `kube-apiserver` 上。如果启用，每次将 Kubernetes 对象发送到 Kubernetes
+    集群时，`kube-apiserver` 都会将对象加密的任务委托给加密配置部分，在将对象发送到 etcd 数据库存储之前进行加密。显然，当需要使用机密时，它会自动解密，因此从开发者的角度来看，不需要做任何特殊操作；他们像往常一样工作（图
+    4.4）。
+- en: '![](../Images/CH04_F04_Sotobueno3.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F04_Sotobueno3.png)'
+- en: Figure 4.4 The encryption layer encrypts secrets automatically before sending
+    them to etcd.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.4 加密层在将机密发送到 etcd 之前自动加密。
+- en: Now generate an `EncryptionConfiguration` object to ensure any Kubernetes Secret
+    is encrypted using the `aescbc` algorithm and with a random encryption key, as
+    shown in the following listing.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在生成一个 `EncryptionConfiguration` 对象，以确保任何 Kubernetes 机密都使用 `aescbc` 算法和随机加密密钥进行加密，如下面的列表所示。
+- en: Listing 4.3 `EncryptionConfiguration`
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.3 `EncryptionConfiguration`
+- en: '[PRE8]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ① Secrets content is encrypted, but any Kubernetes resource is valid.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 机密内容被加密，但任何 Kubernetes 资源都是有效的。
+- en: ② Encryption key for encrypting data
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 加密数据使用的加密密钥
+- en: 'TIP To generate a random key in Base64, you can use a tool such as `openssl`
+    or `head`:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：要生成 Base64 的随机密钥，您可以使用 `openssl` 或 `head` 等工具：
+- en: '[PRE9]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: As you might remember, encryption occurs during the `kube-apiserver` process,
+    which implies you need to materialize the EncryptionConfiguration file into master
+    Nodes where it is running. The process of accessing a master Node differs for
+    each Kubernetes platform; in minikube it is achieved by running the `minikube`
+    `ssh` command to obtain an SSH session on the master Node. Once inside the master
+    Node, run the `sudo` `-i` command to execute the following commands as a superuser.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所记，加密发生在 `kube-apiserver` 进程中，这意味着您需要将加密配置文件实体化到运行它的主节点上。访问主节点的过程因每个 Kubernetes
+    平台而异；在 minikube 中，通过运行 `minikube` `ssh` 命令来获得主节点上的 SSH 会话。一旦进入主节点，运行 `sudo` `-i`
+    命令以超级用户身份执行以下命令。
+- en: Listing 4.4 SSH’d minikube
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.4 SSH’d minikube
+- en: '[PRE10]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'TIP If you get an error like `Error getting config`, then you need to specify
+    the minikube profile with the `-p` flag. You can list current active profiles
+    with the `minikube profile list`:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：如果您遇到类似 `Error getting config` 的错误，则需要使用 `-p` 标志指定 minikube 配置文件。您可以使用 `minikube
+    profile list` 列出当前活动配置文件：
+- en: '[PRE11]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: And then inside the SSHed instance, run the `sudo` command.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后在 SSH 实例内部运行 `sudo` 命令。
+- en: Listing 4.5 Update to superuser
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.5 更新到超级用户
+- en: '[PRE12]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: At this point, you are inside the minikube VM `kube-apiserver` is running. Let’s
+    create a new file at `/var/lib/minikube/certs/encryptionconfig.yaml` with the
+    content shown in the following listing.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，您已进入 minikube VM，其中 `kube-apiserver` 正在运行。让我们在 `/var/lib/minikube/certs/encryptionconfig.yaml`
+    创建一个新文件，其内容如下面的列表所示。
+- en: Listing 4.6 encryptionconfig.yaml
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.6 encryptionconfig.yaml
+- en: '[PRE13]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ① Encryption provider
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 加密提供者
+- en: ② The tee command creates echoed content for the given file.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② tee 命令为指定的文件创建回显内容。
+- en: The file is created in the master Node. Now we can quit the SSH terminal by
+    typing `exit` twice.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 文件在主节点上创建。现在我们可以通过输入 `exit` 两次来退出 SSH 终端。
+- en: '[PRE14]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Now you are back on your computer, but you still need to finish the last step
+    before secrets are encrypted: updating the `kube-apiserver` to pick up the EncryptionConfiguration
+    file created in the previous step. To configure the `kube-apiserver` process,
+    you need to set the `--encryption-provider-config` argument value to the `EncryptionConfiguration`
+    path. The easiest way to do this in `minikube` is stopping the instance and starting
+    it again using the argument `--extra-config`.'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经回到你的电脑上，但你在密钥加密之前仍需要完成最后一步：更新 `kube-apiserver` 以获取上一步骤中创建的 EncryptionConfiguration
+    文件。要配置 `kube-apiserver` 进程，你需要将 `--encryption-provider-config` 参数值设置为 EncryptionConfiguration
+    路径。在 `minikube` 中这样做最简单的方法是停止实例，然后使用 `--extra-config` 参数重新启动它。
+- en: 'TIP If you are not using minikube, the following link gives information about
+    setting this configuration property in a Kubernetes `kube-apiserver`: [https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/).'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：如果你没有使用 minikube，以下链接提供了有关在 Kubernetes `kube-apiserver` 中设置此配置属性的信息：[https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/](https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/)。
+- en: '[PRE15]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 4.1.4 Creating the secret
+  id: totrans-87
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.4 创建密钥
+- en: In a terminal window, move to the `default` Kubernetes namespace, and create
+    a new secret named `db-secret-encrypted` with two key–value entries.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个终端窗口中，切换到 `default` Kubernetes 命名空间，并创建一个名为 `db-secret-encrypted` 的新密钥，包含两个键值对。
+- en: '[PRE16]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: At this point, the secret is created the same way as before, but let’s explore
+    how the data is stored inside `etcd`.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，密钥的创建方式与之前相同，但让我们探讨一下数据如何在 `etcd` 内部存储。
+- en: Accessing etcd
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 访问 etcd
+- en: Let’s repeat exactly the same process in the accessing `etcd` section to get
+    the content of the secret `db-secret-encrypted` and validate that now it is encrypted
+    instead of in plain text.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们在访问 `etcd` 的部分中重复执行完全相同的步骤，以获取 `db-secret-encrypted` 密钥的内容，并验证现在它是加密的而不是明文。
+- en: 'In one terminal window, expose the `etcd` server in localhost:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个终端窗口中，在本地主机上公开 `etcd` 服务器：
+- en: '[PRE17]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'In another terminal, repeat the process of copying the `etcd` certificates,
+    and configure the `etcdctl` using environment variables:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在另一个终端中，重复复制 `etcd` 证书的过程，并使用环境变量配置 `etcdctl`：
+- en: '[PRE18]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'You can now query `etcd` to get the value of the `db-secret-encrypted` key
+    to validate it is encrypted and its values are impossible to decipher:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以查询 `etcd` 以获取 `db-secret-encrypted` 键的值，以验证它是否已加密，其值是否无法解密：
+- en: '[PRE19]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'The output should be similar to the following:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出应类似于以下内容：
+- en: '[PRE20]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Unlike in the previous section, the secrets are encrypted in `kube-apiserver`
+    and then sent to be stored in the `etcd` server. You can stop port forwarding,
+    as you do not need to for now, by aborting the process (ctrl-C on the first terminal).
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与上一节不同，密钥在 `kube-apiserver` 中加密，然后发送到 `etcd` 服务器进行存储。你可以通过终止进程（在第一个终端中按 Ctrl-C）来停止端口转发，因为你目前不需要这样做。
+- en: You can now see that an attacker could get access to the `etcd` server or to
+    a backup of `etcd` (please protect against this), but secrets are encrypted using
+    the keys configured in the `EncryptionConfiguration` object. But is that enough?
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以看到攻击者可以访问 `etcd` 服务器或 `etcd` 的备份（请防止这种情况发生），但密钥是使用 `EncryptionConfiguration`
+    对象中配置的密钥加密的。但这足够了吗？
+- en: Security of the keys
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 密钥的安全性
+- en: Using `EncryptionConfiguration`, you’ve increased the hurdles attackers need
+    to overcome to access the plain text secrets, but you still have some weaknesses.
+    These weaknesses stem from the encryption keys being stored in plain text on the
+    file system in the master Node. If the attacker gains access to the master machine,
+    they can access the EncryptionConfiguration file, grab the keys, query the encrypted
+    secrets, and decrypt them with the keys stolen from the master Node.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `EncryptionConfiguration`，你增加了攻击者需要克服的障碍才能访问明文密钥，但你仍然有一些弱点。这些弱点源于加密密钥在主节点文件系统中以明文形式存储。如果攻击者能够访问主机器，他们可以访问
+    EncryptionConfiguration 文件，获取密钥，查询加密密钥，并使用从主节点窃取的密钥解密它们。
+- en: One of the main issues here is that the keys that encrypt data live alongside
+    the data itself (figure 4.5). Any attacker who has access to your master Node
+    can potentially access secrets and the keys to decrypt them. In other words, you’ve
+    not improved the security much if a master Node is compromised.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里主要的问题之一是加密数据的密钥与数据本身一起存储（图 4.5）。任何可以访问你的主节点的攻击者都可能访问密钥和解密密钥。换句话说，如果主节点被入侵，你并没有在很大程度上提高安全性。
+- en: '![](../Images/CH04_F05_Sotobueno3.png)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F05_Sotobueno3.png)'
+- en: Figure 4.5 A compromised cluster implies that both data and keys to decrypt
+    data are exposed.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.5 一个被攻陷的集群意味着数据和用于解密数据的密钥都暴露了。
+- en: To avoid this vector attack, encryption keys and data should be stored in separate
+    machines. In this way an attacker needs to compromise multiple systems to gain
+    access to the secrets, as shown in the figure 4.6.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免这种向量攻击，加密密钥和数据应该存储在不同的机器上。这样，攻击者需要攻破多个系统才能获取到秘密，如图4.6所示。
+- en: '![](../Images/CH04_F06_Sotobueno3.png)'
+  id: totrans-109
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F06_Sotobueno3.png)'
+- en: Figure 4.6 Splitting data and keys into different machines makes the system
+    safer.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.6 将数据和密钥分割到不同的机器上使系统更安全。
+- en: 'In addition to this issue, there are other drawbacks to take into consideration
+    when using the previous approach:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这个问题之外，在采用之前的方法时，还需要考虑其他缺点：
+- en: The keys need to be generated manually using external tooling.
+  id: totrans-112
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 密钥需要使用外部工具手动生成。
+- en: The key management process is done manually.
+  id: totrans-113
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 密钥管理过程是手动完成的。
+- en: The key rotation is a manual process that requires an update to the EncryptionConfiguration
+    file with the implication of a restart on the `kube-apiserver` process.
+  id: totrans-114
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 密钥轮换是一个手动过程，需要更新EncryptionConfiguration文件，这将对`kube-apiserver`进程的重新启动产生影响。
+- en: Clearly, you’ve improved your security model by encrypting secrets, and it might
+    be enough, depending on your use case and the level of security you expect, but
+    there is still room for improvement. In the following section, we’ll dig into
+    how to use a KMS in Kubernetes to store encryption keys and encrypted data in
+    different machines.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显然，通过加密秘密，你已经改进了你的安全模型，这可能已经足够，取决于你的用例和预期的安全级别，但仍有改进的空间。在下一节中，我们将深入了解如何在Kubernetes中使用KMS来在不同机器上存储加密密钥和加密数据。
+- en: 4.2 Key management server
+  id: totrans-116
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.2 密钥管理服务器
+- en: The previous application secrets were encrypted, but the keys used to encrypt
+    them were not protected. Any unwanted access would result in their loss and give
+    the attacker a chance to decrypt application secrets. Now you will improve the
+    previous application to protect these keys when using Kubernetes.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前的应用程序秘密被加密了，但用于加密它们的密钥没有得到保护。任何未授权的访问都会导致它们丢失，并给攻击者解密应用程序秘密的机会。现在你将改进之前的应用程序，在使用Kubernetes时保护这些密钥。
+- en: To increase the security of keys used to encrypt data you need a KMS to be deployed
+    outside the Kubernetes cluster. In this way, keys are managed outside the cluster,
+    while secrets are stored inside the cluster (`etcd`).
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了提高用于加密数据的密钥的安全性，你需要将KMS部署在Kubernetes集群外部。这样，密钥在集群外部管理，而秘密存储在集群内部（`etcd`）。
+- en: This new approach makes it difficult for a possible attacker to get your secrets,
+    as two systems must be compromised. First of all, the attacker needs to access
+    `etcd` or a disk backup to take the secrets, and assuming they get them, the secrets
+    will just be a bunch of encrypted bytes. Next, the attacker will need to get the
+    keys to decrypt them, but the big difference with the previous section is that
+    now the keys are not in the same machine, nor are they stored in plain text. A
+    second system needs to be compromised, as the attacker needs to gain access to
+    the KMS and get the keys used at encryption time to decrypt the secrets. Of course,
+    it is still possible, but you’ve added another layer of protection that needs
+    to be broken.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种新的方法使得可能的攻击者难以获取你的秘密，因为必须攻破两个系统。首先，攻击者需要访问`etcd`或磁盘备份来获取秘密，假设他们获取到了，这些秘密将只是一堆加密的字节。接下来，攻击者需要获取解密这些密钥，但与前一部分不同的是，现在密钥不在同一台机器上，也不是以明文形式存储。需要攻破第二个系统，因为攻击者需要访问KMS并获取用于加密时解密秘密的密钥。当然，这仍然是可能的，但你已经增加了一层需要被破坏的保护。
+- en: As you want to keep your secrets protected and resilient to a possible attack,
+    you need to move away from storing keys and encrypted data in the same machine
+    to have a clear differentiation between the locations where keys and encrypted
+    data are stored. A KMS is a server that centralizes the management of encryption
+    keys and provides some capabilities for handling cryptographic operations on data
+    in-transit. This makes it the perfect tool for having keys and data storage completely
+    separated.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了保持你的秘密得到保护，并对可能的攻击具有弹性，你需要将密钥和加密数据存储在同一台机器上的做法改为明确区分密钥和加密数据存储的位置。KMS是一个服务器，它集中管理加密密钥，并为处理传输中的数据提供一些加密操作的能力。这使得它成为将密钥和数据存储完全分离的完美工具。
+- en: '![](../Images/CH04_F07_Sotobueno3.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F07_Sotobueno3.png)'
+- en: Figure 4.7 Keys used to encrypt and decrypt are managed in the KMS.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.7 用于加密和解密的密钥由KMS管理。
+- en: 4.2.1 Kubernetes and KMS provider
+  id: totrans-123
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.1 Kubernetes和KMS提供商
+- en: You’ve seen in the enabling encryption data at rest section that Kubernetes
+    can use encryption at rest to encrypt secrets and different kinds of providers
+    are supported for encrypting data—one of which being the KMS provider. This provider
+    is recommended when using an external KMS.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在启用静态加密数据部分，您已经看到Kubernetes可以使用静态加密来加密秘密，并支持多种数据加密提供商——其中之一就是KMS提供商。当使用外部KMS时，建议使用此提供商。
+- en: An important feature of the KMS encryption provider is its use of an envelope
+    encryption schema to encrypt all data. It is important to understand exactly how
+    this schema works and why it is adopted to store data in `etcd`.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: KMS加密提供者的重要特性是它使用信封加密方案来加密所有数据。了解这个方案的确切工作原理以及为什么它被用于在`etcd`中存储数据非常重要。
+- en: Envelope encryption
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 信封加密
+- en: 'To use an envelope encryption schema, you need three pieces of data: the data
+    to encrypt (the secret), a data encryption key (DEK), and a key encryption key
+    (KEK). Every time new data needs to be encrypted, a *new* data encryption key
+    is generated and used to encrypt the data. As you can see, each piece of data
+    (or secret) is encrypted by a new encryption key (DEK) and is created on the fly.'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用信封加密方案，你需要三份数据：要加密的数据（秘密）、数据加密密钥（DEK）和密钥加密密钥（KEK）。每次需要加密新数据时，都会生成一个新的数据加密密钥（DEK）并用于加密数据。如您所见，每份数据（或秘密）都由一个新的加密密钥（DEK）加密，并且是即时创建的。
+- en: In addition to the data encryption key, the envelope encryption schema also
+    has a key encryption key. This key is used to encrypt the data encryption key
+    (DEK). In contrast, the KEK is just generated once, and it is stored in a third-party
+    system like a KMS.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了数据加密密钥之外，信封加密方案还有一个密钥加密密钥。这个密钥用于加密数据加密密钥（DEK）。相比之下，KEK 只生成一次，并存储在第三方系统，如KMS中。
+- en: 'At this point, there are two chunks of encrypted bytes: data encrypted with
+    DEK and DEK encrypted with KEK. Figure 4.8 shows both chunks and how they are
+    encrypted.'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时，有两个加密的字节数据块：使用DEK加密的数据和用KEK加密的DEK。图4.8显示了这两个数据块以及它们是如何加密的。
+- en: '![](../Images/CH04_F08_Sotobueno3.png)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F08_Sotobueno3.png)'
+- en: Figure 4.8 Data is encrypted with DEK, and DEK is encrypted with KEK.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.8 数据使用DEK加密，DEK使用KEK加密。
+- en: These two parts are appended together and stored as a single piece of data side
+    by side. One of the big advantages of this approach is that each data has its
+    own encryption key, meaning if the data encryption key is compromised (e.g., by
+    using brute force) the attacker would only able to decrypt that secret but not
+    the rest of the secrets. Figure 4.9 shows the whole process.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两部分被拼接在一起，并作为单一数据块存储在一起。这种方法的一个重大优点是每个数据都有自己的加密密钥，这意味着如果数据加密密钥被泄露（例如，通过暴力破解），攻击者只能解密那个秘密，而不能解密其他秘密。图4.9显示了整个过程。
+- en: '![](../Images/CH04_F09_Sotobueno3.png)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F09_Sotobueno3.png)'
+- en: Figure 4.9 Envelope encryption schema
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.9 信封加密方案
+- en: To decrypt a secret, use the reverse process. First of all, split the data again
+    with two chunks of data (an encrypted secret and encrypted DEK); DEK is decrypted
+    using KEK, and finally the secret is decrypted using the decrypted DEK, as shown
+    in figure 4.10.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要解密一个秘密，使用相反的过程。首先，将数据再次分成两块数据（加密的秘密和加密的DEK）；使用KEK解密DEK，最后使用解密后的DEK解密秘密，如图4.10所示。
+- en: '![](../Images/CH04_F10_Sotobueno3.png)'
+  id: totrans-136
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F10_Sotobueno3.png)'
+- en: Figure 4.10 Decrypting the envelope encryption schema
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.10 解密信封加密方案
+- en: Kubernetes and envelope encryption
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes和信封加密
+- en: 'The Kubernetes KMS encryption provider uses envelop encryption in the following
+    way: Every time data needs to be encrypted, a new data encryption key (DEK) is
+    generated using the AES-CBC with PKCS7# padding algorithm. Then the DEK is encrypted
+    using a key encryption key (KEK) managed by the remote KMS. Figure 4.11 shows
+    this process.'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes KMS加密提供者使用以下方式使用信封加密：每次需要加密数据时，都会使用AES-CBC与PKCS7#填充算法生成一个新的数据加密密钥（DEK）。然后使用由远程KMS管理的密钥加密密钥（KEK）加密DEK。图4.11显示了此过程。
+- en: '![](../Images/CH04_F11_Sotobueno3.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F11_Sotobueno3.png)'
+- en: Figure 4.11 Kubernetes and the envelope encryption schema
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.11 Kubernetes和信封加密方案
+- en: HashiCorp Vault as a KMS
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HashiCorp Vault作为KMS
+- en: Using the KMS provider is the most secure way to encrypt and decrypt secrets,
+    but you need a KMS implementation that manages the key encryption keys and encrypts
+    the data encryption keys. But how does the Kubernetes cluster communicate with
+    the remote KMS? To communicate with a remote server, the KMS provider uses the
+    gRPC protocol to communicate with a Kubernetes KMS plugin deployed in the Kubernetes
+    master Nodes. This plugin acts as a bridge between the `kube-apiserver` and the
+    KMS, adapting the encryption and decryption `kube-apiserver` flow to the protocol
+    required by the remote KMS. Figure 4.12 shows this protocol.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用KMS提供商是加密和解密秘密最安全的方式，但您需要一个管理密钥加密密钥并加密数据加密密钥的KMS实现。但Kubernetes集群如何与远程KMS通信呢？为了与远程服务器通信，KMS提供商使用gRPC协议与部署在Kubernetes主节点上的Kubernetes
+    KMS插件进行通信。此插件充当`kube-apiserver`和KMS之间的桥梁，将`kube-apiserver`的加密和解密流程适配到远程KMS所需的协议。图4.12显示了此协议。
+- en: '![](../Images/CH04_F12_Sotobueno3.png)'
+  id: totrans-144
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F12_Sotobueno3.png)'
+- en: Figure 4.12 KMS provider/plugin system
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.12 KMS提供程序/插件系统
+- en: There are many Kubernetes KMS plugins already supported out of the box, including
+    IBM Key Protect, SmartKey, AWS KMS, Azure Key Vault, Google Cloud KMS, and HashiCorp
+    Vault, to name a few. Since the book is written to be cloud-provider agnostic,
+    you will use HashiCorp Vault as a remote KMS, but keep in mind that the process
+    would be similar to the one explained here for any other KMS implementation.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 已经有多个Kubernetes KMS插件得到原生支持，包括IBM Key Protect、SmartKey、AWS KMS、Azure Key Vault、Google
+    Cloud KMS和HashiCorp Vault等。由于本书旨在编写时对云服务提供商保持中立，您将使用HashiCorp Vault作为远程KMS，但请记住，这个过程将与这里解释的任何其他KMS实现的过程类似。
+- en: For now, don’t worry about what HashiCorp Vault is, as we will explore this
+    in depth in the following chapter, as it offers many secret-specific key features.
+    But for this specific chapter, think about HashiCorp Vault as a deployable service
+    that offers an endpoint to encrypt and decrypt data in transit without storing
+    it. All the key management occurs internally in the Vault service, so from the
+    point of view of a user, the data is sent to the service, and it is returned ciphered
+    or deciphered, depending on the use case. In the next section, we’ll start moving
+    the keys from the master Node to an external KMS.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，不必担心HashiCorp Vault是什么，因为我们在下一章将深入探讨这个问题，因为它提供了许多针对特定秘密的关键特性。但就这一特定章节而言，将HashiCorp
+    Vault视为一种可部署的服务，它提供了一个端点来加密和解密传输中的数据而不存储它。所有密钥管理都在Vault服务内部进行，因此从用户的角度来看，数据被发送到服务，并根据用例返回加密或解密的数据。在下一节中，我们将开始将密钥从主节点移动到外部KMS。
+- en: TIP The KMS plugin system is designed to be extensible, so you could implement
+    a new plugin for a specific KMS implementation. Usually, this should not be required,
+    since most of the KMS providers offer integration to Kubernetes, but keep in mind
+    nothing blocks you from implementing a Kubernetes KMS plugin by yourself.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 小贴士：KMS插件系统被设计为可扩展的，因此您可以针对特定的KMS实现实现一个新的插件。通常，这不应该需要，因为大多数KMS提供商都提供与Kubernetes的集成，但请记住，没有任何东西阻止您自己实现Kubernetes
+    KMS插件。
+- en: Installing HashiCorp Vault
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装HashiCorp Vault
+- en: We have repeated over and over again that secrets and encryption keys should
+    be deployed in different machines, meaning the KMS must run separately from Kuberne-
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们反复强调，秘密和加密密钥应该部署在不同的机器上，这意味着KMS必须独立于Kubernetes主节点运行。
+- en: tes master Nodes. This is the way you should always proceed in a real scenario,
+    but for this academic use case in which we are using minikube running inside a
+    VM, and for the sake of simplicity, you will install Hashi- Corp Vault inside
+    the VM but outside the Kubernetes cluster. Figure 4.13 illustrates the configuration.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实际场景中，您应该始终以这种方式进行操作，但在这个学术用例中，我们使用在VM内部运行的minikube，为了简化，您将在VM内部但不在Kubernetes集群外部安装HashiCorp
+    Vault。图4.13说明了配置。
+- en: '![](../Images/CH04_F13_Sotobueno3.png)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F13_Sotobueno3.png)'
+- en: Figure 4.13 HashiCorp Vault as a KMS
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.13 HashiCorp Vault作为KMS
+- en: ImportanT At the end of this section, we will provide you a single command that
+    executes a script that automates all the steps explained in the following sections.
+    Although the process is automated, we will explain the whole process, so you can
+    repeat it in any other environment.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要提示：在本节末尾，我们将提供一个命令，该命令执行一个脚本，自动化以下各节中解释的所有步骤。尽管这个过程是自动化的，但我们将解释整个过程，以便您可以在任何其他环境中重复它。
+- en: To install HashiCorp Vault, you need to download and install it into the VM
+    and register it as a service in `systemd`, so it is started automatically every
+    time you start the VM. The steps are shown in the following listing.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要安装 HashiCorp Vault，您需要将其下载并安装到虚拟机中，并在 `systemd` 中将其注册为服务，以便每次启动虚拟机时自动启动。以下列出步骤。
+- en: Listing 4.7 Installation script
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.7 安装脚本
+- en: '[PRE21]'
+  id: totrans-157
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ① Download and install Vault.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 下载并安装 Vault。
+- en: ② Set up a profile.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 设置配置文件。
+- en: ③ Create a user to run Vault.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 创建一个运行 Vault 的用户。
+- en: ④ Create a Vault configuration.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 创建 Vault 配置。
+- en: ⑤ Set up systemd to start Vault.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑤ 设置 systemd 以启动 Vault。
+- en: WARNING For this example, the listening address has been set to `0.0.0.0`, so
+    any host can access the Vault server. This is OK for nonproduction environments
+    or educational purposes, but in real environments, you could configure it appropriately.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：在此示例中，监听地址已设置为 `0.0.0.0`，因此任何主机都可以访问 Vault 服务器。这对于非生产环境或教育目的来说是可行的，但在实际环境中，您应该适当地进行配置。
+- en: Configuring the transit secret engine
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置传输密钥引擎
+- en: Vault needs to be unsealed, so it can be accessed externally, and the transit
+    secret engine will be enabled, so Vault can be used to encrypt and decrypt data
+    in transit. Don’t worry if you still don’t understand why these steps are required,
+    as we will cover them in greater detail in the following chapter.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vault 需要解密，以便可以从外部访问，并且传输密钥引擎将被启用，这样 Vault 就可以用于加密和解密传输中的数据。如果您仍然不理解为什么需要这些步骤，请不要担心，我们将在下一章中更详细地介绍它们。
+- en: 'For this specific example, you will be configuring Vault to be accessed by
+    a user providing the `vault-kms-k8s-plugin-token` value as a token and creating
+    an encryption key named `my-key`:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个特定的示例，您将配置 Vault，使其可以通过提供 `vault-kms-k8s-plugin-token` 值作为令牌的用户访问，并创建一个名为
+    `my-key` 的加密密钥：
+- en: '[PRE22]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ① Initialize and unseal Vault.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 初始化并解密 Vault。
+- en: ② Log in to Vault using the root token.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 使用根令牌登录 Vault。
+- en: ③ Enable the transit secret engine.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 启用传输密钥引擎。
+- en: ④ Create a special token to access the transit secret engine.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 创建一个特殊的令牌以访问传输密钥引擎。
+- en: ⑤ Create the encryption key.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑤ 创建加密密钥。
+- en: Installing the Vault KMS provider
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装 Vault KMS 提供程序
+- en: 'After Vault is up and running, you need to install and set up the Vault KMS
+    provider/plugin. There are four important things to configure for the KMS provider:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vault 启动并运行后，您需要安装和设置 Vault KMS 提供程序/插件。对于 KMS 提供程序，有四个重要的配置项：
+- en: The encryption key name (`my-key`)
+  id: totrans-175
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 加密密钥名称（`my-key`）
+- en: The address where the Vault server is running (`127.0.0.1`)
+  id: totrans-176
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Vault 服务器运行地址（`127.0.0.1`）
+- en: The token that is required to access to Vault (`vault-kms-k8s-plugin-token`)
+  id: totrans-177
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 访问 Vault 所需的令牌（`vault-kms-k8s-plugin-token`）
+- en: The socket file for the Vault KMS provider (`/var/lib/minikube/certs/vault-k8s-kms-plugin.sock`)
+  id: totrans-178
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Vault KMS 提供程序的套接字文件（`/var/lib/minikube/certs/vault-k8s-kms-plugin.sock`）
+- en: Remember that the KMS provider is a gRPC server that acts as a bridge between
+    `kube-apiserver` and the KMS. The steps are shown in the following listing.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，KMS 提供程序是一个 gRPC 服务器，它充当 `kube-apiserver` 和 KMS 之间的桥梁。以下列出步骤。
+- en: Listing 4.8 Install `kms vault script`
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.8 安装 `kms vault 脚本`
+- en: '[PRE23]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ① The Vault KMS plugin is downloaded.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 下载 Vault KMS 插件。
+- en: ② The plugin is configured with the parameters we configured in Vault in the
+    previous section.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 将插件配置为我们在上一节中在 Vault 中配置的参数。
+- en: ③ Set up systemd to start the Vault KMS plugin.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 设置 systemd 以启动 Vault KMS 插件。
+- en: ④ Set the socketfile where the Vault KMS plugin is started.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 设置 Vault KMS 插件启动的套接字文件。
+- en: Configuring the Kubernetes KMS Provider
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置 Kubernetes KMS 提供程序
+- en: In the previous example, enabling encryption data at rest, you created an EncryptionConfiguration
+    file to enable encryption data at rest in the Kubernetes cluster. Now you need
+    to create an EncryptionConfiguration file to configure the Vault KMS provider
+    instead of an `aescbc` provider. Figure 4.14 shows how the Kubernetes-api server
+    interacts with the Kubernetes KMS plugin.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在之前的示例中，为了启用静态加密数据，您创建了一个 EncryptionConfiguration 文件以在 Kubernetes 集群中启用静态加密数据。现在您需要创建一个
+    EncryptionConfiguration 文件来配置 Vault KMS 提供程序而不是 `aescbc` 提供程序。图 4.14 展示了 Kubernetes-api
+    服务器如何与 Kubernetes KMS 插件交互。
+- en: '![](../Images/CH04_F14_Sotobueno3.png)'
+  id: totrans-188
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH04_F14_Sotobueno3.png)'
+- en: Figure 4.14 HashiCorp Vault as a KMS
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.14 HashiCorp Vault 作为 KMS
+- en: The important parameter to set is the `endpoint` because that’s the location
+    the provider/plugin is communicating with. In this case, it was configured in
+    the previous step with the `socketFile` parameter set to `/var/lib/minikube/certs/vault-k8s-kms-plugin.sock`.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要设置的重要参数是 `endpoint`，因为那是提供者/插件进行通信的位置。在本例中，它已在之前的步骤中配置，使用 `socketFile` 参数设置为
+    `/var/lib/minikube/certs/vault-k8s-kms-plugin.sock`。
+- en: '[PRE24]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ① KMS is used as the provider.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 使用 KMS 作为提供者。
+- en: ② Set the socketFile specified in the previous step.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 设置之前步骤中指定的 socketFile。
+- en: Figure 4.15 shows the difference between the EncryptionConfiguration file when
+    KMS is used and when it is not.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.15 显示了当使用 KMS 时和使用 KMS 时不使用时的 EncryptionConfiguration 文件之间的差异。
+- en: '![](../Images/CH04_F15_Sotobueno3.png)'
+  id: totrans-195
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F15_Sotobueno3.png)'
+- en: Figure 4.15 EncryptionConfiguration vs. KMS EncryptionConfiguration
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.15 加密配置与 KMS 加密配置的比较
+- en: Restart kube-apiserver
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新启动 kube-apiserver
+- en: The last step is restarting the `kube-apiserver`, so the new configuration takes
+    effect and envelope encryption happens using Vault as a remote KMS. In the past,
+    you would need to restart the whole minikube instance, but in this case, you will
+    use a different approach by just restarting the `kubelet` process.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一步是重新启动 `kube-apiserver`，以便新配置生效，并使用 Vault 作为远程 KMS 进行信封加密。在过去，您需要重新启动整个 minikube
+    实例，但在此情况下，您将通过仅重新启动 `kubelet` 进程来使用不同的方法。
+- en: '[PRE25]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ① kube-apiserver is configured to use the EncryptionConfiguration file created
+    to use KMS
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① kube-apiserver 已配置为使用创建以使用 KMS 的 EncryptionConfiguration 文件
+- en: ② The kubelet is restarted.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② kubelet 已重新启动。
+- en: Putting everything together
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将一切整合
+- en: As previously noted, a script is provided to you to execute all the previous
+    steps automatically. Moreover, we suggest you now use a new minikube instance,
+    so you have a clean minikube instance with Vault installed inside the VM.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，提供了一个脚本以自动执行所有之前的步骤。此外，我们建议您现在使用一个新的 minikube 实例，以便您有一个干净且在 VM 内安装了 Vault
+    的 minikube 实例。
+- en: 'Create a minikube instance under the `vault` profile, SSH into the VM where
+    it is running the Kubernetes cluster, and run the script that executes all the
+    previously explained steps. Execute the following commands:'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `vault` 配置文件下创建一个 minikube 实例，SSH 到运行 Kubernetes 集群的 VM，并运行执行所有之前解释步骤的脚本。执行以下命令：
+- en: '[PRE26]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ① Stop the previous minikube instance.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 停止之前的 minikube 实例。
+- en: ② Start a new minikube instance under the vault profile.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 在 vault 配置文件下启动一个新的 minikube 实例。
+- en: ③ Execute the script to configure the KMS provider.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 执行脚本以配置 KMS 提供者。
+- en: 4.2.2 Creating the secret
+  id: totrans-209
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.2 创建机密
+- en: 'In a terminal window, create a new secret named `kms-db-secret-encrypted` with
+    two key–value entries:'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个终端窗口中，创建一个名为 `kms-db-secret-encrypted` 的新机密，包含两个键值条目：
+- en: '[PRE27]'
+  id: totrans-211
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: At this point, the secret is created the same way as before, but the secret
+    is encrypted using the envelope encryption schema. Let’s explore how the data
+    is stored inside `etcd`.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此阶段，机密的创建方式与之前相同，但机密使用信封加密方案加密。让我们探索数据如何在 `etcd` 内部存储。
+- en: Accessing etcd
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 访问 etcd
+- en: 'Repeat exactly the same process you followed in accessing `etcd` to get the
+    content of the secret `kms-db-secret-encrypted`, and validate that it is stored
+    encrypted instead of in plain text. In one terminal window, expose the `etcd`
+    server in localhost:'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重复您在访问 `etcd` 以获取 `kms-db-secret-encrypted` 机密内容时遵循的完全相同的流程，并验证它已加密存储而不是以纯文本形式存储。在一个终端窗口中，在本地主机上公开
+    `etcd` 服务器：
+- en: '[PRE28]'
+  id: totrans-215
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'In another terminal, repeat the process of copying the `etcd` certificates,
+    and configure the `etcdctl` using environment variables:'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在另一个终端中，重复复制 `etcd` 证书的流程，并使用环境变量配置 `etcdctl`：
+- en: '[PRE29]'
+  id: totrans-217
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: You can now query `etcd` to get the value of the `kms-db-secret-encrypted` key
+    to validate that it is encrypted and its values are impossible to decipher.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以查询 `etcd` 以获取 `kms-db-secret-encrypted` 键的值，以验证它已加密且其值无法解密。
+- en: '[PRE30]'
+  id: totrans-219
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: The output should be similar to that in the following listing.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出应类似于以下列表。
+- en: Listing 4.9 Encrypted KMS secret
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.9 加密 KMS 机密
+- en: '[PRE31]'
+  id: totrans-222
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'Unlike in the previous section, the secrets are encrypted in `kube-apiserver`
+    using envelope encryption schema and then sent to be stored in the `etcd` server.
+    You can stop port forwarding, as you do not need to for now, by aborting the process
+    (ctrl-C on the first terminal). You can also stop the current minikube instance
+    and start the default one that only contains a running Kubernetes instance:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与上一节不同，机密在 `kube-apiserver` 中使用信封加密方案加密，然后发送到 `etcd` 服务器存储。您可以通过终止进程（在第一个终端上按
+    Ctrl-C）来停止端口转发，因为您目前不需要这样做。您还可以停止当前的 minikube 实例并启动默认实例，该实例仅包含一个运行的 Kubernetes
+    实例：
+- en: '[PRE32]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: Summary
+  id: totrans-225
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Secrets are not encrypted in `etcd` by default; hence you need to find a way
+    to encrypt them to prevent any attacker with access to `etcd` from reading them.
+  id: totrans-226
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 默认情况下，`etcd` 中不加密机密；因此，您需要找到一种方法来加密它们，以防止任何访问 `etcd` 的攻击者读取它们。
+- en: The `EncryptionConfiguration` Kubernetes object is key in configuring Kubernetes
+    to encrypt resources (secrets), but if a remote KMS is not used, both encrypted
+    data and encryption keys are stored in the same machine.
+  id: totrans-227
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`EncryptionConfiguration` Kubernetes 对象在配置 Kubernetes 加密资源（机密）方面至关重要，但如果未使用远程
+    KMS，则加密数据和加密密钥都存储在同一台机器上。'
+- en: To allow data and keys to be stored in different machines, Kubernetes supports
+    the use of a remote KMS.
+  id: totrans-228
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了允许数据和密钥存储在不同的机器上，Kubernetes 支持使用远程 KMS。

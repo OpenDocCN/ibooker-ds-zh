@@ -1,0 +1,1242 @@
+- en: 5 Storing data with volumes, mounts, and claims
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 5 使用卷、挂载和声明存储数据
+- en: Data access in a clustered environment is difficult. Moving compute around is
+    the easy part—the Kubernetes API is in constant contact with the nodes, and if
+    a node stops responding, then Kubernetes can assume it’s offline and start replacements
+    for all of its Pods on other nodes. But if an application in one of those Pods
+    was storing data on the node, then the replacement won’t have access to that data
+    when it starts on a different node, and it would be disappointing if that data
+    contained a large order that a customer hadn’t completed. You really need clusterwide
+    storage, so Pods can access the same data from any node.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在集群环境中访问数据很困难。移动计算资源是容易的部分——Kubernetes API始终与节点保持联系，如果一个节点停止响应，那么Kubernetes可以假设它已离线，并在其他节点上启动所有Pod的替代品。但如果Pod中的应用程序在节点上存储了数据，那么在另一个节点上启动的替代品将无法访问这些数据，如果这些数据包含一个客户尚未完成的大订单，那将令人失望。你真的需要集群级别的存储，这样Pod就可以从任何节点访问相同的数据。
+- en: Kubernetes doesn’t have built-in clusterwide storage, because there isn’t a
+    single solution that works for every scenario. Apps have different storage requirements,
+    and the platforms that can run Kubernetes have different storage capabilities.
+    Data is always a balance between speed of access and durability, and Kubernetes
+    supports that by allowing you to define the different classes of storage that
+    your cluster provides and to request a specific storage class for your application.
+    In this chapter you’ll learn how to work with different types of storage and how
+    Kubernetes abstracts away storage implementation details.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes没有内置的集群级存储，因为没有一种解决方案适用于所有场景。应用程序有不同的存储需求，而可以运行Kubernetes的平台有不同的存储能力。数据始终是访问速度和持久性之间的平衡，Kubernetes通过允许你定义集群提供的不同存储类别以及为你的应用程序请求特定的存储类别来支持这一点。在本章中，你将学习如何处理不同类型的存储以及Kubernetes如何抽象存储实现细节。
+- en: 5.1 How Kubernetes builds the container filesystem
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.1 Kubernetes如何构建容器文件系统
+- en: Containers in Pods have their filesystem constructed by Kubernetes using multiple
+    sources. The container image provides the initial contents of the filesystem,
+    and every container has a writable storage layer, which it uses to write new files
+    or to update any files from the image. (Docker images are read-only, so when a
+    container updates a file from the image, it’s actually updating a copy of the
+    file in its own writable layer.) Figure 5.1 shows how that looks inside the Pod.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod中的容器由Kubernetes使用多个来源构建其文件系统。容器镜像提供文件系统的初始内容，每个容器都有一个可写存储层，它使用该层来写入新文件或更新镜像中的任何文件。（Docker镜像为只读，因此当容器从镜像更新文件时，它实际上是在更新其自己的可写层中的文件副本。）图5.1显示了在Pod内部的外观。
+- en: '![](../Images/5-1.jpg)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/5-1.jpg)'
+- en: Figure 5.1 Containers don’t know it, but their filesystem is a virtual construct,
+    built by Kubernetes.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.1 容器并不知道，但它们的文件系统是一个虚拟结构，由Kubernetes构建。
+- en: The application running in the container just sees a single filesystem to which
+    it has read and write access, and all those layer details are hidden. That’s great
+    for moving apps to Kubernetes because they don’t need to change to run in a Pod.
+    But if your apps do write data, you will need to understand how they use storage
+    and design your Pods to support their requirements. Otherwise, your apps will
+    seem to be running fine, but you’re setting yourself up for data loss when anything
+    unexpected happens—like a Pod restarting with a new container.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在容器中运行的应用程序只看到一个它有读写访问的单个文件系统，所有这些层细节都被隐藏起来。这对于将应用程序迁移到Kubernetes来说很好，因为它们不需要更改就可以在Pod中运行。但如果你应用程序确实写入数据，你需要了解它们如何使用存储，并设计你的Pod以支持它们的需求。否则，你的应用程序看起来似乎运行良好，但当你遇到任何意外情况时（如Pod使用新的容器重启），你将面临数据丢失的风险。
+- en: Try it now If the app inside a container crashes and the container exits, the
+    Pod will start a replacement. The new container will start with the filesystem
+    from the container image and a new writable layer, and any data written by the
+    previous container in its writable layer is gone.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 如果容器中的应用程序崩溃并退出，Pod将启动一个替代品。新的容器将使用容器镜像的文件系统和一个新的可写层开始，并且前一个容器在其可写层中写入的任何数据都将消失。
+- en: '[PRE0]'
+  id: totrans-9
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Remember two important things from this exercise: the filesystem of a Pod container
+    has the life cycle of the container rather than the Pod, and when Kubernetes talks
+    about a Pod restart, it’s actually referring to a replacement container. If your
+    apps are merrily writing data inside containers, that data doesn’t get stored
+    at the Pod level—if the Pod restarts with a new container, all the data is gone.
+    My output in figure 5.2 shows that.'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住这个练习中的两个重要事项：Pod容器的文件系统具有容器的生命周期，而不是Pod的生命周期，当Kubernetes提到Pod重启时，它实际上是指替换容器。如果你的应用程序在容器内部愉快地写入数据，这些数据不会在Pod级别存储——如果Pod使用新的容器重启，所有数据都会丢失。图5.2中的我的输出显示了这一点。
+- en: '![](../Images/5-2.jpg)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/5-2.jpg)'
+- en: Figure 5.2 The writable layer has the life cycle of the container, not the Pod.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.2 可写层具有容器的生命周期，而不是Pod的生命周期。
+- en: We already know that Kubernetes can build the container filesystem from other
+    sources—we surfaced ConfigMaps and Secrets into filesystem directories in chapter
+    4\. The mechanism for that is to define a volume at the Pod level that makes another
+    storage source available and then to mount it into the container filesystem at
+    a specified path. ConfigMaps and Secrets are read-only storage units, but Kubernetes
+    supports many other types of volume that are writable. Figure 5.3 shows how you
+    can design a Pod that uses a volume to store data that persists between restarts
+    and could even be accessible clusterwide.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经知道Kubernetes可以从其他来源构建容器文件系统——我们在第4章中介绍了ConfigMaps和Secrets到文件系统目录的映射。那个机制是在Pod级别定义一个卷，使另一个存储源可用，然后将其挂载到容器文件系统中的指定路径。ConfigMaps和Secrets是只读存储单元，但Kubernetes支持许多其他可写类型的卷。图5.3显示了如何设计一个Pod，该Pod使用卷存储在重启之间持久化的数据，甚至可能在整个集群中可访问。
+- en: '![](../Images/5-3.jpg)'
+  id: totrans-14
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/5-3.jpg)'
+- en: Figure 5.3 The virtual filesystem can be built from volumes that refer to external
+    pieces of storage.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.3虚拟文件系统可以从引用外部存储单元的卷构建。
+- en: We’ll come to clusterwide volumes later in the chapter, but for now, we’ll start
+    with a much simpler volume type, which is still useful for many scenarios. Listing
+    5.1 shows a Pod spec using a type of volume called `EmptyDir`, which is just an
+    empty directory, but it’s stored at the Pod level rather than at the container
+    level. It is mounted as a volume into the container, so it’s visible as a directory,
+    but it’s not one of the image or container layers.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在本章后面讨论集群范围内的卷，但到目前为止，我们将从一个更简单的卷类型开始，这种类型在许多场景中仍然很有用。列表5.1展示了使用一种称为`EmptyDir`的卷类型的Pod规范，它只是一个空目录，但它存储在Pod级别而不是容器级别。它被挂载为卷进入容器，因此作为一个目录可见，但它不是镜像或容器层之一。
+- en: Listing 5.1 sleep-with-emptyDir.yaml, a simple volume spec
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.1 sleep-with-emptyDir.yaml，一个简单的卷规范
+- en: '[PRE1]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: An empty directory sounds like the least useful piece of storage you can imagine,
+    but actually it has a lot of uses because it has the same life cycle as the Pod.
+    Any data stored in an `EmptyDir` volume remains in the Pod between restarts, so
+    replacement containers can access data written by their predecessors.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个空目录听起来像是你可以想象的最无用的存储部分，但实际上它有很多用途，因为它具有与Pod相同的生命周期。存储在`EmptyDir`卷中的任何数据在重启之间都保留在Pod中，因此替换容器可以访问其前任写入的数据。
+- en: Try it now Update the sleep deployment using the spec from listing 5.1, adding
+    an `EmptyDir` volume. Now you can write data and kill the container and the replacement
+    can read the data.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：使用列表5.1中的规范更新sleep部署，添加一个`EmptyDir`卷。现在你可以写入数据并杀死容器，替换容器可以读取这些数据。
+- en: '[PRE2]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: You can see my output in figure 5.4\. The containers just see a directory in
+    the filesystem, but it points to a storage unit which is part of the Pod.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图5.4中看到我的输出。容器只看到文件系统中的一个目录，但它指向的是Pod的一部分存储单元。
+- en: '![](../Images/5-4.jpg)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/5-4.jpg)'
+- en: Figure 5.4 Something as basic as an empty directory is still useful because
+    it can be shared by containers.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.4像空目录这样基本的东西仍然很有用，因为它可以被容器共享。
+- en: You can use `EmptyDir` volumes for any applications that use the filesystem
+    for temporary storage—maybe your app calls an API, which takes a few seconds to
+    respond, and the response is valid for a long time. The app might save the API
+    response in a local file because reading from disk is faster than repeating the
+    API call. An `EmptyDir` volume is a reasonable source for a local cache because
+    if the app crashes, then the replacement container will still have the cached
+    files and still benefit from the speed boost.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以使用`EmptyDir`卷为任何使用文件系统进行临时存储的应用程序——也许你的应用程序调用一个API，该API需要几秒钟才能响应，而响应在很长时间内都是有效的。应用程序可能会将API响应保存在本地文件中，因为从磁盘读取比重复调用API更快。`EmptyDir`卷是本地缓存的合理来源，因为如果应用程序崩溃，替换的容器仍然会有缓存的文件，并仍然从速度提升中受益。
+- en: '`EmptyDir` volumes only share the life cycle of the Pod, so if the Pod is replaced,
+    then the new Pod starts with, well, an empty directory. If you want your data
+    to persist between Pods, then you can mount other types of volume that have their
+    own life cycles.'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`EmptyDir`卷仅与Pod的生命周期共享，所以如果Pod被替换，则新的Pod将以一个空目录开始。如果你想让数据在Pod之间持久化，那么你可以挂载其他类型的卷，这些卷有自己的生命周期。'
+- en: 5.2 Storing data on a node with volumes and mounts
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.2 在节点上使用卷和挂载存储数据
+- en: This is where working with data gets trickier than working with compute, because
+    we need to think about whether data will be tied to a particular node—meaning
+    any replacement Pods will need to run on that node to see the data—or whether
+    the data has clusterwide access and the Pod can run on any node. Kubernetes supports
+    many variations, but you need to know what you want and what your cluster supports
+    and specify that for the Pod.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是为什么与数据打交道比与计算打交道更复杂，因为我们需要考虑数据是否会绑定到特定的节点——这意味着任何替换的Pod都需要在该节点上运行才能看到数据，或者数据是否具有集群级别的访问权限，Pod可以在任何节点上运行。Kubernetes支持许多变体，但你需要知道你想要什么以及你的集群支持什么，并为Pod指定这些。
+- en: The simplest storage option is to use a volume that maps to a directory on the
+    node, so when the container writes to the volume mount, the data is actually stored
+    in a known directory on the node’s disk. We’ll demonstrate that by running a real
+    app that uses an `EmptyDir` volume for cache data, understanding the limitations,
+    and then upgrading it to use node-level storage.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的存储选项是使用映射到节点上目录的卷，因此当容器写入卷挂载时，数据实际上存储在节点磁盘上的一个已知目录中。我们将通过运行一个使用`EmptyDir`卷进行缓存数据的真实应用程序来演示这一点，了解其局限性，然后将其升级为使用节点级存储。
+- en: Try it now Run a web application that uses a proxy component to improve performance.
+    The web app runs in a Pod with an internal Service, and the proxy runs in another
+    Pod, which is publicly available on a LoadBalancer Service.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试这个运行一个使用代理组件来提高性能的Web应用程序。Web应用程序在一个带有内部Service的Pod中运行，代理在另一个Pod中运行，该Pod在LoadBalancer
+    Service上公开。
+- en: '[PRE3]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: This is a common setup for web applications, where the proxy boosts performance
+    by serving responses directly from its local cache, and that also reduces load
+    on the web app. You can see my output in figure 5.5\. The first Pi calculation
+    took more than one second to respond, and the refresh was practically immediate
+    because it came from the proxy and did not need to be calculated.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是对Web应用程序的一种常见配置，其中代理通过直接从其本地缓存提供响应来提高性能，这也有助于减少Web应用程序的负载。你可以在图5.5中看到我的输出。第一次Pi计算响应时间超过一秒，而刷新几乎是瞬间的，因为它是从代理那里来的，不需要计算。
+- en: '![](../Images/5-5.jpg)'
+  id: totrans-33
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/5-5.jpg)'
+- en: Figure 5.5 Caching files in an `EmptyDir` volume means the cache survives Pod
+    restarts.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.5 在`EmptyDir`卷中缓存文件意味着缓存在Pod重启时仍然存在。
+- en: An `EmptyDir` volume could be a reasonable approach for an app like this, because
+    the data stored in the volume is not critical. If there’s a Pod restart, then
+    the cache survives, and the new proxy container can serve responses cached by
+    the previous container. If the Pod is replaced, then the cache is lost. The replacement
+    Pod starts with an empty cache directory, but the cache isn’t required—the app
+    still functions correctly; it just starts off slow until the cache gets filled
+    again.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这种应用程序，`EmptyDir`卷可能是一个合理的方法，因为存储在卷中的数据不是关键的。如果Pod重启，则缓存会保留，新的代理容器可以提供由前一个容器缓存的响应。如果Pod被替换，则缓存会丢失。替换的Pod以一个空的缓存目录开始，但缓存不是必需的——应用程序仍然可以正确运行；只是它开始时速度较慢，直到缓存再次被填满。
+- en: Try it now Remove the proxy Pod. It will be replaced because it’s managed by
+    a deployment controller. The replacement starts with a new `EmptyDir` volume,
+    which for this app means an empty proxy cache so requests are sent on to the web
+    Pod.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下。移除代理 Pod。由于它由部署控制器管理，因此将被替换。替换过程从一个新的 `EmptyDir` 卷开始，对于此应用程序而言，这意味着一个空的代理缓存，因此请求将直接发送到
+    Web Pod。
+- en: '[PRE4]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: My output is shown in figure 5.6\. The result is the same, but I had to wait
+    another second for it to be calculated by the web app, because the replacement
+    proxy Pod started without a cache.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出显示在图 5.6 中。结果是相同的，但我不得不等待另一秒钟，因为 Web 应用程序需要时间来计算，因为替换代理 Pod 是没有缓存启动的。
+- en: '![](../Images/5-6.jpg)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 5-6](../Images/5-6.jpg)'
+- en: Figure 5.6 A new Pod starts with a new empty directory.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.6 一个新的 Pod 以一个新的空目录开始。
+- en: The next level of durability comes from using a volume that maps to a directory
+    on the node’s disk, which Kubernetes calls a `HostPath` volume. `HostPath`s are
+    specified as a volume in the Pod, which is mounted into the container filesystem
+    in the usual way. When the container writes data into the mount directory, it
+    actually is written to the disk on the node. Figure 5.7 shows the relationship
+    among node, Pod, and volume.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个耐用级别来自于使用映射到节点磁盘上目录的卷，Kubernetes 称之为 `HostPath` 卷。`HostPath` 作为 Pod 中的卷指定，并以通常的方式挂载到容器文件系统。当容器将数据写入挂载目录时，实际上是在节点磁盘上写入。图
+    5.7 显示了节点、Pod 和卷之间的关系。
+- en: '![](../Images/5-7.jpg)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 5-7](../Images/5-7.jpg)'
+- en: Figure 5.7 `HostPath` volumes maintain data between Pod replacements, but only
+    if Pods use the same node.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.7 `HostPath` 卷在 Pod 替换之间保持数据，但前提是 Pods 使用同一节点。
+- en: '`HostPath` volumes can be useful, but you need to be aware of their limitations.
+    Data is physically stored on the node, and that’s that. Kubernetes doesn’t magically
+    replicate that data to all the other nodes in the cluster. Listing 5.2 shows an
+    updated Pod spec for the web proxy that uses a `HostPath` volume instead of an
+    `EmptyDir`. When the proxy container writes cache files to `/data/nginx/cache`,
+    they will actually be stored on the node at `/volumes/nginx/cache`.'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`HostPath` 卷可能很有用，但你需要了解它们的限制。数据实际上存储在节点上，就是这样。Kubernetes 不会神奇地将这些数据复制到集群中的所有其他节点。列表
+    5.2 显示了一个更新后的 Web 代理 Pod 规范，它使用 `HostPath` 卷而不是 `EmptyDir`。当代理容器将缓存文件写入 `/data/nginx/cache`
+    时，它们实际上会被存储在节点上的 `/volumes/nginx/cache`。'
+- en: Listing 5.2 nginx-with-hostPath.yaml, mounting a HostPath volume
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.2 nginx-with-hostPath.yaml，挂载 `HostPath` 卷
+- en: '[PRE5]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: This method extends the durability of the data beyond the life cycle of the
+    Pod to the life cycle of the node’s disk, provided replacement Pods always run
+    on the same node. That will be the case in a single-node lab cluster because there’s
+    only one node. Replacement Pods will load the `HostPath` volume when they start,
+    and if it is populated with cache data from a previous Pod, then the new proxy
+    can start serving cached data straight away.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法将数据的耐用性扩展到 Pod 生命周期之外，到节点磁盘的生命周期，前提是替换 Pod 总是在同一节点上运行。在单节点实验室集群中将会是这样，因为只有一个节点。替换
+    Pod 启动时会加载 `HostPath` 卷，如果它包含来自先前 Pod 的缓存数据，则新的代理可以立即开始提供缓存数据。
+- en: Try it now Update the proxy deployment to use the Pod spec from listing 5.2,
+    then use the app and delete the Pod. The replacement responds using the existing
+    cache.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下。更新代理部署以使用列表 5.2 中的 Pod 规范，然后使用应用程序并删除 Pod。替换 Pod 使用现有的缓存响应。
+- en: '[PRE6]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: My output appears in figure 5.8\. The initial request took just under a second
+    to respond, but the refresh was pretty much instananeous because the new Pod inherited
+    the cached response from the old Pod, stored on the node.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出显示在图 5.8 中。初始请求响应时间不到一秒，但刷新几乎是瞬间的，因为新的 Pod 继承了存储在节点上的旧 Pod 的缓存响应。
+- en: '![](../Images/5-8.jpg)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 5-8](../Images/5-8.jpg)'
+- en: Figure 5.8 On a single-node cluster, Pods always run on the same node, so they
+    can all use the `HostPath`.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.8 在单节点集群中，Pod 总是在同一节点上运行，因此它们都可以使用 `HostPath`。
+- en: The obvious problem with `HostPath` volumes is that they don’t make sense in
+    a cluster with more than one node, which is pretty much every cluster outside
+    of a simple lab environment. You can include a requirement in your Pod spec to
+    say the Pod should always run on the same node, to make sure it goes where the
+    data is, but doing so limits the resilience of your solution—if the node goes
+    offline, then the Pod won’t run, and you lose your app.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`HostPath` 卷的明显问题是它们在具有多个节点的集群中没有意义，这在简单的实验室环境之外的大多数集群中都是如此。你可以在 Pod 规范中包含一个要求，说明
+    Pod 应始终在同一个节点上运行，以确保它去到数据所在的地方，但这样做会限制你解决方案的弹性——如果节点离线，则 Pod 不会运行，你将丢失你的应用程序。'
+- en: A less obvious problem is that method presents a nice security exploit. Kubernetes
+    doesn’t restrict which directories on the node are available to use for `HostPath`
+    volumes. The Pod spec shown in listing 5.3 is perfectly valid, and it makes the
+    entire filesystem on the node available for the Pod container to access.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个不那么明显的问题是，这种方法提出了一种很好的安全漏洞。Kubernetes 并没有限制节点上哪些目录可用于 `HostPath` 卷。列表 5.3
+    中显示的 Pod 规范是完全有效的，这使得节点的整个文件系统都可以供 Pod 容器访问。
+- en: Listing 5.3 sleep-with-hostPath.yaml, a Pod with full access to the node’s disk
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.3 sleep-with-hostPath.yaml，一个具有对节点磁盘完全访问权限的 Pod
+- en: '[PRE7]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Anyone who has access to create a Pod from that specification now has access
+    to the whole filesystem of the node where the Pod is running. You might be tempted
+    to use a volume mount like this as a quick way to read multiple paths on the host,
+    but if your app is compromised and an attacker can execute commands in the container,
+    then they also have access to the node’s disk.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，任何有权从该规范创建 Pod 的人都可以访问 Pod 运行的节点上的整个文件系统。你可能想使用这样的卷挂载作为快速读取主机上多个路径的方法，但如果你的应用程序被入侵，攻击者可以在容器中执行命令，那么他们也可以访问节点的磁盘。
+- en: Try it now Run a Pod from the YAML shown in listing 5.3, and then run some commands
+    in the Pod container to explore the node’s filesystem.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试 Run 一个 Pod，从列表 5.3 中显示的 YAML 文件开始，然后在 Pod 容器中运行一些命令来探索节点的文件系统。
+- en: '[PRE8]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: As shown in figure 5.9, the Pod container can see the log files on the node,
+    which in this case includes the Kubernetes logs. This is fairly harmless, but
+    this container runs as the root user, which maps to the root user on the node,
+    so the container has complete access to the filesystem.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如图 5.9 所示，Pod 容器可以看到节点上的日志文件，在这种情况下包括 Kubernetes 日志。这相对无害，但这个容器以 root 用户身份运行，这映射到节点上的
+    root 用户，因此容器对文件系统有完全的访问权限。
+- en: '![](../Images/5-9.jpg)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-9](../Images/5-9.jpg)'
+- en: Figure 5.9 Danger! Mounting a `HostPath` can give you complete access to the
+    data on the node.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.9 危险！挂载 `HostPath` 可以让你完全访问节点上的数据。
+- en: If this all seems like a terrible idea, remember that Kubernetes is a platform
+    with a wide range of features to suit many applications. You could have an older
+    app that needs to access specific file paths on the node where it is running,
+    and the `HostPath` volume lets you do that. In that scenario, you can take a safer
+    approach, using a volume that has access to one path on the node, which limits
+    what the container can see by declaring subpaths for the volume mount. Listing
+    5.4 shows that.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这一切听起来像是一个糟糕的想法，请记住 Kubernetes 是一个具有广泛功能的平台，可以满足许多应用程序的需求。你可能有一个需要访问其运行节点上的特定文件路径的旧应用程序，`HostPath`
+    卷让你可以做到这一点。在这种情况下，你可以采取更安全的做法，使用一个可以访问节点上某个路径的卷，通过声明卷挂载的子路径来限制容器可以看到的内容。列表 5.4
+    展示了这一点。
+- en: Listing 5.4 sleep-with-hostPath-subPath.yaml, restricting mounts with subpaths
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.4 sleep-with-hostPath-subPath.yaml，使用子路径限制挂载
+- en: '[PRE9]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Here, the volume is still defined at the root path on the node, but the only
+    way to access it is through the volume mounts in the container, which are restricted
+    to defined subpaths. Between the volume specification and the mount specification,
+    you have a lot of flexibility in building and mapping your container filesystem.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，卷仍然定义在节点的根路径上，但访问它的唯一方式是通过容器中的卷挂载，这些挂载被限制在定义的子路径中。在卷规范和挂载规范之间，你在构建和映射容器文件系统方面有很多灵活性。
+- en: Try it now Update the sleep Pod so the container’s volume mount is restricted
+    to the subpaths defined in listing 5.4, and check the file contents.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试 Update sleep Pod，使其容器的卷挂载限制在列表 5.4 中定义的子路径，并检查文件内容。
+- en: '[PRE10]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: In this exercise, there’s no way to explore the node’s filesystem other than
+    through the mounts to the log directories. As shown in figure 5.10, the container
+    can access files only in the subpaths.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，除了通过挂载到日志目录之外，没有其他方法可以探索节点的文件系统。如图 5.10 所示，容器只能访问子路径中的文件。
+- en: '![](../Images/5-10.jpg)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-10](../Images/5-10.jpg)'
+- en: Figure 5.10 Restricting access to volumes with subpaths limits what the container
+    can do.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.10 限制对子路径卷的访问可以限制容器可以执行的操作。
+- en: '`HostPath` volumes are a good way to start with stateful apps; they’re easy
+    to use, and they work in the same way on any cluster. They are useful in real-world
+    applications, too, but only when your apps are using state for temporary storage.
+    For permanent storage, we need to move on to volumes which can be accessed by
+    any node in the cluster.'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`HostPath` 卷是开始使用有状态应用程序的好方法；它们易于使用，并且在任何集群上工作方式相同。在现实世界的应用程序中，它们也很有用，但仅当您的应用程序使用状态进行临时存储时。对于永久存储，我们需要转向任何集群中的节点都可以访问的卷。'
+- en: 5.3 Storing clusterwide data with persistent volumes and claims
+  id: totrans-73
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.3 使用持久卷和卷声明存储集群级数据
+- en: 'A Kubernetes cluster is like a pool of resources: it has a number of nodes,
+    which each have some CPU and memory capacity they make available to the cluster,
+    and Kubernetes uses that to run your apps. Storage is just another resource that
+    Kubernetes makes available to your application, but it can only provide clusterwide
+    storage if the nodes can plug into a distributed storage system. Figure 5.11 shows
+    how Pods can access volumes from any node if the volume uses distributed storage.'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 集群就像一个资源池：它有多个节点，每个节点都提供一些 CPU 和内存容量供集群使用，Kubernetes 使用这些资源来运行您的应用程序。存储只是
+    Kubernetes 向您的应用程序提供的另一种资源，但它只能提供集群级存储，如果节点可以连接到分布式存储系统。图 5.11 展示了如果卷使用分布式存储，Pod
+    可以如何访问来自任何节点的卷。
+- en: '![](../Images/5-11.jpg)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-11](../Images/5-11.jpg)'
+- en: Figure 5.11 Distributed storage gives your Pod access to data from any node,
+    but it needs platform support.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.11 分布式存储使您的 Pod 能够访问来自任何节点的数据，但它需要平台支持。
+- en: 'Kubernetes supports many volume types backed by distributed storage systems:
+    AKS clusters can use Azure Files or Azure Disk, EKS clusters can use Elastic Block
+    Store, and in the datacenter, you can use simple Network File System (NFS) shares,
+    or a networked filesystem like GlusterFS. All of these systems have different
+    configuration requirements, and you can specify them in the volume spec for your
+    Pod. Doing so would make your application spec tightly coupled to one storage
+    implementation, and Kubernetes provides a more flexible approach.'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 支持许多由分布式存储系统支持的卷类型：AKS 集群可以使用 Azure Files 或 Azure Disk，EKS 集群可以使用弹性块存储，在数据中心，您可以使用简单的网络文件系统
+    (NFS) 共享，或者使用 GlusterFS 这样的网络文件系统。所有这些系统都有不同的配置要求，您可以在 Pod 的卷规范中指定它们。这样做会使您的应用程序规范与一种存储实现紧密耦合，而
+    Kubernetes 提供了一种更灵活的方法。
+- en: Pods are an abstraction over the compute layer, and Services are an abstraction
+    over the network layer. In the storage layer, the abstractions are PersistentVolumes
+    (PV) and PersistentVolumeClaims. A PersistentVolume is a Kubernetes object that
+    defines an available piece of storage. A cluster administrator may create a set
+    of PersistentVolumes, which each contain the volume spec for the underlying storage
+    system. Listing 5.5 shows a PersistentVolume spec that uses NFS storage.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pods 是计算层的抽象，而 Services 是网络层的抽象。在存储层，抽象是 PersistentVolumes (PV) 和 PersistentVolumeClaims。PersistentVolume
+    是一个 Kubernetes 对象，它定义了一个可用的存储部分。集群管理员可以创建一组 PersistentVolumes，每个 PersistentVolume
+    都包含底层存储系统的卷规范。列表 5.5 展示了一个使用 NFS 存储的 PersistentVolume 规范。
+- en: Listing 5.5 persistentVolume-nfs.yaml, a volume backed by an NFS mount
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.5 persistentVolume-nfs.yaml，由 NFS 挂载支持的卷
+- en: '[PRE11]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: You won’t be able to deploy that spec in your lab environment, unless you happen
+    to have an NFS server in your network with the domain name `nfs.my.network` and
+    a share called `kubernetes-volumes`. You could be running Kubernetes on any platform,
+    so for the exercises that follow, we’ll use a local volume that will work anywhere.
+    (If I used Azure Files in the exercises, they would work only on an AKS cluster,
+    because EKS and Docker Desktop and the other Kubernetes distributions aren’t configured
+    for Azure volume types.)
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您无法在您的实验室环境中部署该规范，除非您恰好有一个名为 `nfs.my.network` 的域和名为 `kubernetes-volumes` 的共享的网络文件服务器。您可以在任何平台上运行
+    Kubernetes，因此对于接下来的练习，我们将使用一个在任何地方都可以工作的本地卷。（如果我在练习中使用 Azure Files，它们只能在 AKS 集群上工作，因为
+    EKS、Docker Desktop 和其他 Kubernetes 发行版没有配置 Azure 卷类型。）
+- en: Try it now Create a PV that uses local storage. The PV is clusterwide, but the
+    volume is local to one node, so we need to make sure the PV is linked to the node
+    where the volume lives. We’ll do that with labels.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：创建一个使用本地存储的 PV。PV 是集群范围的，但卷是本地化的，仅存在于一个节点上，因此我们需要确保 PV 与存储所在节点的节点相关联。我们将使用标签来完成这项工作。
+- en: '[PRE12]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: My output is shown in figure 5.12\. The node labeling is necessary only because
+    I’m not using a distributed storage system; you would normally just specify the
+    NFS or Azure Disk volume configuration, which is accessible from any node. A local
+    volume exists on only one node, and the PV identifies that node using the label.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出显示在图 5.12 中。节点标签化是必要的，仅因为我没有使用分布式存储系统；你通常会指定可从任何节点访问的 NFS 或 Azure Disk 卷配置。本地卷仅存在于一个节点上，PV
+    使用标签来识别该节点。
+- en: '![](../Images/5-12.jpg)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-12](../Images/5-12.jpg)'
+- en: Figure 5.12 If you don’t have distributed storage, you can cheat by pinning
+    a PV to a local volume.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.12 如果你没有分布式存储，你可以通过将 PV 锁定到本地卷来作弊。
+- en: Now the PV exists in the cluster as an available storage unit, with a known
+    set of features, including the size and access mode. Pods can’t use that PV directly;
+    instead, they need to claim it using a PersistentVolumeClaim (PVC). The PVC is
+    the storage abstraction that Pods use, and it just requests some storage for an
+    application. The PVC gets matched to a PV by Kubernetes, and it leaves the underlying
+    volume details to the PV. Listing 5.6 shows a claim for some storage that will
+    be matched to the PV we created.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在 PV 作为已知功能集（包括大小和访问模式）的可用存储单元存在于集群中。Pod 无法直接使用该 PV；相反，它们需要使用 PersistentVolumeClaim
+    (PVC) 来声明它。PVC 是 Pod 使用的存储抽象，它只为应用程序请求一些存储。PVC 由 Kubernetes 匹配到 PV，并将底层的卷细节留给
+    PV。列表 5.6 显示了对一些存储的声明，它将被匹配到我们创建的 PV。
+- en: Listing 5.6 postgres-persistentVolumeClaim.yaml, a PVC matching the PV
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.6 postgres-persistentVolumeClaim.yaml，一个与 PV 匹配的 PVC
+- en: '[PRE13]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: The PVC spec includes an access mode, storage amount, and storage class. If
+    no storage class is specified, Kubernetes tries to find an existing PV that matches
+    the requirements in the claim. If there is a match, then the PVC is bound to the
+    PV—there is a one-to-one link, so once a PV is claimed, it is not available for
+    any other PVCs to use.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PVC 规范包括访问模式、存储量和存储类别。如果没有指定存储类别，Kubernetes 会尝试找到一个与声明中要求相匹配的现有 PV。如果找到匹配项，则
+    PVC 将绑定到 PV——存在一对一的链接，因此一旦 PV 被声明，它就不再可用于其他 PVC。
+- en: Try it now Deploy the PVC from listing 5.6\. Its requirements are met by the
+    PV we created in the previous exercise, so the claim will be bound to that volume.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：从列表 5.6 中部署 PVC。其需求由我们在上一练习中创建的 PV 满足，因此声明将绑定到该卷。
+- en: '[PRE14]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'My output appears in figure 5.13, where you can see the one-to-one binding:
+    the PVC is bound to the volume, and the PV is bound by the claim.'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出显示在图 5.13 中，你可以看到一对一的绑定：PVC 绑定到卷上，PV 通过声明绑定。
+- en: '![](../Images/5-13.jpg)'
+  id: totrans-94
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-13](../Images/5-13.jpg)'
+- en: Figure 5.13 PVs are just units of storage in the cluster; you claim them for
+    your app with a PVC.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.13 PV 是集群中的存储单元；你使用 PVC 为你的应用程序声明它们。
+- en: This is a static provisioning approach, where the PV needs to be explicitly
+    created so Kubernetes can bind to it. If there is no matching PV when you create
+    a PVC, the claim is still created, but it’s not usable. It will stay in the system
+    waiting for a PV to be created that meets its requirements.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个静态配置方法，其中 PV 需要被明确创建，以便 Kubernetes 可以绑定到它。如果你在创建 PVC 时没有匹配的 PV，声明仍然会被创建，但它不可用。它将留在系统中，等待创建一个满足其要求的
+    PV。
+- en: Try it now The PV in your cluster is already bound to a claim, so it can’t be
+    used again. Create another PVC that will remain unbound.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：你的集群中的 PV 已经绑定到一个声明上，因此不能再使用。创建另一个将保持未绑定的 PVC。
+- en: '[PRE15]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: You can see in figure 5.14 that the new PVC is in the Pending status. It will
+    remain that way until a PV appears in the cluster with at least 100 MB capacity,
+    which is the storage request in this claim.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图 5.14 中，你可以看到新的 PVC 处于挂起状态。它将保持这种状态，直到集群中出现至少 100 MB 容量的 PV，这是声明中的存储请求。
+- en: '![](../Images/5-14.jpg)'
+  id: totrans-100
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-14](../Images/5-14.jpg)'
+- en: Figure 5.14 With static provisioning, a PVC will be unusable until there is
+    a PV it can bind to.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.14 在静态配置下，PVC 将无法使用，直到有可以绑定到的 PV。
+- en: A PVC needs to be bound before a Pod can use it. If you deploy a Pod that references
+    an unbound PVC, the Pod will stay in the Pending state until the PVC is bound,
+    and so your app will never run until it has the storage it needs. The first PVC
+    we created has been bound, so it can be used, but by only one Pod. The access
+    mode of the claim is ReadWriteOnce, which means the volume is writable but can
+    be mounted by only one Pod. Listing 5.7 shows an abbreviated Pod spec for a Postgres
+    database, using the PVC for storage.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Pod 可以使用 PVC 之前，必须将其绑定。如果你部署了一个引用未绑定 PVC 的 Pod，该 Pod 将保持在挂起状态，直到 PVC 被绑定，因此你的应用程序将无法运行，直到它获得所需的存储。我们创建的第一个
+    PVC 已经被绑定，因此它可以被使用，但只能由一个 Pod 使用。声明的访问模式是 ReadWriteOnce，这意味着卷是可写的，但只能由一个 Pod 挂载。列表
+    5.7 显示了一个用于存储的 PVC 的简化 Postgres 数据库 Pod 规范。
+- en: Listing 5.7 todo-db.yaml, a Pod spec consuming a PVC
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.7 todo-db.yaml，一个消耗 PVC 的 Pod 规范
+- en: '[PRE16]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Now we have all the pieces in place to deploy a Postgres database Pod using
+    a volume, which may or may not be backed by distributed storage. The application
+    designer owns the Pod spec and the PVC and isn’t concerned about the PV—that’s
+    dependent on the infrastructure of the Kubernetes cluster and could be managed
+    by a different team. In our lab environment, we own it all. We need to take one
+    more step: create the directory path on the node that the volume expects to use.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经拥有了部署使用卷的 Postgres 数据库 Pod 所需的所有组件，这个卷可能由分布式存储支持，也可能不是。应用程序设计者拥有 Pod 规范和
+    PVC，并不关心 PV——这取决于 Kubernetes 集群的基础设施，可能由不同的团队管理。在我们的实验室环境中，我们拥有所有这些。我们需要再走一步：在卷期望使用的节点上创建目录路径。
+- en: Try it now You probably won’t have access to log on to the nodes in a real Kubernetes
+    cluster, so we’ll cheat here by running a sleep Pod, which has a `HostPath` mount
+    to the node’s root, and create the directory using the mount.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 你可能无法登录到真实 Kubernetes 集群的节点，所以我们将通过运行一个 sleep Pod 来作弊，该 Pod 将节点根目录挂载到
+    `HostPath`，并使用挂载来创建目录。
+- en: '[PRE17]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Figure 5.15 shows the sleep Pod running with root permissions, so it can create
+    the directory on the node, even though I don’t have access to the node directly.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.15 显示了运行具有 root 权限的 sleep Pod，因此它可以在节点上创建目录，尽管我无法直接访问节点。
+- en: '![](../Images/5-15.jpg)'
+  id: totrans-109
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 5-15](../Images/5-15.jpg)'
+- en: Figure 5.15 In this example, the `HostPath` is an alternative way to access
+    the PV source on the node.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.15 在这个例子中，`HostPath` 是访问节点上 PV 源的另一种方式。
+- en: Everything is in place now to run the to-do list app with persistent storage.
+    Normally, you won’t need to go through as many steps as this, because you’ll know
+    the capabilities your cluster provides. I don’t know what your cluster can do,
+    however, so these exercises work on any cluster, and they’ve been a useful introduction
+    to all the storage resources. Figure 5.16 shows what we’ve deployed so far, along
+    with the database we’re about to deploy.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在一切准备就绪，可以运行带有持久存储的待办事项列表应用程序。通常，你不需要走这么多步骤，因为你将了解你的集群提供的功能。然而，我不知道你的集群能做什么，所以这些练习适用于任何集群，并且它们是所有存储资源的有用介绍。图
+    5.16 显示了我们迄今为止部署的内容，以及我们即将部署的数据库。
+- en: '![](../Images/5-16.jpg)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 5-16](../Images/5-16.jpg)'
+- en: Figure 5.16 Just a little bit complicated-mapping a PV and a `HostPath` to the
+    same storage location
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.16 将 PV 和 `HostPath` 映射到相同的存储位置——稍微复杂一点
+- en: Let’s run the database. When the Postgres container is created, it mounts the
+    volume in the Pod, which is backed by the PVC. This new database container connects
+    to an empty volume, so when it starts up, it will initialize the database, creating
+    the write-ahead log (WAL), which is the main data file. The Postgres Pod doesn’t
+    know it, but the PVC is backed by a local volume on the node, where we also have
+    a sleep Pod running, which we can use to look at the Postgres files.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们运行数据库。当创建 Postgres 容器时，它将卷挂载到 Pod 中，该卷由 PVC 支持。这个新的数据库容器连接到一个空卷，因此当它启动时，它将初始化数据库，创建预写日志（WAL），这是主要的数据文件。Postgres
+    Pod 并不知道，但 PVC 由节点上的本地卷支持，我们在那里也运行了一个 sleep Pod，我们可以用它来查看 Postgres 文件。
+- en: Try it now Deploy the database, and give it time to initialize the data files,
+    and then check what’s been written in the volume using the sleep Pod.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 部署数据库，给它一些时间来初始化数据文件，然后使用 sleep Pod 检查卷中写入的内容。
+- en: '[PRE18]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: My output in figure 5.17 shows the database server starting correctly and waiting
+    for connections, having written all its data files to the volume.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.17 中的输出显示数据库服务器正确启动并等待连接，已经将所有数据文件写入卷。
+- en: '![](../Images/5-17.jpg)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 5-17](../Images/5-17.jpg)'
+- en: Figure 5.17 The database container writes to the local data path, but that’s
+    actually a mount for the PVC.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.17 数据库容器写入本地数据路径，但实际上这是一个PVC的挂载点。
+- en: The last thing to do is run the app, test it, and confirm the data still exists
+    if the database Pod is replaced.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后要做的就是运行应用，测试它，并确认如果数据库Pod被替换，数据仍然存在。
+- en: Try it now Run the web Pod for the to-do app, which connects to the Postgres
+    database.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试吧 运行待办事项应用的Web Pod，它连接到Postgres数据库。
+- en: '[PRE19]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: You can see in figure 5.18 that my to-do app is showing some data, and you’ll
+    just have to take my word for it that the data was added into the first database
+    Pod and reloaded from the second database Pod.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在图5.18中看到，我的待办事项应用正在显示一些数据，您只需相信我的话，这些数据已经被添加到第一个数据库Pod中，并从第二个数据库Pod中重新加载。
+- en: '![](../Images/5-18.jpg)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/5-18.jpg)'
+- en: Figure 5.18 The storage abstractions mean the database gets persistent storage
+    just by mounting a PVC.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.18 存储抽象意味着数据库只需挂载PVC即可获得持久存储。
+- en: We now have a nicely decoupled app, with a web Pod that can be updated and scaled
+    independently of the database, and a database Pod, which uses persistent storage
+    outside of the Pod life cycle. This exercise used a local volume as the backing
+    store for the persistent data, but the only change you’d need to make for a production
+    deployment is to replace the volume spec in the PV with a distributed volume supported
+    by your cluster.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一个很好地解耦的应用，其中包含一个可以独立于数据库更新和扩展的Web Pod，以及一个使用Pod生命周期外持久存储的数据库Pod。这个练习使用了本地卷作为持久数据的后端存储，但您需要为生产部署做的唯一改变是将PV中的卷规范替换为集群支持的分布式卷。
+- en: 'Whether you should run a relational database in Kubernetes is a question we’ll
+    address at the end of the chapter, but before we do that, we’ll look at the real
+    deal with storage: having the cluster dynamically provision volumes based on an
+    abstracted storage class.'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您是否应该在Kubernetes中运行关系型数据库是我们将在本章末尾解决的问题，但在我们这样做之前，我们将看看真正的存储问题：让集群根据抽象的存储类动态配置卷。
+- en: 5.4 Dynamic volume provisioning and storage classes
+  id: totrans-128
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.4 动态卷配置和存储类
+- en: So far we’ve used a static provisioning workflow. We explicitly created the
+    PV and then created the PVC, which Kubernetes bound to the PV. That works for
+    all Kubernetes clusters and might be the preferred workflow in organizations where
+    access to storage is strictly controlled, but most Kubernetes platforms support
+    a simpler alternative with dynamic provisioning.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们使用了一个静态配置工作流程。我们明确创建了PV，然后创建了PVC，Kubernetes将其绑定到PV上。这对所有Kubernetes集群都适用，可能在那些对存储访问严格控制的组织中是首选的工作流程，但大多数Kubernetes平台支持一个更简单的替代方案，即动态配置。
+- en: In the dynamic provisioning workflow, you just create the PVC, and the PV that
+    backs it is created on demand by the cluster. Clusters can be configured with
+    multiple storage classes that reflect the different volume capabilities on offer
+    as well as a default storage class. PVCs can specify the name of the storage class
+    they want, or if they want to use the default class, then they omit the storage
+    class field in the claim spec, as shown in listing 5.8.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在动态配置工作流程中，您只需创建PVC，而支持它的PV将在集群中按需创建。集群可以配置多个存储类，这些存储类反映了提供的不同卷功能以及一个默认存储类。PVC可以指定它们想要的存储类名称，或者如果它们想使用默认类，则可以在声明规范中省略存储类字段，如列表5.8所示。
+- en: Listing 5.8 postgres-persistentVolumeClaim-dynamic.yaml, dynamic PVC
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.8 postgres-persistentVolumeClaim-dynamic.yaml，动态PVC
+- en: '[PRE20]'
+  id: totrans-132
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: You can deploy this PVC to your cluster without creating a PV—but I can’t tell
+    you what will happen, because that depends on the setup of your cluster. If your
+    Kubernetes platform supports dynamic provisioning with a default storage class,
+    then you’ll see a PV is created and bound to the claim, and that PV will use whatever
+    volume type your cluster has set for the default.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将此PVC部署到您的集群中，而无需创建PV——但我不能告诉您会发生什么，因为这取决于您的集群配置。如果您的Kubernetes平台支持使用默认存储类的动态配置，那么您将看到会创建一个PV并将其绑定到声明上，并且该PV将使用集群为默认设置的任何卷类型。
+- en: Try it now Deploy a PVC, and see if it is dynamically provisioned.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试吧 部署一个PVC，看看它是否是动态配置的。
+- en: '[PRE21]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: What happens when you run the exercise? Docker Desktop uses a `HostPath` volume
+    in the default storage class for dynamically provisioned PVs; AKS uses Azure Files;
+    K3s uses `HostPath` but with a different configuration from Docker Desktop, which
+    means you won’t see the PV because it is created only when a Pod that uses the
+    PVC is created. Figure 5.19 shows my output from Docker Desktop. The PV is created
+    and bound to the PVC, and when the PVC is deleted, the PV is removed, too.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行这个练习时会发生什么？Docker Desktop 使用默认存储类中的 `HostPath` 卷来动态预配 PV；AKS 使用 Azure Files；K3s
+    使用 `HostPath`，但与 Docker Desktop 的配置不同，这意味着你不会看到 PV，因为它仅在创建使用 PVC 的 Pod 时创建。图 5.19
+    展示了我在 Docker Desktop 上的输出。PV 被创建并绑定到 PVC 上，当 PVC 被删除时，PV 也会被删除。
+- en: '![](../Images/5-19.jpg)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-19](../Images/5-19.jpg)'
+- en: Figure 5.19 Docker Desktop has one set of behaviors for the default storage
+    class; other platforms differ.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.19 Docker Desktop 对默认存储类有一套行为；其他平台不同。
+- en: 'Storage classes provide a lot of flexibility. You create them as standard Kubernetes
+    resources, and in the spec, you define exactly how the storage class works with
+    the following three fields:'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储类提供了很多灵活性。你将它们作为标准的 Kubernetes 资源创建，并在规范中，你通过以下三个字段定义存储类的工作方式：
+- en: '`provisioner`—the component that creates PVs on demand. Different platforms
+    have different provisioners, for example, the provisioner in the default AKS storage
+    class integrates with Azure Files to create new file shares.'
+  id: totrans-140
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`provisioner`——按需创建 PV 的组件。不同的平台有不同的 provisioner，例如，默认 AKS 存储类中的 provisioner
+    集成了 Azure Files 以创建新的文件共享。'
+- en: '`reclaimPolicy`—defines what to do with dynamically created volumes when the
+    claim is deleted. The underlying volume can be deleted, too, or it can be retained.'
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`reclaimPolicy`——定义在删除请求时对动态创建的卷进行什么操作。底层卷也可以被删除，或者可以保留。'
+- en: '`volumeBindingMode`—determines whether the PV is created as soon as the PVC
+    is created or not until a Pod that uses the PVC is created.'
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`volumeBindingMode`——确定 PV 是否在 PVC 创建时立即创建，或者直到创建一个使用 PVC 的 Pod。'
+- en: Combining those properties lets you put together a choice of storage classes
+    in your cluster, so applications can request the properties they need—everything
+    from fast local storage to highly available clustered storage—without ever specifying
+    the exact details of a volume or volume type. I can’t give you a storage class
+    YAML that I can be sure will work on your cluster, because clusters don’t all
+    have the same provisioners available. Instead we’ll create a new storage class
+    by cloning your default class.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结合这些属性，你可以将你的集群中的存储类选项组合起来，这样应用程序就可以请求它们需要的属性——从快速本地存储到高可用集群存储——而无需指定卷或卷类型的确切细节。我无法给你一个我可以确信将在你的集群上工作的存储类
+    YAML，因为集群并不都有相同的 provisioner 可用。相反，我们将通过克隆你的默认类来创建一个新的存储类。
+- en: Try it now Fetching the default storage class and cloning it contains some nasty
+    details, so I’ve wrapped those steps in a script. You can check the script contents
+    if you’re curious, but you may need to have a lie-down afterward.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 获取默认存储类并将其克隆包含一些棘手的细节，所以我将这些步骤封装在一个脚本中。如果你好奇，你可以检查脚本内容，但之后你可能需要躺下休息一下。
+- en: '[PRE22]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The output you see from listing the storage classes shows what your cluster
+    has configured. After running the script, you should have a new class called `kiamol`,
+    which has the same setup as the default storage class. My output from Docker Desktop
+    is shown in figure 5.20.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你从列出存储类中看到的输出显示了你的集群配置了什么。在运行脚本后，你应该有一个名为 `kiamol` 的新类，它与默认存储类有相同的设置。我在 Docker
+    Desktop 上的输出如图 5.20 所示。
+- en: '![](../Images/5-20.jpg)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5-20](../Images/5-20.jpg)'
+- en: Figure 5.20 Cloning the default storage class to create a custom class you can
+    use in PVC specs
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.20 将默认存储类克隆以创建一个可在 PVC 规范中使用的自定义类
+- en: Now you have a custom storage class that your apps can request in a PVC. This
+    is a much more intuitive and flexible way to manage storage, especially in a cloud
+    platform where dynamic provisioning is simple and fast. Listing 5.9 shows a PVC
+    spec requesting the new storage class.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经有一个自定义存储类，你的应用程序可以在 PVC 中请求它。这是一种更直观、更灵活的存储管理方式，尤其是在动态预配简单快捷的云平台上。列表 5.9
+    展示了一个请求新存储类的 PVC 规范。
+- en: Listing 5.9 postgres-persistentVolumeClaim-storageClass.yaml
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.9 postgres-persistentVolumeClaim-storageClass.yaml
+- en: '[PRE23]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: The storage classes in a production cluster will have more meaningful names,
+    but we all now have a storage class with the same name in our clusters, so we
+    can update the Postgres database to use that explicit class.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产集群中的存储类将具有更有意义的名称，但我们现在在集群中都有一个具有相同名称的存储类，因此我们可以更新 Postgres 数据库以使用该显式类。
+- en: Try it now Create the new PVC, and update the database Pod spec to use it.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试这个：创建新的 PVC，并更新数据库 Pod 规范以使用它。
+- en: '[PRE24]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: This exercise switches the database Pod to use the new dynamically provisioned
+    PVC, as shown in my output in figure 5.21\. The new PVC is backed by a new volume,
+    so it will start empty and you’ll lose your previous data. The previous volume
+    still exists, so you could deploy another update to your database Pod, revert
+    it back to the old PVC, and see your items.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个练习将数据库 Pod 切换到使用新的动态预配的 PVC，如图 5.21 所示。新的 PVC 由一个新的卷支持，因此它将开始为空，你将丢失之前的数据。之前的卷仍然存在，因此你可以为数据库
+    Pod 部署另一个更新，将其回滚到旧 PVC，并查看你的条目。
+- en: '![](../Images/5-21.jpg)'
+  id: totrans-156
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 5.21](../Images/5-21.jpg)'
+- en: Figure 5.21 Using storage classes greatly simplifies your app spec; you just
+    name the class in your PVC.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.21 使用存储类极大地简化了你的应用规范；你只需在 PVC 中命名该类。
+- en: 5.5 Understanding storage choices in Kubernetes
+  id: totrans-158
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.5 理解 Kubernetes 中的存储选择
+- en: So that’s storage in Kubernetes. In your usual work, you’ll define PersistentVolumeClaims
+    for your Pods and specify the size and storage class you need, which could be
+    a custom value like FastLocal or Replicated. We took a long journey to get there
+    in this chapter, because it’s important to understand what actually happens when
+    you claim storage, what other resources are involved, and how you can configure
+    them.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以这就是 Kubernetes 中的存储。在你的常规工作中，你将为你的 Pods 定义 PersistentVolumeClaims 并指定你需要的尺寸和存储类，这可能是一个自定义值，如
+    FastLocal 或 Replicated。我们在这章中走了一段很长的路，因为了解当你声明存储时实际上会发生什么，涉及哪些其他资源，以及如何配置它们，这是很重要的。
+- en: We also covered volume types, and that’s an area you’ll need to research more
+    to understand what options are available on your Kubernetes platform and what
+    capabilities they provide. If you’re in a cloud environment, you should have the
+    luxury of multiple clusterwide storage options, but remember that storage costs,
+    and fast storage costs a lot. You need to understand that you can create a PVC
+    using a fast storage class that could be configured to retain the underlying volume,
+    and that means you’ll still be paying for storage when you’ve deleted your deployment.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还介绍了卷类型，这是一个你需要更多研究的领域，以了解你的 Kubernetes 平台上可用的选项以及它们提供的功能。如果你在云环境中，你应该有多集群存储选项的奢侈，但记住存储成本，快速存储成本很高。你需要理解你可以使用一个配置为保留底层卷的快速存储类来创建一个
+    PVC，这意味着即使你删除了你的部署，你仍然需要为存储付费。
+- en: 'Which brings us to the big question: should you even use Kubernetes to run
+    stateful apps like databases? The functionality is all there to give you highly
+    available, replicated storage (if your platform provides it), but that doesn’t
+    mean you should rush to decommission your Oracle estate and replace it with MySQL
+    running in Kubernetes. Managing data adds a lot of complexity to your Kubernetes
+    applications, and running stateful apps is only part of the problem. There are
+    data backups, snapshots, and rollbacks to think about, and if you’re running in
+    the cloud, a managed database service will probably give you that out of the box.
+    But having your whole stack defined in Kubernetes manifests is pretty tempting,
+    and some modern database servers are designed to run in a container platform;
+    TiDB and CockroachDB are options worth looking at.'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就引出了一个大问题：你是否应该使用 Kubernetes 来运行像数据库这样的有状态应用？功能都在那里，可以为你提供高度可用的、复制的存储（如果你的平台提供的话），但这并不意味着你应该急忙退役你的
+    Oracle 环境，并用在 Kubernetes 中运行的 MySQL 来替换它。管理数据会给你的 Kubernetes 应用程序增加很多复杂性，运行有状态的应用程序只是问题的一部分。你需要考虑数据备份、快照和回滚，如果你在云中运行，一个托管数据库服务可能会为你提供这些功能。但是，将整个堆栈定义在
+    Kubernetes 清单中是非常诱人的，而且一些现代数据库服务器被设计为在容器平台上运行；TiDB 和 CockroachDB 是值得考虑的选项。
+- en: All that’s left now is to tidy up your lab cluster before we move on to the
+    lab.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们继续到实验室之前，只剩下整理你的实验室集群了。
+- en: Try it now Delete all the objects from the manifests used in this chapter. You
+    can ignore any errors you get, because not all the objects will exist when you
+    run this.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试这个：删除本章中使用的所有对象。你可以忽略你得到的任何错误，因为当你运行这个时，并不是所有的对象都会存在。
+- en: '[PRE25]'
+  id: totrans-164
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 5.6 Lab
+  id: totrans-165
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.6 实验
+- en: These labs are meant to give you some experience in real-world Kubernetes problems,
+    so I’m not going to ask you to replicate the exercise to clone the default storage
+    class. Instead we have a new deployment of the to-do app, which has a couple of
+    issues. We’re using a proxy in front of the web Pod to improve performance and
+    a local database file inside the web Pod because this is just a development deployment.
+    We need some persistent storage configured at the proxy layer and the web layer,
+    so you can remove Pods and deployments, and the data still persists.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些实验室旨在让你在现实世界的 Kubernetes 问题中获得一些经验，所以我不会要求你复制练习来克隆默认的存储类。相反，我们有一个新的待办事项应用部署，它有几个问题。我们在
+    Web Pod 前使用代理来提高性能，并在 Web Pod 内部使用本地数据库文件，因为这只是开发部署。我们需要在代理层和 Web 层配置一些持久化存储，这样你就可以删除
+    Pods 和部署，数据仍然会持续存在。
+- en: Start by deploying the app manifests in the `ch05/lab/todo-list` folder; that
+    creates the Services and Deployments for the proxy and web components.
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 首先，部署 `ch05/lab/todo-list` 文件夹中的应用清单；这会创建代理和 Web 组件的服务和部署。
+- en: Find the URL for the LoadBalancer, and try using the app. You’ll find it doesn’t
+    respond, and you’ll need to dig into the logs to find out what’s wrong.
+  id: totrans-168
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 找到 LoadBalancer 的 URL，并尝试使用该应用。你会发现它没有响应，你需要深入查看日志来找出问题所在。
+- en: Your task is to configure persistent storage for the proxy cache files and for
+    the database file in the web Pod. You should be able to find the mount targets
+    from the log entries and the Pod spec.
+  id: totrans-169
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的任务是配置代理缓存文件和 Web Pod 中数据库文件的持久化存储。你应该能够从日志条目和 Pod 规范中找到挂载目标。
+- en: When you have the app running, you should be able to add some data, delete all
+    your Pods, refresh the browser, and see that your data is still there.
+  id: totrans-170
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当应用运行时，你应该能够添加一些数据，删除所有你的 Pods，刷新浏览器，并看到你的数据仍然在那里。
+- en: You can use any volume type or storage class that you like. This is a good opportunity
+    to explore what your platform provides.
+  id: totrans-171
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以使用你喜欢的任何卷类型或存储类。这是一个很好的机会来探索你的平台提供了什么。
+- en: 'My solution is on GitHub as usual for you to check if you need to: [https://github.com/sixeyed/kiamol/blob/master/ch05/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch05/lab/README.md).'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的解决方案通常在 GitHub 上，你可以检查是否需要：[https://github.com/sixeyed/kiamol/blob/master/ch05/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch05/lab/README.md)。

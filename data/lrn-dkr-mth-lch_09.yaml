@@ -1,0 +1,1070 @@
+- en: 8 Supporting reliability with health checks and dependency checks
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 8 使用健康检查和依赖检查支持可靠性
+- en: We’re on a journey toward making software production-ready in containers. You’ve
+    already seen how straightforward it is to package apps in Docker images, run them
+    in containers, and define multi-container apps with Docker Compose. In production
+    you’ll run your apps in a container platform like Docker Swarm or Kubernetes,
+    and those platforms have features that help you deploy self-healing apps. You
+    can package your containers with information the platform uses to check if the
+    application inside the container is healthy. If the app stops working correctly,
+    the platform can remove a malfunctioning container and replace it with a new one.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们正在朝着在容器中使软件生产就绪的目标前进。您已经看到将应用打包到Docker镜像中、在容器中运行它们以及使用Docker Compose定义多容器应用是多么简单。在生产中，您将在Docker
+    Swarm或Kubernetes等容器平台上运行您的应用，这些平台具有帮助您部署自愈应用的功能。您可以将容器打包成平台使用的信息，以检查容器中的应用是否健康。如果应用停止正常工作，平台可以移除一个故障容器，并用一个新的容器替换它。
+- en: In this chapter you’ll learn how to package those checks into your container
+    images to help the platform keep your app online.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您将学习如何将这些检查打包到您的容器镜像中，以帮助平台保持您的应用在线。
+- en: 8.1 Building health checks into Docker images
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 8.1 将健康检查构建到Docker镜像中
+- en: Docker monitors the health of your app at a basic level every time you run a
+    container. Containers run a specific process when they start, which could be the
+    Java or .NET Core runtime, a shell script, or an application binary. Docker checks
+    that the process is still running, and if it stops, the container goes into the
+    exited state.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次运行容器时，Docker都会在基本层面上监控您的应用健康。容器启动时会运行一个特定的进程，这可能是Java或.NET Core运行时、shell脚本或应用程序二进制文件。Docker会检查该进程是否仍在运行，如果停止，容器就会进入已退出的状态。
+- en: That gives you a basic health check that works across all environments. Developers
+    can see that their app is unhealthy if the process fails and the container exits.
+    In a clustered environment, the container platform can restart an exited container
+    or create a replacement container. But it’s a very basic check--it ensures the
+    process is running, but not that the app is actually healthy. A web app in a container
+    could hit maximum capacity and start returning HTTP 503 “Service Unavailable”
+    responses to every request, but as long as the process in the container is still
+    running, Docker thinks the container is healthy, even though the app is stalled.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这为您提供了一个适用于所有环境的健康检查基础。如果进程失败并且容器退出，开发者可以看到他们的应用不健康。在集群环境中，容器平台可以重新启动已退出的容器或创建一个替换容器。但这只是一个非常基础的检查——它确保进程正在运行，但并不能保证应用实际上健康。一个容器中的Web应用可能会达到最大容量，并开始向每个请求返回HTTP
+    503“服务不可用”的响应，但只要容器中的进程仍在运行，Docker就会认为容器是健康的，尽管应用已经停滞。
+- en: Docker gives you a neat way to build a real application health check right into
+    the Docker image, just by adding logic to the Dockerfile. We’ll do that with a
+    simple API container, but first we’ll run it without any health checks to be sure
+    we understand the problem.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker提供了一种巧妙的方法，只需在Dockerfile中添加逻辑，就可以将真实的应用健康检查直接构建到Docker镜像中。我们将使用一个简单的API容器来实现这一点，但首先我们将不运行任何健康检查以确保我们理解了问题。
+- en: 'Try it now Run a container that hosts a simple REST API that returns a random
+    number. The app has a bug, so after three calls to the API, it becomes unhealthy
+    and every subsequent call fails. Open a terminal, run the container, and use the
+    API--this is a new image, so you’ll see Docker pull it when you run the container:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试 Run一个托管简单REST API并返回随机数的容器。该应用有缺陷，所以当API被调用三次后，它变得不健康，后续的每次调用都会失败。打开一个终端，运行容器，并使用API——这是一个新镜像，所以您会在运行容器时看到Docker将其拉取：
+- en: '` # start the API container` ` docker container run -d -p 8080:80 diamol/ch08-numbers-api` 
+    ` # repeat this three times - it returns a random number` ` curl http://localhost:8080/rng`
+    ` curl http://localhost:8080/rng` ` curl http://localhost:8080/rng`  ` # from
+    the fourth call onwards, the API always fails` ` curl http://localhost:8080/rng` 
+    ` # check the container status` ` docker container ls`'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 启动API容器` ` docker container run -d -p 8080:80 diamol/ch08-numbers-api` 
+    ` # 重复三次 - 它返回一个随机数` ` curl http://localhost:8080/rng` ` curl http://localhost:8080/rng`
+    ` curl http://localhost:8080/rng`  ` # 从第四次调用开始，API总是失败` ` curl http://localhost:8080/rng` 
+    ` # 检查容器状态` ` docker container ls`'
+- en: You can see my output in figure 8.1\. The API behaves correctly for the first
+    three calls, and then it returns an HTTP 500 “Internal Server Error” response.
+    The bug in the code means it will always return a 500 from now on. (Actually it’s
+    not a bug; the app is written deliberately like that. The source code is in the
+    repo for chapter 8 if you want to see how it works.) In the container list, the
+    API container has the status `Up` . The process inside the container is still
+    running, so it looks good as far as Docker is concerned. The container runtime
+    has no way of knowing what’s happening inside that process and whether the app
+    is still behaving correctly.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图8.1中看到我的输出。API在前三次调用时表现正确，然后返回HTTP 500“内部服务器错误”响应。代码中的错误意味着它将始终返回500。实际上，这并不是一个错误；应用程序是故意这样编写的。如果你想查看它是如何工作的，源代码在本书第8章的源代码中（`ch08/exercises/numbers/numbers-api/Dockerfile.v2`）。在容器列表中，API容器状态为`Up`。容器内的进程仍在运行，所以从Docker的角度来看，看起来一切正常。容器运行时无法知道该进程内部发生了什么，以及应用程序是否仍然表现正确。
+- en: '![](../Images/8-1.jpg)'
+  id: totrans-10
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-1.jpg)'
+- en: Figure 8.1 Docker checks the app process, so the container is up even if the
+    app is in a failed state.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.1 Docker检查应用程序进程，即使应用程序处于失败状态，容器也能正常运行。
+- en: Enter the `HEALTHCHECK` instruction, which you can add to a Dockerfile to tell
+    the runtime exactly how to check whether the app in the container is still healthy.
+    The `HEALTHCHECK` instruction specifies a command for Docker to run inside the
+    container, which will return a status code--the command can be anything you need
+    to check if your app is healthy. Docker will run that command in the container
+    at a timed interval. If the status code says everything is good, then the container
+    is healthy. If the status code is a failure several times in a row, then the container
+    is marked as unhealthy.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输入`HEALTHCHECK`指令，你可以将其添加到Dockerfile中，以告诉运行时如何确切地检查容器中的应用程序是否仍然健康。`HEALTHCHECK`指令指定了Docker在容器内运行的命令，该命令将返回一个状态码——命令可以是任何你需要检查应用程序是否健康的命令。Docker将在容器中以定时间隔运行该命令。如果状态码表明一切正常，则容器是健康的。如果状态码连续几次失败，则容器被标记为不健康。
+- en: Listing 8.1 shows the `HEALTHCHECK` command in a new Dockerfile for the random
+    number API, which I’ll build as version 2 (the full file is in the source for
+    the book at `ch08/exercises/numbers/numbers-api/Dockerfile.v2` ). This health
+    check uses a `curl` command like I did on my host, but this time it runs inside
+    the container. The `/health` URL is another endpoint in the application that checks
+    if the bug has been triggered; it will return a 200 “OK” status code if the app
+    is working and a 500 “Internal Server Error” when it’s broken.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.1显示了为随机数API创建的新Dockerfile中的`HEALTHCHECK`命令，我将构建为版本2（完整文件在本书源代码的`ch08/exercises/numbers/numbers-api/Dockerfile.v2`中）。这个健康检查使用了一个类似于我在主机上使用的`curl`命令，但这次它在容器内运行。`/health`
+    URL是应用程序中的另一个端点，用于检查是否触发了错误；如果应用程序运行正常，它将返回200“OK”状态码；如果应用程序损坏，它将返回500“内部服务器错误”。
+- en: Listing 8.1 The `HEALTHCHECK` instruction in a Dockerfile
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.1 Dockerfile中的`HEALTHCHECK`指令
+- en: '` FROM diamol/dotnet-aspnet`  ` ENTRYPOINT ["dotnet", "/app/Numbers.Api.dll"]`
+    ` HEALTHCHECK CMD curl --fail http://localhost/health`  ` WORKDIR /app` ` COPY
+    --from=builder /out/ .`'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` FROM diamol/dotnet-aspnet`  ` ENTRYPOINT ["dotnet", "/app/Numbers.Api.dll"]`
+    ` HEALTHCHECK CMD curl --fail http://localhost/health`  ` WORKDIR /app` ` COPY
+    --from=builder /out/ .`'
+- en: The rest of the Dockerfile is pretty straightforward. This is a .NET Core application,
+    so the `ENTRYPOINT` runs the `dotnet` command, and it’s that `dotnet` process
+    that Docker monitors to check if the application is still running. The health
+    check makes an HTTP call to the `/health` endpoint, which the API provides to
+    test if the app is healthy. Using the `--fail` parameter means the `curl` command
+    will pass the status code on to Docker--if the request succeeds, it returns the
+    number 0, which Docker reads as a successful check. If it fails, it returns a
+    number other than 0, which means the health check failed.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dockerfile的其余部分相当简单。这是一个.NET Core应用程序，所以`ENTRYPOINT`运行`dotnet`命令，Docker监控的就是这个`dotnet`进程，以检查应用程序是否仍在运行。健康检查通过HTTP调用`/health`端点，这是API提供的用于测试应用程序是否健康的端点。使用`--fail`参数意味着`curl`命令会将状态码传递给Docker——如果请求成功，它返回数字0，Docker将其读取为成功的检查。如果失败，它返回一个非0的数字，这意味着健康检查失败。
+- en: We’ll build a new version of that image so you can see how the `build` command
+    works with a different file structure. Usually you have a Dockerfile in your application
+    source folder, and Docker finds that and runs the build. In this case, the Dockerfile
+    has a different name and is in a separate folder from the source code, so you
+    need to explicitly specify the path in the `build` command.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将构建该镜像的新版本，以便你可以看到`build`命令与不同文件结构一起是如何工作的。通常你会在应用程序源文件夹中有一个Dockerfile，Docker会找到它并运行构建。在这种情况下，Dockerfile有一个不同的名称，并且位于源代码的单独文件夹中，所以你需要在`build`命令中显式指定路径。
+- en: 'Try it now Run a terminal and browse to the folder where you have the source
+    code for the book. Then build the new image with a v2 tag, using the v2 Dockerfile:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 运行一个终端，浏览到包含书籍源代码的文件夹。然后使用v2标签构建新的镜像，使用v2 Dockerfile：
+- en: '` # browse to the root path, which has folders for source code and Dockerfiles:`
+    ` cd ./ch08/exercises/numbers`  ` # build the image using the -f flag to specify
+    the path to the Dockerfile:` ` docker image build -t diamol/ch08-numbers-api:v2
+    -f ./numbers-api/Dockerfile.v2 .`'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 浏览到根路径，该路径包含源代码和Dockerfile文件夹：` ` cd ./ch08/exercises/numbers`  ` # 使用-f标志指定Dockerfile的路径来构建镜像：`
+    ` docker image build -t diamol/ch08-numbers-api:v2 -f ./numbers-api/Dockerfile.v2
+    .`'
+- en: Once the image is built, you’re ready to run the app with a health check. You
+    can configure how often the health check runs and how many failed checks mean
+    the app is unhealthy. The default is to run every 30 seconds, and for three failures
+    in a row to trigger the unhealthy status. Version v2 of the API image has the
+    health check built in, so when you repeat the test, you’ll find the health of
+    the container gets reported.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦构建了镜像，你就可以运行应用并进行健康检查。你可以配置健康检查的运行频率以及连续失败多少次意味着应用不健康。默认情况下，每30秒运行一次，连续三次失败将触发不健康状态。API镜像的v2版本已经内置了健康检查，所以当你重复测试时，你会发现在容器中报告了容器的健康状态。
+- en: Try it now Run the same test but using the v2 image tag, and leave some time
+    between the commands to let Docker fire the health checks inside the container.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 运行相同的测试，但使用v2镜像标签，并在命令之间留出一些时间，让Docker在容器内触发健康检查。
+- en: '` # start the API container, v2` ` docker container run -d -p 8081:80 diamol/ch08-numbers-api:v2` 
+    ` # wait 30 seconds or so and list the containers` ` docker container ls`  ` #
+    repeat this four times - it returns three random numbers and then fails` ` curl
+    http://localhost:8081/rng` ` curl http://localhost:8081/rng` ` curl http://localhost:8081/rng`
+    ` curl http://localhost:8081/rng`  ` # now the app is in a failed state - wait
+    90 seconds and check` ` docker container ls`'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 启动API容器，v2` ` docker container run -d -p 8081:80 diamol/ch08-numbers-api:v2` 
+    ` # 等待大约30秒，然后列出容器` ` docker container ls`  ` # 重复四次 - 它返回三个随机数字然后失败` ` curl http://localhost:8081/rng`
+    ` curl http://localhost:8081/rng` ` curl http://localhost:8081/rng` ` curl http://localhost:8081/rng` 
+    ` # 现在应用处于失败状态 - 等待90秒并检查` ` docker container ls`'
+- en: My output is in figure 8.2\. You can see that the new version of the API container
+    initially shows a healthy status--if images have a health check built in, Docker
+    shows the status of the health check for running containers. Some time after I’ve
+    triggered the bug, the container shows as unhealthy.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出在图8.2中。你可以看到API容器的新版本最初显示为健康状态——如果镜像内置了健康检查，Docker会显示运行容器的健康检查状态。在我触发错误一段时间后，容器显示为不健康。
+- en: '![](../Images/8-2.jpg)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图8.2](../Images/8-2.jpg)'
+- en: Figure 8.2 A broken app shows as an unhealthy container, but the container is
+    still up.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.2 一个损坏的应用显示为不健康的容器，但容器仍然在运行。
+- en: That unhealthy status is published as an event from Docker’s API, so the platform
+    running the container is notified and can take action to fix the application.
+    Docker also records the result of the most recent health checks, which you can
+    see when you inspect the container. You’ve already seen the output of `docker`
+    `container` `inspect` , which shows everything Docker knows about the container.
+    If there’s a health check running, that gets shown too.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不健康状态作为Docker API的事件发布，因此运行容器的平台会收到通知并可以采取行动修复应用程序。Docker还会记录最近的健康检查结果，你可以在检查容器时看到这些结果。你已经看到了`docker
+    container inspect`的输出，它显示了Docker知道的关于容器的一切。如果正在进行健康检查，它也会显示出来。
+- en: 'Try it now We have two API containers running and we didn’t give a name when
+    we created them, but we can find the ID of the most recently created container
+    using `container` `ls` with the `--last` flag. You can feed that into `container`
+    `inspect` to see the status of the latest container:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看。我们有两个正在运行的 API 容器，我们在创建它们时没有命名，但我们可以使用带有 `--last` 标志的 `container ls` 命令找到最新创建的容器的
+    ID。您可以将它输入到 `container inspect` 中，以查看最新容器的状态：
+- en: '`docker container inspect $(docker container ls --last 1 --format ''{{.ID}}'')`'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`docker container inspect $(docker container ls --last 1 --format ''{{.ID}}'')`'
+- en: Pages of JSON data are returned here, and if you scroll to the `State` field,
+    you’ll see there’s a `Health` section. That contains the current status of the
+    health check, the “failing streak,” which is the number of successive failures,
+    and a log of the recent health check calls. In figure 8.3 you can see an extract
+    of my container’s state. The health check is in a failing streak of six, which
+    triggers the container to be in an unhealthy state, and you can see the logs from
+    the health check commands, which fail when they get an HTTP status result of 500.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里返回的是 JSON 数据的页面，如果您滚动到 `State` 字段，您会看到有一个 `Health` 部分。它包含健康检查的当前状态、连续失败的次数（即“failing
+    streak”）以及最近健康检查调用的日志。在图 8.3 中，您可以看到我的容器状态的摘录。健康检查正处于连续失败的第六次，这触发了容器进入不健康状态，您可以看到健康检查命令的日志，当它们得到
+    HTTP 状态码为 500 的结果时，这些命令会失败。
+- en: '![](../Images/8-3.jpg)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-3.jpg)'
+- en: Figure 8.3 Containers with a health check show the health status of the app
+    and the health check logs.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.3 显示了具有健康检查的容器的健康状态和健康检查日志。
+- en: 'The health check is doing what it should: testing the application inside the
+    container and flagging up to Docker that the app is no longer healthy. But you
+    can also see in figure 8.3 that my unhealthy container has a “running” status,
+    so it’s still up even though Docker knows it is not working correctly. Why hasn’t
+    Docker restarted or replaced that container?'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 健康检查正在做它应该做的事情：测试容器内的应用程序，并向 Docker 标记应用程序不再健康。但您也可以在图 8.3 中看到，我的不健康容器有一个“运行”状态，所以尽管
+    Docker 知道它运行不正确，它仍然在运行。为什么 Docker 没有重新启动或替换那个容器？
+- en: The simple answer is that Docker can’t safely do that, because the Docker Engine
+    is running on a single server. Docker could stop and restart that container, but
+    that would mean downtime for your app while it was being recycled. Or Docker could
+    remove that container and start a new one from the same setup, but maybe your
+    app writes data inside the container, so that would mean downtime and a loss of
+    data. Docker can’t be sure that taking action to fix the unhealthy container won’t
+    make the situation worse, so it broadcasts that the container is unhealthy but
+    leaves it running. The health check continues too, so if the failure is temporary
+    and the next check passes, the container status flips to healthy again.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简单的答案是 Docker 无法安全地这样做，因为 Docker 引擎是在单个服务器上运行的。Docker 可以停止并重新启动该容器，但这意味着在容器被回收期间，您的应用程序将出现停机时间。或者
+    Docker 可以删除该容器并从相同的设置中启动一个新的容器，但如果您的应用程序在容器内写入数据，那么这将意味着停机时间和数据丢失。Docker 无法确定采取行动修复不健康的容器不会使情况变得更糟，因此它广播容器不健康的信息，但仍然让它运行。健康检查也会继续，所以如果失败是暂时的，并且下一次检查通过，容器状态会再次变为健康。
+- en: Health checks become really useful in a cluster with multiple servers running
+    Docker being managed by Docker Swarm or Kubernetes. Then the container platform
+    is notified if the container is unhealthy and it can take action. Because there
+    is additional capacity in a cluster, a replacement container can be started while
+    the unhealthy one is still running, so there shouldn’t be any application downtime.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在由 Docker Swarm 或 Kubernetes 管理的多个服务器上运行的 Docker 集群中，健康检查变得非常有用。如果容器不健康，容器平台会收到通知并采取行动。因为集群中有多余的容量，可以在不健康的容器仍在运行时启动一个替换容器，所以不应该有任何应用程序的停机时间。
+- en: 8.2 Starting containers with dependency checks
+  id: totrans-35
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 8.2 使用依赖检查启动容器
+- en: The health check is an ongoing test that helps the container platform keep your
+    application running. A cluster with multiple servers can deal with temporary failures
+    by starting new containers, so there’s no loss of service even if some of your
+    containers stop responding. But running across a cluster brings new challenges
+    for distributed apps, because you can no longer control the startup order for
+    containers that may have dependencies on each other.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 健康检查是一个持续进行的测试，有助于容器平台保持应用程序运行。具有多个服务器的集群可以通过启动新的容器来处理暂时性故障，因此即使一些容器停止响应，也不会丢失服务。但是，跨集群运行为分布式应用程序带来了新的挑战，因为你无法控制可能相互依赖的容器的启动顺序。
+- en: Our random number generator API has a website to go with it. The web app runs
+    in its own container and uses the API container to generate random numbers. On
+    a single Docker server you can ensure that the API container is created before
+    the web container, so when the web app starts it has all its dependencies available.
+    You can even capture that explicitly with Docker Compose. In a clustered container
+    platform, however, you can’t dictate the startup order of the containers, so the
+    web app might start before the API is available.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的随机数生成器 API 伴随有一个网站。该 Web 应用程序在其自己的容器中运行，并使用 API 容器生成随机数。在单个 Docker 服务器上，你可以确保在
+    Web 容器启动之前创建 API 容器，这样当 Web 应用程序启动时，它就有所有可用的依赖项。你甚至可以使用 Docker Compose 明确捕获这一点。然而，在集群容器平台上，你无法指定容器的启动顺序，因此
+    Web 应用程序可能会在 API 可用之前启动。
+- en: What happens then depends on your application. The random number app doesn’t
+    handle it very well.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么接下来会发生什么取决于你的应用程序。随机数应用程序处理得不是很好。
+- en: Try it now Remove all running containers, so now you have no API container.
+    Then run the web app container and browse to it. The container is up and the app
+    is available, but you’ll find it doesn’t actually work.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：移除所有正在运行的容器，因此现在你没有 API 容器。然后运行 Web 应用程序容器并浏览到它。容器已启动，应用程序可用，但你发现它实际上并不工作。
+- en: '` docker container rm -f $(docker container ls -aq)`  ` docker container run
+    -d -p 8082:80 diamol/ch08-numbers-web` ` docker container ls`'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`docker container rm -f $(docker container ls -aq)` `docker container run -d
+    -p 8082:80 diamol/ch08-numbers-web` `docker container ls`'
+- en: 'Now browse to http: */ /* localhost:8082\. You’ll see a simple web app that
+    looks OK, but if you click the random number button, you’ll see the error shown
+    in figure 8.4.'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '现在，浏览到 http: */ /* localhost:8082。你会看到一个看起来正常的简单 Web 应用程序，但如果你点击随机数按钮，你会看到图
+    8.4 中显示的错误。'
+- en: '![](../Images/8-4.jpg)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-4.jpg)'
+- en: Figure 8.4 Apps that don’t verify that their dependencies are available may
+    look OK but be in a failed state.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.4 未验证其依赖项是否可用的应用程序可能看起来正常，但实际上处于失败状态。
+- en: This is exactly what you don’t want to happen. The container looks fine, but
+    the app is unusable because its key dependency is unavailable. Some apps may have
+    logic built into them to verify that the dependencies they need are there when
+    they start, but most apps don’t, and the random number web app is one of those.
+    It assumes the API will be available when it’s needed, so it doesn’t do any dependency
+    checking.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这正是你不想发生的事情。容器看起来没问题，但应用程序不可用，因为它的关键依赖项不可用。一些应用程序可能内置了逻辑来验证它们在启动时所需的依赖项是否存在，但大多数应用程序没有，随机数
+    Web 应用程序就是其中之一。它假设 API 在需要时将可用，因此它不会进行任何依赖性检查。
+- en: You can add that dependency check inside the Docker image. A dependency check
+    is different from a health check--it runs before the application starts and makes
+    sure everything the app needs is available. If everything is there, the dependency
+    check finishes successfully and the app starts. If the dependencies aren’t there,
+    the check fails and the container exits. Docker doesn’t have a built-in feature
+    like the `HEALTHCHECK` instruction for dependency checks, but you can put that
+    logic in the startup command.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在 Docker 镜像内部添加依赖性检查。依赖性检查与健康检查不同--它在应用程序启动之前运行，并确保应用程序所需的一切都可用。如果一切都在那里，依赖性检查将成功完成，应用程序启动。如果依赖项不存在，检查将失败，容器退出。Docker
+    没有内置的类似 `HEALTHCHECK` 指令的依赖性检查功能，但你可以在启动命令中放入该逻辑。
+- en: Listing 8.2 shows the final application stage of a new Dockerfile for the web
+    application (the full file is at `ch08/exercises/numbers/numbers-web/Dockerfile.v2`
+    )--the `CMD` instruction verifies that the API is available before it starts the
+    app.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.2 显示了 Web 应用程序的新 Dockerfile 的最终应用程序阶段（完整文件位于 `ch08/exercises/numbers/numbers-web/Dockerfile.v2`）--`CMD`
+    指令在启动应用程序之前验证 API 是否可用。
+- en: Listing 8.2 A Dockerfile with a dependency check in the startup command
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.2 一个在启动命令中进行依赖性检查的 Dockerfile
+- en: '` FROM diamol/dotnet-aspnet`  ` ENV RngApi:Url=http://numbers-api/rng`  ` CMD
+    curl --fail http://numbers-api/rng && \` `       dotnet Numbers.Web.dll`  ` WORKDIR
+    /app`  ` COPY --from=builder /out/ .`'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` FROM diamol/dotnet-aspnet`  ` ENV RngApi:Url=http://numbers-api/rng`  ` CMD
+    curl --fail http://numbers-api/rng && \` `       dotnet Numbers.Web.dll`  ` WORKDIR
+    /app`  ` COPY --from=builder /out/ .`'
+- en: This check uses the curl tool again, which is part of the base image. The `CMD`
+    instruction runs when a container starts, and it makes an HTTP call to the API,
+    which is a simple check to make sure it’s available. The double-ampersand, `&&`
+    , works the same way in Linux and Windows command shells--it will run the command
+    on the right if the command on the left succeeds.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此检查再次使用curl工具，它是基础镜像的一部分。`CMD`指令在容器启动时运行，并调用API进行HTTP调用，这是一个简单的检查，以确保其可用性。双与号`&&`在Linux和Windows命令行中工作方式相同——如果左侧的命令成功，它将运行右侧的命令。
+- en: If my API is available, the `curl` command will succeed and the application
+    gets launched. It’s a .NET Core web application, so Docker will monitor the `dotnet`
+    process to verify that the app is still alive (there’s no health check in this
+    Dockerfile). If the API is unavailable, the `curl` command will fail, the `dotnet`
+    command won’t get run, and nothing happens in the container so it exits.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我的API可用，curl命令将成功，应用程序将被启动。这是一个.NET Core Web应用程序，因此Docker将监控`dotnet`进程以验证应用程序是否仍然存活（在这个Dockerfile中没有健康检查）。如果API不可用，curl命令将失败，`dotnet`命令将不会运行，容器中不会发生任何事情，因此它将退出。
+- en: 'Try it now Run a container from the v2 tag of the random number web image.
+    There’s still no API container, so when this container starts it will fail and
+    exit:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：从随机数字Web镜像的v2标签运行一个容器。目前还没有API容器，所以当这个容器启动时，它会失败并退出：
+- en: '` docker container run -d -p 8084:80 diamol/ch08-numbers-web:v2` ` docker container
+    ls --all`'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` docker container run -d -p 8084:80 diamol/ch08-numbers-web:v2` ` docker container
+    ls --all`'
+- en: You can see my output in figure 8.5\. The v2 container exited just a few seconds
+    after it started because the `curl` command failed to find the API. The original
+    web app container is still running, and it’s still unusable.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图8.5中看到我的输出。v2容器在启动后仅几秒钟就退出了，因为curl命令未能找到API。原始的Web应用程序容器仍在运行，但它仍然不可用。
+- en: '![](../Images/8-5.jpg)'
+  id: totrans-54
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-5.jpg)'
+- en: Figure 8.5 A container with dependency checks at startup exits if the checks
+    fail.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.5 启动时进行依赖性检查的容器在检查失败时退出。
+- en: It’s counterintuitive, but in this scenario it’s better to have an exited container
+    than a running container. This is fail-fast behavior, and it’s what you want when
+    you’re running at scale. When a container exits, the platform can schedule a new
+    container to come up and replace it. Maybe the API container takes a long time
+    to start up, so it’s not available when the web container runs; in that case the
+    web container exits, a replacement is scheduled, and by the time it starts the
+    API is up and running.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这看起来有些反直觉，但在这种情况下，有一个退出的容器比一个正在运行的容器更好。这是一种快速失败的行为，当你大规模运行时，这正是你想要的。当容器退出时，平台可以调度一个新的容器来启动并替换它。也许API容器启动需要很长时间，所以在Web容器运行时不可用；在这种情况下，Web容器会退出，调度一个替换，当它启动时API已经运行。
+- en: With health and dependency checks, we can package an app to be a good citizen
+    in a container platform. The checks we’ve used so far have been very basic HTTP
+    tests using curl. That proves out what we want to do, but it’s a simplistic approach,
+    and it’s better not to rely on an external tool for your checks.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过健康和依赖性检查，我们可以将应用程序打包成容器平台中的良好公民。到目前为止，我们使用的检查方法非常基础，是使用curl进行的HTTP测试。这证明了我们想要做的事情，但这是一种简单的方法，而且最好不要依赖外部工具进行你的检查。
+- en: 8.3 Writing custom utilities for application check logic
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 8.3 为应用程序检查逻辑编写自定义实用工具
+- en: Curl is a very useful tool for testing web apps and APIs. It’s cross-platform
+    so it works on Linux and Windows, and it is part of the .NET Core runtime images
+    that I’ve used as the base for my golden images, so I know it will be there to
+    run my checks. I don’t actually need curl in the image for my app to run though,
+    and a security review might ask for it to be removed.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Curl是测试Web应用程序和API的非常有用的工具。它是跨平台的，因此可以在Linux和Windows上运行，它是我的黄金镜像的基础，也就是我使用的.NET
+    Core运行时镜像的一部分，所以我知道它将用于运行我的检查。然而，实际上我并不需要在镜像中包含curl来运行我的应用程序，安全审查可能会要求将其删除。
+- en: We covered that in chapter 4--your Docker image should have the bare minimum
+    in it for your application to run. Any extra tools increase the image size, and
+    they also increase the frequency of updates and the security attack surface. So
+    although curl is a great tool for getting started with container checks, it’s
+    better to write a custom utility for your checks using the same language that
+    your application uses--Java for Java apps, Node.js for Node.js apps, and so on.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在第4章中讨论了这一点——你的Docker镜像应该包含运行应用程序所需的最小内容。任何额外的工具都会增加镜像的大小，它们还会增加更新的频率和安全攻击面。所以虽然curl是开始容器检查的绝佳工具，但最好是用与你的应用程序相同的语言编写自定义实用工具进行检查——Java应用程序使用Java，Node.js应用程序使用Node.js，等等。
+- en: 'There are a whole lot of advantages to this:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这有很多优点：
+- en: You reduce the software requirements in your image--you don’t need to install
+    any extra tools, because everything the check utility needs to run is already
+    there for the application.
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以减少镜像中的软件需求——你不需要安装任何额外的工具，因为检查实用工具运行所需的一切都已经为应用程序准备好了。
+- en: You can use more complex conditional logic in your checks with retries or branches,
+    which are harder to express in shell scripts, especially if you’re publishing
+    cross-platform Docker images for Linux and Windows.
+  id: totrans-63
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以在检查中使用更复杂的条件逻辑，包括重试或分支，这在shell脚本中很难表达，特别是如果你正在发布适用于Linux和Windows的跨平台Docker镜像。
+- en: Your utility can use the same application configuration that your app uses,
+    so you don’t end up specifying settings like URLs in several places, with the
+    risk of them getting out of sync.
+  id: totrans-64
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的实用工具可以使用与你的应用程序相同的配置，这样你就不需要在多个地方指定设置，如URL，从而降低它们不同步的风险。
+- en: You can execute any tests you need, checking database connections or file paths
+    for the existence of certificates that you’re expecting the platform to load into
+    the container--all using the same libraries your app uses.
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以执行所需的任何测试，检查数据库连接或文件路径是否存在你期望平台加载到容器中的证书——所有这些都可以使用你的应用程序使用的相同库。
+- en: Utilities can also be made generic to work in multiple situations. I’ve written
+    a simple HTTP check utility in .NET Core that I can use for the health check in
+    the API image and the dependency check in the web image. There are multi-stage
+    Dockerfiles for each app where one stage compiles the application, another stage
+    compiles the check utility, and the final stage copies in the app and the utility.
+    Figure 8.6 shows how that looks.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实用工具也可以被设计成通用的，以便在多种情况下使用。我编写了一个简单的.NET Core HTTP检查实用工具，我可以用它来在API镜像中进行健康检查，以及在Web镜像中进行依赖项检查。每个应用程序都有多阶段Dockerfile，其中一个阶段编译应用程序，另一个阶段编译检查实用工具，最后一个阶段将应用程序和实用工具复制进来。图8.6展示了这个过程的外观。
+- en: '![](../Images/8-6.jpg)'
+  id: totrans-67
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-6.jpg)'
+- en: Figure 8.6 Using multi-stage builds to compile and package utilities alongside
+    the application
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.6 使用多阶段构建编译和打包与应用程序一起的实用工具
+- en: The final stage of `Dockerfile.v3` for the API is shown in listing 8.3\. The
+    command for the health check now uses the check utility, which is a .NET Core
+    app so the check no longer needs curl to be installed in the image.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: API的`Dockerfile.v3`的最终阶段在列表8.3中展示。健康检查现在使用检查实用工具，这是一个.NET Core应用程序，因此检查不再需要在镜像中安装curl。
+- en: Listing 8.3 Using a custom utility for a health check to remove the need for
+    curl
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.3 使用自定义实用工具进行健康检查以消除对curl的需求
+- en: '` FROM diamol/dotnet-aspnet` ` ENTRYPOINT ["dotnet", "Numbers.Api.dll"]` ` HEALTHCHECK
+    CMD ["dotnet", "Utilities.HttpCheck.dll", "-u", "http://localhost/health"]` ` WORKDIR
+    /app` ` COPY --from=http-check-builder /out/ .` ` COPY --from=builder /out/ .`'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` FROM diamol/dotnet-aspnet` ` ENTRYPOINT ["dotnet", "Numbers.Api.dll"]` ` HEALTHCHECK
+    CMD ["dotnet", "Utilities.HttpCheck.dll", "-u", "http://localhost/health"]` ` WORKDIR
+    /app` ` COPY --from=http-check-builder /out/ .` ` COPY --from=builder /out/ .`'
+- en: The behavior of the new health check is pretty much the same; the only difference
+    from the curl version is that you won’t see as much verbose logging in the output
+    when you inspect the container. There’s just a single line for each check saying
+    whether it was a success or a failure. The app should still report as healthy
+    initially; it will get flagged as unhealthy after you’ve made a few calls to the
+    API.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新的健康检查行为基本上相同；与curl版本相比，唯一的区别是当你检查容器时，输出中不会看到那么多冗长的日志。每个检查只有一行，说明它是成功还是失败。应用程序最初应该仍然报告为健康；在你对API进行几次调用后，它将被标记为不健康。
+- en: 'Try it now Remove all your existing containers and run version 3 of the random
+    number API. This time we’ll specify an interval for the health check so it triggers
+    more quickly. Check that the container is listed as healthy, and then use the
+    API and check that the container flips to unhealthy:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 删除您现有的所有容器，并运行随机数API的版本3。这次我们将指定健康检查的间隔，以便它更快地触发。检查容器是否被列为健康，然后使用API并检查容器是否变为不健康：
+- en: '` # clear down existing containers` ` docker container rm -f $(docker container
+    ls -aq)`  ` # start the API container, v3` ` docker container run -d -p 8080:80
+    --health-interval 5s diamol/ch08-numbers-api:v3`  ` # wait five seconds or so
+    and list the containers` ` docker container ls`  ` # repeat this four times -
+    it returns three random numbers and then fails` ` curl http://localhost:8080/rng`
+    ` curl http://localhost:8080/rng` ` curl http://localhost:8080/rng` ` curl http://localhost:8080/rng`
+     ` # now the app is in a failed state - wait 15 seconds and check again` ` docker
+    container ls`'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 清除现有容器` ` docker container rm -f $(docker container ls -aq)`  ` # 启动API容器，v3`
+    ` docker container run -d -p 8080:80 --health-interval 5s diamol/ch08-numbers-api:v3`
+     ` # 等待大约五秒钟，然后列出容器` ` docker container ls`  ` # 重复四次 - 它返回三个随机数然后失败` ` curl http://localhost:8080/rng`
+    ` curl http://localhost:8080/rng` ` curl http://localhost:8080/rng` ` curl http://localhost:8080/rng`
+     ` # 现在应用程序处于失败状态 - 等待15秒钟再次检查` ` docker container ls`'
+- en: Figure 8.7 shows my output. The behavior is the same as version 2, with the
+    health check failing once the bug in the API is triggered, so the HTTP check utility
+    is working correctly.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.7显示了我的输出。行为与版本2相同，健康检查在API中的错误被触发后失败，因此HTTP检查实用工具正在正常工作。
+- en: '![](../Images/8-7.jpg)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图8.7](../Images/8-7.jpg)'
+- en: Figure 8.7 A container health check that uses a utility tool packaged into the
+    Docker image
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.7 使用打包在Docker镜像中的实用工具进行的容器健康检查
+- en: The HTTP check utility has lots of options that make it flexible for different
+    scenarios. In `Dockerfile.v3` for the web app, I use the same utility for the
+    dependency check at startup, to see if the API is available.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HTTP检查实用工具有很多选项，使其适用于不同的场景。在Web应用程序的`Dockerfile.v3`中，我使用相同的实用工具在启动时进行依赖项检查，以查看API是否可用。
+- en: Listing 8.4 shows the final stage of the Dockerfile. In this case I use the
+    `-t` flag to set how long the utility should wait for a response, and the `-c`
+    flag tells the utility to load the same config files as the application and to
+    get the URL for the API from the app config.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表8.4显示了Dockerfile的最终阶段。在这种情况下，我使用`-t`标志来设置实用工具等待响应的时间，`-c`标志告诉实用工具加载与应用程序相同的配置文件，并从应用程序配置中获取API的URL。
+- en: Listing 8.4 Using a utility for a dependency check at container startup
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表8.4 在容器启动时使用实用工具进行依赖项检查
+- en: '` FROM diamol/dotnet-aspnet`  ` ENV RngApi:Url=http://numbers-api/rng`  ` CMD
+    dotnet Utilities.HttpCheck.dll -c RngApi:Url -t 900 && \` `       dotnet Numbers.Web.dll` 
+    ` WORKDIR /app`  ` COPY --from=http-check-builder /out/ .` ` COPY --from=builder
+    /out/ .`'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` FROM diamol/dotnet-aspnet`  ` ENV RngApi:Url=http://numbers-api/rng`  ` CMD
+    dotnet Utilities.HttpCheck.dll -c RngApi:Url -t 900 && \` `       dotnet Numbers.Web.dll` 
+    ` WORKDIR /app`  ` COPY --from=http-check-builder /out/ .` ` COPY --from=builder
+    /out/ .`'
+- en: Again, this removes the requirement for curl in the application image, but the
+    behavior is much the same with the HTTP utility in the startup command.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次，这消除了在应用程序镜像中需要curl的要求，但与启动命令中的HTTP实用工具的行为几乎相同。
+- en: 'Try it now Run version 3 of the web app, and you’ll see that the container
+    exits almost immediately because the HTTP check utility fails when it makes the
+    API check:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 运行Web应用程序的版本3，您会看到容器几乎立即退出，因为HTTP检查实用工具在执行API检查时失败：
+- en: '` docker container run -d -p 8081:80 diamol/ch08-numbers-web:v3` ` docker container
+    ls --all`'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` docker container run -d -p 8081:80 diamol/ch08-numbers-web:v3` ` docker container
+    ls --all`'
+- en: Your output will be like mine in figure 8.8\. You’ll see that the API container
+    is still running, but it’s still unhealthy. The web container didn’t find it because
+    it’s looking for the DNS name `numbers-api` , and we didn’t specify that name
+    when we ran the API container. If we had used that name for the API container,
+    the web app would have connected and been able to use it, although it would still
+    show an error because the bug in the API has been triggered, and it isn’t responding.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的输出将像我图8.8中的那样。您会看到API容器仍在运行，但它仍然不健康。Web容器没有找到它，因为它正在寻找DNS名称`numbers-api`，而我们运行API容器时没有指定该名称。如果我们为API容器使用该名称，Web应用程序就会连接并能够使用它，尽管它仍然会显示错误，因为API中的错误已被触发，它没有响应。
+- en: One other benefit of writing your own checks in a utility is that it makes your
+    image portable. Different container platforms have different ways of declaring
+    and using health checks and dependency checks, but if you have all the logic you
+    need in a utility in your image, you can have it work in the same way on Docker
+    Compose, Docker Swarm, and Kubernetes.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实用程序中编写自己的检查的另一个好处是它使得你的镜像可移植。不同的容器平台有不同的声明和使用健康检查和依赖检查的方式，但如果你在你的镜像中的实用程序中拥有所有需要的逻辑，你就可以让它在Docker
+    Compose、Docker Swarm和Kubernetes上以相同的方式工作。
+- en: 8.4 Defining health checks and dependency checks in Docker Compose
+  id: totrans-87
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 8.4 在Docker Compose中定义健康检查和依赖检查
+- en: 'If you’re not convinced that it’s a good idea for containers to fail and exit
+    when their dependencies aren’t available, you’re about to see why it works. Docker
+    Compose can go some of the way toward repairing unreliable applications, but it
+    won’t replace unhealthy containers for the same reasons that Docker Engine won’t:
+    you’re running on a single server, and the fix might cause an outage. But it can
+    set containers to restart if they exit, and it can add a health check if there
+    isn’t one already in the image.'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你还没有确信容器在依赖不可用时失败和退出是一个好主意，你很快就会看到为什么这样做是有效的。Docker Compose可以在一定程度上修复不可靠的应用程序，但它不会替换不健康的容器，原因与Docker
+    Engine不会替换的原因相同：你正在单个服务器上运行，修复可能会造成停机。但它可以设置容器在退出时重启，并且如果镜像中还没有的话，它可以添加一个健康检查。
+- en: '![](../Images/8-8.jpg)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-8.jpg)'
+- en: Figure 8.8 Using a utility packaged into the Docker image as the dependency
+    check tool
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.8 使用打包到Docker镜像中的实用程序作为依赖检查工具
+- en: Listing 8.5 shows the random number API declared as a service in a Docker Compose
+    file (the full file is in `ch08/exercises/numbers/docker-compose.yml` ). It specifies
+    the v3 container image, which uses the HTTP utility for its health check, and
+    adds settings to configure how the health check should work.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.5显示了随机数API在Docker Compose文件中声明为服务（完整的文件位于`ch08/exercises/numbers/docker-compose.yml`）。它指定了v3容器镜像，该镜像使用HTTP实用程序进行健康检查，并添加了配置健康检查应该如何工作的设置。
+- en: Listing 8.5 Specifying health check parameters in a Docker Compose file
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.5 在Docker Compose文件中指定健康检查参数
+- en: '`   numbers-api:` `       image: diamol/ch08-numbers-api:v3` `       ports:`
+    `           - "8087:80"` `       healthcheck:` `           interval: 5s` `           timeout:
+    1s` `           retries: 2` `           start_period: 5s` `       networks:` `            -
+    app-net`'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`   numbers-api:` `       image: diamol/ch08-numbers-api:v3` `       ports:`
+    `           - "8087:80"` `       healthcheck:` `           interval: 5s` `           timeout:
+    1s` `           retries: 2` `           start_period: 5s` `       networks:` `            -
+    app-net`'
+- en: 'You have fine-grained control over the health check. I’m using the actual health
+    check command defined in the Docker image but using custom settings for how it
+    runs:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以对健康检查有细粒度的控制。我正在使用Docker镜像中定义的实际健康检查命令，但使用自定义设置来运行它：
+- en: '`interval` is the time between checks--in this case five seconds.'
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`interval`是检查之间的时间间隔——在这种情况下是五秒。'
+- en: '`timeout` is how long the check should be allowed to run before it’s considered
+    a failure.'
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`timeout`是在检查被认为失败之前允许其运行的时间。'
+- en: '`retries` is the number of consecutive failures allowed before the container
+    is flagged as unhealthy.'
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`retries`是在容器被标记为不健康之前允许连续失败的次数。'
+- en: '`start_period` is the amount of time to wait before triggering the health check,
+    which lets you give your app some startup time before health checks run.'
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`start_period`是在触发健康检查之前需要等待的时间，这让你可以在健康检查运行之前给你的应用程序一些启动时间。'
+- en: These settings will probably be different for each app and each environment--there’s
+    a balance between finding out quickly that your app has failed and allowing for
+    temporary faults so you don’t trigger false alarms about unhealthy containers.
+    My setup for the API is quite aggressive; it costs CPU and memory to run health
+    checks, so in a production environment you’d likely run with a longer interval.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些设置可能因每个应用程序和每个环境而异——在快速发现应用程序失败和允许暂时性故障之间需要平衡，这样你就不必触发关于不健康容器的误报。我设置的API相当激进；运行健康检查会消耗CPU和内存，所以在生产环境中你可能会使用更长的间隔。
+- en: You can also add a health check in your Compose file for containers that don’t
+    have one declared in the image. Listing 8.6 shows the service for the web app
+    in the same Docker Compose file, and here I’m adding a health check for the service.
+    I’m specifying the same set of options I use for the API service, but there’s
+    also the `test` field, which gives Docker the health check command to run.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你也可以在你的 Compose 文件中为那些在镜像中没有声明的容器添加健康检查。列表 8.6 显示了同一 Docker Compose 文件中的 Web
+    应用服务，而我正在为该服务添加一个健康检查。我指定了与 API 服务相同的选项集，但还有一个 `test` 字段，它提供了 Docker 运行的健康检查命令。
+- en: Listing 8.6 Adding a health check in Docker Compose
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.6 在 Docker Compose 中添加健康检查
+- en: '`   numbers-web:` `       image: diamol/ch08-numbers-web:v3` `       restart:
+    on-failure` `       ports:` `           - "8088:80"` `       healthcheck:` `           test:
+    ["CMD", "dotnet", "Utilities.HttpCheck.dll", "-t", "150"]` `           interval:
+    5s` `           timeout: 1s` `           retries: 2` `           start_period:
+    10s` `       networks:` `            - app-net`'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`   numbers-web:` `       image: diamol/ch08-numbers-web:v3` `       restart:
+    on-failure` `       ports:` `           - "8088:80"` `       healthcheck:` `           test:
+    ["CMD", "dotnet", "Utilities.HttpCheck.dll", "-t", "150"]` `           interval:
+    5s` `           timeout: 1s` `           retries: 2` `           start_period:
+    10s` `       networks:` `            - app-net`'
+- en: It’s good to add a health check to all containers, but this example comes together
+    with the dependency check in the image and the `restart:` `on-failure` setting,
+    which means that if the container exits unexpectedly, Docker will restart it (there’s
+    one of the answers to the chapter 7 lab, if you haven’t done it yet). There’s
+    no `depends_on` setting, so Docker Compose could start the containers in any order.
+    If the web container starts before the API container is ready, the dependency
+    check will fail and the web container will exit. Meanwhile, the API container
+    will have started, so when the web app container is restarted, the dependency
+    check will succeed and the app will be fully functioning.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为所有容器添加健康检查是个好主意，但这个例子结合了镜像中的依赖检查和 `restart:` `on-failure` 设置，这意味着如果容器意外退出，Docker
+    将重新启动它（如果你还没有完成第 7 章的实验，这是其中一个答案）。没有 `depends_on` 设置，所以 Docker Compose 可以以任何顺序启动容器。如果
+    Web 容器在 API 容器准备好之前启动，依赖检查将失败，Web 容器将退出。同时，API 容器已经启动，所以当 Web 应用容器重新启动时，依赖检查将成功，应用将完全运行。
+- en: 'Try it now Clear your running containers and start the random-number app with
+    Docker Compose. List your containers to see if the web app did start first and
+    then restart:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 清除正在运行的容器，并使用 Docker Compose 启动随机数应用。列出容器以查看 Web 应用是否首先启动，然后重新启动：
+- en: '` # browse to the Compose file` ` cd ./ch08/exercises/numbers`  ` # clear down
+    existing containers` ` docker container rm -f $(docker container ls -aq)`  ` #
+    start the app` ` docker-compose up -d`  ` # wait five seconds or so and list the
+    containers` ` docker container ls`  ` # and check the web app logs` ` docker container
+    logs numbers_numbers-web_1`'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 浏览到 Compose 文件` ` cd ./ch08/exercises/numbers` ` # 清除现有容器` ` docker container
+    rm -f $(docker container ls -aq)` ` # 启动应用` ` docker-compose up -d` ` # 等待大约五秒钟，然后列出容器`
+    ` docker container ls` ` # 检查 Web 应用日志` ` docker container logs numbers_numbers-web_1`'
+- en: My output is in figure 8.9, and yours should be very similar. Compose creates
+    both containers at the same time, because no dependencies are specified. While
+    the API container is starting up--and before the app is ready to handle requests--the
+    web container’s dependency check runs. You can see in my logs that the HTTP check
+    returns a success code, but it takes 3176 ms, and the check is set to require
+    a response within 150 ms, so the check fails and the container exits. The web
+    service is configured to restart on failure, so that same container gets started
+    again. This time the API check gets a success status code in 115 ms, so the check
+    passes and the app is in a working state.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出在图 8.9 中，你的输出应该非常相似。Compose 同时创建了两个容器，因为没有指定依赖关系。当 API 容器启动时——在应用准备好处理请求之前——Web
+    容器的依赖检查会运行。你可以在我的日志中看到 HTTP 检查返回成功代码，但耗时 3176 毫秒，而检查被设置为要求在 150 毫秒内得到响应，所以检查失败，容器退出。Web
+    服务被配置为在失败时重启，所以相同的容器再次启动。这次 API 检查在 115 毫秒内得到成功状态代码，所以检查通过，应用处于工作状态。
+- en: '![](../Images/8-9.jpg)'
+  id: totrans-107
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-9.jpg)'
+- en: Figure 8.9 Docker Compose adds resilience--the web container is restarted after
+    its first check fails.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.9 Docker Compose 增强了容器的弹性——Web 容器在第一次检查失败后重新启动。
+- en: Browse to *http://localhost:8088* and you can finally get a random number through
+    the web app. At least, you can click the button three times and get a number--on
+    the fourth you’ll trigger the API bug, and you’ll just get errors after that.
+    Figure 8.10 shows one of the rare successes.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 浏览到 *http://localhost:8088*，您最终可以通过Web应用程序获取一个随机数。至少，您可以点击按钮三次并得到一个数字——在第四次点击时，您将触发API错误，之后您将只会收到错误。图8.10显示了其中一次罕见的成功。
+- en: '![](../Images/8-10.jpg)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-10.jpg)'
+- en: Figure 8.10 The app is finally working correctly, with health and dependency
+    checks in the containers.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.10 应用程序终于正常运行，容器中的健康和依赖性检查已完成。
+- en: You might ask, why bother building a dependency check into the container startup
+    when Docker Compose can do it for you with the `depends_on` flag? The answer is
+    that Compose can only manage dependencies on a single machine, and the startup
+    behavior of your app on a production cluster is far less predictable.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能会问，为什么要在容器启动时构建依赖性检查，当Docker Compose可以用`depends_on`标志为您完成这项工作时？答案是，Compose只能管理单台机器上的依赖项，而您的应用程序在生产集群上的启动行为远没有那么可预测。
+- en: 8.5 Understanding how checks power self-healing apps
+  id: totrans-113
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 8.5 理解检查如何为自愈应用程序提供动力
+- en: Building your app as a distributed system with lots of small components increases
+    your flexibility and agility, but it does make management more complicated. There
+    will be lots of dependencies between components, and it’s tempting to want to
+    declare the order in which components get started so you can model the dependencies.
+    But it’s really not a great idea to do that.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将您的应用程序构建为一个由许多小型组件组成的分布式系统可以增加您的灵活性和敏捷性，但这确实会使管理变得更加复杂。组件之间将有许多依赖关系，您可能会想声明组件启动的顺序，以便您可以模拟依赖关系。但这样做实际上并不是一个好主意。
+- en: On a single machine I can tell Docker Compose that my web container depends
+    on my API container, and it will start them in the correct order. In production
+    I could be running Kubernetes on a dozen servers, and I might need 20 API containers
+    and 50 web containers. If I model the startup order, will the container platform
+    start all 20 API containers first, before starting any web containers? What if
+    19 containers start just fine, but the twentieth container has a problem and takes
+    5 minutes to start? I have no web containers, so my app isn’t running, but all
+    50 web containers could be running and it would work fine with 1 API container
+    unavailable.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在单台机器上，我可以告诉Docker Compose我的Web容器依赖于我的API容器，并且它会按照正确的顺序启动它们。在生产环境中，我可能在几十台服务器上运行Kubernetes，我可能需要20个API容器和50个Web容器。如果我模拟启动顺序，容器平台会先启动所有20个API容器，然后再启动任何Web容器吗？如果前19个容器都能正常运行，但第20个容器有问题，需要5分钟才能启动怎么办？我没有Web容器，所以我的应用程序无法运行，但所有50个Web容器都在运行，即使有一个API容器不可用，它也能正常工作。
+- en: This is where dependency checks and health checks come in. You don’t require
+    the platform to guarantee the startup order--you let it spin up as many containers
+    on as many servers as quickly as it can. If some of those containers can’t reach
+    their dependencies, they fail quickly and get restarted or replaced with other
+    containers. It might take a few minutes of shuffling before a large app is running
+    at 100% service, but during those minutes the app will have been online and serving
+    users. Figure 8.11 shows an example of the life cycle of a container in a production
+    cluster.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是依赖性检查和健康检查发挥作用的地方。您不需要平台来保证启动顺序——您让它尽可能快地启动尽可能多的容器，分布在尽可能多的服务器上。如果其中一些容器无法访问其依赖项，它们会迅速失败并重新启动，或者被其他容器替换。在大型应用程序达到100%服务之前，可能需要几分钟的调整时间，但在这几分钟内，应用程序将一直在线并服务于用户。图8.11展示了生产集群中容器生命周期的一个示例。
+- en: '![](../Images/8-11.jpg)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/8-11.jpg)'
+- en: Figure 8.11 Self-healing applications in a production cluster--containers can
+    be restarted or replaced.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.11 生产集群中的自愈应用程序--容器可以被重新启动或替换。
+- en: The idea of self-healing apps is that any transient failures can be dealt with
+    by the platform. If your app has a nasty bug that causes it to run out of memory,
+    the platform will shut down the container and replace it with a new one that has
+    a fresh allocation of memory. It doesn’t fix the bug, but it keeps the app working
+    correctly.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自愈应用程序的想法是，平台可以处理任何瞬态故障。如果您的应用程序有一个导致其耗尽内存的严重错误，平台将关闭容器，并用一个具有新鲜内存分配的新容器替换它。它不会修复错误，但会保持应用程序的正常运行。
+- en: You do need to be careful with your checks though. Health checks run periodically,
+    so they shouldn’t do too much work. You need to find the balance so checks are
+    testing that key parts of your app are working without taking too long to run
+    or using too much compute resource. Dependency checks only run at startup, so
+    you don’t need to be too concerned about the resources they use, but you need
+    to be careful what you check. Some dependencies are out of your control, and if
+    the platform can’t fix things, it won’t be helpful if your containers fail.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然你需要对你的检查非常小心。健康检查会定期运行，因此它们不应该做太多工作。你需要找到平衡点，以便检查能够测试你的应用程序的关键部分是否正常工作，同时运行时间不要太长或使用太多的计算资源。依赖性检查仅在启动时运行，因此你不需要过于担心它们使用的资源，但你需要小心检查的内容。一些依赖性超出了你的控制范围，如果平台无法解决问题，那么如果你的容器失败，这也不会有帮助。
+- en: Working out the logic that goes in your checks is the hard part. Docker makes
+    it easy to capture those checks and execute them for you, and if you get them
+    right, your container platform will keep your app running for you.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确定检查中要使用的逻辑是难点。Docker使捕获这些检查并为你执行它们变得容易，如果你做对了，你的容器平台会为你保持应用程序的运行。
+- en: 8.6 Lab
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 8.6 实验室
+- en: 'Some applications use resources consistently, so that the initial dependency
+    check and the ongoing health check are testing the same thing. That’s the case
+    with this lab. It’s an app that simulates a memory hog--it just keeps allocating
+    and holding on to more memory as long as its running. It’s a Node.js app and it
+    needs some checks:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些应用程序会持续使用资源，因此初始的依赖性检查和持续的健康检查正在测试相同的内容。这个实验室就是这样。这是一个模拟内存消耗者的应用程序--只要它在运行，它就会不断分配并保留更多的内存。这是一个Node.js应用程序，它需要一些检查：
+- en: At startup it should check that there’s enough memory for it to work; if not,
+    it should exit.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在启动时，它应该检查是否有足够的内存来运行；如果没有，它应该退出。
+- en: During runtime it should check every 5 seconds to see if it has allocated more
+    memory than it is allowed; if it has, it needs to flag that it’s unhealthy.
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在运行时，它应该每5秒检查一次，看它是否分配了比允许的更多的内存；如果是，它需要标记它不健康。
+- en: The test logic is already written in the `memory-check.js` script. It just needs
+    to be wired into the Dockerfile.
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试逻辑已经编写在`memory-check.js`脚本中。它只需要被连接到Dockerfile中。
+- en: The scripts and the initial Dockerfile are in the source folder `ch08/lab` .
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 脚本和初始的Dockerfile位于源文件夹`ch08/lab`中。
+- en: Note The app doesn’t really allocate any memory. Memory management in containers
+    is complicated by different environments--Docker Desktop on Windows behaves differently
+    from Docker Community Edition on Linux. For this lab, the app just pretends to
+    use memory.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：应用程序实际上并没有分配任何内存。容器中的内存管理因不同环境而复杂化--Windows上的Docker Desktop与Linux上的Docker
+    Community Edition表现不同。对于这个实验室，应用程序只是假装使用内存。
+- en: 'This lab is pretty straightforward. I’ll just point out that Node.js apps are
+    not compiled, so you don’t need multiple stages. My sample is in the same directory,
+    called `Dockerfile.solution` , and you’ll find the write-up in the book’s GitHub
+    repository: *[https://github.com/sixeyed/diamol/blob/master/ch08/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch08/lab/README.md)*
+    .'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个实验室相当直接。我只想指出，Node.js应用程序不需要编译，因此你不需要多个阶段。我的示例在同一目录中，名为`Dockerfile.solution`，你可以在书籍的GitHub存储库中找到说明：*[https://github.com/sixeyed/diamol/blob/master/ch08/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch08/lab/README.md)*。

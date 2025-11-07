@@ -1,0 +1,1102 @@
+- en: 5 Resource management
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 5 资源管理
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: How Kubernetes allocates the resources in your cluster
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes如何在您的集群中分配资源
+- en: Configuring your workload to request just the resources it needs
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将工作负载配置为仅请求所需的资源
+- en: Overcommitting resources to improve your cost/performance ratio
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 过度承诺资源以提高您的成本/性能比
+- en: Balancing the Pod replica count with internal concurrency
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过内部并发平衡Pod副本数
+- en: Chapter 2 covered how containers are the new level of isolation, each with its
+    own resources, and chapter 3 discussed the schedulable unit in Kubernetes, a Pod
+    (which itself is a collection of containers). This chapter covers how Pods are
+    allocated to machines based on their resource requirements and the information
+    that you need to give the system so that your Pod will receive the resources that
+    it needs. Knowing how Pods are allocated to nodes helps you make better architectural
+    decisions around resource requests, bursting, overcommit, availability, and reliability.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二章介绍了容器是新的隔离级别，每个容器都有自己的资源，第三章讨论了Kubernetes中的可调度单元——Pod（它本身是一组容器的集合）。本章介绍了根据资源需求和您需要提供给系统的信息，如何将Pod分配到机器上，以便您的Pod能够获得所需的资源。了解Pod如何分配到节点有助于您在资源请求、爆发、过载、可用性和可靠性等方面做出更好的架构决策。
+- en: 5.1 Pod scheduling
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.1 Pod调度
+- en: The Kubernetes scheduler performs a resource-based allocation of Pods to nodes
+    and is really the brains of the whole system. When you submit your configuration
+    to Kubernetes (as we did in chapters 3 and 4), it’s the scheduler that does the
+    heavy lifting of finding a node in your cluster with enough resources and tasks
+    the node with booting and running the containers in your Pods (figure 5.1).
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes调度程序执行基于资源的Pod到节点的分配，实际上是整个系统的核心。当您将配置提交给Kubernetes（如我们在第3章和第4章中所做的那样），是调度程序负责找到集群中具有足够资源并负责启动和运行Pod中容器的节点（图5.1）。
+- en: '![05-01](../../OEBPS/Images/05-01.png)'
+  id: totrans-9
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-01](../../OEBPS/Images/05-01.png)'
+- en: Figure 5.1 In response to the user-applied configuration, the scheduler creates
+    Pod replicas on nodes.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.1 对用户应用的配置做出响应，调度程序在节点上创建Pod副本。
+- en: The scheduler and related components’ work doesn’t stop there. In the case of
+    the Deployment object (what we’ve been using in the book so far), it continuously
+    monitors the system with the goal of making the system state what you requested
+    it to be. In other words, if your Deployment requests two replicas of your Pod,
+    the scheduler doesn’t just create those replicas and then forget about them; it
+    will keep verifying that there are still two replicas running. If something happens
+    (e.g., a node disappeared due to some failure), it would attempt to find a new
+    place to schedule the Pod so that your desired state (in this case, two replicas)
+    is still met (figure 5.2).
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调度程序和相关组件的工作并不止于此。在部署对象（我们在本书中一直使用）的情况下，它持续监控系统，目标是使系统状态符合您的要求。换句话说，如果您的部署请求两个Pod副本，调度程序不仅会创建这些副本然后忘记它们；它还会持续验证是否仍然有两个副本在运行。如果发生某些情况（例如，由于某些故障，节点消失），它会尝试在新的位置调度Pod，以确保您的期望状态（在这种情况下，两个副本）仍然得到满足（图5.2）。
+- en: '![05-02](../../OEBPS/Images/05-02.png)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-02](../../OEBPS/Images/05-02.png)'
+- en: Figure 5.2 If one of the nodes develops a problem, health checks from the Kubernetes
+    control plane fail. So, the scheduler creates a new Pod replica on a healthy node.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.2 如果其中一个节点出现问题，Kubernetes控制平面的健康检查失败。因此，调度程序在健康节点上创建一个新的Pod副本。
+- en: The re-creation of Pods due to node failures by the scheduler is a separate
+    behavior from the Pod restarts we covered in the last chapter. Pod restarts due
+    to liveness or readiness failures are handled locally on the node by the kubelet,
+    whereas the scheduler is responsible for monitoring the health of the nodes and
+    reallocating Pods when problems are detected.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于节点故障而由调度程序重新创建Pod的行为与我们在上一章中讨论的Pod重启是不同的。由于存活性或就绪性失败而导致的Pod重启由kubelet在节点上本地处理，而调度程序负责监控节点的健康状态，并在检测到问题时重新分配Pod。
+- en: Since each node in the cluster is constrained by the available resources and
+    Pods themselves may have different resource requirements, an important responsibility
+    of the scheduler is finding enough room to run your Pods (figure 5.3). It considers
+    multiple scheduling dimensions when deciding where to place the containers of
+    your Pod in the cluster, both the first time they’re deployed and in response
+    to disruption, like the one illustrated in figure 5.2.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于集群中的每个节点都受可用资源的限制，并且Pod本身可能具有不同的资源需求，因此调度器的一个重要职责是找到足够的空间来运行您的Pod（图5.3）。在决定将您的Pod的容器放置在集群中的位置时，它考虑了多个调度维度，无论是首次部署还是响应中断，如图5.2所示。
+- en: '![05-03](../../OEBPS/Images/05-03.png)'
+  id: totrans-16
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-03](../../OEBPS/Images/05-03.png)'
+- en: Figure 5.3 Five containers allocated on two nodes based on their resource needs
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.3 根据资源需求在两个节点上分配了五个容器
+- en: 'The scheduler has the task of finding the right place in your cluster to fit
+    the Pod, based on its resource requirements and (as we’ll cover in chapter 8)
+    any other placement requirements. Any Pods that can’t be placed in the cluster
+    will have the status `Pending` (see the advice titled “Troubleshooting: Stuck
+    in Pending” in chapter 3 if you have Pods that remain in this status for too long).'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调度器的任务是找到集群中合适的位置来放置Pod，基于其资源需求和（我们将在第8章中介绍）任何其他放置要求。任何无法在集群中放置的Pod将具有`Pending`状态（如果您有Pod长时间保持此状态，请参阅第3章中标题为“故障排除：卡在挂起状态”的建议）。
+- en: 5.1.1 Specifying Pod resources
+  id: totrans-19
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.1 指定Pod资源
+- en: You give the scheduler the information it needs to make scheduling decisions
+    by specifying the resource requests in your Deployment manifest (and other workload
+    types that have an embedded Pod specification). So far, the examples in this book
+    have not specified their resource requirements, but for production-grade deployments,
+    this information needs to be added. A Pod that needs 20% of the time for one CPU
+    core and 200MiB of memory would be specified as in the following listing.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您通过在Deployment清单中指定资源请求来向调度器提供它做出调度决策所需的信息（以及具有嵌入式Pod规范的其他工作负载类型）。到目前为止，本书中的示例尚未指定其资源需求，但对于生产级部署，需要添加这些信息。一个需要20%的CPU核心时间和200MiB内存的Pod将按照以下列表进行指定。
+- en: Listing 5.1 Chapter05/5.1.1_PodResources/deploy_requests.yaml
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.1 第05章/5.1.1_PodResources/deploy_requests.yaml
+- en: '[PRE0]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ The resource requests of this container
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 此容器的资源请求
+- en: The `200m` in the example here represents 200 millicores—that is, 20% of one
+    core. You can also use floating-point numbers (e.g., `0.2`); however, it’s very
+    common among Kubernetes practitioners to use millicores. The `Mi` suffix for memory
+    indicates mebibytes (MiB), and `Gi` indicates gibibyte (powers of 1,024). `M`
+    and `G` indicate megabyte and gigabyte (powers of 1,000).
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里示例中的`200m`代表200毫核——即一个核心的20%。您也可以使用浮点数（例如，`0.2`）；然而，在Kubernetes实践中，使用毫核是非常常见的。内存的`Mi`后缀表示米贝（MiB），而`Gi`表示吉贝（1,024的幂）。`M`和`G`表示兆字节和吉字节（1,000的幂）。
+- en: Specifying resources is important as it gives Kubernetes the information it
+    needs to match the Pod requirements to the node capacity. Not specifying resources
+    on some Pods will mean that they get placed somewhat randomly on nodes. Compare
+    the side-by-side in figure 5.4\. On the left, we have five Pods that have been
+    placed on two nodes based on their requirements, while on the right three of the
+    Pods have no resources specified so are just thrown on the same node as the other
+    Pods. Notice how half the node resources have been allocated for the same 5 Pods
+    when resources were not specified. The risk here is that the Pods with no resource
+    specification could get starved of resources, or evicted if they use more memory
+    than available on the node.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指定资源很重要，因为它为Kubernetes提供了将Pod需求与节点容量匹配所需的信息。某些Pod未指定资源意味着它们将被随机放置在节点上。比较图5.4中的并排图。在左侧，我们有五个Pod根据其需求被放置在两个节点上，而在右侧，有三个Pod没有指定资源，所以它们只是被扔在与其他Pod相同的节点上。注意，当未指定资源时，节点资源的一半被分配给了相同的5个Pod。这里的风险是，未指定资源规格的Pod可能会资源不足，或者如果它们使用的内存超过节点上的可用内存，可能会被驱逐。
+- en: '![05-04](../../OEBPS/Images/05-04.png)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-04](../../OEBPS/Images/05-04.png)'
+- en: Figure 5.4 Comparison of Pod allocation when all Pods have resource requests
+    and when only some do. Pods without resource requests share the spare capacity
+    on a best-effort basis, without regard to their actual needs.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.4 比较了所有Pod都有资源请求和只有一些Pod有资源请求时的Pod分配情况。没有资源请求的Pod将根据最佳努力原则共享剩余容量，不考虑它们的实际需求。
+- en: Kubernetes’ Pod placement may sound fairly simple so far—we’re just pairing
+    the requests with the resources. It would, in fact, be simple if not for the ability
+    to *burst*—that is, consume more resources than requested. Much of the time, a
+    process may not need all the resources it asks for. Wouldn’t it be good if the
+    other Pods on the node could use that capacity on a temporary basis? That’s exactly
+    what Kubernetes offers, and it’s configured with *limits*. A Pod (like the one
+    in the following listing) declares the resources they request, which are used
+    for scheduling, and sets limits, which constrain the resources used once the Pod
+    is scheduled and running.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，Kubernetes的Pod放置可能听起来相当简单——我们只是在请求与资源之间进行配对。如果考虑到*突发的*能力——即消耗比请求更多的资源，这实际上会变得简单。很多时候，一个进程可能不需要它请求的所有资源。如果节点上的其他Pod可以在临时基础上使用这部分容量，那不是很好吗？这正是Kubernetes所提供的，并且它通过*限制*进行配置。一个Pod（如下面的列表所示）声明了它们请求的资源，这些资源用于调度，并设置了限制，这些限制在Pod被调度和运行后约束了使用的资源。
+- en: Listing 5.2 Chapter05/5.1.1_PodResources/deploy_requests_limits.yaml
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.2 第05章/5.1.1_PodResources/deploy_requests_limits.yaml
+- en: '[PRE1]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ The resource limits of this container. The container can use up to 30% of
+    a CPU core and 400 MiB memory.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 该容器的资源限制。容器可以使用高达CPU核心的30%和400 MiB的内存。
+- en: When placing Pods on nodes, the scheduler only takes into account the Pod’s
+    resource requests (the limit isn’t factored at all when scheduling). Both requests
+    and limits, however, have an impact on the performance of running Pods.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在节点上放置Pod时，调度器只考虑Pod的资源请求（在调度时根本不考虑限制）。然而，请求和限制都会对运行Pod的性能产生影响。
+- en: Once running, a Pod that exceeds its memory *limit* will be restarted, and one
+    that exceeds its CPU limit will be throttled. These actions are handled directly
+    on the node, governed by the kubelet.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦运行，超出其内存*限制*的Pod将被重启，而超出其CPU限制的Pod将被限制。这些操作直接在节点上由kubelet处理。
+- en: In times of resource contention, Pods that exceed their memory *request* may
+    be evicted (see section 5.1.3 for how Pods are chosen for eviction), and those
+    exceeding their CPU requests throttled to the requested CPU.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在资源争用的情况下，超出其内存请求的Pod可能会被驱逐（有关如何选择驱逐Pod的详细信息，请参阅5.1.3节），而超出其CPU请求的Pod将被限制在请求的CPU上。
+- en: Since these values play such an important role in how the Pod is scheduled and
+    run, it is best practice to have both requests and limits set for the containers
+    in your Pods. But how do you determine what to set them at? Read on to understand
+    how the requests and limits interact to form a quality of service (QoS) class
+    and how you can measure your application’s performance to determine what values
+    to set.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这些值在Pod的调度和运行中起着如此重要的作用，因此对于Pod中的容器设置请求和限制是最佳实践。但您如何确定设置它们的值呢？请继续阅读，了解请求和限制如何相互作用以形成服务质量（QoS）类，以及您如何测量应用程序的性能以确定要设置的值。
+- en: 5.1.2 Quality of service
+  id: totrans-36
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.2 服务质量
+- en: 'Having limits higher than requests, or not set at all, introduces a new problem:
+    what should you do when these Pods consume too many resources (most commonly,
+    too much memory), and they need to be evicted to reclaim the resource? To solve
+    this, Kubernetes ranks Pods to choose which to remove first.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当请求高于限制，或者根本未设置时，会引入一个新的问题：当这些Pod消耗了过多的资源（最常见的是过多的内存），并且需要被驱逐以回收资源时，您应该怎么做？为了解决这个问题，Kubernetes会对Pod进行排序，以确定先移除哪个。
+- en: 'When planning your workloads, consider the qualify of service that they require.
+    Kubernetes offers three quality of service levels: guaranteed, burstable, and
+    best effort.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在规划您的工作负载时，请考虑它们所需的服务质量。Kubernetes提供了三个服务质量级别：保证的、可突发的和尽力而为的。
+- en: Guaranteed class
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保证类
+- en: In guaranteed class Pods, the limits are set equal to the requests. This configuration
+    is the most stable as the Pod is guaranteed the resources it requested—no more,
+    no less. If your Pod has multiple containers, they all must meet this requirement
+    for the Pod to be considered guaranteed.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在保证类Pod中，限制被设置为等于请求。这种配置是最稳定的，因为Pod保证获得它请求的资源——不多也不少。如果您的Pod有多个容器，它们都必须满足这一要求，Pod才能被认为是保证的。
+- en: Guaranteed class Pods will always have the same resources available under varying
+    conditions, and they won’t be evicted from the node as it’s not possible for them
+    to use more resources than they were scheduled for.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保证类Pod将在不同条件下始终有相同数量的资源可用，并且它们不会被从节点上驱逐，因为它们不可能使用比已安排的更多资源。
+- en: Burstable class
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可突发现类
+- en: Burstable class Pods have limits set higher than requests and can “burst” temporarily,
+    provided resources are available (i.e., from other Pods that are not using all
+    of their requests or unallocated space on the node). You need to be careful with
+    these Pods as there can be some unforeseen consequences, such as accidentally
+    relying on the bursting. Say a Pod lands on an empty node and can burst to its
+    heart’s content. Then, sometime later, it gets rescheduled onto another node with
+    less resources; the performance will now be different. So, it’s important to test
+    burstable Pods in a variety of conditions. A Pod with multiple containers is considered
+    burstable if it doesn’t meet the criteria for guaranteed class and if any of the
+    containers has a request set. These Pods are safe from eviction unless they exceed
+    their requests of a noncompressible resource like memory.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可扩展类Pod的限制设置高于请求，并且可以在资源可用的情况下“突发”临时增加（例如，来自其他未使用所有请求或节点上未分配空间的Pod）。您需要小心处理这些Pod，因为可能会有一些不可预见的结果，例如意外依赖突发。比如说，一个Pod落在空节点上，可以尽情地突发。然后，在稍后的某个时候，它被重新调度到资源较少的另一个节点上；性能现在将不同。因此，在多种条件下测试可扩展Pod非常重要。如果一个Pod有多个容器，并且它不符合保证类的标准，且其中任何一个容器设置了请求，则该Pod被认为是可扩展的。除非它们超过了一个不可压缩资源（如内存）的请求，否则这些Pod不会因驱逐而受到威胁。
+- en: Best effort
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽力而为
+- en: Pods without any requests or limits set are considered “best effort” and are
+    scheduled wherever Kubernetes wishes. This setup is the lowest of the classes,
+    and I strongly recommend against using this pattern. You can achieve a similar
+    result with the burstable class by setting very low requests, and that is more
+    explicit than just closing your eyes and hoping for the best.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有设置任何请求或限制的Pod被认为是“尽力而为”的，并且会被调度到Kubernetes希望的地方。这种设置是所有类别中最低的，我强烈建议不要使用这种模式。您可以通过设置非常低的请求来实现类似的结果，这比闭着眼睛希望结果最好要明确得多。
+- en: When thinking about the stability of your Pods, it’s always best to at least
+    set the resource requests to a value high enough to give them resources to run
+    and avoid not setting any resource requests at all. High-priority, critical workloads
+    should always have limits set to their requests for guaranteed performance. These
+    Pods are the first to be evicted from a node in times of resource contention.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当考虑Pod的稳定性时，至少将资源请求设置为足够高的值，以便为它们提供运行资源，并避免完全不设置任何资源请求。对于高优先级、关键工作负载，应始终将限制设置为请求，以确保保证性能。这些Pod在资源竞争时是第一个被从节点驱逐的。
+- en: 5.1.3 Evictions, priority, and preemption
+  id: totrans-47
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.3 驱逐、优先级和抢占
+- en: In times of resource contention of finite resources like memory (e.g., too many
+    Pods trying to burst memory usage at once), Kubernetes will reclaim resources
+    by removing Pods that are using resources beyond their requested allocation through
+    a process known as *evicting*. Thus, it’s very important to have a Pod’s resources
+    adequately specified. Evicted Pods that belong to a manged workload construct
+    like Deployment will be rescheduled on the cluster, typically on another node.
+    If your Pod is evicted too frequently though, it may reduce the availability of
+    the workload and is a sign you should increase the resource requests.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在资源有限（如内存）的竞争情况下（例如，太多Pod同时尝试增加内存使用），Kubernetes将通过一种称为*驱逐*的过程，通过移除使用超出其请求分配的资源（Pod）来回收资源。因此，确保Pod资源得到充分指定非常重要。属于管理型工作负载结构（如Deployment）的驱逐Pod将在集群中重新调度，通常是在另一个节点上。但是，如果您的Pod被频繁驱逐，可能会降低工作负载的可用性，这也是您应该增加资源请求的信号。
+- en: Eviction
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 驱逐
+- en: Guaranteed class Pods are never evicted in times of resource contention, so
+    for a bulletproof deployment, always set your Pods’ limits equal to their requests
+    to define them as guaranteed. The rest of this section discusses how the nonguaranteed
+    Pods are ranked when considering eviction and how you can influence the ordering.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保证类Pod在资源竞争时永远不会被驱逐，因此为了实现坚不可摧的部署，始终将Pod的限制设置为与其请求相等，以将它们定义为保证类。本节其余部分将讨论在考虑驱逐时非保证类Pod的排名方式以及如何影响排序。
+- en: When looking for Pods to evict, Kubernetes first considers those Pods that are
+    using more resources than their requests and sorts them by their priority number
+    and then by how many more resources (of the resource in contention) the Pod is
+    using beyond what it requested. Since best effort QoS class Pods have no resource
+    requests, they will be the first evicted (starting with the ones using the most
+    resources). By default, all Pods of the same priority number (`0`) and for Pods
+    of the same priority, the amount of usage above requests is what’s used to rank
+    them, as shown in figure 5.5.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在寻找要驱逐的Pod时，Kubernetes首先考虑那些使用比其请求量更多资源的Pod，并按其优先级数字排序，然后按Pod使用的额外资源（竞争资源）量排序。由于最佳努力QoS类Pod没有资源请求，它们将是首先被驱逐的（从使用最多资源的Pod开始）。默认情况下，具有相同优先级数字（`0`）的所有Pod以及具有相同优先级的Pod，其使用量超过请求量的多少将用于对它们进行排名，如图5.5所示。
+- en: '![05-05](../../OEBPS/Images/05-05.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-05](../../OEBPS/Images/05-05.png)'
+- en: Figure 5.5 Eviction order for Pods of equal priority
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.5具有相同优先级的Pod的驱逐顺序
+- en: Evicted error status
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 被驱逐的错误状态
+- en: If you query your Pods and you see a status of `Evicted`, it indicates that
+    the scheduler evicted a Pod because it was using more resources than it requested.
+    This may be acceptable if it happens occasionally, but if you are seeing frequent
+    evictions, increase the resources requested by your containers and review whether
+    you need to add more compute capacity to your cluster.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您查询您的Pod并看到`Evicted`状态，这表明调度器驱逐了一个Pod，因为它使用了比请求量更多的资源。如果这种情况偶尔发生，这可能是可以接受的，但如果您看到频繁的驱逐，请增加您容器请求的资源量，并检查您是否需要向您的集群添加更多计算能力。
+- en: Priority
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优先级
+- en: Priority is just an integer number (between `0` and `1,000,000,000`) that you
+    can assign to Pods via a priority class to change the ranking. Figure 5.6 shows
+    the eviction order when priority numbers are assigned to the Pods from figure
+    5.5\. As you can see, the eviction is first sorted by the priority and then how
+    much the usage is above requests. Pods that are not using more than their requests
+    are not at risk of eviction, regardless of priority.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优先级只是一个整数（介于`0`和`1,000,000,000`之间），您可以通过优先级类将其分配给Pod以改变其排名。图5.6显示了将优先级数字分配给Pods的驱逐顺序，如图5.5所示。如您所见，驱逐首先按优先级排序，然后按使用量超过请求量的多少排序。那些未使用超过其请求量的Pod不会面临驱逐风险，无论其优先级如何。
+- en: '![05-06](../../OEBPS/Images/05-06.png)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-06](../../OEBPS/Images/05-06.png)'
+- en: Figure 5.6 Eviction order of Pods with multiple priority values
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.6具有多个优先级值的Pod的驱逐顺序
+- en: To create your own priority level, you need to first create a PriorityClass
+    object.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建自己的优先级级别，您首先需要创建一个PriorityClass对象。
+- en: Listing 5.3 Chapter05/5.1.3_Priority/priorityclass.yaml
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.3 第05章/5.1.3_优先级/priorityclass.yaml
+- en: '[PRE2]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ The priority integer
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 优先级整数
+- en: ❷ This priority class won’t cause eviction of lower priority Pods if there is
+    no available capacity in the cluster.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果集群中没有可用容量，则此优先级类不会导致低优先级Pod被驱逐。
+- en: ❸ Whether this priority class should be the default
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 是否应将此优先级类设置为默认值
+- en: Then assign the PriorityClass object to a Pod.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后将PriorityClass对象分配给一个Pod。
+- en: Listing 5.4 Chapter05/5.1.3_Priority/deploy.yaml
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.4 第05章/5.1.3_优先级/deploy.yaml
+- en: '[PRE3]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ The priority class to use for this Deployment
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为此部署使用的优先级类
+- en: The priority number is also used during scheduling. If you have many Pods waiting
+    to be scheduled, the scheduler will schedule the highest-priority Pod first. Using
+    priority to govern the scheduling order is particularly useful for ranking which
+    batch jobs should execute first (batch jobs are covered in chapter 10).
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优先级数字在调度期间也被使用。如果您有很多Pod等待调度，调度器将首先调度优先级最高的Pod。使用优先级来控制调度顺序对于确定哪些批处理作业应该首先执行特别有用（批处理作业在第10章中介绍）。
+- en: Preemption
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预占
+- en: When used by itself, priority is useful to rank workloads so that more important
+    workloads are scheduled first and evicted last. There can be a situation, however,
+    where the cluster does not have enough resources for a period of time, and high-priority
+    Pods are left stuck in `Pending` while low-priority ones are already running.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当单独使用时，优先级有助于对工作负载进行排序，以便更重要的工作负载首先被调度，最后被驱逐。然而，可能存在一种情况，即集群在一段时间内没有足够的资源，高优先级Pod被留在`Pending`状态，而低优先级Pod已经运行。
+- en: If you’d rather have higher-priority workloads proactively bump lower-priority
+    ones rather than waiting for capacity to free up, you can add preemption behavior
+    by changing the `preemptionPolicy` field in your `PriorityClass` as shown in the
+    following listing.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望高优先级工作负载主动提升低优先级工作负载，而不是等待容量释放，您可以通过更改`PriorityClass`中的`preemptionPolicy`字段来添加抢占行为，如下面的列表所示。
+- en: Listing 5.5 Chapter05/5.1.3_Priority/priorityclass-preemption.yaml
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.5 Chapter05/5.1.3_Priority/priorityclass-preemption.yaml
+- en: '[PRE4]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ This priority class will cause eviction of lower priority Pods if there is
+    no available capacity in the cluster.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果集群中没有可用容量，此优先级类将导致低优先级Pod被驱逐。
+- en: Fortunately, Kubernetes does not forget about Pods removed from the node due
+    to eviction or preemption provided they belong to a Deployment or other managed
+    workload type. These Pods are returned to the `Pending` state and will be rescheduled
+    on the cluster when there is enough capacity. This is another important reason
+    why you should always use a workload construct like Deployment, as standalone
+    Pods evicted in this way will not be rescheduled.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，Kubernetes不会忘记由于驱逐或抢占而被从节点移除的Pod，只要这些Pod属于部署或其他受管理的工作负载类型。这些Pod将被返回到`Pending`状态，并在集群有足够容量时重新调度。这也是您始终应使用类似Deployment这样的工作负载结构的重要原因之一，因为以这种方式驱逐的独立Pod将不会被重新调度。
+- en: When to use priority and preemption
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 何时使用优先级和抢占
+- en: Priority and preemption are useful Kubernetes features and are important to
+    understand due to their effect on eviction and scheduling. Before spending too
+    much time configuring all your Deployments with a priority, I would prioritize
+    ensuring that your Pod requests and limits are appropriate, as that is the most
+    important configuration.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优先级和抢占是Kubernetes的有用功能，由于它们对驱逐和调度的影响，因此理解它们非常重要。在花费太多时间配置所有部署的优先级之前，我建议您优先确保您的Pod请求和限制是适当的，因为这是最重要的配置。
+- en: Priority and preemption really come into play when you’re juggling many deployments
+    and looking to save money by squeezing every ounce of compute out of your cluster
+    by overcommitting, which requires that you have a way to signal the relative importance
+    of your Pods to resolve the resource contention. I wouldn’t recommend starting
+    with this design, as you’re just adding complexity. The simpler way to get started
+    is to allocate enough resources to schedule all your workloads amply and fine-tune
+    things later to squeeze some more efficiency out of your cluster. Once again,
+    the simplest way to guarantee the performance of your critical services is to
+    set the resource requests appropriately and have enough nodes in your cluster
+    for them all to be scheduled.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您在处理多个部署并试图通过过度提交来节省资金，即通过从集群中榨取每一滴计算能力时，优先级和抢占才能真正发挥作用，这需要您有一种方式来表示Pod的相对重要性以解决资源争用。我不建议从这个设计开始，因为您只是在增加复杂性。更简单的方法是分配足够的资源来充分调度所有工作负载，然后在以后进行微调以从集群中挤出更多效率。再次强调，确保您的关键服务性能的最简单方法是适当地设置资源请求，并在您的集群中拥有足够的节点以便它们都能被调度。
+- en: 5.2 Calculating Pod resources
+  id: totrans-81
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.2 计算Pod资源
+- en: In the previous section, we discussed why it’s important to set appropriate
+    resource requests and limits for Pods for the most reliable operational experience.
+    But how do you determine what the best values are? The key is to run and observe
+    your Pods.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中，我们讨论了为什么对于获得最可靠的运行体验来说，为Pod设置适当的资源请求和限制很重要。但您如何确定最佳值呢？关键在于运行并观察您的Pod。
+- en: Kubernetes ships with a resource usage monitoring tool out of the box, `kubectl`
+    `top`. You can use it to view the resources used by Pods and nodes. We’ll be focusing
+    on Pods as that’s what we need to know to set the right resource request.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes自带了一个资源使用监控工具`kubectl top`，您可以使用它来查看Pod和节点使用的资源。我们将重点关注Pod，因为这是我们设置正确资源请求所需了解的内容。
+- en: First, deploy your Pod with an excessively high resource request. This Pod may
+    already be deployed in production—after all, it’s generally OK for performance
+    (although not always for budget) to overestimate your resources needed. The goal
+    of this exercise is to start high, observe the Pod’s actual usage, and then pair
+    the requests back to provision the right resources and avoid waste.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，部署一个资源请求过高的Pod。这个Pod可能已经在生产中部署了——毕竟，对于性能来说，通常可以高估所需的资源（尽管对于预算来说并不总是这样）。这个练习的目标是先从高开始，观察Pod的实际使用情况，然后将请求配对以提供正确的资源并避免浪费。
+- en: Until you have a good feel for how many resources the Pod needs, it may be best
+    to leave the limits unset (allowing it to use all the spare resources on the node).
+    This doesn’t completely solve the need to set *some* resource requests, as you
+    would prefer to be allocated dedicated capacity above what you need at first.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你充分了解 Pod 需要多少资源之前，最好保持限制未设置（允许它使用节点上的所有空闲资源）。这并不能完全解决设置*一些*资源请求的需求，因为你更希望一开始就分配比所需更多的专用容量。
+- en: Listing 5.6 Chapter05/5.2_ResourceUsageTest/deploy.yaml
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.6 Chapter05/5.2_ResourceUsageTest/deploy.yaml
+- en: '[PRE5]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Replicas set to 1 for the load test
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将副本设置为 1 进行负载测试
+- en: ❷ The Pod under test. Resource limits are not set so we can analyze usage.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 正在测试的 Pod。未设置资源限制，因此我们可以分析使用情况。
+- en: Run `kubectl` `top` `pods` (you may need to wait a minute or two for the data
+    to be available) and note the startup resource usage, particularly memory. It’s
+    useful to have a snapshot of what resources the Pod needs to boot, as this amount
+    is the lower bound if you choose to use burstable QoS.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行 `kubectl top pods`（你可能需要等待一分钟左右数据可用），并注意启动资源使用情况，特别是内存。了解 Pod 启动所需的资源量是有用的，因为这将是如果你选择使用可弹性的
+    QoS 的下限。
+- en: NOTE If you’re using Minikube and get an error like `error:` `Metrics` `API`
+    `not` `available`, you can enable metrics with `minikube` `addons` `enable` `metrics-server`.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 备注：如果你使用 Minikube 并且收到类似 `error:` `Metrics` `API` `not` `available` 的错误，你可以使用
+    `minikube addons enable metrics-server` 启用指标。
+- en: 'Now, direct enough load at the Pod to simulate real-world usage. Performance
+    tools like Apache Bench (installed with Apache[¹](#pgfId-1084889)) can help here.
+    An example Apache Bench command that will generate 10,000 requests total using
+    20 threads follows. You typically want to run this test for a while (say, 5 minutes)
+    to make it simpler to observe the high-water mark:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，直接向 Pod 施加足够的负载以模拟真实世界的使用。性能工具如 Apache Bench（与 Apache[¹](#pgfId-1084889)
+    一起安装）在这里很有帮助。以下是一个 Apache Bench 命令示例，它将使用 20 个线程生成总共 10,000 个请求。你通常想运行这个测试一段时间（比如
+    5 分钟），以便更容易观察峰值：
+- en: '[PRE6]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: You can also observe a Pod receiving a normal production load. Since you don’t
+    want to overly constrain a Pod in production until you know what resources it
+    needs, you should start by overestimating the resource requests, and then measuring
+    the actual usage. Once you have a good measure of the actual needs, you can later
+    tune the requests and right-size.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还可以观察一个 Pod 接收正常的生产负载。由于你不想在生产环境中过度限制 Pod 直到你知道它需要多少资源，你应该先高估资源请求，然后测量实际使用情况。一旦你有了对实际需求的良好衡量，你可以在以后调整请求并适当调整。
+- en: 'With your Pod under load, run `kubectl` `top` `pods` again (remembering that
+    it can take a minute or two to reflect the latest values, so keep your load simulation
+    running). The output will look something like:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的 Pod 下加负载时，再次运行 `kubectl top pods`（记住，可能需要一分钟左右的时间来反映最新值，所以保持你的负载模拟运行）。输出将类似于：
+- en: '[PRE7]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Once your testing is complete for your own Pod, you should have values like
+    those shown in table 5.1 (the data in this table is purely an example).
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你对自己的 Pod 完成测试，你应该有像表 5.1 中显示的值（此表中的数据纯粹是示例）。
+- en: Table 5.1 Memory and CPU usage from startup and under load
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 5.1 启动和负载下的内存和 CPU 使用情况
+- en: '|  | CPU (cores) | Memory (bytes) |'
+  id: totrans-99
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | CPU (核心) | 内存 (字节) |'
+- en: '| Startup | 20m | 200Mi |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| 启动 | 20m | 200Mi |'
+- en: '| Under normal Load | 200m | 400Mi |'
+  id: totrans-101
+  prefs: []
+  type: TYPE_TB
+  zh: '| 正常负载下 | 200m | 400Mi |'
+- en: It may be useful to repeat this process a couple more times and get values for
+    your Pod under different loads (e.g., low, normal, and high traffic) and timeframes.
+    Multiple timeframes (e.g., directly after boot, 1 hour after boot, 1 day after
+    boot) are useful to account for potential growth in usage (e.g., memory leaks).
+    So, you might end up with something like what’s in table 5.2.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可能需要重复这个过程几次，并获取你的 Pod 在不同负载（例如，低、正常和高流量）和时间框架下的值。多个时间框架（例如，启动后直接、启动后 1 小时、启动后
+    1 天）有助于考虑使用量的潜在增长（例如，内存泄漏）。因此，你可能会得到像表 5.2 中那样的结果。
+- en: Table 5.2 Memory and CPU usage after testing
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 5.2 测试后的内存和 CPU 使用情况
+- en: '|  | CPU (cores) | Memory (bytes) |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | CPU (核心) | 内存 (字节) |'
+- en: '| Startup | 20m | 400Mi |'
+  id: totrans-105
+  prefs: []
+  type: TYPE_TB
+  zh: '| 启动 | 20m | 400Mi |'
+- en: '| Under normal load | 200m | 500Mi |'
+  id: totrans-106
+  prefs: []
+  type: TYPE_TB
+  zh: '| 正常负载下 | 200m | 500Mi |'
+- en: '| Under high load | 850m | 503Mi |'
+  id: totrans-107
+  prefs: []
+  type: TYPE_TB
+  zh: '| 高负载下 | 850m | 503Mi |'
+- en: '| After 1 hour | 210m | 505Mi |'
+  id: totrans-108
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 小时后 | 210m | 505Mi |'
+- en: '| After 1 day | 200m | 600Mi |'
+  id: totrans-109
+  prefs: []
+  type: TYPE_TB
+  zh: '| 1 天后 | 200m | 600Mi |'
+- en: 5.2.1 Setting memory requests and limits
+  id: totrans-110
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.1 设置内存请求和限制
+- en: 'With this data in hand, how should you set your resource requests? For starters,
+    you now have an absolute lower bound for your memory: 400 MiB. Since you’re only
+    guaranteed to get your resource request and you know your Pod uses 400 MiB under
+    load, setting it any lower will likely cause your Pod to be OOMKilled (terminated
+    for being out of memory). You may not see it right away if you have a higher resource
+    limit set, but you don’t want to rely on spare capacity when you know you’ll need
+    it.'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拥有这些数据在手，你应该如何设置你的资源请求？首先，你现在有一个绝对的下限：400 MiB。由于你只能保证获得你的资源请求，并且你知道你的 Pod 在负载下使用
+    400 MiB，将这个值设置得更低很可能会导致你的 Pod 被OOMKilled（因内存不足而被终止）。如果你设置了更高的资源限制，你可能不会立即看到它，但当你知道你需要它时，你不想依赖额外的容量。
+- en: Does that make 400 MiB the right request? Probably not. First, you definitely
+    want to have a buffer, say 10%. Also, you can see that after an hour, 505 MiB
+    was used, so this might be a better starting lower bound (before accounting for
+    the buffer). Does it need to be 600 MiB, though? We saw that, after a day, the
+    Pod needed that much, possibly due to a leak somewhere. This answer depends. You
+    certainly could set this higher limit, and then you could have some confidence
+    that your Pod could run for a day. However, thanks to Kubernetes’ automatic restarting
+    of crashed containers, having the system reboot a leaky process after a day to
+    reclaim memory may be OK, or even desirable.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使 400 MiB 成为正确的请求吗？可能不是。首先，你肯定想要有一个缓冲区，比如 10%。此外，你可以看到一小时后，使用了 505 MiB，所以这可能是更好的起始下限（在考虑缓冲区之前）。但是，它需要是
+    600 MiB 吗？我们看到，一天后，Pod 需要这么多，可能是由于某个地方的泄漏。这个答案取决于具体情况。你当然可以设置这个更高的限制，然后你可以有信心你的
+    Pod 可以运行一天。然而，由于 Kubernetes 会自动重启崩溃的容器（包括由于系统因内存不足而移除它们的情况），因此系统在一天后重启泄漏进程以回收内存可能是可以接受的，甚至可能是理想的。
+- en: When memory leaks are OK
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当内存泄漏是可以接受的
+- en: Instagram famously^a disabled the garbage collection in Python for a 10% CPU
+    improvement. While this is probably not for everyone, it’s an interesting pattern
+    to consider. Does it really matter if a process gets bloated over time and is
+    rebooted if it all happens automatically and there are thousands of replicas?
+    Maybe not.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Instagram 众所周知^a 禁用了 Python 的垃圾回收以获得 10% 的 CPU 性能提升。虽然这可能不是对每个人都适用，但它是一个值得考虑的有趣模式。如果所有的事情都是自动发生的，并且有数千个副本，那么一个进程随着时间的推移而膨胀并在重启时进行清理，这真的那么重要吗？可能不是。
+- en: Kubernetes automatically restarts crashed containers (including when that crash
+    is due to the system removing them due to an out-of-memory condition), making
+    it fairly easy to implement such a pattern. I wouldn’t recommend this strategy
+    without thorough investigation, but I do think if your application has a slow
+    leak, it may not be your highest priority bug to fix.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 会自动重启崩溃的容器（包括由于系统因内存不足而移除它们的情况），这使得实现这种模式变得相对容易。我不会在没有彻底调查的情况下推荐这种策略，但我确实认为如果你的应用程序有一个缓慢的泄漏，这可能不是你最需要修复的最高优先级错误。
+- en: Importantly, you need to make sure you at least give the container enough resources
+    to boot and run for a time. Otherwise, you could get caught in an OOMKill crash
+    loop, which is no fun for anyone. Having enough replicas (covered in the next
+    section) is also important to avoid a user-visible failure.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是，你需要确保至少给容器分配足够的资源，以便它能启动并运行一段时间。否则，你可能会陷入 OOMKill 冲突循环，这对任何人来说都不是什么乐事。拥有足够的副本（下一节将介绍）也是避免用户可见故障的重要因素。
+- en: ^a [https://instagram-engineering.com/dismissing-python-garbage-collection-at-instagram-4dca40b29172](https://instagram-engineering.com/dismissing-python-garbage-collection-at-instagram-4dca40b29172)
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^a [https://instagram-engineering.com/dismissing-python-garbage-collection-at-instagram-4dca40b29172](https://instagram-engineering.com/dismissing-python-garbage-collection-at-instagram-4dca40b29172)
+- en: Using the data you gathered, find the lower bound by looking at the memory usage
+    of your Pod under load and add a reasonable buffer (at least 10%). With this example
+    data, I would pick 505 MiB * 1.1 ≈ 555 MiB. You know it’s enough to run the Pod
+    under load for at least an hour, with a bit to spare. Depending on your budget
+    and risk profile, you can tune this number accordingly (the higher it is, the
+    lower the risk, but the higher the cost).
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用你收集的数据，通过查看你的 Pod 在负载下的内存使用情况来找到下限，并添加一个合理的缓冲区（至少 10%）。根据这个示例数据，我会选择 505 MiB
+    * 1.1 ≈ 555 MiB。你知道这足以让 Pod 在负载下至少运行一小时，还有一点富余。根据你的预算和风险概况，你可以相应地调整这个数字（数值越高，风险越低，但成本越高）。
+- en: So, requests need to at least cover the stable state of the Pod. What about
+    the memory *limit*? Assuming your data is solid and covers all cases (i.e., no
+    high-memory code path that didn’t execute while you were observing), I wouldn’t
+    set it too much higher than the one-day value. Having an excessive limit (say,
+    twice as high as the limit or greater) doesn’t really help much since you already
+    measured how much memory your Pods need over the course of a day. If you do have
+    a memory leak, it may be better for the system to restart the Pod when the limit
+    is hit rather than allow the Pod to grow excessively.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，请求至少需要覆盖Pod的稳定状态。那么内存**限制**呢？假设您的数据是稳定的，覆盖了所有情况（即，在您观察期间没有执行的高内存代码路径），我不会将其设置得比一天内的值高太多。设置过高的限制（比如说，是限制的两倍或更高）实际上帮助不大，因为您已经测量了Pod在一天内需要的内存量。如果您确实有内存泄漏，当达到限制时系统重启Pod可能比允许Pod过度增长更好。
+- en: An alternative is to simply set the limit equal to the request for the guaranteed
+    QoS class. This strategy has the advantage of giving your Pod constant performance
+    regardless of what else is running on the node. In this case, you should give
+    the Pod a little extra resource buffer since the Pod will be terminated the moment
+    it exceeds its requested amount.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个选择是将限制设置为保证QoS类的请求。这种策略的优点是无论节点上运行着什么，都能保证Pod的恒定性能。在这种情况下，您应该给Pod留一点额外的资源缓冲，因为Pod一旦超出请求量就会被终止。
+- en: 5.2.2 Setting CPU requests and limits
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.2 设置CPU请求和限制
+- en: 'Unlike memory, CPU is *compressible*. In other words, if the application doesn’t
+    get all the CPU resources it needs, it just runs slower. This is quite different
+    from memory: if the application runs out of memory it will crash. You still likely
+    want to give the application enough CPU resources. Otherwise, performance will
+    decrease, but there’s not as much need to have a buffer of extra capacity as there
+    is with memory.'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与内存不同，CPU是**可压缩的**。换句话说，如果应用程序没有得到它需要的所有CPU资源，它只是运行得更慢。这与内存有很大不同：如果应用程序耗尽内存，它将会崩溃。您仍然可能希望给应用程序足够的CPU资源。否则，性能会下降，但与内存相比，不需要有那么多额外容量的缓冲。
+- en: In the example data for our application shown in table 5.2, we can see that
+    the stable state is about 200 mCPU of the CPU. That would seem to be a good starting
+    point for your CPU requests. If you want to save money and are OK with degrading
+    performance, you could set it a little lower.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们应用示例数据表5.2中，我们可以看到稳定状态大约是CPU的200 mCPU。这似乎是您CPU请求的一个很好的起点。如果您想省钱并且可以接受性能下降，您可以将它设置得稍低一些。
+- en: The CPU limit is an area where Kubernetes can improve your resource efficiency,
+    as you can set a limit higher than your requests to enable your application to
+    consume the unused cycles on the node if it needs to burst. As with memory, Kubernetes
+    only guarantees the requested CPU, but often it’s nice to allow the Pod to take
+    advantage of unused capacity on the node to run a bit faster. For web applications
+    that spend a lot of time waiting on external dependencies (e.g., waiting for a
+    database to respond), spare CPU capacity is often available on the node, which
+    the active request could take advantage of.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CPU限制是Kubernetes可以提高您资源效率的领域，因为您可以将限制设置得高于请求，以使您的应用程序在需要时能够消耗节点上的未使用周期。与内存一样，Kubernetes只保证请求的CPU，但通常允许Pod利用节点上的未使用容量以运行得更快是很不错的。对于花费大量时间等待外部依赖（例如，等待数据库响应）的Web应用程序，节点上通常会有额外的CPU容量，活跃请求可以利用这些容量。
+- en: As with memory, the downside of setting limits to higher than requests (i.e.,
+    the burstable QoS class) is that your performance won’t be constant. A burstable
+    Pod running on an empty node will have a lot more resources than on a node packed
+    with Pods. While, generally, it’s nice to be able to handle bursts in traffic
+    by consuming the unused capacity on the node, if constant performance is important,
+    setting limits equal to requests may be preferable.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与内存一样，将限制设置得高于请求（即可爆发的QoS类）的缺点是您的性能不会是恒定的。在空节点上运行的爆发性Pod将比在Pod密集的节点上拥有更多的资源。虽然，通常来说，能够通过消耗节点上的未使用容量来处理流量爆发是很不错的，但如果恒定性能很重要，将限制设置为请求可能更可取。
+- en: 5.2.3 Reducing costs by overcommitting CPU
+  id: totrans-126
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.3 通过超分配CPU降低成本
+- en: One strategy to reduce costs is to overcommit the CPU resources on the node.
+    This overcommitment is achieved by setting the CPU request to a low value (lower
+    than what the Pod actually needs) and therefore cramming more Pods onto the node
+    than you could if you set the CPU request to the actual usage.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 降低成本的一种策略是在节点上过度承诺CPU资源。这种过度承诺是通过将CPU请求设置为一个低值（低于Pod实际需要的值）来实现的，因此可以在节点上放置比如果将CPU请求设置为实际使用量更多的Pod。
+- en: This strategy saves money but has an obvious performance drawback. However,
+    in the case of workloads that are considered very *bursty*, it can be a very desirable
+    strategy. Let’s say you are hosting hundreds of low-traffic websites. Each may
+    only get a few requests an hour, only needing the CPU for that time. For such
+    a deployment, each application could have a CPU request of 50m (allowing 20 Pods
+    to be scheduled per core) and a limit of 1000m (allowing it to temporarily burst
+    to a full core).
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种策略可以节省资金，但有一个明显的性能缺点。然而，对于被认为是高度**突发性**的工作负载，这可以是一个非常理想的策略。假设你正在托管数百个低流量网站。每个网站每小时可能只收到几个请求，只需要在那个时间使用CPU。对于这种部署，每个应用程序可以有一个50m的CPU请求（允许每个核心调度20个Pod）和1000m的限制（允许它临时爆满到满核心）。
+- en: 'The key to making an overcommitment strategy like this work is being intimately
+    aware of what else is running on the machine. If you are confident that most of
+    the websites will be idle most of the time, this approach could work. However,
+    performance may be degraded if the containers in all Pods need to burst at once.
+    This type of setup means that your containers are not isolated from each other
+    anymore: now, you need to be aware of and plan the makeup of the node accordingly.
+    However, it can be done.'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使这种过度承诺策略有效的关键是深入了解机器上运行的其他内容。如果你有信心大多数网站大部分时间都是空闲的，这种方法可能可行。然而，如果所有Pod中的容器需要同时爆发，性能可能会下降。这种类型的设置意味着你的容器不再相互隔离：现在，你需要相应地了解和计划节点的组成。然而，这是可以做到的。
+- en: The safest approach, of course, is not to overcommit at all. A sensible compromise
+    is to just not overcommit too much. Giving Pods a little extra CPU (by setting
+    their resource limits higher than their requests) can help reduce latency in an
+    opportunistic fashion. However, you should set the CPU resource *requests* high
+    enough to handle a reasonable base load so that this excess capacity isn’t being
+    relied on.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，最安全的做法是完全不进行过度承诺。一个合理的折衷方案是不要过度承诺太多。通过将Pod的CPU资源限制设置得高于它们的请求，可以以机会主义的方式减少延迟。然而，你应该将CPU资源请求设置得足够高，以便处理合理的基线负载，这样过剩的容量就不会被依赖。
+- en: 5.2.4 Balancing Pod replicas and internal Pod concurrency
+  id: totrans-131
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.4 平衡Pod副本和内部Pod并发
+- en: Now that you have a handle on how resource requests influence how your Pods
+    are scheduled and the resources they get, it’s worth considering concurrency within
+    the Pod. A Pod’s concurrency (e.g., how many processes/threads of the application
+    are running) influences the resource size, and there is a tradeoff of efficiency
+    for durability by using concurrency within the Pod over Pod replicas.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经了解了资源请求如何影响你的Pod的调度以及它们获取的资源，考虑Pod内部的并发性就很有意义了。Pod的并发性（例如，应用程序运行了多少个进程/线程）会影响资源的大小，通过在Pod内部使用并发而不是Pod副本，可以在效率和持久性之间进行权衡。
+- en: If you’re coming from an environment where installations of your application
+    were expensive, either in monetary cost for servers or time to configure instances,
+    your application will likely have a lot of internal concurrency configured through
+    the use of threads or forks, often described as the number of workers used to
+    handle incoming requests concurrently. Concurrent workers still have advantages
+    in the Kubernetes world due to their resource efficiency. I wouldn’t take a Pod
+    that currently had 10 workers and instead deploy 10 replicas with one worker each.
+    The container’s internal concurrency is very efficient memorywise, as forks share
+    some of the memory used by the application binary, and threads share even more.
+    CPU is also pooled between workers, which is useful as a typical web application
+    spends a lot of time waiting on external dependencies—meaning spare capacity is
+    often available to handle many requests at once.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你来自一个应用安装成本较高的环境，无论是服务器上的货币成本还是配置实例的时间，你的应用可能已经通过使用线程或派生配置了大量的内部并发。在 Kubernetes
+    世界中，由于资源效率高，并发工作者仍然具有优势。我不会将当前有 10 个工作者的 Pod 部署为 10 个副本，每个副本只有一个工作者。容器内部的并发性在内存使用上非常高效，因为派生共享了应用程序二进制文件使用的一些内存，而线程共享的更多。CPU
+    也在工作者之间池化，这对于典型的 Web 应用程序来说很有用，因为它们在等待外部依赖上花费了大量的时间——这意味着通常有额外的容量可以同时处理多个请求。
+- en: Balancing the benefits of concurrent workers in a single Pod is the fact that
+    the more replicas of a Pod you have, the more durable it is. For example, say
+    you have two replicas of a Pod, with 18 workers each, to handle a total of 36
+    concurrent connections as shown in figure 5.7\. If one of those Pods crashes (or
+    is restarted because it failed the health check you set up in chapter 4), half
+    your capacity would be offline before the Pod restarts. A better approach might
+    be to have six Pods replicas with six workers each, which still maintains some
+    intercontainer concurrency while adding some redundancy.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在单个 Pod 中平衡并发工作者的好处是，Pod 的副本越多，它的耐用性就越高。例如，假设你有一个 Pod 的两个副本，每个副本有 18 个工作者，总共处理
+    36 个并发连接，如图 5.7 所示。如果其中的一个 Pod 崩溃（或者因为未通过第 4 章中设置的健壮性检查而重启），在 Pod 重启之前，你的一半容量将离线。更好的方法可能是拥有六个
+    Pod 副本，每个副本有六个工作者，这样仍然保持了一些容器间的并发性，同时增加了一些冗余。
+- en: '![05-07](../../OEBPS/Images/05-07.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-07](../../OEBPS/Images/05-07.png)'
+- en: Figure 5.7 Comparison of two possible deployments for a total of 36 workers
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.7 36 个工作者可能的两种部署比较
+- en: To strike the right balance, a simple heuristic can be used. Consider the total
+    number of workers you need to serve your users and, of those, how many can be
+    offline at any given time without noticeable user effect. Once you’ve calculated
+    how many can be offline—using our previous example, say 16% of the 36 workers
+    can be offline before problems are noticed—then the most number of workers you
+    can concentrate in a single Pod is 16%, or six.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了达到正确的平衡，可以使用一个简单的启发式方法。考虑你需要为用户服务的总工作者数量，以及其中有多少可以在任何给定时间内离线而不会对用户产生明显影响。一旦计算出可以离线的数量——使用我们之前的例子，假设在问题被发现之前，36
+    个工作者中有 16% 可以离线——那么你可以在单个 Pod 中集中的最多工作者数量是 16%，即六个。
+- en: In short, the more Pod replicas you have, the safer the design, but the less
+    efficient in terms of resource usage. Thus, it’s worth considering how to balance
+    your own availability and resource requirements.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，你拥有的 Pod 副本越多，设计就越安全，但在资源使用效率方面就越低。因此，考虑如何平衡你自己的可用性和资源需求是值得的。
+- en: After balancing the number of Pod replicas you have, another important attribute
+    to increase availability is to ensure that your Pods are spread across multiple
+    nodes. After all, if you design for multiple replicas, but all those replicas
+    run on the same node, you’re still at risk from a single point of failure if that
+    node were to become unhealthy. Fortunately, most Kubernetes platforms (including
+    Google Kubernetes Engine) enable default Pod-spreading policies that will spread
+    Pods over all available nodes and across multiple zones (in the case of a regional
+    cluster). To get this default behavior, it’s generally enough to ensure that you
+    have a bunch of nodes in your cluster in different zones. If you want to dig more
+    into node placement and Pod spread topologies, chapter 8 has you covered.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在平衡您拥有的Pod副本数量之后，另一个提高可用性的重要属性是确保您的Pod分布在多个节点上。毕竟，如果您设计了多个副本，但所有这些副本都在同一个节点上运行，那么如果该节点出现故障，您仍然面临单点故障的风险。幸运的是，大多数Kubernetes平台（包括Google
+    Kubernetes Engine）默认启用了Pod扩散策略，该策略将在所有可用节点和多个区域（对于区域集群的情况）上扩散Pod。要获得此默认行为，通常只需确保您在集群的不同区域中有一定数量的节点。如果您想深入了解节点放置和Pod扩散拓扑，第8章将为您解答。
+- en: Summary
+  id: totrans-140
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: The Kubernetes scheduler lies at the core of the system and does the heavy lifting
+    of finding the right home for your Deployment’s Pods on your infrastructure.
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes调度器位于系统的核心，负责在您的基础设施上为您的Deployment的Pod找到合适的家。
+- en: The scheduler will try to fit as many Pods as it can on a given node, provided
+    the Pod’s containers have resource requests set appropriately.
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调度器会尝试在给定的节点上放置尽可能多的Pod，前提是Pod的容器设置了适当的资源请求。
+- en: Kubernetes uses the Pod’s resource requests and limits to govern how resources
+    are allocated, overcommitted, and reclaimed.
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes通过Pod的资源请求和限制来管理资源的分配、过度承诺和回收。
+- en: Overcommitting resources using bursting can save resources but introduces performance
+    variability.
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用突发来过度承诺资源可以节省资源，但会引入性能可变性。
+- en: The specification of requests and limits by your workloads sets the QoS they
+    receive.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您的工作负载对请求和限制的指定设置了它们所接收的质量服务（QoS）。
+- en: When designing your workloads, there is an availability/resource-usage tradeoff
+    between the replica count and the Pod’s internal thread/process worker count.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在设计工作负载时，副本数量和Pod内部线程/进程工作计数之间存在可用性/资源使用权衡。
+- en: Most platforms enable Pod spreading by default to ensure that replicas are not
+    generally placed on the same node, thus avoiding a single point of failure. Make
+    sure you have a few nodes in your cluster to achieve higher availability.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 大多数平台默认启用Pod扩散，以确保副本通常不会放置在同一个节点上，从而避免单点故障。请确保您在集群中有几个节点以实现更高的可用性。
+- en: '* * *'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '* * *'
+- en: ^(1.) [http://httpd.apache.org/docs/2.4/install.html](http://httpd.apache.org/docs/2.4/install.html)
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^（1）[http://httpd.apache.org/docs/2.4/install.html](http://httpd.apache.org/docs/2.4/install.html)

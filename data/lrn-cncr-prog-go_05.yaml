@@ -1,0 +1,1462 @@
+- en: 4 Synchronization with mutexes
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 4 使用互斥锁进行同步
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Protecting critical sections with mutex locks
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用互斥锁保护关键部分
+- en: Improving performance with readers–writer locks
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用读写锁提高性能
+- en: Implementing a read-preferred readers–writer lock
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实现优先读的读写锁
+- en: We can protect critical sections of our code with mutexes so that only one goroutine
+    at a time accesses a shared resource. In this way, we eliminate race conditions.
+    Variations on mutexes, sometimes called locks, are used in every language that
+    supports concurrent programming. In this chapter, we’ll start by looking at the
+    functionality that mutexes provide. Then we’ll look at a variation on mutexes
+    called *readers*–*writer mutexes*.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用互斥锁来保护代码中的关键部分，这样一次只有一个 goroutine 访问共享资源。通过这种方式，我们消除了竞态条件。互斥锁的变体，有时称为锁，被用于支持并发编程的每种语言中。在本章中，我们将首先查看互斥锁提供的功能。然后我们将查看一种称为
+    *读写互斥锁* 的互斥锁变体。
+- en: Readers–writer mutexes give us performance optimizations in situations where
+    we need to block concurrency only when modifying the shared resource. They give
+    us the ability to perform multiple concurrent reads on shared resources while
+    still allowing us to exclusively lock write access. We will see a sample application
+    of readers–writer mutexes, and we’ll learn about its internals and build one ourselves.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 读写互斥锁在需要仅在修改共享资源时阻止并发的情况下提供了性能优化。它们使我们能够在共享资源上执行多个并发读取，同时仍然允许我们独占锁定写访问。我们将看到读写互斥锁的一个示例应用，并了解其内部结构，然后我们自己构建一个。
+- en: 4.1 Protecting critical sections with mutexes
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.1 使用互斥锁保护关键部分
+- en: What if we had a way to ensure that only one thread of execution runs critical
+    sections? This is the functionality that mutexes give us. Think of them as being
+    physical locks that block certain parts of our code from more than one goroutine
+    at any time. If only one goroutine is accessing a critical section at a time,
+    we are safe from race conditions. After all, race conditions happen only when
+    there is a conflict between two or more goroutines.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一种方法可以确保只有一个执行线程运行关键部分，这将是什么样子？这正是互斥锁提供的功能。把它们想象成物理锁，它们阻止我们的代码的某些部分在任何时候被多个
+    goroutine 访问。如果一次只有一个 goroutine 访问关键部分，我们就安全了，因为竞态条件只发生在两个或更多 goroutine 之间有冲突的情况下。
+- en: 4.1.1 How do we use mutexes?
+  id: totrans-9
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.1 我们如何使用互斥锁？
+- en: We can use mutexes to mark the beginnings and ends of our critical sections,
+    as illustrated in figure 4.1\. When a goroutine comes to a critical section of
+    the code protected by a mutex, it first locks this mutex explicitly as an instruction
+    in the program code. The goroutine then starts to execute the critical section’s
+    code, and when it’s done, it unlocks the mutex so that another goroutine can access
+    the critical section.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用互斥锁来标记我们关键部分的开始和结束，如图 4.1 所示。当一个 goroutine 到达由互斥锁保护的关键部分代码时，它首先将此互斥锁显式锁定，作为程序代码中的指令。然后，goroutine
+    开始执行关键部分的代码，完成后，它将解锁互斥锁，以便另一个 goroutine 可以访问关键部分。
+- en: '![](../../OEBPS/Images/CH04_F01_Cutajar.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH04_F01_Cutajar.png)'
+- en: Figure 4.1 Only one goroutine is allowed in a mutex-protected critical section.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.1 只允许一个 goroutine 在互斥锁保护的关键部分中。
+- en: If another goroutine tries to lock a mutex that is already locked, the goroutine
+    will be suspended until the mutex is released. If more than one goroutine is suspended,
+    waiting for a lock to become available, only one goroutine is resumed, and it
+    is the next to acquire the mutex lock.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果另一个 goroutine 尝试锁定一个已经被锁定的互斥锁，该 goroutine 将被挂起，直到互斥锁被释放。如果有多个 goroutine 被挂起，等待锁变得可用，则只恢复一个
+    goroutine，并且它是下一个获得互斥锁锁的。
+- en: deFINITION *Mutex*, short for *mutual exclusion*, is a form of concurrency control
+    with the purpose of preventing race conditions. A mutex allows only one execution
+    (such as a goroutine or a kernel-level thread) to enter a critical section. If
+    two executions request access to the mutex at the same time, the semantics of
+    the mutex guarantee that only one goroutine will acquire access to the mutex.
+    The other execution will have to wait until the mutex becomes available again.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 *互斥锁*，简称 *mutex*，是一种并发控制形式，其目的是防止竞态条件。互斥锁允许只有一个执行（如 goroutine 或内核级线程）进入关键部分。如果有两个执行同时请求访问互斥锁，互斥锁的语义保证只有一个
+    goroutine 将获得对互斥锁的访问。其他执行将不得不等待直到互斥锁再次可用。
+- en: In Go, mutex functionality is provided in the `sync` package, under the type
+    `Mutex`. This type gives us two main operations, `Lock()` and `Unlock()`, which
+    we can use to mark the beginning and end of our critical code sections, respectively.
+    As a simple example, we can modify our `stingy()` and `spendy()` functions from
+    the previous chapter to protect our critical sections. In the following listing,
+    we’ll use the mutex to protect the shared `money` variable, preventing both goroutines
+    from modifying it at the same time.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Go 中，互斥锁功能由 `sync` 包提供，类型为 `Mutex`。此类型为我们提供了两个主要操作，`Lock()` 和 `Unlock()`，我们可以使用它们分别标记临界代码段的开始和结束。作为一个简单的例子，我们可以修改上一章中的
+    `stingy()` 和 `spendy()` 函数，以保护我们的临界区。在以下列表中，我们将使用互斥锁来保护共享的 `money` 变量，防止两个 goroutine
+    同时修改它。
+- en: Listing 4.1 Stingy’s and Spendy’s functions using a mutex
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.1 使用互斥锁的 Stingy 和 Spendy 的函数
+- en: '[PRE0]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Accepts a pointer to the shared mutex struct
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 接受共享互斥结构体的指针
+- en: ❷ Locks the mutex before entering the critical section
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在进入临界区之前锁定互斥锁
+- en: ❸ Unlocks after exiting the critical section
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 退出临界区后解锁
+- en: NOTE All listings in this book are available on [github.com/cutajarj/ConcurrentProgrammingWithGo](https://github.com/cutajarj/ConcurrentProgrammingWithGo).
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：本书中的所有列表均可在 [github.com/cutajarj/ConcurrentProgrammingWithGo](https://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    上找到。
+- en: If both Stingy’s and Spendy’s goroutines attempt to lock the mutex at exactly
+    the same time, we are guaranteed by the mutex that one and only one goroutine
+    will be able to lock it. The other goroutine will have its execution suspended
+    until the mutex becomes available again. So, for example, Stingy will have to
+    wait until Spendy subtracts the money and releases the mutex. When the mutex becomes
+    available again, Stingy’s suspended goroutine will be resumed, acquiring the lock
+    to the critical section.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果 Stingy 和 Spendy 的 goroutine 准确地在同一时间尝试锁定互斥锁，互斥锁将保证只有一个 goroutine 能够锁定它。其他
+    goroutine 将在互斥锁再次可用之前暂停执行。例如，Stingy 将必须等待 Spendy 减去金额并释放互斥锁。当互斥锁再次可用时，Stingy 的暂停
+    goroutine 将被恢复，获取临界区的锁。
+- en: The following listing shows the modified `main()` function creating a new mutex
+    and passing a reference to `stingy()` and `spendy()`.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表显示了修改后的 `main()` 函数创建一个新的互斥锁并将引用传递给 `stingy()` 和 `spendy()`。
+- en: Listing 4.2 `main()` function creating the mutex
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.2 创建互斥锁的 `main()` 函数
+- en: '[PRE1]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Creates a new mutex
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的互斥锁
+- en: ❷ Passes a reference to the mutex to the two goroutines
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将互斥锁的引用传递给两个 goroutine
+- en: ❸ Protects reading the shared variable with a mutex
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用互斥锁保护读取共享变量
+- en: Note When we create a new mutex, its initial state is always unlocked.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：当我们创建一个新的互斥锁时，其初始状态总是未锁定。
+- en: In our `main()` function, we’re also using a mutex when we read the `money`
+    variable after the goroutines finish. A race condition here is very unlikely since
+    we sleep for a period to make sure that the goroutines are complete. However,
+    it’s always good practice to protect shared resources even if you’re sure that
+    there will be no conflict. Using mutexes (and other synchronization mechanisms
+    covered in later chapters) ensures that the goroutine reads an updated copy of
+    the variable.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的 `main()` 函数中，我们在 goroutine 完成后读取 `money` 变量时也使用了互斥锁。由于我们睡眠一段时间以确保 goroutine
+    完成，这里的竞争条件非常不可能。然而，即使你确信不会有冲突，保护共享资源也是良好的实践。使用互斥锁（以及后续章节中介绍的其他同步机制）确保 goroutine
+    读取变量的更新副本。
+- en: Note We should protect all critical sections, including parts where the goroutine
+    is only reading the shared resources. The compiler’s optimizations might re-order
+    instructions, causing them to execute in a different manner. Using proper synchronization
+    mechanisms, such as mutexes, ensures that we’re reading the latest copy of the
+    shared resources.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们应该保护所有临界区，包括 goroutine 只读取共享资源的部分。编译器的优化可能会重新排序指令，导致它们以不同的方式执行。使用适当的同步机制，如互斥锁，可以确保我们读取共享资源的最新副本。
+- en: 'If we now run listings 4.1 and 4.2 together, we can see that we have eliminated
+    the race condition. The balance in the account is $100 after the Stingy and Spendy
+    goroutines are complete. Here’s the output:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们现在一起运行列表 4.1 和 4.2，我们可以看到我们已经消除了竞争条件。在 Stingy 和 Spendy goroutine 完成后，账户余额为
+    $100。以下是输出：
+- en: '[PRE2]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: We can also try running this code with the `-race` flag to check that there
+    are no race conditions.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以尝试使用 `-race` 标志运行此代码，以检查是否存在竞争条件。
+- en: How are mutexes implemented?
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 互斥锁是如何实现的？
+- en: Mutexes are typically implemented with help from the operating system and hardware.
+    If we had a system with just one processor, we could implement a mutex just by
+    disabling interrupts while a thread is holding the lock. This way, another execution
+    will not interrupt the current thread, and there is no interference. However,
+    this is not ideal, because badly written code can end up blocking the entire system
+    for all the other processes and threads. A malicious or poorly written program
+    can have an infinite loop after acquiring a mutex lock and crash the system. Also,
+    this approach will not work on a system with multiple processors, since other
+    threads could be executing in parallel on another CPU.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 互斥锁通常需要操作系统和硬件的帮助来实现。如果我们有一个只有一个处理器的系统，我们可以在一个线程持有锁的时候禁用中断来实现互斥锁。这样，另一个执行将不会中断当前线程，并且没有干扰。然而，这并不是理想的，因为编写不良的代码可能会导致整个系统被所有其他进程和线程阻塞。一个恶意或编写不良的程序在获取互斥锁后可能会进入无限循环并崩溃系统。此外，这种方法在多处理器系统上也不适用，因为其他线程可能在另一个CPU上并行执行。
+- en: The implementation of mutexes involves support from the hardware to provide
+    an atomic test and set operation. With this operation, an execution can check
+    a memory location, and if the value is what it expects, it updates the memory
+    to a locked flag value. The hardware guarantees that this test and set operation
+    is atomic—that is, no other execution can access the memory location until the
+    operation completes. Early hardware implementations guaranteed this atomicity
+    by blocking the entire bus so that no other processor could use the memory at
+    the same time. If another execution performed this operation and found it already
+    set to a locked flag value, the operating system would block the execution of
+    that thread until the memory location changed back to free.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 互斥锁的实现涉及到硬件的支持，以提供原子测试和设置操作。通过这个操作，一个执行可以检查一个内存位置，如果值是它所期望的，它将内存更新为锁定标志值。硬件保证这个测试和设置操作是原子的——也就是说，在操作完成之前，没有其他执行可以访问该内存位置。早期的硬件实现通过阻塞整个总线来保证这种原子性，这样就没有其他处理器可以在同一时间使用该内存。如果另一个执行执行了这个操作，并发现它已经设置为锁定标志值，操作系统将阻塞该线程的执行，直到内存位置变回空闲。
+- en: We’ll explore how mutexes can be implemented using atomics and operating system
+    calls in chapter 12\. In that chapter, we’ll also examine how Go implements its
+    own mutex.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在第12章中探讨如何使用原子操作和操作系统调用来实现互斥锁。在那个章节中，我们还将检查Go语言是如何实现其自己的互斥锁的。
+- en: 4.1.2 Mutexes and sequential processing
+  id: totrans-39
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.2 互斥锁与顺序处理
+- en: We can, of course, also use mutexes when we have more than two goroutines. In
+    the previous chapter, we implemented a letter-frequency program that used multiple
+    goroutines to download and count the occurrence of characters in the English alphabet.
+    The code lacked any synchronization and gave us erroneous counts when we ran the
+    program. If we want to use mutexes to fix this race condition, at which point
+    in our code should we lock and unlock the mutex (see figure 4.2.)?
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，当我们有超过两个goroutine时，我们也可以使用互斥锁。在前一章中，我们实现了一个字母频率程序，该程序使用了多个goroutine来下载并计算英文字母表中字符的出现次数。代码缺乏任何同步，当我们运行程序时，给出了错误的计数。如果我们想使用互斥锁来修复这个竞争条件，我们应该在代码的哪个点锁定和解锁互斥锁（见图4.2）？
+- en: '![](../../OEBPS/Images/CH04_F02_Cutajar.png)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH04_F02_Cutajar.png)'
+- en: Figure 4.2 Deciding where to place the locking and unlocking of the mutex
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.2 决定放置互斥锁和解锁的位置
+- en: NOTE Using mutexes has the effect of limiting concurrency. The code in between
+    locking and unlocking a mutex is executed by one goroutine at any time, effectively
+    turning that part of the code into sequential execution. As we saw in chapter
+    1, and according to Amdahl’s law, the sequential-to-parallel ratio will limit
+    the performance scalability of our code, so it’s essential that we reduce the
+    time spent holding the mutex lock.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：使用互斥锁的效果是限制并发性。在锁定和解锁互斥锁之间的代码在任何时候都由一个goroutine执行，有效地将这部分代码转换为顺序执行。正如我们在第1章中看到的，根据Amdahl定律，顺序到并行的比例将限制我们代码的性能可扩展性，因此我们减少持有互斥锁锁的时间至关重要。
+- en: Listing 4.3 shows how we can first modify the `main()` function to create the
+    mutex and pass its reference to our `countLetters()` function. This is the same
+    pattern we used for the Stingy and Spendy program, creating the mutex in the `main()`
+    goroutine and sharing it with others. We are also protecting the read of the `frequency`
+    variable at the end when we come to output the results.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.3显示了我们可以如何首先修改`main()`函数以创建互斥锁并将其引用传递给我们的`countLetters()`函数。这与我们在Stingy和Spendy程序中使用的模式相同，即在`main()`
+    goroutine中创建互斥锁并与他人共享。我们还在输出结果时保护`frequency`变量的读取。
+- en: Listing 4.3 `main()` function creating a mutex for letter frequency (imports
+    omitted)
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.3 `main()` 函数创建用于字母频率的互斥锁（省略了导入）
+- en: '[PRE3]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Creates new mutex
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建新的互斥锁
+- en: ❷ Passes a reference of the mutex to the goroutines
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将互斥锁的引用传递给goroutines
+- en: ❸ Waits for 60 seconds
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 等待60秒
+- en: ❹ Protects reading the shared variable with the mutex
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用互斥锁保护读取共享变量
+- en: What happens if we lock the mutex at the start of our `CountLetters()` function
+    and release it at the very end? You can see this in the following listing, where
+    we lock the mutex immediately after we call the function and release it after
+    we output the completed message.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们在`CountLetters()`函数的开始锁定互斥锁并在消息输出完毕后释放它会发生什么？您可以在以下列表中看到这一点，其中我们在调用函数后立即锁定互斥锁，并在输出完成消息后释放它。
+- en: Listing 4.4 Incorrect (slow) way of locking and unlocking mutexes
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.4 错误（慢速）的锁定和解锁互斥锁的方式
+- en: '[PRE4]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Locks the mutex for the entire execution, making everything sequential
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 锁定互斥锁以进行整个执行过程，使一切按顺序进行
+- en: ❷ Unlocks the mutex
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 解锁互斥锁
+- en: 'By using mutexes in this manner, we have changed our concurrent program into
+    a sequential one. We will end up downloading and processing one web page at a
+    time since we’re needlessly blocking the entire execution. If we go ahead and
+    run this, the time taken will be the same as the non-concurrent version of the
+    program, although the order of execution will be random:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过以这种方式使用互斥锁，我们已经将并发程序转换为顺序程序。由于我们无谓地阻塞了整个执行过程，我们将一次下载和处理一个网页。如果我们继续运行这个程序，所需的时间将与程序的非并发版本相同，尽管执行顺序将是随机的：
+- en: '[PRE5]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Figure 4.3 shows a simplified scheduling chart of this manner of locking, using
+    only three goroutines. The figure shows that our goroutines are spending most
+    of their time downloading the document and a shorter time processing it. (In this
+    figure, we are understating the proportion of time between the download and processing
+    for illustration purposes. In reality, this difference is much bigger.) Our goroutines
+    spend the vast majority of their time downloading the document and a tiny fraction
+    of a second processing it. Performance-wise, it doesn’t make sense to block the
+    entire execution. The document download step doesn’t share anything with other
+    goroutines, so there is no risk of a race condition happening then.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.3显示了这种锁定方式的简化调度图，仅使用三个goroutines。该图显示我们的goroutines大部分时间在下载文档，而处理文档的时间较短。（在此图中，为了说明目的，我们低估了下载和处理之间的时间比例。实际上，这个差异要大得多。）我们的goroutines大部分时间在下载文档，而处理文档的时间只有一秒钟。从性能的角度来看，阻塞整个执行过程是没有意义的。文档下载步骤与其他goroutines没有共享内容，因此在那里发生竞争条件的风险很小。
+- en: '![](../../OEBPS/Images/CH04_F03_Cutajar.png)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH04_F03_Cutajar.png)'
+- en: Figure 4.3 Locking too much code turns our letter-frequency concurrent program
+    into a sequential one.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.3显示过多地锁定代码将我们的字母频率并发程序转换为顺序程序。
+- en: TIP When deciding how and when to use mutexes, it’s best to focus on which resources
+    we should protect and discover where critical sections start and end. Then we
+    need to think about how to minimize the number of `Lock()` and `Unlock()` calls.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TIP 在决定如何以及何时使用互斥锁时，最好专注于我们应该保护哪些资源，并发现关键部分的开始和结束位置。然后我们需要考虑如何最小化`Lock()`和`Unlock()`调用的次数。
+- en: 'Depending on the mutex implementation, there is usually a performance cost
+    if we call the `Lock()` and `Unlock()` operations too often. (In chapter 12, we’ll
+    see why.) In our letter-frequency program, we can try to use the mutex to protect
+    just the one statement:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据互斥锁的实现方式，如果我们频繁调用`Lock()`和`Unlock()`操作，通常会有性能开销。（在第12章中，我们将看到原因。）在我们的字母频率程序中，我们可以尝试使用互斥锁仅保护一条语句：
+- en: '[PRE6]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: However, this means that we’ll be calling these two operations for every letter
+    in the downloaded document. Since processing the entire document is a very fast
+    operation, it’s probably more performant to call `Lock()` before the loop and
+    `Unlock()` after we exit the loop. This is shown in the following listing.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这意味着我们将为下载文档中的每个字母调用这两个操作。由于处理整个文档是一个非常快速的操作，因此，在循环之前调用`Lock()`并在退出循环后调用`Unlock()`可能更高效。这在上面的列表中显示。
+- en: Listing 4.5 Using mutexes on the processing part (imports omitted)
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.5 在处理部分使用互斥锁（省略了导入）
+- en: '[PRE7]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Performs the slow part of the function (the download) concurrently
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 并发执行函数的慢速部分（下载）
+- en: ❷ Locks only the fast-processing section of the function
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 仅锁定函数的快速处理部分
+- en: 'In this version of the code, the download part, which is the lengthy part of
+    our function, will execute concurrently. The fast letter-counting processing will
+    then be done sequentially. We are basically maximizing the scalablity of our program
+    by using the locks only on the code sections that run very quickly in proportion
+    to the rest. We can run the preceding listing, and as expected, it runs much more
+    quickly and gives us consistent correct results:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个版本的代码中，下载部分，这是我们函数中的长部分，将并发执行。然后，快速的字母计数处理将顺序执行。我们基本上通过只在代码部分使用锁来最大化我们程序的扩展性，这些部分相对于其他部分运行得非常快。我们可以运行前面的列表，正如预期的那样，它运行得更快，并给出了持续的正确结果：
+- en: '[PRE8]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The execution of the program is illustrated in figure 4.4\. Again, the proportion
+    between the downloading and processing parts is exaggerated for visual purposes.
+    In reality, the time spent on processing is a tiny fraction of the time spent
+    downloading the web page, so the speedup is more extreme. In fact, in our `main()`
+    function, we can reduce the time spent sleeping to a few seconds (we had 60 seconds
+    before).
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 程序的执行在图4.4中进行了说明。同样，为了视觉效果，下载和处理部分之间的比例被夸大了。实际上，处理所花费的时间是下载网页所花费时间的极小部分，因此加速效果更为显著。实际上，在我们的`main()`函数中，我们可以将睡眠时间减少到几秒钟（之前是60秒）。
+- en: '![](../../OEBPS/Images/CH04_F04_Cutajar.png)'
+  id: totrans-72
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH04_F04_Cutajar.png)'
+- en: Figure 4.4 Locking only the processing part of our `countLetters()` function
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.4 仅锁定`countLetters()`函数的处理部分
+- en: This second solution is faster than our first attempt. If you compare figures
+    4.3 and 4.4, you’ll see that we finish earlier when we’re locking a smaller part
+    of the code. The lesson here is to minimize the amount of time spent holding the
+    mutex lock, while also trying to lower the number of mutex calls. This makes sense
+    if you think back to Amdahl’s law, which tells us that if our code spends more
+    time on the parallel parts, we can finish faster and scale better.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二种解决方案比我们的第一次尝试更快。如果你比较图4.3和图4.4，你会看到当我们锁定较小的代码部分时，我们完成得更快。这里的教训是要最小化持有互斥锁锁的时间，同时尝试减少互斥锁调用的次数。如果你回想起Amdahl定律，它告诉我们如果我们的代码在并行部分花费更多时间，我们可以更快地完成并更好地扩展，这就有意义了。
+- en: 4.1.3 Non-blocking mutex locks
+  id: totrans-75
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1.3 非阻塞互斥锁
+- en: 'A goroutine will block when it calls the `Lock()` operation if the mutex is
+    already in use by another execution. This is what’s known as a blocking function:
+    the execution of the goroutine stops until `Unlock()` is called by another goroutine.
+    In some applications, we might not want to block the goroutine, but instead perform
+    some other work before attempting again to lock the mutex and access the critical
+    section.'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个goroutine调用`Lock()`操作时，如果互斥锁已经被另一个执行占用，它将会阻塞。这就是所谓的阻塞函数：goroutine的执行会停止，直到另一个goroutine调用`Unlock()`。在某些应用中，我们可能不想阻塞goroutine，而是在尝试再次锁定互斥锁和访问临界区之前执行其他工作。
+- en: 'For this reason, Go’s mutex provides another function called `TryLock()`. When
+    we call this function, we can expect one of two outcomes:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，Go的互斥锁提供了一个名为`TryLock()`的另一个函数。当我们调用这个函数时，我们可以预期两种结果之一：
+- en: The lock is available, in which case we acquire it, and the function returns
+    the Boolean value of `true`.
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 锁可用，在这种情况下我们获取它，函数返回布尔值`true`。
+- en: The lock is unavailable because another goroutine is currently using the mutex,
+    and the function will return immediately (instead of blocking) with a Boolean
+    value of `false`.
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 锁不可用，因为另一个goroutine正在使用互斥锁，函数将立即返回（而不是阻塞）并返回一个布尔值`false`。
+- en: Uses of non-blocking
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 非阻塞的使用
+- en: 'Go added the `TryLock()` function for mutexes in version 1.18\. Useful examples
+    of this non-blocking call are hard to come by. This is because in Go, creating
+    a goroutine is very cheap compared to creating a kernel-level thread in other
+    languages. It doesn’t make much sense to have a goroutine do something else if
+    the mutex is not available, since in Go it’s easier to just spawn another goroutine
+    to do the work while we’re waiting for the lock to be released. In fact, Go’s
+    mutex documentation mentions this (from `pkg.go.dev/sync#Mutex.TryLock`):'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go在版本1.18中为互斥锁添加了`TryLock()`函数。这种非阻塞调用的有用示例很难找到。这是因为与在其他语言中使用内核级线程相比，在Go中创建goroutine的成本非常低。如果互斥锁不可用，让goroutine做其他事情没有太多意义，因为在Go中，等待锁释放时，创建另一个goroutine来完成工作更容易。事实上，Go的互斥锁文档提到了这一点（来自`pkg.go.dev/sync#Mutex.TryLock`）：
+- en: '*Note that while correct uses of TryLock do exist, they are rare, and use of
+    TryLock is often a sign of a deeper problem in a particular use of mutexes.*'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*请注意，虽然存在正确的`TryLock`使用方式，但它们很少见，`TryLock`的使用通常是一个特定互斥锁使用中更深层次问题的标志。*'
+- en: One example of using `TryLock()` is a monitor goroutine that checks the progress
+    of a certain task without wanting to disrupt the task’s progress. If we use the
+    normal `Lock()` operation and the application is busy with many other goroutines
+    wanting to acquire the lock, we are putting extra contention on the mutex just
+    for monitoring purposes. When we use `TryLock()`, if another goroutine is busy
+    holding a lock on the mutex, the monitor goroutine can decide to try again later
+    when the system is not so busy. Think about going to the post office for a non-important
+    errand and deciding to try again another day when you see the big queue at the
+    entrance (see figure 4.5).
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`TryLock()`的一个例子是监控goroutine，它检查某个任务的进度，而不想打扰任务的进度。如果我们使用正常的`Lock()`操作，并且应用程序正忙于许多其他goroutine想要获取锁，那么我们只是在监控目的上对互斥锁增加了额外的竞争。当我们使用`TryLock()`时，如果另一个goroutine正忙于持有互斥锁的锁，监控goroutine可以决定在系统不那么繁忙时稍后再尝试。想想看，当你看到入口处的大长队时，去邮局办一个非重要的事情，并决定改天再尝试（见图4.5）。
+- en: '![](../../OEBPS/Images/CH04_F05_Cutajar.png)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH04_F05_Cutajar.png)'
+- en: Figure 4.5 Try to acquire a mutex, and if it’s busy, try again later.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.5 尝试获取互斥锁，如果忙碌，稍后再尝试。
+- en: We can modify our letter-frequency program to have the `main()`goroutine periodically
+    monitor the frequency table while we are performing the downloads and document
+    scanning with the other goroutines. Listing 4.6 shows the `main()` function printing
+    the contents of the `frequency` slice every 100 ms. To do so, it must acquire
+    a hold on the mutex lock; otherwise, we run the risk of reading erroneous data.
+    However, we don’t want to needlessly disrupt the `CountLetters()` goroutines if
+    they are busy. For this reason, we’re using the `TryLock()` operation, which attempts
+    to acquire the lock, but if it’s not available, it will try again in the next
+    100 ms cycle.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将我们的字母频率程序修改为在主goroutine中周期性地监控频率表，同时我们使用其他goroutine进行下载和文档扫描。列表4.6显示了`main()`函数每100毫秒打印`frequency`切片的内容。为了做到这一点，它必须获取互斥锁；否则，我们可能会读取错误的数据。然而，如果我们不想无谓地打扰忙碌的`CountLetters()`
+    goroutine，我们就不希望这样做。因此，我们使用`TryLock()`操作，它尝试获取锁，但如果锁不可用，它将在下一个100毫秒周期再次尝试。
+- en: Listing 4.6 Using `TryLock()` to monitor the frequency table
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.6 使用`TryLock()`监控频率表
+- en: '[PRE9]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Sleeps for 100 ms
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 睡眠100毫秒
+- en: ❷ Tries to acquire the mutex
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 尝试获取互斥锁
+- en: ❸ If the mutex lock is available, it outputs frequency counts and releases the
+    mutex.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果互斥锁可用，它会输出频率计数并释放互斥锁。
+- en: ❹ If the mutex is not available, it outputs a message and tries again later.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果互斥锁不可用，它会输出一条消息并在稍后再次尝试。
+- en: 'When we run listing 4.6, we can see in the output that the `main()`goroutine
+    tries to acquire the lock to print out the frequency table. Sometimes it is successful;
+    at other times, when it’s not, it waits for the next 100 ms to try again:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行列表4.6时，我们可以在输出中看到`main()`goroutine试图获取锁以打印频率表。有时它会成功；在其他时候，当它不成功时，它会等待下一个100毫秒再次尝试：
+- en: '[PRE10]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 4.2 Improving performance with readers–writer mutexes
+  id: totrans-95
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.2 使用读者-写者互斥锁提高性能
+- en: At times, mutexes might be too restrictive. We can think of mutexes as blunt
+    tools that solve concurrency problems by blocking concurrency. Only one goroutine
+    at a time can execute our mutex-protected critical section. This is great for
+    guaranteeing that we don’t suffer from race conditions, but this might needlessly
+    restrict performance and scalability for some applications. Readers–writer mutexes
+    give us a variation on standard mutexes that only block concurrency when we need
+    to update a shared resource. Using readers–writer mutexes, we can improve the
+    performance of read-heavy applications where we are doing a large number of read
+    operations on shared data in comparison with updates.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，互斥锁可能过于限制性。我们可以将互斥锁视为一种简单的工具，通过阻塞并发来解决并发问题。一次只能有一个goroutine执行我们的互斥锁保护的临界区。这对于保证我们不遭受竞态条件非常有用，但这也可能无谓地限制了某些应用程序的性能和可扩展性。读者-写者互斥锁为我们提供了一种标准互斥锁的变体，它只在需要更新共享资源时才阻塞并发。使用读者-写者互斥锁，我们可以提高那些在共享数据上执行大量读操作的应用程序的性能，与更新操作相比。
+- en: 4.2.1 Go’s readers–writer mutex
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.1 Go的读者-写者互斥锁
+- en: What if we had an application serving mostly static data to many concurrent
+    clients? We outlined one such application in chapter 2 when we had a web server
+    application serving sports information. Let’s take the example of a similar application
+    serving users updates about a basketball game. One such application is illustrated
+    in figure 4.6.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一个主要服务于许多并发客户端的静态数据应用程序呢？我们在第2章中概述了这样一个应用程序，当时我们有一个提供体育信息的Web服务器应用程序。让我们以一个类似的应用程序为例，该应用程序为用户提供关于篮球比赛的更新。图4.6展示了这样一个应用程序。
+- en: '![](../../OEBPS/Images/CH04_F06_Cutajar.png)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH04_F06_Cutajar.png)'
+- en: Figure 4.6 Example of a read-heavy server application
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.6 读取密集型服务器应用程序示例
+- en: In this application, users are checking updates about a live basketball game
+    from their devices. The Go application, running on our servers, serves these updates.
+    In this application, we have a match-recorder goroutine that changes the content
+    of the shared data every time an event happens in the game. An event can be a
+    point scored, a foul committed, a ball passed, and so on.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个应用程序中，用户通过他们的设备检查实时篮球比赛的更新。运行在我们服务器上的Go应用程序提供这些更新。在这个应用程序中，我们有一个match-recorder
+    goroutine，每次游戏发生事件时都会更改共享数据的内容。事件可以是得分、犯规、传球等。
+- en: 'Basketball is a fast-paced game, so on average, we get a few of these events
+    every second. At the other end, we have a large set of goroutines serving the
+    entire list of game events to a huge number of connected users. Users are using
+    this data for various reasons: to display game stats, understand the match strategy,
+    or just check the score and game time. The game is a popular one, so we should
+    build something that can handle as many user requests per second as possible.
+    We expect to have thousands of requests per second for our match event data.'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 篮球是一项快节奏的运动，所以平均每秒我们会有几个这样的事件。在另一端，我们有一组大量的goroutine将整个游戏事件列表提供给大量连接的用户。用户出于各种原因使用这些数据：显示比赛统计数据、理解比赛策略，或者只是查看比分和比赛时间。这场比赛很受欢迎，所以我们应该构建能够处理尽可能多的每秒用户请求的东西。我们预计每秒会有数千个针对我们的比赛事件数据的请求。
+- en: Let’s write the two different types of goroutines, starting with the match-recorder
+    function, shown in listing 4.7\. A goroutine running this function listens to
+    events happening during the game, such as points scored, fouls committed, etc.,
+    and then appends them to a shared data structure. In this case, the shared data
+    structure is a Go slice of `string` type. In our code, we are simulating an event
+    happening every 200 milliseconds by adding a string containing "`Match Event i`".
+    In the real world, the goroutine would be listening to a sports feed or periodically
+    polling an API, and the events would be of the type "`3 pointer from Team A`".
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们编写两种不同类型的goroutine，从match-recorder函数开始，该函数在列表 4.7 中展示。运行此函数的goroutine会监听游戏期间发生的事件，例如得分、犯规等，然后将它们追加到一个共享数据结构中。在这种情况下，共享数据结构是一个`string`类型的Go切片。在我们的代码中，我们通过添加包含"`Match
+    Event i`"的字符串来模拟每200毫秒发生一个事件。在现实世界中，goroutine会监听体育直播或定期轮询API，事件类型为"`3 pointer
+    from Team A`"。
+- en: Listing 4.7 Match recorder function simulating periodic game events
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.7 模拟周期性游戏事件的match recorder函数
+- en: '[PRE11]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Protects access to matchEvents with a mutex
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用互斥锁保护对matchEvents的访问
+- en: ❷ Adds a mock string containing a match event every 200 milliseconds
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 每200毫秒添加一个包含比赛事件的模拟字符串
+- en: ❸ Unlocks the mutex
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 解锁互斥锁
+- en: Listing 4.8 shows a client handler function together with a function that copies
+    all the events in the shared slice. We can run the `clientHandler()` function
+    as a goroutine, each handling a connected user. The function locks the shared
+    slice containing the game events and makes a copy of every element in the slice.
+    This function simulates building a response to send to the user. In the real world,
+    we could send this response formatted in something like JSON. The `clientHandler()`
+    function has a loop that repeats 100 times to simulate the same user making multiple
+    requests.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.8 显示了一个客户端处理器函数以及一个复制共享切片中所有事件的函数。我们可以将 `clientHandler()` 函数作为一个 goroutine
+    运行，每个处理一个已连接的用户。该函数锁定包含游戏事件的共享切片，并复制切片中的每个元素。这个函数模拟构建发送给用户的响应。在现实世界中，我们可以将这个响应格式化为类似
+    JSON 的格式。`clientHandler()` 函数有一个循环，重复 100 次，以模拟同一个用户多次请求。
+- en: Listing 4.8 Client handler using exclusive access to a shared list
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.8 使用独占访问共享列表的客户端处理器
+- en: '[PRE12]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Protects access to the list of match events with the mutex
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用互斥锁保护对比赛事件列表的访问
+- en: ❷ Copies the entire contents of the match slice, simulating building a response
+    to the client
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 复制比赛切片的全部内容，模拟构建发送给客户端的响应
+- en: ❸ Unlocks the mutex
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 解锁互斥锁
+- en: ❹ Calculates the time taken since the start
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 计算自开始以来经过的时间
+- en: ❺ Outputs to the console the time taken to serve the client
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 将服务客户端所需的时间输出到控制台
+- en: In listing 4.9, we connect everything together and start our goroutines in a
+    `main()` function. In this `main()` function, after we create a normal mutex,
+    we prepopulate the match event slice with many match events. This simulates a
+    game that has been going on for a while. We do this so we can measure the performance
+    of our code when the slice contains some events.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表 4.9 中，我们将所有内容连接起来，并在 `main()` 函数中启动我们的 goroutines。在这个 `main()` 函数中，我们在创建一个普通互斥锁之后，预先填充比赛事件切片中的许多比赛事件。这模拟了一个已经进行了一段时间的游戏。我们这样做是为了测量当切片包含一些事件时，我们代码的性能。
+- en: Listing 4.9 `main()` function prepopulating events and starting goroutines
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.9 `main()` 函数预填充事件并启动 goroutines
+- en: '[PRE13]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Initializes a new mutex
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 初始化一个新的互斥锁
+- en: ❷ Prepopulates the events slice with many events, simulating an ongoing game
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在事件切片中预填充许多事件，模拟正在进行的游戏
+- en: ❸ Starts the match-recorder Go routine
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 启动比赛记录器 Go 协程
+- en: ❹ Records the start time before starting the client handler goroutines
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在启动客户端处理器 goroutines 之前记录开始时间
+- en: ❺ Starts a large number of client handler goroutines
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 启动大量客户端处理器 goroutines
+- en: In the `main()` function, we then start a match-recorder goroutine and 5,000
+    client handler goroutines. Basically, we are simulating a game that is ongoing
+    and that has a large number of users making simultaneous requests to get game
+    updates. We also record the time before we start the client handler goroutines
+    so that we can measure the time it takes to process all the requests. At the end,
+    our `main()` function goes to sleep for a number of seconds to wait for the client
+    hander goroutines to finish.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `main()` 函数中，然后启动一个比赛记录器 goroutine 和 5,000 个客户端处理器 goroutine。基本上，我们正在模拟一个正在进行的游戏，并且有大量用户同时请求获取游戏更新。我们还记录在启动客户端处理器
+    goroutines 之前的时间，以便我们可以测量处理所有请求所需的时间。最后，我们的 `main()` 函数休眠一段时间，等待客户端处理器 goroutines
+    完成。
+- en: In comparison to the number of read queries, the data changes very slowly. When
+    we use normal mutex locks, every time a goroutine reads the shared basketball
+    data, it blocks all the other serving goroutines until it’s finished. Even though
+    the client handlers are just reading the shared slice without any modifications,
+    we are still giving each one of them exclusive access to the slice. Note that
+    if multiple goroutines are just reading shared data without updating it, there
+    is no need for this exclusive access; concurrent reading of shared data does not
+    cause any interference.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与读取查询的数量相比，数据变化非常缓慢。当我们使用正常的互斥锁锁时，每次一个 goroutine 读取共享的篮球数据时，它会阻塞所有其他正在服务的 goroutines，直到它完成。即使客户端处理器只是读取共享的切片而不进行任何修改，我们仍然给每个处理器提供对切片的独占访问。请注意，如果有多个
+    goroutine 只是读取共享数据而不更新它，就没有必要这种独占访问；并发读取共享数据不会引起任何干扰。
+- en: NOTE Race conditions only happen if we change the shared state without proper
+    synchronization. If we don’t modify the shared data, there is no risk of race
+    conditions.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：只有当我们没有适当同步地更改共享状态时，才会发生竞态条件。如果我们不修改共享数据，就不会有竞态条件的风险。
+- en: It would be better if all client handler goroutines had non-exclusive access
+    to the slice so that they could read the list at the same time if needed. This
+    would improve performance, as it would allow multiple goroutines that are just
+    reading the shared data to access it at the same time. We would only block access
+    to the shared data if there was a need to update it. In this example, we are updating
+    the data very infrequently (a few times per second) compared to the number of
+    reads we’re doing (thousands per second). Thus, we would benefit from a system
+    that allows multiple concurrent reads but exclusive writes.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果所有客户端处理 goroutine 都可以非独占地访问切片，那么在需要时它们可以同时读取列表。这将提高性能，因为它将允许多个仅读取共享数据的 goroutine
+    同时访问它。我们只有在需要更新共享数据时才会阻止对共享数据的访问。在这个例子中，我们更新数据的频率非常低（每秒几次），与我们的读取次数（每秒数千次）相比。因此，我们将从允许多个并发读取但独占写入的系统中获得好处。
+- en: This is what the *readers–writer lock* gives us. When we just need to read a
+    shared resource without updating it, the readers–writer lock allows multiple concurrent
+    goroutines to execute the read-only critical section part. When we need to update
+    the shared resource, the goroutine executing the write critical section requests
+    the write lock to acquire exclusive access. This concept is depicted in figure
+    4.7\. On the left side of the figure, a read lock allows for concurrent read access
+    while blocking any write access. On the right side, obtaining a write lock blocks
+    all other access, both read and write, just like a normal mutex.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这正是 *读者-写者锁* 给我们的。当我们只需要读取共享资源而不更新它时，读者-写者锁允许多个并发 goroutine 执行只读关键部分。当我们需要更新共享资源时，执行写关键部分的
+    goroutine 会请求写锁以获取独占访问。这一概念在图 4.7 中有所描述。在图的左侧，读锁允许并发读取访问，同时阻止任何写访问。在右侧，获取写锁阻止所有其他访问，无论是读取还是写入，就像正常的互斥锁一样。
+- en: '![](../../OEBPS/Images/CH04_F07_Cutajar.png)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH04_F07_Cutajar.png)'
+- en: Figure 4.7 Goroutines using a readers–writer lock
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.7 使用读者-写者锁的 goroutine
+- en: 'Go comes with its own implementation of a readers–writer lock. In addition
+    to offering the normal exclusive locking and unlocking functions, Go’s `sync.RWMutex`
+    gives us extra methods to use the reader’s side of the mutex. Here’s a list of
+    the functions we can use:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go 自带读者-写者锁的实现。除了提供常规的独占锁定和解锁功能外，Go 的 `sync.RWMutex` 还提供了额外的方法来使用互斥锁的读者端。以下是我们可以使用的函数列表：
+- en: '[PRE14]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The locking and unlocking functions that have an `R` in the function name, such
+    as the `RLock()` functions, give us the reader’s side of the `RWMutex`. Everything
+    else, such as `Lock()`, lets us operate the writer part. We can now modify our
+    application serving basketball updates to use these new functions. In the following
+    listing, we’ll initialize one of these readers–writer mutexes and pass it on to
+    the other goroutines in our `main()` function.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数名中带有 `R` 的锁定和解锁功能，例如 `RLock()` 函数，为我们提供了 `RWMutex` 的读者端。其他所有功能，如 `Lock()`，则让我们可以操作写者部分。现在，我们可以修改我们的篮球更新应用程序以使用这些新功能。在下面的列表中，我们将初始化这些读者-写者互斥锁之一，并将其传递给
+    `main()` 函数中的其他 goroutine。
+- en: Listing 4.10 `main()` function creating the `RWMutex`
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.10 `main()` 函数创建 `RWMutex`
+- en: '[PRE15]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Initializes a new readers–writer mutex
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 初始化一个新的读者-写者互斥锁
+- en: ❷ Passes readers–writer mutex to match recorder
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将读者-写者互斥锁传递给匹配记录器
+- en: ❸ Passes readers–writer mutex to client handler goroutine
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将读者-写者互斥锁传递给客户端处理 goroutine
+- en: Next, our two functions, the `matchRecorder()` and `clientHandler()`, need to
+    be updated so that they call the write and read locks mutex functions, respectively.
+    In listing 4.11, the `matchRecorder()` calls `Lock()` and `UnLock()` since it
+    needs to update the shared data structure. The `clientHandler()` goroutines use
+    `RLock()` and `RUnlock()` since they are only reading the shared data structure.
+    The read locks used here are needed because we don’t want the slice data structure
+    to change while we are traversing it. For example, modifying the pointer and contents
+    of the slice while another goroutine is traversing it might lead us to follow
+    an invalid pointer reference.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们的两个函数，`matchRecorder()` 和 `clientHandler()`，需要更新，以便它们分别调用写锁和读锁互斥锁函数。在列表
+    4.11 中，`matchRecorder()` 调用 `Lock()` 和 `UnLock()`，因为它需要更新共享数据结构。`clientHandler()`
+    goroutine 使用 `RLock()` 和 `RUnlock()`，因为它们只读取共享数据结构。这里使用的读锁是必要的，因为我们不希望在遍历期间修改切片数据结构。例如，在另一个
+    goroutine 遍历时修改切片的指针和内容可能会导致我们跟随无效的指针引用。
+- en: Listing 4.11 Match-recorder and client handler functions calling the read-write
+    mutex
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.11 匹配记录器和客户端处理函数调用读写互斥锁
+- en: '[PRE16]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Protects critical section with a write mutex
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用写互斥锁保护关键部分
+- en: ❷ Protects critical section with a read mutex
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用读互斥锁保护关键部分
+- en: A goroutine executing the critical code section between `RLock()` and `RUnlock()`,
+    in our `clientHandler()` function, blocks a goroutine from acquiring a write lock
+    in our `matchRecorder()` function. However, it does not block another goroutine
+    from also acquiring a readers’ lock to a critical section. This means that we
+    can have concurrent goroutines executing `clientHandler()` without any read goroutines
+    blocking each other.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的 `clientHandler()` 函数中，执行 `RLock()` 和 `RUnlock()` 之间的关键代码部分的 goroutine 会阻止另一个
+    goroutine 在我们的 `matchRecorder()` 函数中获取写锁。然而，它不会阻止另一个 goroutine 也获取对关键部分的读者锁。这意味着我们可以有并发执行
+    `clientHandler()` 的 goroutine，而没有任何读 goroutine 会相互阻塞。
+- en: When there is a game update, the goroutine in the `matchRecorder()` acquires
+    a write lock by calling the `Lock()` function on the mutex. The write lock will
+    only be acquired when any active `matchRecorder()` goroutine releases its read
+    lock. When the write lock is acquired, it will block any other goroutine from
+    accessing the critical section in our `clientHandler()` function until we release
+    the write lock by calling `UnLock()`.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当有游戏更新时，`matchRecorder()` 函数中的 goroutine 通过在互斥锁上调用 `Lock()` 函数来获取写锁。只有在任何活动的
+    `matchRecorder()` goroutine 释放其读锁时，才会获取写锁。当获取写锁后，它将阻止任何其他 goroutine 在我们 `clientHandler()`
+    函数中的关键部分访问，直到我们通过调用 `UnLock()` 释放写锁。
+- en: 'If we have a system running multiple cores, this example should give us a speedup
+    over a system with a single core. That’s because we would be running a number
+    of client handler goroutines in parallel since they can access the shared data
+    at the same time. In a test run, I achieved a threefold increase in throughput
+    performance using the readers–writer mutex:'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一个运行多个核心的系统，这个例子应该会给我们比单核系统更高的速度提升。这是因为我们会并行运行多个客户端处理 goroutine，因为它们可以同时访问共享数据。在一次测试运行中，我使用读者-写者互斥锁实现了吞吐量性能的三倍增长：
+- en: '[PRE17]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Figure 4.8 converts the preceding result into requests per second and shows
+    the advantage of using the readers–writer mutex for this simple application running
+    on a 10-core machine. The chart assumes that the application handled a total of
+    500,000 requests (100 requests from 5,000 clients).
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.8 将前面的结果转换为每秒请求数，并显示了在10核机器上运行此简单应用程序时使用读者-写者互斥锁的优势。该图表假设应用程序处理了总共500,000个请求（来自5,000个客户端的100个请求）。
+- en: '![](../../OEBPS/Images/CH04_F08_Cutajar.png)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH04_F08_Cutajar.png)'
+- en: Figure 4.8 Performance differences in our read-heavy server application running
+    on a multicore processor
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.8 在多核处理器上运行的以读为主的服务器应用程序的性能差异
+- en: Note Running this application on different hardware will produce different results.
+    Running on a slower machine might require changing the sleep period at the end
+    or reducing the number of client handler goroutines.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在不同的硬件上运行此应用程序会产生不同的结果。在较慢的机器上运行可能需要更改末尾的睡眠周期或减少客户端处理 goroutine 的数量。
+- en: 4.2.2 Building our own read-preferred readers–writer mutex
+  id: totrans-153
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.2 构建自己的读优先读者-写者互斥锁
+- en: 'Now that we have seen how to use readers–writer mutexes, it would be good to
+    see how they work internally. In this section, we’ll try to build our own readers–writer
+    mutex similar to the one bundled in Go’s `sync` package. To keep things simple,
+    we will build only the four important functions: `ReadLock()`, `ReadUnlock()`,
+    `WriteLock()`, and `WriteUnlock()`. We named them slightly differently from the
+    `sync` versions so that we can distinguish our implementations from the ones in
+    Go’s libraries.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到了如何使用读者-写者互斥锁，那么了解它们在内部是如何工作的会很好。在本节中，我们将尝试构建自己的读者-写者互斥锁，类似于 Go 的 `sync`
+    包中捆绑的互斥锁。为了使事情简单，我们只构建四个重要的函数：`ReadLock()`、`ReadUnlock()`、`WriteLock()` 和 `WriteUnlock()`。我们将它们的命名与
+    `sync` 版本略有不同，以便我们可以区分我们的实现与 Go 库中的实现。
+- en: To implement our readers–writer mutex, we need a system that, when a goroutine
+    calls `ReadLock()`, blocks any access to the write part while allowing other goroutines
+    to still call `ReadLock()` without blocking. We’ll block the write part by making
+    sure that a goroutine calling `WriteLock()` suspends execution. Only when all
+    the read goroutines call `ReadUnlock()` will we allow another goroutine to unblock
+    from `WriteLock()`.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现我们的读者-写入者互斥锁，我们需要一个系统，当goroutine调用`ReadLock()`时，阻止对写入部分的任何访问，同时允许其他goroutine仍然可以调用`ReadLock()`而不被阻塞。我们将通过确保调用`WriteLock()`的goroutine挂起执行来阻止写入部分。只有当所有读取goroutine都调用`ReadUnlock()`后，我们才允许另一个goroutine从`WriteLock()`中解除阻塞。
+- en: To help us visualize this system, we can think of goroutines as entities trying
+    to access a room with two entrances. This room signifies access to a shared resource.
+    The reader goroutines use a specific entrance, and the writers use another. Entrances
+    only admit one goroutine at a time, although multiple goroutines can be in the
+    room at the same time. We keep a counter that a reader goroutine increments by
+    `1` when it enters via the reader’s entrance and reduces by `1` when it leaves
+    the room. The writer’s entrance can be locked from the inside using what we call
+    a global lock. This concept is shown on the left side of figure 4.9.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了帮助我们可视化这个系统，我们可以将goroutines想象成试图通过两个入口进入房间的实体。这个房间象征着对共享资源的访问。读者goroutines使用一个特定的入口，而写入者使用另一个入口。入口一次只允许一个goroutine进入，尽管同时可以有多个goroutine在房间里。我们保持一个计数器，读者goroutine通过读者入口进入时将其增加`1`，离开房间时将其减少`1`。写入者的入口可以通过我们称之为全局锁的东西从内部锁定。这个概念在图4.9的左侧显示。
+- en: '![](../../OEBPS/Images/CH04_F09_Cutajar.png)'
+  id: totrans-157
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH04_F09_Cutajar.png)'
+- en: Figure 4.9 Locking the read part of a readers–writer mutex
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.9 锁定读者-写入者互斥锁的读取部分
+- en: The procedure is that when the first reader goroutine enters the room, it must
+    lock the writers’ entrance, as depicted on the right side of figure 4.9\. This
+    ensures that a writer goroutine will find access impassable, blocking the goroutine’s
+    execution. However, other reader goroutines will still have access through their
+    own entrance. The reader goroutine knows that it’s the first one in the room because
+    the counter has a value of `1`.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 程序是这样的，当第一个读者goroutine进入房间时，它必须锁定写入者的入口，如图4.9的右侧所示。这确保了写入者goroutine将无法进入，阻止了goroutine的执行。然而，其他读者goroutine仍然可以通过它们自己的入口进入。读者goroutine知道它是第一个进入房间的原因是计数器的值为`1`。
+- en: The writer’s entrance here is just another mutex lock that we call the global
+    lock. A writer needs to acquire this mutex in order to hold the writer’s part
+    of the readers-writer lock. When the first reader locks this mutex, it blocks
+    any goroutine requesting the writer’s part of the lock.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 写入者的进入这里只是一个我们称之为全局锁的互斥锁。写入者需要获取这个互斥锁以持有读者-写入者锁的写入者部分。当第一个读者锁定这个互斥锁时，它会阻止任何请求写入者部分锁的goroutine。
+- en: We need to make sure that only one goroutine is using the readers’ entrance
+    at any time because we don’t want two simultaneous read goroutines to enter at
+    the same time and believe they are both the first in the room. This would result
+    in both trying to lock the global lock and only one succeeding. Thus, to synchronize
+    access so only one goroutine can use the readers’ entrance at any time, we can
+    make use of another mutex. In the following listing, we’ll call this mutex `readersLock`.
+    The readers’ counter is represented by the `readersCounter` variable, and we’ll
+    call the writer’s lock `globalLock`.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要确保在任何时候只有一个goroutine使用读者入口，因为我们不希望两个同时的读取goroutine同时进入并认为他们是第一个进入房间的人。这会导致他们都尝试锁定全局锁，而只有一个是成功的。因此，为了同步访问，确保一次只有一个goroutine可以使用读者入口，我们可以使用另一个互斥锁。在下面的列表中，我们将称这个互斥锁为`readersLock`。读者计数器由`readersCounter`变量表示，我们将写入者的锁称为`globalLock`。
+- en: Listing 4.12 Type struct for the readers-writer mutex
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.12 读者-写入者互斥锁的类型结构
+- en: '[PRE18]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Integer variable to count the number of reader goroutines currently in the
+    critical section
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 计数整数变量，用于统计当前在临界区内的读者goroutine数量
+- en: ❷ Mutex for synchronizing readers access
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 用于同步读者访问的互斥锁
+- en: ❸ Mutex for blocking any writers access
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 用于阻止任何写入者访问的互斥锁
+- en: The following listing shows an implementation of the locking mechanism we’ve
+    outlined. On the readers side, the `ReadLock()` function synchronizes access,
+    using the `readersLock` mutex, to ensure that only one goroutine at a time is
+    using the function.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表展示了我们概述的锁定机制的实现。在读者方面，`ReadLock()` 函数通过使用 `readersLock` 互斥锁来同步访问，确保一次只有一个goroutine使用该函数。
+- en: Listing 4.13 Implementation of the `ReadLock()` function
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.13 `ReadLock()`函数的实现
+- en: '[PRE19]'
+  id: totrans-169
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Synchronizes access so that only one goroutine is allowed at any time
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 同步访问，以确保在任何时候只允许一个goroutine访问
+- en: ❷ Reader goroutine increments readersCounter by 1
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 读者goroutine将`readersCounter`增加`1`
+- en: ❸ If a reader goroutine is the first one in, it attempts to lock globalLock.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果一个读者goroutine是第一个进入的，它将尝试锁定全局锁。
+- en: ❹ Synchronizes access so that only one goroutine is allowed at any time
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 同步访问，以确保在任何时候只允许一个goroutine访问
+- en: ❺ Any writer access requires a lock on globalLock.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 任何写者访问都需要锁定全局锁。
+- en: Once the caller gets hold of the `readersLock`, it increments the readers’ counter
+    by `1`, signifying that another goroutine is about to have read access to the
+    shared resource. If the goroutine realizes that it’s the first one to get read
+    access, it tries to lock the `globalLock` so that it blocks access to any write
+    goroutines. (The `globalLock` is used by the `WriteLock()` function when it needs
+    to obtain the writer’s side of this mutex.) If the `globalLock` is free, it means
+    that no writer is currently executing its critical section. In this case, the
+    first reader obtains the `globalLock`, releases the `readersLock`, and goes ahead
+    to execute its reader’s critical section.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦调用者获取了`readersLock`，它将读者的计数器增加`1`，表示另一个goroutine即将获得对共享资源的读取访问。如果goroutine意识到它是第一个获得读取访问的，它将尝试锁定`globalLock`以阻止任何写者goroutine的访问。（当`WriteLock()`函数需要获取互斥锁的写者部分时，它使用`globalLock`。）如果`globalLock`是空闲的，这意味着当前没有写者正在执行其关键部分。在这种情况下，第一个读者获得`globalLock`，释放`readersLock`，然后继续执行其读者的关键部分。
+- en: When a reader goroutine finishes executing its critical section, we can think
+    of it as exiting through the same passageway. On its way out, it decreases the
+    counter by `1`. Using the same passageway simply means that it needs to get hold
+    of the `readersLock` when updating the counter. The last one out of the room (when
+    the counter is `0`), unlocks the global lock so that a writer goroutine can finally
+    access the shared resource. This is shown on the left side of figure 4.10.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个读者goroutine完成其关键部分的执行时，我们可以将其视为通过相同的通道退出。在它离开的过程中，它会将计数器减`1`。使用相同的通道意味着在更新计数器时需要获取`readersLock`。最后离开房间的人（当计数器为`0`时），解锁全局锁，以便写者goroutine最终可以访问共享资源。这显示在图
+    4.10 的左侧。
+- en: '![](../../OEBPS/Images/CH04_F10_Cutajar.png)'
+  id: totrans-177
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH04_F10_Cutajar.png)'
+- en: Figure 4.10 The read unlocking and locking of the write part in a readers–writer
+    mutex
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.10 读者-写者互斥锁中写部分的读取解锁和锁定
+- en: While a writer goroutine is executing its critical section, accessing the room
+    in our analogy, it holds a lock on the `globalLock`. This has two effects. First,
+    it blocks other writers’ goroutines since writers need to acquire this lock before
+    gaining access. Second, it also blocks the first reader goroutine when it tries
+    to acquire the `globalLock`. The first reader goroutine will block and wait until
+    the `globalLock` becomes available. Since the first reader goroutine also holds
+    the `readersLock`, it will also block access to any other reader goroutine that
+    follows while it waits. This is akin to the first reader goroutine not moving
+    and thus blocking the readers’ entrance, not letting any other goroutines in.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个写者goroutine正在执行其关键部分，即访问我们类比中的房间时，它持有`globalLock`的锁。这有两个效果。首先，它阻止了其他写者goroutine的访问，因为写者需要在获得访问权之前获取这个锁。其次，它也阻止了第一个读者goroutine在尝试获取`globalLock`时。第一个读者goroutine将会阻塞并等待直到`globalLock`变得可用。由于第一个读者goroutine也持有`readersLock`，它也会在等待期间阻止任何其他读者goroutine的访问。这就像第一个读者goroutine没有移动并因此阻止了读者的进入，不让任何其他goroutine进入。
+- en: Once the writer goroutine has finished executing its critical section, it releases
+    the `globalLock`. This has the effect of unblocking the first reader goroutine
+    and later allowing in any other blocked readers.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦写者goroutine完成其关键部分的执行，它将释放`globalLock`。这会阻止第一个读者goroutine，并允许任何其他阻塞的读者进入。
+- en: We can implement this releasing logic in our two unlocking functions. Listing
+    4.14 shows both the `ReadUnlock()` and `WriteUnlock()` functions. `ReadUnlock()`
+    again uses the `readersLock` to ensure that only one goroutine is executing this
+    function at a time, protecting the shared `readersCounter` variable. Once the
+    reader acquires the lock, it decrements the `readersCounter` count by `1`, and
+    if the count reaches `0`, it also releases the `globalLock`. This allows the possibility
+    of a writer gaining access. On the writer’s side, `WriteUnlock()` simply releases
+    the `globalLock`, giving either readers or a single writer access.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在我们的两个解锁函数中实现这个释放逻辑。列表 4.14 展示了 `ReadUnlock()` 和 `WriteUnlock()` 函数。`ReadUnlock()`
+    再次使用 `readersLock` 来确保一次只有一个 goroutine 执行此函数，保护共享的 `readersCounter` 变量。一旦读者获取了锁，它将
+    `readersCounter` 的计数减 `1`，如果计数达到 `0`，它也会释放 `globalLock`。这允许写者获得访问权限。在写者的方面，`WriteUnlock()`
+    简单地释放 `globalLock`，允许读者或单个写者访问。
+- en: Listing 4.14 Implementation of the `ReadUnlock()` function
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.14 `ReadUnlock()` 函数的实现
+- en: '[PRE20]'
+  id: totrans-183
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Synchronizes access so that only one goroutine is allowed at any time
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 同步访问，以确保任何时间只允许一个 goroutine 访问
+- en: ❷ The reader goroutine decrements readersCounter by 1.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 读者 goroutine 将 `readersCounter` 减 `1`。
+- en: ❸ If the reader goroutine is the last one out, it unlocks the global lock.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果读者 goroutine 是最后一个离开的，它将解锁全局锁。
+- en: ❹ Synchronizes access so that only one goroutine is allowed at any time
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 同步访问，以确保任何时间只允许一个 goroutine 访问
+- en: ❺ The writer goroutine, finishing its critical section, releases the global
+    lock.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 写者 goroutine 完成其关键部分后，释放全局锁。
+- en: Note This implementation of the readers–writer lock is *read-preferring**.*
+    This means that if we have a consistent number of readers’ goroutines hogging
+    the read part of the mutex, a writer goroutine would be unable to acquire the
+    mutex. In technical terms, we say that the reader goroutines are *starving* the
+    writer ones, not allowing them access to the shared resource. In the next chapter,
+    we will improve this when we discuss condition variables.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：这个读者-写者锁的实现是**优先读取**的。这意味着如果我们有固定数量的读者 goroutine 占据互斥锁的读取部分，写者 goroutine
+    将无法获得互斥锁。从技术角度来说，我们说读者 goroutine 正在**饿死**写者 goroutine，不允许它们访问共享资源。在下一章中，我们将通过讨论条件变量来改进这一点。
+- en: 4.3 Exercises
+  id: totrans-190
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.3 练习
+- en: NOTE Visit [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    to see all the code solutions.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：访问 [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    以查看所有代码解决方案。
+- en: 'Listing 4.15 (originally from chapter 3) does not use any mutexes to protect
+    access to its shared variable. This is bad practice. Change this program so that
+    access to the shared `seconds` variable is protected by a mutex. Hint: you might
+    need to copy a variable.'
+  id: totrans-192
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 列表 4.15（最初来自第 3 章）没有使用任何互斥锁来保护对共享变量 `seconds` 的访问。这是不好的做法。改变这个程序，以便通过互斥锁保护对共享
+    `seconds` 变量的访问。提示：你可能需要复制一个变量。
+- en: Listing 4.15 Goroutines sharing a variable without synchronization
+  id: totrans-193
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 列表 4.15 Goroutines 共享变量而不进行同步
+- en: '[PRE21]'
+  id: totrans-194
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Add a non-blocking `TryLock()` function to the implementation of the readers-writer
+    mutex. The function should try to lock the writer’s side of the lock. If the lock
+    is acquired, it should return a `true` value; otherwise, the function should return
+    immediately, without blocking, with a `false` return value.
+  id: totrans-195
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在读者-写者互斥锁的实现中添加一个非阻塞的 `TryLock()` 函数。该函数应尝试锁定写者的锁部分。如果获得锁，则应返回 `true` 值；否则，函数应立即返回，不阻塞，并返回
+    `false` 值。
+- en: Add a non-blocking `TryReadLock()` function to the implementation of the readers-writer
+    lock. The function should try to lock the readers’ side of the lock. Just like
+    in exercise 2, the function should return immediately with `true` if it managed
+    to obtain the lock and return `false` otherwise.
+  id: totrans-196
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在读者-写者锁的实现中添加一个非阻塞的 `TryReadLock()` 函数。该函数应尝试锁定读者的锁部分。就像在练习 2 中一样，如果它成功获得锁，则立即返回
+    `true`，否则返回 `false`。
+- en: In the previous chapter, in exercise 3.1, we developed a program to output the
+    frequencies of words from downloaded web pages. If you used a shared memory map
+    to store the word frequencies, access to the shared map would need to be protected.
+    Can you use a mutex to guarantee exclusive access to the map?
+  id: totrans-197
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在上一章的练习 3.1 中，我们开发了一个程序来输出从下载的网页中获取的单词频率。如果你使用共享内存映射来存储单词频率，则需要保护对共享映射的访问。你能使用互斥锁来保证对映射的独占访问吗？
+- en: Summary
+  id: totrans-198
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Mutexes can be used to protect critical sections of our code from concurrent
+    executions.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 互斥锁可以用来保护我们的代码中的关键部分免受并发执行的影响。
+- en: We can protect critical sections using mutexes by calling the `Lock()` and `UnLock()`
+    functions at the start and end of critical sections, respectively.
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以通过在关键部分开始和结束时分别调用`Lock()`和`UnLock()`函数来使用互斥锁保护关键部分。
+- en: Locking a mutex for too long can turn our concurrent code into sequential execution,
+    reducing performance.
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 锁定互斥锁时间过长可能会将我们的并发代码转换为顺序执行，从而降低性能。
+- en: We can test whether a mutex is already locked by calling `TryLock()`.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以通过调用`TryLock()`来测试互斥锁是否已经被锁定。
+- en: Readers–writer mutexes can provide performance improvements for read-heavy applications.
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 读者-写者互斥锁可以为读取密集型应用提供性能提升。
+- en: Readers–writer mutexes allow multiple readers’ goroutines to execute critical
+    sections concurrently and provide exclusive access to a single writer goroutine.
+  id: totrans-204
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 读者-写者互斥锁允许多个读者goroutine并发执行关键部分，并为单个写者goroutine提供独占访问。
+- en: We can build a read-preferred readers–writer mutex with a counter and two normal
+    mutexes.
+  id: totrans-205
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用一个计数器和两个普通互斥锁来构建一个优先读取的读者-写者互斥锁。

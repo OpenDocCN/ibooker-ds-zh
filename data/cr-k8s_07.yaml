@@ -1,0 +1,1130 @@
+- en: 7 Pod storage and the CSI
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 7 Pod存储和CSI
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Introducing the virtual filesystem (VFS)
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介绍虚拟文件系统（VFS）
+- en: Exploring Kubernetes in-tree and out-of-tree storage providers
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索树内和树外Kubernetes存储提供者
+- en: Running dynamic storage in a kind cluster with multiple containers
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在具有多个容器的kind集群中运行动态存储
+- en: Defining the Container Storage Interface (CSI)
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义容器存储接口（CSI）
+- en: 'Storage is complex, and this book won’t cover all the storage types available
+    to the modern app developer. Instead, we’ll start with a concrete problem to solve:
+    our Pod needs to store a file. The file needs to persist between container restarts,
+    and it needs to be schedulable to new nodes in our cluster. In this case, the
+    default baked-in storage volumes that we’ve already covered in this book won’t
+    “cut the mustard”:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储很复杂，这本书不会涵盖现代应用开发者可用的所有存储类型。相反，我们将从一个具体问题开始：我们的Pod需要存储一个文件。这个文件需要在容器重启之间持久化，并且需要能够调度到我们集群中的新节点。在这种情况下，我们在这本书中已经覆盖的默认内置存储卷将“无法满足需求”：
+- en: Our Pod can’t rely on `hostPath` because the node itself may not have a unique
+    writeable directory on its host disk.
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的Pod不能依赖于`hostPath`，因为节点本身可能在宿主磁盘上没有唯一的可写目录。
+- en: Our Pod also can’t rely on `emptyDir` because it is a database, and databases
+    can’t afford to lose information stored on an ephemeral volume.
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的Pod也不能依赖于`emptyDir`，因为它是一个数据库，而数据库无法承担在临时卷上丢失存储信息的风险。
+- en: Our Pod might be able to use Secrets to retain its certificate or password credentials
+    to access services like databases, but this Pod is generally not considered a
+    volume when it comes to applications running on Kubernetes.
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的Pod可能能够使用Secrets保留其证书或密码凭证以访问数据库等服务，但这个Pod在Kubernetes上运行的应用程序中通常不被视为卷。
+- en: 'Our Pod has the ability to write data on the top layer of its container filesystem.
+    This is generally slow and not recommended for high-volume write traffic. And,
+    in any case, this simply won’t work: this data disappears as soon as the Pod is
+    restarted!'
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们Pod具有在容器文件系统顶层写入数据的能力。这通常很慢，并且不推荐用于高量写入流量。而且，在任何情况下，这根本无法工作：这些数据一旦Pod重启就会消失！
+- en: 'Thus, we’ve stumbled upon an entirely new dimension of Kubernetes storage for
+    our Pod: fulfilling the needs of the application developer. Kubernetes applications,
+    like regular cloud applications, often need to be able to mount EBS volumes, NFS
+    shares, or data from S3 buckets inside containers and read from or write to these
+    data sources. To solve this application storage problem, we’ll need a cloud-friendly
+    data model and API for storage. Kubernetes represents this data model using the
+    concepts of PersistentVolume (PV), PersistentVolumeClaim (PVC), and StorageClass:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们发现了为我们的Pod提供全新维度Kubernetes存储：满足应用开发者的需求。Kubernetes应用程序，就像常规云应用程序一样，通常需要能够在容器内挂载EBS卷、NFS共享或S3存储桶中的数据，并从或写入这些数据源。为了解决这个应用程序存储问题，我们需要一个云友好的数据模型和存储API。Kubernetes使用持久卷（PV）、持久卷声明（PVC）和存储类（StorageClass）的概念来表示这个数据模型：
+- en: PVs give administrators a way to manage disk volumes in a Kubernetes environment.
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PVs为管理员提供了一种在Kubernetes环境中管理磁盘卷的方法。
+- en: PVCs define a claim to these volumes that can be requested by an application
+    (by a Pod) and fulfilled by the Kubernetes API under the hood.
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PVCs定义了对这些卷的请求，这些请求可以由应用（通过Pod）发起，并由Kubernetes API在底层满足。
+- en: StorageClass gives application developers a way to get a volume without knowing
+    exactly how it is implemented. It gives applications a way to request a PVC without
+    knowing exactly which type of PersistentVolume is being used under the hood.
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: StorageClass为应用开发者提供了一种获取卷的方法，而无需确切知道其实现方式。它为应用提供了一种请求PVC的方法，而无需确切知道底层使用的持久卷类型。
+- en: StorageClasses allow applications to request volumes or storage types that fulfill
+    different end-user requirements in a *declarative* way. This allows you to design
+    StorageClasses for your data center that might fulfill various needs, such as
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: StorageClasses允许应用以声明式的方式请求满足不同最终用户需求的卷或存储类型。这允许你为数据中心设计StorageClasses，可能满足各种需求，例如
+- en: Complex data SLAs (what to keep, how long to keep it, and what not to keep)
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 复杂的数据SLA（保留什么，保留多久，以及不保留什么）
+- en: Performance requirements (batch-processing applications versus low-latency applications)
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 性能要求（批处理应用与低延迟应用）
+- en: Security and multi-tenancy semantics (for users to access particular volumes)
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 安全性和多租户语义（用户访问特定卷）
+- en: Keep in mind that many containers (for example, a CFSSL server for managing
+    application certificates) might not need a lot of storage, but they will need
+    some storage in case they restart and need to reload basic caching or certificate
+    data, for example. In the next chapter, we’ll dig further into the high-level
+    concepts of how you might manage StorageClasses. If you’re new to Kubernetes,
+    you might be wondering if Pods can maintain any state without a volume.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，许多容器（例如，用于管理应用程序证书的CFSSL服务器）可能不需要太多的存储，但它们在重启并需要重新加载基本缓存或证书数据等情况下将需要一些存储。在下一章中，我们将进一步探讨如何管理StorageClasses的高级概念。如果你是Kubernetes的新手，你可能想知道Pod是否可以在没有卷的情况下保持任何状态。
+- en: Do Pods retain state?
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod是否保留状态？
+- en: In short, the answer is no. Don’t forget that a Pod is an ephemeral construct
+    in almost all cases. In some cases (for example, with a StatefulSet) some aspects
+    of a Pod (such as the IP address or, potentially, a locally mounted host volume
+    directory) might persist between restarts.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，答案是：不。别忘了，在几乎所有情况下，Pod都是一个短暂的构造。在某些情况下（例如，使用StatefulSet），Pod的一些方面（如IP地址或可能的一个本地挂载的主机卷目录）可能在重启之间保持不变。
+- en: If a Pod dies for any reason, it will be recreated by a process in the Kubernetes
+    controller manager (KCM). When new Pods are created, it is the Kubernetes scheduler’s
+    job to make sure that a given Pod lands on a node capable of running it. Hence,
+    the ephemeral nature of Pod storage that allows this real-time decision making
+    is integral to the flexibility of managing large fleets of applications.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果Pod因任何原因死亡，它将由Kubernetes控制器管理器（KCM）中的进程重新创建。当创建新的Pod时，Kubernetes调度器的任务是确保给定的Pod落在能够运行它的节点上。因此，Pod存储的短暂性质，允许这种实时决策，对于管理大量应用程序的灵活性至关重要。
+- en: '7.1 A quick detour: The virtual filesystem (VFS) in Linux'
+  id: totrans-23
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.1 简单的偏离：Linux中的虚拟文件系统（VFS）
+- en: 'Before going head-on into the abstractions that Kubernetes offers for Pod storage,
+    it’s worth noting that the OS itself also provides these abstractions to programs.
+    In fact, the *filesystem* itself is an abstraction for a complicated schematic
+    that connects applications to a simple set of APIs that we’ve seen before. You
+    likely know this already, but recall that accessing a file is like accessing any
+    other API. A file in a Linux OS supports a variety of obvious and basic commands
+    (as well as some more opaque ones not listed here):'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在深入探讨Kubernetes为Pod存储提供的抽象之前，值得注意的一点是，操作系统本身也向程序提供了这些抽象。事实上，*文件系统*本身是对一个复杂的连接应用程序到一组简单API的抽象，我们之前已经见过。你可能已经知道了这一点，但请记住，访问文件就像访问任何其他API一样。Linux操作系统中的文件支持各种明显和基本的命令（以及一些未在此列出的更不透明的命令）：
+- en: '`read()`—Reads a few bytes from a file that is open'
+  id: totrans-25
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`read()`—从打开的文件中读取一些字节'
+- en: '`write()`—Writes a few bytes from a file that is open'
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`write()`—从打开的文件中写入一些字节'
+- en: '`open()`—Creates and/or opens a file so that reads and writes can take place'
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`open()`—创建和/或打开一个文件，以便可以进行读写操作'
+- en: '`stat()`—Returns some basic information about a file'
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`stat()`—返回有关文件的一些基本信息'
+- en: '`chmod()`—Changes what users or groups can do with a file and reads, writes,
+    and executes permissions'
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`chmod()`—更改用户或组对文件的操作以及读写执行权限'
+- en: 'All of these operations are called against what is known as the *virtual filesystem*
+    (VFS), which ultimately is a wrapper around your system’s BIOS in most cases.
+    In the cloud, and in the case of FUSE (Filesystem in Userspace), the Linux VFS
+    is just a wrapper to what is ultimately a network call. Even if you are writing
+    data to a disk outside of your Linux machine, you are still accessing that data
+    via the Linux kernel through the VFS. The only difference is that, because you
+    are writing to a remote disk, the VFS uses its NFS client, FUSE client, or whatever
+    other filesystem client it needs, based on your OS, to send this write over the
+    wire. This is depicted in figure 7.1, where all of the various container write
+    operations are actually talking through the VFS API:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些操作都是针对所谓的*虚拟文件系统*（VFS）进行的，在大多数情况下，这最终是围绕你的系统BIOS的一个包装器。在云环境中，以及在FUSE（用户空间文件系统）的情况下，Linux
+    VFS只是一个包装器，它最终是对网络调用的包装。即使你正在将数据写入Linux机器之外的磁盘，你仍然是通过Linux内核通过VFS来访问这些数据的。唯一的区别是，因为你正在写入远程磁盘，VFS会根据你的操作系统使用其NFS客户端、FUSE客户端或其他所需的文件系统客户端，通过网络发送这个写入操作。这如图7.1所示，其中所有的各种容器写入操作实际上是通过VFS
+    API进行的：
+- en: In the case of Docker or CIR storage, the VFS sends filesystem operations to
+    a device mapper or OverlayFS, which ultimately sends traffic to local devices
+    through your system’s BIOS.
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Docker 或 CIR 存储的情况下，VFS 将文件系统操作发送到设备映射器或 OverlayFS，它最终通过你的系统 BIOS 将流量发送到本地设备。
+- en: In the case of Kubernetes infrastructure storage, the VFS sends filesystems
+    operations to locally attached disks on your node.
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Kubernetes 基础设施存储的情况下，VFS 将文件系统操作发送到节点上本地连接的磁盘。
+- en: In the case of applications, the VFS often sends writes over the network, especially
+    in “real” Kubernetes clusters running in the cloud or in a data center with many
+    computers. This is because you are not using the local volume types.
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在应用程序的情况下，VFS 通常会将写入操作通过网络发送，尤其是在“真实”的运行在云中或数据中心中的 Kubernetes 集群中。这是因为你没有使用本地卷类型。
+- en: What about Windows?
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么 Windows 呢？
+- en: In Windows nodes, the kubelet mounts and provides storage to containers in a
+    similar way as does Linux. Windows kubelets typically run the CSI Proxy ([https://github.com/kubernetes-csi/csi-proxy](https://github.com/kubernetes-csi/csi-proxy))
+    that makes low-level calls to the Windows OS, which mounts and unmounts volumes
+    when the kubelet instructs it to do so. The same concepts around filesystem abstraction
+    exist in the Windows ecosystem ([https://en.wikipedia.org/wiki/Installable_File_System](https://en.wikipedia.org/wiki/Installable_File_System)).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Windows 节点上，kubelet 以与 Linux 类似的方式挂载并向容器提供存储。Windows kubelets 通常运行 CSI 代理
+    ([https://github.com/kubernetes-csi/csi-proxy](https://github.com/kubernetes-csi/csi-proxy))，它对
+    Windows 操作系统进行低级调用，当 kubelet 指示它这样做时挂载和卸载卷。Windows 生态系统中存在关于文件系统抽象的相同概念 ([https://en.wikipedia.org/wiki/Installable_File_System](https://en.wikipedia.org/wiki/Installable_File_System))。
+- en: In any case, you don’t need to understand the Linux storage API in order to
+    mount PersistentVolumes in Kubernetes. It is, however, helpful to understand the
+    basis for filesystems when creating Kubernetes solutions because, ultimately,
+    your Pods will interact with these low-level APIs. Now, let’s get back to our
+    Kubernetes-centric view of Pod storage.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任何情况下，你不需要理解 Linux 存储API 就能在 Kubernetes 中挂载 PersistentVolumes。然而，在创建 Kubernetes
+    解决方案时了解文件系统的基础知识是有帮助的，因为最终，你的 Pods 将会与这些低级 API 交互。现在，让我们回到以 Pod 存储为中心的 Kubernetes
+    视角。
+- en: 7.2 Three types of storage requirements for Kubernetes
+  id: totrans-37
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.2 Kubernetes 的三种存储需求
+- en: 'The term *storage* is overloaded. Before we go down the rabbit hole, let’s
+    distinguish the types of storage that typically cause problems in Kubernetes environments:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 术语 *存储* 是多义的。在我们深入探讨之前，让我们区分一下在 Kubernetes 环境中通常会导致问题的存储类型：
+- en: '*Docker/containerd/CRI storage*—The copy-on-write filesystem that runs your
+    containers. Containers require special filesystems on their resident run times
+    because they need to write to a VFS layer (this is why, for example, you can run
+    `rm` `-rf` `/tmp` on a container without actually deleting anything from your
+    host). Typically, the Kubernetes environment uses a filesystem such as btrfs,
+    overlay, or overlay2.'
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*Docker/containerd/CRI 存储*—运行你的容器的写时复制文件系统。容器在其运行时需要特殊的文件系统，因为它们需要写入 VFS 层（这就是为什么，例如，你可以在容器上运行
+    `rm -rf /tmp` 而实际上不会从你的主机上删除任何东西）。通常，Kubernetes 环境使用 btrfs、overlay 或 overlay2
+    这样的文件系统。'
+- en: '*Kubernetes infrastructure storage*—The hostPath or Secret volumes that are
+    used on individual kubelets for local information sharing (for example, as a home
+    for a secret that is going to be mounted in a Pod or a directory from where a
+    storage or networking plugin is called).'
+  id: totrans-40
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*Kubernetes 基础设施存储*—在单个 kubelets 上使用的 hostPath 或 Secret 卷，用于本地信息共享（例如，作为将要挂载到
+    Pod 中的秘密的存储位置或存储或网络插件调用的目录）。'
+- en: '*Application storage*—The storage volumes that Pods use in a Kubernetes cluster.
+    When Pods need to write data to disk, they need to mount a storage volume, and
+    this is done in a Pod specification. Common storage volume filesystems are OpenEBS,
+    NFS, GCE, EC2 and vSphere persistent disks, and so on.'
+  id: totrans-41
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*应用存储*—Pod 在 Kubernetes 集群中使用的存储卷。当 Pods 需要将数据写入磁盘时，它们需要挂载一个存储卷，这通过 Pod 规范来完成。常见的存储卷文件系统有
+    OpenEBS、NFS、GCE、EC2 和 vSphere 持久磁盘等。'
+- en: In figure 7.1, which is extended by figure 7.2, we visually depict how all three
+    types of storage are fundamental steps in starting a Pod. Previously, we only
+    looked at the CNI-related Pod startup sequence steps. As a reminder, there are
+    several checks done by the scheduler before a Pod starts to confirm storage is
+    ready. Then, before a Pod is started, the kubelet and the CSI provider mount external
+    application volumes on a node for the Pod to use. A Pod that is running might
+    write data to its own OverlayFS, and this is completely ephemeral. For example,
+    it might have a /tmp directory that it uses for scratch space. Finally, once a
+    Pod is running, it reads local volumes and might write other remote volumes.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图7.1中，图7.2是对其的扩展，我们直观地展示了所有三种存储类型是如何在启动Pod时的基本步骤。之前，我们只看了与CNI相关的Pod启动序列步骤。作为提醒，调度器在Pod启动前会进行几个检查，以确认存储已准备好。然后，在启动Pod之前，kubelet和CSI提供者在节点上挂载外部应用程序卷，以便Pod使用。正在运行的Pod可能会将其自己的OverlayFS写入数据，这是完全短暂的。例如，它可能有一个用于临时空间的/tmp目录。最后，一旦Pod运行，它会读取本地卷并可能写入其他远程卷。
+- en: '![](../Images/CH07_F01_love.png)'
+  id: totrans-43
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH07_F01_love.png)'
+- en: Figure 7.1 The three types of storage in the startup of a Pod
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.1 Pod启动中的三种存储类型
+- en: Now, the first figure ends with the CSIDriver, but there are many other layers
+    to the sequence diagram that it depicts. In figure 7.2, we can see that the CSIDriver,
+    containerd, layered filesystem, and CSI volume itself are all targeted downstream
+    from the processes of the Pod. Specifically, when the kubelet starts a process,
+    it sends a message to containerd, which then creates a new writeable layer in
+    the filesystem. Once the containerized process starts, it needs to read secrets
+    from files that are mounted to it. Thus, there are many different types of storage
+    calls made in a single Pod. In a typical production scenario, each has its own
+    semantics and purpose in the life cycle of an app.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，第一个图示以CSIDriver结束，但它所描述的序列图还有许多其他层。在图7.2中，我们可以看到CSIDriver、containerd、分层文件系统和CSI卷本身都是针对Pod进程的下游目标。具体来说，当kubelet启动一个进程时，它会向containerd发送消息，containerd随后在文件系统中创建一个新的可写层。一旦容器化进程启动，它需要从挂载到其上的文件中读取机密信息。因此，在单个Pod中会进行许多不同类型的存储调用。在典型的生产场景中，每个调用在其应用程序的生命周期中都有自己的语义和目的。
+- en: The CSI volume mounting step is one of the final events occurring before a Pod
+    starts. To understand this step, we need to take a quick detour and look at how
+    Linux organizes its filesystems.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CSI卷挂载步骤是在Pod启动前发生的最后一步之一。为了理解这一步骤，我们需要快速绕道看看Linux是如何组织其文件系统的。
+- en: '![](../Images/CH07_F02_love.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH07_F02_love.png)'
+- en: Figure 7.2 The three types of storage in the startup of a Pod, part 2
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.2 Pod启动中的三种存储类型，第二部分
+- en: 7.3 Let’s create a PVC in our kind cluster
+  id: totrans-49
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.3 在我们的kind集群中创建一个PVC
+- en: 'Enough with the theory; let’s give some application storage to a simple NGINX
+    Pod. We defined PVs, PVCs, and StorageClasses earlier. Now, let’s see how they
+    are used to provide a real Pod with a scratch directory to store some files:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理论就到这里吧；让我们给一个简单的NGINX Pod提供一些应用存储。我们之前定义了PVs、PVCs和StorageClasses。现在，让我们看看它们是如何被用来为真实的Pod提供一个用于存储文件的临时目录的：
+- en: The PV is created by a dynamic storage provisioner that runs on our `kind` cluster.
+    This is a container that provides Pods with storage by fulfilling PVCs on demand.
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PV是由运行在我们`kind`集群上的动态存储提供者创建的。这是一个容器，它通过满足PVC来为Pod提供存储。
+- en: The PVC will not be available until the PersistentVolume is ready because the
+    scheduler needs to ensure that it can mount storage into the Pod’s namespace before
+    starting it.
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PVC将在PersistentVolume准备好之前不可用，因为调度器需要确保在启动之前可以将存储挂载到Pod的命名空间中。
+- en: The kubelet will not start the Pod until the VFS has successfully mounted the
+    PVC into the Pod’s filesystem namespace as a writable storage location.
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet不会启动Pod，直到VFS成功地将PVC挂载到Pod的文件系统命名空间中作为一个可写存储位置。
+- en: 'Luckily, our `kind` cluster comes out of the box with a storage provider. Let’s
+    see what happens when we ask for a Pod with a new PVC, one that hasn’t been created
+    yet and that has no associated volume already in our cluster. We can check which
+    storage providers are available in a Kubernetes cluster by running the `kubectl`
+    `get` `sc` command as follows:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，我们的`kind`集群自带了一个存储提供者。让我们看看当我们请求一个带有新PVC的Pod时会发生什么，这个PVC尚未创建，并且在我们集群中还没有关联的卷。我们可以通过运行以下`kubectl
+    get sc`命令来检查Kubernetes集群中可用的存储提供者：
+- en: '[PRE0]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: In order to demonstrate how Pods share data between containers, as well as mount
+    multiple storage points with different semantics, this time around we’ll run a
+    Pod with two containers and two volumes. In summary,
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了演示Pod如何在容器之间共享数据，以及如何以不同的语义挂载多个存储点，这次我们将运行一个包含两个容器和两个卷的Pod。总的来说，
+- en: The containers in a Pod can share information with each other.
+  id: totrans-57
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod中的容器可以相互共享信息。
+- en: Persistent storage can be created on the fly in `kind` by its dynamic `hostPath`
+    provisioner.
+  id: totrans-58
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在`kind`中，可以通过其动态的`hostPath`提供程序即时创建持久存储。
+- en: Any container can have multiple volume mounts in a Pod.
+  id: totrans-59
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 任何容器都可以在Pod中拥有多个存储卷挂载。
+- en: '[PRE1]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Shares a folder with the second container
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 与第二个容器共享一个文件夹
+- en: ❷ Specifies a dynamic storage volume for the second container, in addition to
+    sharing a folder with the first container
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 除了与第一个容器共享文件夹外，还为第二个容器指定了一个动态存储卷
+- en: ❸ Mounts the volume that was previously created
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 挂载之前创建的卷
+- en: ❹ Because the volume stanza is outside of our container’s stanza, multiple Pods
+    can read the same data.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 因为存储卷段落位于我们的容器段落之外，所以多个Pod可以读取相同的数据。
+- en: ❺ Accesses the shared volume by both containers if needed
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 如果需要，两个容器都可以访问共享卷
+- en: ❻ The amount of storage requested; our PVC determines if it can be fulfilled.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 请求的存储量；我们的PVC决定了它是否可以满足。
+- en: ❼ The first state, Pending, occurs because the volume for our Pod doesn’t exist
+    yet.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 第一个状态，挂起状态，是因为我们的Pod的存储卷尚未存在。
+- en: ❽ The final state, Running, means that the volume for our Pod exists (via a
+    PVC), and the Pod can access it; thus, the kubelet starts the Pod.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 最终状态，运行状态，意味着我们的Pod的存储卷存在（通过PVC），Pod可以访问它；因此，kubelet启动Pod。
+- en: 'Now, we can create a file in our first container by running a simple command,
+    such as `echo` `a` `>` `/shared/ASDF`. We can easily see the results of this in
+    the second container in the emptyDir folder named /shared/ for both containers:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以在我们的第一个容器中通过运行一个简单的命令，例如`echo` `a` `>` `/shared/ASDF`，来创建一个文件。我们可以在第二个容器的名为/shared/的emptyDir文件夹中轻松地看到这个结果，对于两个容器都是如此：
+- en: '[PRE2]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'We now have a Pod that has two volumes: one ephemeral and one permanent. How
+    did this happen? If we look at the logs that come with our `kind` cluster for
+    the `local-path-provisioner`, it becomes obvious:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一个包含两个卷的Pod：一个是短暂的，一个是永久的。这是怎么发生的？如果我们查看随我们的`kind`集群一起提供的`local-path-provisioner`日志，就会变得很明显：
+- en: '[PRE3]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The container continues to run as a controller at all times in our cluster.
+    When it sees that we want a volume called dynamic2, it creates it for us. Once
+    this succeeds, the volume itself is bound to the PVC by Kubernetes itself. In
+    the Kubernetes core, if a volume exists that satisfies the needs of a PVC, then
+    a binding event occurs.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器始终在我们的集群中以控制器的方式运行。当它看到我们想要一个名为dynamic2的卷时，它会为我们创建它。一旦成功，卷本身就会通过Kubernetes本身绑定到PVC。在Kubernetes核心中，如果存在一个卷可以满足PVC的需求，那么就会发生绑定事件。
+- en: 'At this point, the Kubernetes scheduler confirms that this particular PVC is
+    now deployable on a node, and if this check passes, the Pod moves from the Pending
+    state to the ContainerCreating state, as we saw earlier. As you know by now, the
+    ContainerCreating state is simply the state wherein cgroups and mounts are set
+    up by the kubelet for a Pod before it enters the Running state. The fact that
+    this volume was made for us (we did not manually make a PersistentVolume) is an
+    example of *dynamic storage* in a cluster. We can take a look at the dynamically
+    generated volumes like so:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一点上，Kubernetes调度器确认这个特定的PVC现在可以在节点上部署，如果这个检查通过，Pod就会从挂起状态移动到容器创建状态，正如我们之前看到的。正如你现在所知道的，容器创建状态仅仅是kubelet在Pod进入运行状态之前为Pod设置cgroups和挂载的状态。这个卷是为我们制作的（我们没有手动制作持久卷）是集群中*动态存储*的一个例子。我们可以这样查看动态生成的卷：
+- en: '[PRE4]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Looking a little closer, we can see that the StorageClass `standard` is used
+    for this volume. In fact, that storage class is the way that Kubernetes was able
+    to make this volume. When a standard or default storage class is defined, a PVC
+    that has no storage class is automatically configured to receive the default PVC
+    if one exists. This actually happens via an *admission controller* that premodifies
+    new Pods coming into the API server, adding a default storage class label to them.
+    With this label in place, the volume provisioner that runs in your cluster (in
+    our case, this is called local-path-provisioner, and comes bundled with `kind`)
+    automatically detects the new Pod’s storage request and immediately creates a
+    volume:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们再仔细观察一下，我们可以看到这个卷使用了`standard`存储类。实际上，这个存储类是Kubernetes能够创建这个卷的方式。当定义了一个标准或默认存储类时，没有存储类的PVC会自动配置为接收默认的PVC（如果存在）。这实际上是通过一个*准入控制器*来实现的，它会预先修改进入API服务器的新Pod，为它们添加一个默认存储类标签。有了这个标签，运行在您的集群中的卷提供程序（在我们的案例中，这被称为local-path-provisioner，并且与`kind`捆绑在一起）会自动检测新Pod的存储请求并立即创建一个卷：
+- en: '[PRE5]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ The is-default-class makes this the go-to volume for Pods wanting storage
+    without needing to explicitly request a storage class.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ `is-default-class`使得这是Pod想要存储而不需要显式请求存储类的首选卷。
+- en: ❷ You can have many different storage classes in a cluster.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在一个集群中，你可以有多个不同的存储类。
+- en: Once we realize that Pods can have many different types of storage, it becomes
+    clear that we need a pluggable storage provider for Kubernetes. That is the purpose
+    of the CSI interface ([https://kubernetes-csi.github.io/docs/](https://kubernetes-csi.github.io/docs/)).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们意识到Pod可以有多种不同类型的存储，就变得明显我们需要为Kubernetes提供一个可插拔的存储提供者。这就是CSI接口（[https://kubernetes-csi.github.io/docs/](https://kubernetes-csi.github.io/docs/)）的目的。
+- en: 7.4 The container storage interface (CSI)
+  id: totrans-81
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.4 容器存储接口（CSI）
+- en: The Kubernetes CSI defines an interface (figure 7.3) so that vendors providing
+    storage solutions can easily plug themselves into any Kubernetes cluster and provide
+    applications with a broad range of storage solutions to meet different needs.
+    It is the alternative to in-tree storage, where the kubelet itself bakes the drivers
+    for a volume type into its startup process for a Pod.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes CSI定义了一个接口（图7.3），以便提供存储解决方案的供应商可以轻松地将自己插入到任何Kubernetes集群中，并为应用程序提供广泛的存储解决方案以满足不同的需求。它是树内存储的替代方案，在树内存储中，kubelet本身将其启动过程中Pod的卷类型的驱动程序烘焙到其启动过程中。
+- en: '![](../Images/CH07_F03_love.png)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH07_F03_love.png)'
+- en: Figure 7.3 The architecture of the Kubernetes CSI model
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.3 Kubernetes CSI模型的架构
+- en: 'The purpose of defining the CSI is to make it easy to manage storage solutions
+    from a vendor’s perspective. To frame this problem, let’s consider the underlying
+    storage implementation for a few Kubernetes PVCs:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义CSI的目的是为了从供应商的角度轻松管理存储解决方案。为了阐述这个问题，让我们考虑几个Kubernetes PVC的底层存储实现：
+- en: vSphere’s CSI driver can create VMFS- or vSAN-based PersistentVolume objects.
+  id: totrans-86
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: vSphere的CSI驱动程序可以创建基于VMFS或vSAN的PersistentVolume对象。
+- en: Filesystems such as GlusterFS have CSI drivers that allow you to run volumes
+    in a distributed fashion in containers if you want.
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你想在容器中以分布式方式运行卷，像GlusterFS这样的文件系统有CSI驱动程序允许你这样做。
+- en: Pure Storage has a CSI driver that directly creates volumes on a Pure Storage
+    disk array.
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pure Storage有一个CSI驱动程序，可以直接在Pure Storage磁盘阵列上创建卷。
+- en: Many other vendors also provide CSI-based storage solutions for Kubernetes.
+    Before we describe how the CSI makes this easy, we’ll take a quick look at the
+    in-tree provider problem in Kubernetes. This CSI was largely a response to the
+    challenges associated with managing storage volumes, posed by the in-tree storage
+    model.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多其他供应商也为Kubernetes提供了基于CSI的存储解决方案。在我们描述CSI如何使这变得容易之前，我们将快速查看Kubernetes中的树内提供者问题。这个CSI在很大程度上是对与树内存储模型相关的管理存储卷的挑战的回应。
+- en: 7.4.1 The in-tree provider problem
+  id: totrans-90
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.4.1 树内提供者问题
+- en: 'Since the inception of Kubernetes, vendors have spent a lot of time putting
+    interoperability into its core codebase. The consequence of this was that vendors
+    of different storage types had to contribute operability code into the Kubernetes
+    core itself! There are still remnants of this in the Kubernetes codebase, as we
+    can see at [http://mng.bz/J1NV](http://mng.bz/J1NV):'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自从Kubernetes诞生以来，供应商们花了很多时间将其核心代码库中的互操作性。结果是，不同存储类型的供应商必须将可操作性代码贡献给Kubernetes核心本身！在Kubernetes代码库中仍然存在这种遗留问题，正如我们可以在[http://mng.bz/J1NV](http://mng.bz/J1NV)中看到的那样：
+- en: '[PRE6]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The importation of the GlusterFS’s API package (Heketi is the REST API for
+    Gluster) actually implies that Kubernetes is aware of and dependent on GlusterFS.
+    Looking a little further, we can see how this dependency is manifested:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: GlusterFS的API包（Heketi是Gluster的REST API）的导入实际上意味着Kubernetes了解并依赖于GlusterFS。进一步观察，我们可以看到这种依赖是如何体现的：
+- en: '[PRE7]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'The Kubernetes volume package ultimately makes calls to the GlusterFS API to
+    create new volumes. This can also be seen for other vendors as well, such as VMware’s
+    vSphere. In fact, many vendors, including VMware, Portworx, ScaleIO, and so on,
+    have their own directories under the pkg/volume file in Kubernetes. This is an
+    obvious anti-pattern for any open source project because it conflates vendor-specific
+    code with that of the broader open source framework. This comes with obvious baggage:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes卷包最终会调用GlusterFS API来创建新的卷。这也可以在其他供应商那里看到，例如VMware的vSphere。事实上，包括VMware、Portworx、ScaleIO等在内的许多供应商，在Kubernetes的pkg/volume文件下都有自己的目录。这对于任何开源项目来说都是一个明显的反模式，因为它将供应商特定的代码与更广泛的开源框架混淆。这带来了明显的负担：
+- en: Users have to align their version of Kubernetes with specific storage drivers.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户必须将他们的Kubernetes版本与特定的存储驱动程序对齐。
+- en: Vendors have to continually commit code to Kubernetes itself to keep their storage
+    offerings up to date.
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 供应商必须不断向Kubernetes本身提交代码，以保持他们的存储产品更新。
+- en: These two scenarios are obviously unsustainable over time. Hence, the need for
+    a standard to define externalized volume creation, mounting, and life cycle capabilities
+    was born. Similarly to our look at CNI earlier, the CSI standard typically results
+    in a DaemonSet running on all nodes that handle mounting (much like the CNI agents
+    that handled IP injection for a namespace). Also, the CSI allows us to easily
+    swap out one storage type for another and to even run multiple storage types at
+    once (something not easily done with networks) because it specifies a specific
+    volume-naming convention.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种场景显然是不可持续的。因此，需要一种标准来定义外部化的卷创建、挂载和生命周期功能。类似于我们之前对CNI的探讨，CSI标准通常会导致在每个节点上运行DaemonSet来处理挂载（类似于处理命名空间IP注入的CNI代理）。此外，CSI允许我们轻松地交换一种存储类型为另一种类型，甚至可以同时运行多种存储类型（这在网络中不容易做到），因为它指定了特定的卷命名约定。
+- en: Note that the in-tree problem isn’t specific to storage. The CRI, CNI, and CSI
+    are all born of polluted code that’s lived in Kubernetes for a long time. In the
+    first versions of Kubernetes, the codebase was coupled to tools such as Docker,
+    Flannel, and many other filesystems. These couplings are being moved out over
+    time, and the CSI is just one prominent example of how code can move from in-tree
+    to out-of-tree once the proper interfaces are in place. In practice, however,
+    there is still quite a bit of vendor-specific life cycle code that lives in Kubernetes,
+    and it will potentially take years to truly decouple these add-on technologies.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，树内问题并不仅限于存储。CRI、CNI和CSI都是源于在Kubernetes中长期存在的污染代码。在Kubernetes的第一版本中，代码库与Docker、Flannel和许多其他文件系统等工具耦合。这些耦合随着时间的推移正在被移除，CSI只是代码可以从树内移动到树外的一个突出例子，一旦建立了适当的接口。然而，在实践中，仍然有相当多的供应商特定的生命周期代码存在于Kubernetes中，真正解耦这些附加技术可能需要数年时间。
+- en: 7.4.2 CSI as a specification that works inside of Kubernetes
+  id: totrans-100
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.4.2 CSI作为在Kubernetes内部工作的规范
+- en: Figure 7.4 demonstrates the workflow for provisioning a PVC with a CSI driver.
+    It’s much more transparent and decoupled than what we see with GlusterFS, where
+    different components accomplish different tasks in a discrete manner.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.4展示了使用CSI驱动程序配置PVC的工作流程。与我们在GlusterFS中看到的情况相比，它更加透明且解耦，在GlusterFS中，不同的组件以离散的方式完成不同的任务。
+- en: '![](../Images/CH07_F04_Love.png)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图7.4](../Images/CH07_F04_Love.png)'
+- en: Figure 7.4 Provisioning a PVC with a CSI driver
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.4 使用CSI驱动程序配置PVC
+- en: 'The CSI specification abstractly defines a generic set of functionality that
+    allows a storage service to be defined without specifying any implementation.
+    In this section, we’ll go through some aspects of this interface in the context
+    of Kubernetes itself. The operations it defines are in three general categories:
+    identity services, controller services, and node services. At its heart is the
+    notion of, as you might have guessed, a controller that negotiates the need for
+    storage with a backend provider (your expensive NAS solution) and the Kubernetes
+    control plane by fulfilling a dynamic storage request. Let’s take a quick peek
+    at these three categories:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CSI 规范抽象地定义了一组通用的功能，允许在不指定任何实现的情况下定义存储服务。在本节中，我们将通过 Kubernetes 本身的环境来探讨这个接口的一些方面。它定义的操作分为三个一般类别：身份服务、控制器服务和节点服务。其核心概念，正如你可能猜到的，是一个控制器，通过与后端提供者（你的昂贵
+    NAS 解决方案）和 Kubernetes 控制平面协商存储需求，通过满足动态存储请求来实现。让我们快速看一下这三个类别：
+- en: '*Identity services*—Allow a plugin service to self-identify (provide metadata
+    about itself). This allows the Kubernetes control plane to confirm that a particular
+    type of storage plugin is running and available for a volume type.'
+  id: totrans-105
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*身份服务*—允许插件服务自我识别（提供关于自身的元数据）。这允许 Kubernetes 控制平面确认特定类型的存储插件正在运行且可用于特定类型的卷。'
+- en: '*Node services*—Allow the kubelet itself to talk to a local service, which
+    can do operations for the kubelet that are specific to a storage provider. For
+    example, a CSI provider’s node service might call a vendor-specific binary when
+    it is prompted to mount a particular type of storage. This is requested over a
+    socket, communicating via the GRPC protocol.'
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*节点服务*—允许 kubelet 本身与一个本地服务通信，该服务可以执行特定于存储供应商的操作。例如，当 CSI 提供商的节点服务被提示挂载特定类型的存储时，它可能会调用供应商特定的二进制文件。这是通过套接字请求的，通过
+    GRPC 协议进行通信。'
+- en: '*Controller services*—Implement the creation, deletion, and other life cycle-related
+    events for a vendor’s storage volume. Keep in mind that in order for the NodeService
+    to be of any value, the backend storage system being used needs to first *create*
+    a volume that can be attached at the right moment to a kubelet. Thus, the controller
+    services play a “glue” role, connecting Kubernetes to the storage vendor. As you
+    might expect, this is implemented by running a watch against the Kubernetes API
+    for volume operations.'
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*控制器服务*—实现供应商存储卷的创建、删除和其他生命周期相关事件。请注意，为了使 NodeService 有任何价值，所使用的后端存储系统需要首先
+    *创建* 一个可以在适当时刻附加到 kubelet 的卷。因此，控制器服务扮演了一个“粘合剂”的角色，将 Kubernetes 连接到存储供应商。正如你所期望的，这是通过运行针对卷操作的
+    Kubernetes API 的监视器来实现的。'
+- en: 'The following code snippet provides a brief overview of the CSI specification.
+    We don’t show all the methods here as they are available at [http://mng.bz/y4V7](http://mng.bz/y4V7):'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码片段提供了 CSI 规范的简要概述。我们在这里没有展示所有方法，因为它们可以在 [http://mng.bz/y4V7](http://mng.bz/y4V7)
+    找到：
+- en: '[PRE8]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ The Identity service tells Kubernetes what type of volumes can be created
+    by the controllers running in a cluster.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 身份服务告诉 Kubernetes 由集群中运行的控制器可以创建哪些类型的卷。
+- en: ❷ The Create and Delete methods are called before a node can mount a volume
+    into a Pod, implementing dynamic storage.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在节点可以将卷挂载到 Pod 之前，会调用创建和删除方法，以实现动态存储。
+- en: ❸ The Node service is the part of CSI that runs on a kubelet, mounting the volume
+    created previously into a specific Pod on demand.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 节点服务是 CSI 的一部分，它在 kubelet 上运行，根据需求将之前创建的卷挂载到特定的 Pod 中。
+- en: '7.4.3 CSI: How a storage driver works'
+  id: totrans-113
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.4.3 CSI：存储驱动程序的工作原理
+- en: A *CSI storage plugin* decomposes the operations necessary for mounting a Pod’s
+    storage into three distinct phases. This includes registering a storage driver,
+    requesting a volume, and publishing a volume.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*CSI 存储插件* 将挂载 Pod 存储所需的操作分解为三个不同的阶段。这包括注册存储驱动程序、请求卷和发布卷。'
+- en: 'Registering a storage driver is done via the Kubernetes API. This involves
+    telling Kubernetes how to deal with this particular driver (whether certain things
+    need to happen before a storage volume is writable) and letting Kubernetes know
+    that a particular type of storage is available for the kubelet. The name of a
+    CSI driver is important, as we will see shortly:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Kubernetes API 中注册存储驱动程序。这涉及到告诉 Kubernetes 如何处理这个特定的驱动程序（是否需要在存储卷可写之前执行某些操作），并让
+    Kubernetes 知道某种类型的存储对 kubelet 可用。CSI 驱动程序的名字很重要，正如我们很快就会看到的：
+- en: '[PRE9]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: When requesting a volume (by making an API call to your $200,000 NAS solution,
+    for instance), the vendor storage mechanism is called upon to create a storage
+    volume. This is done using the CreateVolume function we introduced previously.
+    The call to CreateVolume is actually made by (typically) a separate service that
+    is known as an *external provisioner*, which probably isn’t running in the DaemonSet.
+    Rather, it’s a standard Pod that watches the Kubernetes API server and responds
+    to volume requests by calling another API for a storage vendor. This service looks
+    at created PVC objects and then calls CreateVolume against a registered CSI driver.
+    It knows what driver to call because this information is provided to it by the
+    volume name. (Hence, it is important to get the `name` field right.) In this scenario,
+    the request for a volume in a CSI driver is separate from the mounting of that
+    volume.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当请求一个卷（例如通过向您的 $200,000 NAS 解决方案发出 API 调用）时，供应商的存储机制会被调用以创建一个存储卷。这是通过我们之前引入的
+    CreateVolume 函数完成的。对 CreateVolume 的调用实际上是由（通常是）一个单独的服务完成的，该服务被称为 *外部提供者*，它可能不在
+    DaemonSet 中运行。相反，它是一个标准的 Pod，它监视 Kubernetes API 服务器，并通过调用存储供应商的另一个 API 来响应卷请求。此服务查看创建的
+    PVC 对象，然后针对已注册的 CSI 驱动程序调用 CreateVolume。它知道要调用哪个驱动程序，因为卷名称提供给它这些信息。（因此，正确获取 `name`
+    字段非常重要。）在这种情况下，对 CSI 驱动程序中卷的请求与该卷的挂载是分开的。
+- en: When publishing a volume, the volume is attached (mounted) to a Pod. This is
+    done by a CSI storage driver that typically lives on every node of your cluster.
+    Publishing a volume is a fancy way to say mounting a volume to a location the
+    kubelet requests so a Pod can write data to it. The kubelet is in charge of making
+    sure the Pod’s container is launched with the correct mount namespaces to access
+    this directory.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当发布一个卷时，该卷会被附加（挂载）到一个 Pod 上。这通常由存在于您集群每个节点上的 CSI 存储驱动程序完成。发布一个卷是一种将卷挂载到 kubelet
+    请求的位置的巧妙说法，以便 Pod 可以向其写入数据。kubelet 负责确保 Pod 的容器以正确的挂载命名空间启动，以便访问此目录。
+- en: 7.4.4 Bind mounting
+  id: totrans-119
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.4.4 绑定挂载
+- en: You might recall that earlier we defined mounts as simple Linux operations that
+    expose a directory to a new place under the `/` tree. This is a fundamental part
+    of the contract between the attacher and the kubelet, which is defined by the
+    CSI interface. In Linux, the specific operation that we refer to when we make
+    a directory available to a Pod (or any other process via mirroring a directory)
+    is called a *bind mount*. Thus, in any CSI-provisioned storage environment, Kubernetes
+    has several services running that coordinate the delicate interplay of API calls
+    back and forth to reach the ultimate end goal of mounting external storage volumes
+    into Pods.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能还记得，我们之前将挂载定义为简单的 Linux 操作，这些操作将目录暴露在 `/` 树下的新位置。这是附件程序和 kubelet 之间合同的基本部分，由
+    CSI 接口定义。在 Linux 中，当我们通过镜像目录将目录提供给 Pod（或任何其他进程）时，我们所指的具体操作称为 *绑定挂载*。因此，在任何 CSI
+    提供的存储环境中，Kubernetes 都运行着几个服务，这些服务协调 API 调用之间的微妙交互，以达到将外部存储卷挂载到 Pod 中的最终目标。
+- en: Because CSI drivers are a set of containers often maintained by vendors, the
+    kubelet itself needs to be able to accept that mounts might be created from inside
+    a container. This is known as *mount propagation* and is an important part of
+    the low-level Linux requirements for certain aspects of Kubernetes to work properly.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为 CSI 驱动程序是一组通常由供应商维护的容器，kubelet 本身需要能够接受可能会从容器内部创建挂载点。这被称为 *挂载传播*，并且是 Kubernetes
+    正确运行某些底层 Linux 要求的重要组成部分。
+- en: 7.5 A quick look at a few running CSI drivers
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.5 快速查看一些正在运行的 CSI 驱动程序
+- en: We’ll conclude with a few concrete examples of real CSI providers. Because this
+    may require a running cluster, rather than creating a walkthrough where we reproduce
+    CSI behavior step by step (as we did with CNI providers), we’ll instead just share
+    the running logs of the various components of a CSI provider. That way, you can
+    see how the interfaces in this chapter are implemented and monitored in real time.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将以一些真实的 CSI 提供者的具体示例来结束。由于这可能需要一个正在运行的集群，而不是创建一个逐步演示 CSI 行为的教程（就像我们之前对 CNI
+    提供者所做的那样），我们将分享 CSI 提供者各个组件的运行日志。这样，您可以看到本章中接口是如何在实时中实现和监控的。
+- en: 7.5.1 The controller
+  id: totrans-124
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.5.1 控制器
+- en: 'The *controller* is the brains of any CSI driver, connecting requests for storage
+    with backend storage providers, such as vSAN, EBS, and so on. The interface it
+    implements needs to be able to create, delete, and publish volumes on the fly
+    for our Pods to use. We can see the continuous monitoring of the Kubernetes API
+    server if we look directly at the logs of a running vSphere CSI controller:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*控制器*是任何CSI驱动程序的大脑，它将存储请求与后端存储提供者（如vSAN、EBS等）连接起来。它实现的接口需要能够动态创建、删除和发布卷，以便我们的Pod可以使用。如果我们直接查看运行中的vSphere
+    CSI控制器的日志，我们可以看到对Kubernetes API服务器的持续监控：'
+- en: '[PRE10]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Once these PVCs are perceived, the controller can request storage from vSphere
+    itself. The volumes created by vSphere can then synchronize metadata across PVCs
+    and PVs to confirm that a PVC is now mountable. After this, the CSI node takes
+    over (the scheduler first will confirm that a CSI node for vSphere is healthy
+    on the Pod’s destination).
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦感知到这些PVC，控制器就可以从vSphere本身请求存储。然后，vSphere创建的卷可以跨PVC和PV同步元数据，以确认PVC现在可以挂载。之后，CSI节点接管（调度器首先会确认Pod目标上的vSphere
+    CSI节点是健康的）。
+- en: 7.5.2 The node interface
+  id: totrans-128
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.5.2 节点接口
+- en: The *node interface* is responsible for communicating with kubelets and mounting
+    storage to Pods. We can concretely see this by looking at the running logs of
+    volumes in production. Previously, we attempted to run the NFS CSI driver in a
+    hostile environment as a way to uncover lower-level VFS utilization by Linux.
+    Now that we’ve covered the CSI interface, let’s again look back at how the NFS
+    CSI driver looks in production.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*节点接口*负责与kubelet通信并将存储挂载到Pod上。我们可以通过查看生产中卷的运行日志具体地看到这一点。之前，我们尝试在一个敌对环境中运行NFS
+    CSI驱动程序，作为揭示Linux底层VFS利用情况的一种方式。现在我们已经涵盖了CSI接口，让我们再次回顾NFS CSI驱动程序在生产中的样子。'
+- en: 'The first thing we’ll look at is how both the NFS and vSphere CSI plugins use
+    a socket for communicating with the kubelet. This is how the node components of
+    the interface are called. When we look into the details of a CSI node container,
+    we should see something like this:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先将探讨NFS和vSphere CSI插件如何使用套接字与kubelet通信。这就是接口的节点组件被调用的方式。当我们深入研究CSI节点容器的细节时，我们应该看到类似这样的内容：
+- en: '[PRE11]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Name of the CSI driver
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ CSI驱动程序的名称
+- en: ❷ The channel for the kubelet to talk to the CSI plugins it uses for storage
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ kubelet与其用于存储的CSI插件通信的通道
+- en: 'The naming of CSI drivers is important because it is part of the CSI protocol.
+    The csi-nodeplugin prints its exact version on startup. Note that the csi.sock
+    plugin directory is the common channel that the kubelet uses to talk to the CSI
+    plugins:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CSI驱动程序的命名很重要，因为它属于CSI协议的一部分。csi-nodeplugin在启动时打印其确切版本。请注意，csi.sock插件目录是kubelet用于与CSI插件通信的通用通道：
+- en: '[PRE12]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Shows that the identity of the driver is registered
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 显示驱动程序的标识已注册
+- en: ❷ Shows that the CSI socket is used
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 显示使用CSI套接字
+- en: This concludes our treatment of the CSI interface and why it exists. Unlike
+    other components of Kubernetes, this is not easy to discuss or reason about without
+    a cluster with real workloads running in front of you. As a follow-up exercise,
+    we highly recommend installing the NFS CSI provider (or any other CSI driver)
+    on a cluster of your choice (VMs or bare metal). One exercise worthy of running
+    through is measuring whether the creation of volumes slows over time and, if so,
+    what the bottlenecks are.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就结束了我们对CSI接口及其存在原因的讨论。与其他Kubernetes组件不同，没有在你面前运行真实工作负载的集群，讨论或推理这一点并不容易。作为后续练习，我们强烈建议在你的选择集群（虚拟机或裸机）上安装NFS
+    CSI提供程序（或任何其他CSI驱动程序）。一个值得运行的练习是测量卷的创建是否会随着时间的推移而减慢，如果是这样，瓶颈是什么。
+- en: We don’t include a live example of a CSI driver in this chapter because most
+    of the current CSI drivers that are used in production clusters aren’t runnable
+    inside of a simple `kind` environment. In general, as long as you understand that
+    the provisioning of volumes is distinct from the mounting of those volumes, you
+    should be well prepared to debug CSI failures in a production system by treating
+    these two independent operations as distinct failure modes.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在本章中没有包含CSI驱动程序的实时示例，因为大多数当前在生产集群中使用的CSI驱动程序都无法在简单的`kind`环境中运行。一般来说，只要您理解卷的配置与这些卷的挂载是不同的，您就应该准备好通过将这些两个独立的操作视为不同的故障模式来调试生产系统中的CSI故障。
+- en: 7.5.3 CSI on non-Linux OSs
+  id: totrans-140
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.5.3 在非Linux操作系统上的CSI
+- en: Similar to CNI, the CSI interface is OS-agnostic; however, its implementation
+    is quite natural for Linux users with the ability to run privileged containers.
+    As with networking outside of Linux, the way CSI is implemented in a Linux process
+    is a little different by tradition. For example, if you are running Kubernetes
+    on Windows, you might find a lot of value in the CSI proxy project ([https://github.com/kubernetes-csi/csi-proxy](https://github.com/kubernetes-csi/csi-proxy))
+    that runs a service on every kubelet of your cluster, which abstracts away many
+    of the PowerShell commands that implement CSI node functionality. This is because,
+    on Windows, the concept of *privileged* containers is quite new and only works
+    on certain, more recent versions of containerd.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与CNI类似，CSI接口是操作系统无关的；然而，对于能够运行特权容器的Linux用户来说，其实现方式非常自然。与Linux之外的联网方式一样，CSI在Linux进程中的实现方式传统上略有不同。例如，如果你在Windows上运行Kubernetes，你可能会发现CSI代理项目（[https://github.com/kubernetes-csi/csi-proxy](https://github.com/kubernetes-csi/csi-proxy)）非常有价值，该项目在集群的每个kubelet上运行一个服务，抽象掉了实现CSI节点功能的大多数PowerShell命令。这是因为，在Windows上，*特权*容器的概念相当新颖，并且仅在containerd的某些较新版本上工作。
+- en: In time, we expect that many people running Windows kubelets will also be able
+    to run their CSI implementations as Windows DaemonSets, with behavior similar
+    to that of the Linux DaemonSets we’ve demoed in this chapter. Ultimately the need
+    to abstract storage happens at many levels of the computing stack, and Kubernetes
+    is just one more abstraction on top of an ever increasing ecosystem of storage
+    and persistence support for applications.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间的推移，我们预计运行Windows kubelets的许多人也将能够以与我们在本章中演示的Linux DaemonSets类似的行为，将他们的CSI实现作为Windows
+    DaemonSets运行。最终，抽象存储的需求发生在计算堆栈的许多层面上，Kubernetes只是在这个不断增长的存储和持久化支持生态系统之上增加的一个抽象层。
+- en: Summary
+  id: totrans-143
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Pods can acquire storage dynamically at run time when they are created by mount
+    operations that the kubelet executes.
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当Pod通过kubelet执行的挂载操作创建时，它们可以在运行时动态获取存储。
+- en: The simplest way to experiment with Kubernetes storage providers is to make
+    a PVC in a Pod in a `kind` cluster.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在`kind`集群中为Pod创建一个PVC是尝试Kubernetes存储提供者的最简单方式。
+- en: The CSI provider for NFS is one of many CSI providers, all of which conform
+    to the same CSI standard for container storage mounting. This decouples Kubernetes
+    source code from storage vendor source code.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于NFS的CSI提供者是众多CSI提供者之一，它们都遵循相同的CSI标准进行容器存储挂载。这使Kubernetes源代码与存储供应商源代码解耦。
+- en: When implemented, the CSI-defined identity controller and node services, each
+    of which includes several abstract functions, allow providers to dynamically provide
+    storage to Pods through the CSI API.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当实现时，CSI定义的身份控制器和节点服务，每个都包含几个抽象函数，允许提供者通过CSI API动态地为Pod提供存储。
+- en: The CSI interface can be made to work on non-Linux OSs, with the CSI proxy for
+    Windows kubelets as the leading example of this type of implementation.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CSI接口可以实现在非Linux操作系统上工作，其中Windows kubelets的CSI代理是这个类型实现的主要例子。
+- en: The Linux virtual filesystem (VFS) includes anything that can be opened, read,
+    and written to. Operations on disks happen beneath its API.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Linux虚拟文件系统（VFS）包括任何可以打开、读取和写入的内容。磁盘操作在其API之下发生。

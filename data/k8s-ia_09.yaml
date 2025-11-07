@@ -1,0 +1,2094 @@
+- en: Chapter 8\. Accessing pod metadata and other resources from applications
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第8章\. 从应用程序访问Pod元数据和其它资源
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Using the Downward API to pass information into containers
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Downward API将信息传递到容器中
+- en: Exploring the Kubernetes REST API
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索Kubernetes REST API
+- en: Leaving authentication and server verification to `kubectl proxy`
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将认证和服务器验证留给`kubectl proxy`
+- en: Accessing the API server from within a container
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从容器内访问API服务器
+- en: Understanding the ambassador container pattern
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解大使容器模式
+- en: Using Kubernetes client libraries
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Kubernetes客户端库
+- en: Applications often need information about the environment they’re running in,
+    including details about themselves and that of other components in the cluster.
+    You’ve already seen how Kubernetes enables service discovery through environment
+    variables or DNS, but what about other information? In this chapter, you’ll see
+    how certain pod and container metadata can be passed to the container and how
+    easy it is for an app running inside a container to talk to the Kubernetes API
+    server to get information about the resources deployed in the cluster and even
+    how to create or modify those resources.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序通常需要了解它们运行的环境信息，包括自身和其他集群组件的详细信息。您已经看到了Kubernetes如何通过环境变量或DNS进行服务发现，但其他信息怎么办？在本章中，您将了解某些Pod和容器元数据如何传递到容器中，以及一个运行在容器中的应用程序与Kubernetes
+    API服务器通信以获取集群中部署的资源信息是多么容易，甚至如何创建或修改这些资源。
+- en: 8.1\. Passing metadata through the Downward API
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.1\. 通过Downward API传递元数据
+- en: In the previous chapter you saw how you can pass configuration data to your
+    applications through environment variables or through `configMap` and `secret`
+    volumes. This works well for data that you set yourself and that is known before
+    the pod is scheduled to a node and run there. But what about data that isn’t known
+    up until that point—such as the pod’s IP, the host node’s name, or even the pod’s
+    own name (when the name is generated; for example, when the pod is created by
+    a ReplicaSet or similar controller)? And what about data that’s already specified
+    elsewhere, such as a pod’s labels and annotations? You don’t want to repeat the
+    same information in multiple places.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，您看到了如何通过环境变量或通过`configMap`和`secret`卷将配置数据传递给您的应用程序。这对于您自己设置且在Pod调度到节点并运行之前已知的数据来说效果很好。但对于直到那时才未知的数据怎么办——例如Pod的IP、主机节点的名称，甚至是Pod自己的名称（当名称生成时；例如，当Pod由ReplicaSet或类似控制器创建时）？以及对于已经指定在其他地方的数据怎么办，例如Pod的标签和注解？您不希望在多个地方重复相同的信息。
+- en: Both these problems are solved by the Kubernetes Downward API. It allows you
+    to pass metadata about the pod and its environment through environment variables
+    or files (in a `downwardAPI` volume). Don’t be confused by the name. The Downward
+    API isn’t like a REST endpoint that your app needs to hit so it can get the data.
+    It’s a way of having environment variables or files populated with values from
+    the pod’s specification or status, as shown in [figure 8.1](#filepos793706).
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个问题都由Kubernetes Downward API解决。它允许您通过环境变量或文件（在`downwardAPI`卷中）传递Pod及其环境的相关元数据。不要被这个名字迷惑。Downward
+    API不像一个REST端点，您的应用程序需要击中它以获取数据。它是一种将环境变量或文件填充为Pod规范或状态中的值的方式，如图8.1所示。
+- en: Figure 8.1\. The Downward API exposes pod metadata through environment variables
+    or files.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.1\. Downward API通过环境变量或文件暴露Pod元数据。
+- en: '![](images/00025.jpg)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00025.jpg)'
+- en: 8.1.1\. Understanding the available metadata
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.1.1\. 理解可用的元数据
+- en: 'The Downward API enables you to expose the pod’s own metadata to the processes
+    running inside that pod. Currently, it allows you to pass the following information
+    to your containers:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Downward API允许您将Pod的自身元数据暴露给在该Pod内运行的进程。目前，它允许您将以下信息传递给您的容器：
+- en: The pod’s name
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod的名称
+- en: The pod’s IP address
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod的IP地址
+- en: The namespace the pod belongs to
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod所属的命名空间
+- en: The name of the node the pod is running on
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod运行所在的节点名称
+- en: The name of the service account the pod is running under
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod运行下的服务账户名称
+- en: The CPU and memory requests for each container
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个容器的CPU和内存请求
+- en: The CPU and memory limits for each container
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个容器的CPU和内存限制
+- en: The pod’s labels
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod的标签
+- en: The pod’s annotations
+  id: totrans-24
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod的注解
+- en: Most of the items in the list shouldn’t require further explanation, except
+    perhaps the service account and CPU/memory requests and limits, which we haven’t
+    introduced yet. We’ll cover service accounts in detail in [chapter 12](index_split_095.html#filepos1145244).
+    For now, all you need to know is that a service account is the account that the
+    pod authenticates as when talking to the API server. CPU and memory requests and
+    limits are explained in [chapter 14](index_split_105.html#filepos1325290). They’re
+    the amount of CPU and memory guaranteed to a container and the maximum amount
+    it can get.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表中的大多数项目不需要进一步解释，除非可能是服务账户以及CPU/内存请求和限制，这些我们尚未介绍。我们将在第12章[章节 12](index_split_095.html#filepos1145244)中详细介绍服务账户。目前，您需要知道的是，服务账户是Pod在与API服务器通信时进行身份验证的账户。CPU和内存请求和限制在第14章[章节
+    14](index_split_105.html#filepos1325290)中解释。它们是保证给容器的CPU和内存量以及它可能获取的最大量。
+- en: Most items in the list can be passed to containers either through environment
+    variables or through a `downwardAPI` volume, but labels and annotations can only
+    be exposed through the volume. Part of the data can be acquired by other means
+    (for example, from the operating system directly), but the Downward API provides
+    a simpler alternative.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表中的大多数项目可以通过环境变量或通过`downwardAPI`卷传递给容器，但标签和注解只能通过卷暴露。部分数据可以通过其他方式获取（例如，直接从操作系统获取），但Downward
+    API提供了一个更简单的替代方案。
+- en: Let’s look at an example to pass metadata to your containerized process.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过一个例子来看看如何将元数据传递给您的容器化进程。
+- en: 8.1.2\. Exposing metadata through environment variables
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.1.2\. 通过环境变量公开元数据
+- en: First, let’s look at how you can pass the pod’s and container’s metadata to
+    the container through environment variables. You’ll create a simple single-container
+    pod from the following listing’s manifest.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看看您如何通过环境变量将Pod和容器的元数据传递给容器。您将从以下清单的manifest创建一个简单的单容器Pod。
+- en: 'Listing 8.1\. Downward API used in environment variables: downward-api-env.yaml'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.1\. 用于环境变量的Downward API：downward-api-env.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: downward spec:   containers:  
+    - name: main     image: busybox     command: ["sleep", "9999999"]     resources:
+          requests:         cpu: 15m         memory: 100Ki       limits:         cpu:
+    100m         memory: 4Mi     env:     - name: POD_NAME       valueFrom:` `1` `fieldRef:`
+    `1` `fieldPath: metadata.name` `1` `- name: POD_NAMESPACE       valueFrom:        
+    fieldRef:           fieldPath: metadata.namespace     - name: POD_IP       valueFrom:
+            fieldRef:           fieldPath: status.podIP     - name: NODE_NAME      
+    valueFrom:         fieldRef:           fieldPath: spec.nodeName     - name: SERVICE_ACCOUNT
+          valueFrom:         fieldRef:           fieldPath: spec.serviceAccountName
+        - name: CONTAINER_CPU_REQUEST_MILLICORES       valueFrom:` `2` `resourceFieldRef:`
+    `2` `resource: requests.cpu` `2` `divisor: 1m` `3` `- name: CONTAINER_MEMORY_LIMIT_KIBIBYTES
+          valueFrom:         resourceFieldRef:           resource: limits.memory          
+    divisor: 1Ki`'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: downward spec:   containers:  
+    - name: main     image: busybox     command: ["sleep", "9999999"]     resources:
+          requests:         cpu: 15m         memory: 100Ki         limits:        
+    cpu: 100m         memory: 4Mi     env:     - name: POD_NAME       valueFrom:`
+    `1` `fieldRef:` `1` `fieldPath: metadata.name` `1` `- name: POD_NAMESPACE      
+    valueFrom:         fieldRef:           fieldPath: metadata.namespace     - name:
+    POD_IP       valueFrom:         fieldRef:           fieldPath: status.podIP    
+    - name: NODE_NAME       valueFrom:         fieldRef:           fieldPath: spec.nodeName
+        - name: SERVICE_ACCOUNT       valueFrom:         fieldRef:           fieldPath:
+    spec.serviceAccountName     - name: CONTAINER_CPU_REQUEST_MILLICORES       valueFrom:`
+    `2` `resourceFieldRef:` `2` `resource: requests.cpu` `2` `divisor: 1m` `3` `-
+    name: CONTAINER_MEMORY_LIMIT_KIBIBYTES       valueFrom:         resourceFieldRef:
+              resource: limits.memory           divisor: 1Ki`'
+- en: 1 Instead of specifying an absolute value, you’re referencing the metadata.name
+    field from the pod manifest.
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 而不是指定一个绝对值，您正在引用Pod清单中的metadata.name字段。
+- en: 2 A container’s CPU and memory requests and limits are referenced by using resourceFieldRef
+    instead of fieldRef.
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 容器的CPU和内存请求和限制是通过使用resourceFieldRef而不是fieldRef来引用的。
+- en: 3 For resource fields, you define a divisor to get the value in the unit you
+    need.
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 对于资源字段，您定义一个除数以获取所需单位的值。
+- en: When your process runs, it can look up all the environment variables you defined
+    in the pod spec. [Figure 8.2](#filepos800257) shows the environment variables
+    and the sources of their values. The pod’s name, IP, and namespace will be exposed
+    through the `POD_NAME`, `POD_IP`, and `POD_NAMESPACE` environment variables, respectively.
+    The name of the node the container is running on will be exposed through the `NODE_NAME`
+    variable. The name of the service account is made available through the `SERVICE_ACCOUNT`
+    environment variable. You’re also creating two environment variables that will
+    hold the amount of CPU requested for this container and the maximum amount of
+    memory the container is allowed to consume.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你的进程运行时，它可以查找Pod规范中定义的所有环境变量。[图8.2](#filepos800257)显示了环境变量及其值的来源。Pod的名称、IP和命名空间将通过`POD_NAME`、`POD_IP`和`POD_NAMESPACE`环境变量分别暴露。容器运行的节点名称将通过`NODE_NAME`变量暴露。服务账户的名称将通过`SERVICE_ACCOUNT`环境变量提供。你还创建了两个环境变量，将保存此容器请求的CPU数量和容器允许消耗的最大内存量。
+- en: Figure 8.2\. Pod metadata and attributes can be exposed to the pod through environment
+    variables.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.2\. Pod的元数据和属性可以通过环境变量暴露给Pod。
+- en: '![](images/00187.jpg)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00187.jpg)'
+- en: For environment variables exposing resource limits or requests, you specify
+    a divisor. The actual value of the limit or the request will be divided by the
+    divisor and the result exposed through the environment variable. In the previous
+    example, you’re setting the divisor for CPU requests to `1m` (one milli-core,
+    or one one-thousandth of a CPU core). Because you’ve set the CPU request to `15m`,
+    the environment variable `CONTAINER_CPU_REQUEST_MILLICORES` will be set to `15`.
+    Likewise, you set the memory limit to `4Mi` (4 mebibytes) and the divisor to `1Ki`
+    (1 Kibibyte), so the `CONTAINER_MEMORY_LIMIT_KIBIBYTES` environment variable will
+    be set to `4096`.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于暴露资源限制或请求的环境变量，你指定一个除数。限制或请求的实际值将被除以除数，并通过环境变量暴露结果。在之前的例子中，你为CPU请求设置了除数为`1m`（一个毫核心，或CPU核心的千分之一）。因为你已将CPU请求设置为`15m`，所以环境变量`CONTAINER_CPU_REQUEST_MILLICORES`将被设置为`15`。同样，你将内存限制设置为`4Mi`（4米字节）和除数为`1Ki`（1
+    Kibibyte），因此`CONTAINER_MEMORY_LIMIT_KIBIBYTES`环境变量将被设置为`4096`。
+- en: The divisor for CPU limits and requests can be either `1`, which means one whole
+    core, or `1m`, which is one millicore. The divisor for memory limits/requests
+    can be `1` (byte), `1k` (kilobyte) or `1Ki` (kibibyte), `1M` (megabyte) or `1Mi`
+    (mebibyte), and so on.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CPU限制和请求的除数可以是`1`，表示一个完整的核心，或者`1m`，表示一个毫核心。内存限制/请求的除数可以是`1`（字节）、`1k`（千字节）或`1Ki`（Kibibyte）、`1M`（兆字节）或`1Mi`（Mebibyte）等。
+- en: After creating the pod, you can use `kubectl exec` to see all these environment
+    variables in your container, as shown in the following listing.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建Pod之后，你可以使用`kubectl exec`来查看容器中的所有这些环境变量，如下所示。
+- en: Listing 8.2\. Environment variables in the downward pod
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.2\. downward Pod中的环境变量
+- en: '`$ kubectl exec downward env` `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    HOSTNAME=downward CONTAINER_MEMORY_LIMIT_KIBIBYTES=4096 POD_NAME=downward POD_NAMESPACE=default
+    POD_IP=10.0.0.10 NODE_NAME=gke-kubia-default-pool-32a2cac8-sgl7 SERVICE_ACCOUNT=default
+    CONTAINER_CPU_REQUEST_MILLICORES=15 KUBERNETES_SERVICE_HOST=10.3.240.1 KUBERNETES_SERVICE_PORT=443
+    ...`'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec downward env` `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    HOSTNAME=downward CONTAINER_MEMORY_LIMIT_KIBIBYTES=4096 POD_NAME=downward POD_NAMESPACE=default
+    POD_IP=10.0.0.10 NODE_NAME=gke-kubia-default-pool-32a2cac8-sgl7 SERVICE_ACCOUNT=default
+    CONTAINER_CPU_REQUEST_MILLICORES=15 KUBERNETES_SERVICE_HOST=10.3.240.1 KUBERNETES_SERVICE_PORT=443
+    ...`'
+- en: All processes running inside the container can read those variables and use
+    them however they need.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器内运行的所有进程都可以读取这些变量并按需使用它们。
+- en: 8.1.3\. Passing metadata through files in a downwardAPI volume
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.1.3\. 通过downwardAPI卷中的文件传递元数据
+- en: If you prefer to expose the metadata through files instead of environment variables,
+    you can define a `downwardAPI` volume and mount it into your container. You must
+    use a `downwardAPI` volume for exposing the pod’s labels or its annotations, because
+    neither can be exposed through environment variables. We’ll discuss why later.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你更喜欢通过文件而不是环境变量来暴露元数据，你可以定义一个`downwardAPI`卷并将其挂载到你的容器中。你必须使用`downwardAPI`卷来暴露Pod的标签或其注解，因为它们都不能通过环境变量来暴露。我们稍后会讨论原因。
+- en: As with environment variables, you need to specify each metadata field explicitly
+    if you want to have it exposed to the process. Let’s see how to modify the previous
+    example to use a volume instead of environment variables, as shown in the following
+    listing.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与环境变量一样，如果你想将元数据公开给进程，你需要明确指定每个元数据字段。让我们看看如何修改前面的示例，使用卷而不是环境变量，如下面的列表所示。
+- en: 'Listing 8.3\. Pod with a `downwardAPI` volume: downward-api-volume.yaml'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.3\. 带有`downwardAPI`卷的Pod：downward-api-volume.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: downward   labels:` `1` `foo: bar`
+    `1` `annotations:` `1` `key1: value1` `1` `key2: |` `1` `multi` `1` `line` `1`
+    `value` `1` `spec:   containers:   - name: main     image: busybox     command:
+    ["sleep", "9999999"]     resources:       requests:         cpu: 15m         memory:
+    100Ki       limits:         cpu: 100m         memory: 4Mi     volumeMounts:` `2`
+    `- name: downward` `2` `mountPath: /etc/downward` `2` `volumes:   - name: downward`
+    `3` `downwardAPI:` `3` `items:       - path: "podName"` `4` `fieldRef:` `4` `fieldPath:
+    metadata.name` `4` `- path: "podNamespace"         fieldRef:           fieldPath:
+    metadata.namespace       - path: "labels"` `5` `fieldRef:` `5` `fieldPath: metadata.labels`
+    `5` `- path: "annotations"` `6` `fieldRef:` `6` `fieldPath: metadata.annotations`
+    `6` `- path: "containerCpuRequestMilliCores"         resourceFieldRef:          
+    containerName: main           resource: requests.cpu           divisor: 1m      
+    - path: "containerMemoryLimitBytes"         resourceFieldRef:           containerName:
+    main           resource: limits.memory           divisor: 1`'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: downward   labels:` `1` `foo: bar`
+    `1` `annotations:` `1` `key1: value1` `1` `key2: |` `1` `multi` `1` `line` `1`
+    `value` `1` `spec:   containers:   - name: main     image: busybox     command:
+    ["sleep", "9999999"]     resources:       requests:         cpu: 15m         memory:
+    100Ki         limits:         cpu: 100m         memory: 4Mi     volumeMounts:`
+    `2` `- name: downward` `2` `mountPath: /etc/downward` `2` `volumes:   - name:
+    downward` `3` `downwardAPI:` `3` `items:       - path: "podName"` `4` `fieldRef:`
+    `4` `fieldPath: metadata.name` `4` `- path: "podNamespace"         fieldRef:          
+    fieldPath: metadata.namespace       - path: "labels"` `5` `fieldRef:` `5` `fieldPath:
+    metadata.labels` `5` `- path: "annotations"` `6` `fieldRef:` `6` `fieldPath: metadata.annotations`
+    `6` `- path: "containerCpuRequestMilliCores"         resourceFieldRef:          
+    containerName: main           resource: requests.cpu           divisor: 1m      
+    - path: "containerMemoryLimitBytes"         resourceFieldRef:           containerName:
+    main           resource: limits.memory           divisor: 1`'
+- en: 1 These labels and annotations will be exposed through the downwardAPI volume.
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 这些标签和注解将通过downwardAPI卷公开。
+- en: 2 You’re mounting the downward volume under /etc/downward.
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 你正在将downward卷挂载到/etc/downward目录下。
+- en: 3 You’re defining a downwardAPI volume with the name downward.
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 你正在定义一个名为downward的downwardAPI卷。
+- en: 4 The pod’s name (from the metadata.name field in the manifest) will be written
+    to the podName file.
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 Pod的名称（来自清单中的metadata.name字段）将被写入到podName文件中。
+- en: 5 The pod’s labels will be written to the /etc/downward/labels file.
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 5 Pod的标签将被写入到/etc/downward/labels文件中。
+- en: 6 The pod’s annotations will be written to the /etc/downward/annotations file.
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 6 Pod的注解将被写入到/etc/downward/annotations文件中。
+- en: Instead of passing the metadata through environment variables, you’re defining
+    a volume called `downward` and mounting it in your container under /etc/downward.
+    The files this volume will contain are configured under the `downwardAPI.items`
+    attribute in the volume specification.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你不是通过环境变量传递元数据，而是定义一个名为`downward`的卷，并将其挂载到你的容器中的/etc/downward目录下。这个卷将包含的文件在卷指定中的`downwardAPI.items`属性下进行配置。
+- en: Each item specifies the `path` (the filename) where the metadata should be written
+    to and references either a pod-level field or a container resource field whose
+    value you want stored in the file (see [figure 8.3](#filepos808841)).
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个项目指定了元数据应该写入的`path`（文件名）以及引用一个Pod级别的字段或一个容器资源字段，其值你想存储在文件中（参见[图8.3](#filepos808841)）。
+- en: Figure 8.3\. Using a `downwardAPI` volume to pass metadata to the container
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图8.3\. 使用`downwardAPI`卷将元数据传递到容器
+- en: '![](images/00008.jpg)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00008.jpg)'
+- en: Delete the previous pod and create a new one from the manifest in the previous
+    listing. Then look at the contents of the mounted `downwardAPI` volume directory.
+    You mounted the volume under /etc/downward/, so list the files in there, as shown
+    in the following listing.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 删除之前的Pod，并从上一个列表中的清单创建一个新的Pod。然后查看挂载的`downwardAPI`卷目录的内容。你将卷挂载到/etc/downward/下，所以列出那里的文件，如下面的列表所示。
+- en: Listing 8.4\. Files in the `downwardAPI` volume
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.4\. `downwardAPI`卷中的文件
+- en: '`$ kubectl exec downward ls -lL /etc/downward` `-rw-r--r--   1 root   root  
+    134 May 25 10:23 annotations -rw-r--r--   1 root   root     2 May 25 10:23 containerCpuRequestMilliCores
+    -rw-r--r--   1 root   root     7 May 25 10:23 containerMemoryLimitBytes -rw-r--r--  
+    1 root   root     9 May 25 10:23 labels -rw-r--r--   1 root   root     8 May 25
+    10:23 podName -rw-r--r--   1 root   root     7 May 25 10:23 podNamespace`'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec downward ls -lL /etc/downward` `-rw-r--r--   1 root   root   134
+    May 25 10:23 annotations -rw-r--r--   1 root   root     2 May 25 10:23 containerCpuRequestMilliCores
+    -rw-r--r--   1 root   root     7 May 25 10:23 containerMemoryLimitBytes -rw-r--r--   1
+    root   root     9 May 25 10:23 labels -rw-r--r--   1 root   root     8 May 25
+    10:23 podName -rw-r--r--   1 root   root     7 May 25 10:23 podNamespace`'
+- en: '|  |'
+  id: totrans-62
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: As with the `configMap` and `secret` volumes, you can change the file permissions
+    through the `downwardAPI` volume’s `defaultMode` property in the pod spec.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `configMap` 和 `secret` 卷一样，您可以通过 pod 规范中 `downwardAPI` 卷的 `defaultMode` 属性更改文件权限。
+- en: '|  |'
+  id: totrans-65
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Each file corresponds to an item in the volume’s definition. The contents of
+    files, which correspond to the same metadata fields as in the previous example,
+    are the same as the values of environment variables you used before, so we won’t
+    show them here. But because you couldn’t expose labels and annotations through
+    environment variables before, examine the following listing for the contents of
+    the two files you exposed them in.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个文件对应卷定义中的一个条目。文件的内容与上一个示例中的相同元数据字段相对应，与您之前使用的环境变量值相同，因此我们在此不展示它们。但因为你之前无法通过环境变量暴露标签和注释，请查看以下列表以了解你在其中暴露它们的两个文件的内容。
+- en: Listing 8.5\. Displaying labels and annotations in the `downwardAPI` volume
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.5\. 在 `downwardAPI` 卷中显示标签和注释
+- en: '`$ kubectl exec downward cat /etc/downward/labels` `foo="bar"` `$ kubectl exec
+    downward cat /etc/downward/annotations` `key1="value1" key2="multi\nline\nvalue\n"
+    kubernetes.io/config.seen="2016-11-28T14:27:45.664924282Z" kubernetes.io/config.source="api"`'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec downward cat /etc/downward/labels` `foo="bar"` `$ kubectl exec
+    downward cat /etc/downward/annotations` `key1="value1" key2="multi\nline\nvalue\n"
+    kubernetes.io/config.seen="2016-11-28T14:27:45.664924282Z" kubernetes.io/config.source="api"`'
+- en: As you can see, each label/annotation is written in the `key=value` format on
+    a separate line. Multi-line values are written to a single line with newline characters
+    denoted with `\n`.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，每个标签/注释都单独一行，以 `key=value` 格式书写。多行值写入一行，换行符用 `\n` 表示。
+- en: Updating labels and annotations
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新标签和注释
+- en: You may remember that labels and annotations can be modified while a pod is
+    running. As you might expect, when they change, Kubernetes updates the files holding
+    them, allowing the pod to always see up-to-date data. This also explains why labels
+    and annotations can’t be exposed through environment variables. Because environment
+    variable values can’t be updated afterward, if the labels or annotations of a
+    pod were exposed through environment variables, there’s no way to expose the new
+    values after they’re modified.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能记得，标签和注释可以在 pod 运行时进行修改。正如您所预期的那样，当它们发生变化时，Kubernetes 会更新包含它们的文件，使 pod 总是能看到最新的数据。这也解释了为什么标签和注释不能通过环境变量暴露。因为环境变量值之后无法更新，如果
+    pod 的标签或注释通过环境变量暴露，那么在它们被修改后就没有办法暴露新的值。
+- en: Referring to container-level metadata in the volume specification
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在卷规范中引用容器级元数据
+- en: Before we wrap up this section, we need to point out one thing. When exposing
+    container-level metadata, such as a container’s resource limit or requests (done
+    using `resourceFieldRef`), you need to specify the name of the container whose
+    resource field you’re referencing, as shown in the following listing.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们结束本节之前，需要指出一点。当暴露容器级元数据，例如容器的资源限制或请求（使用 `resourceFieldRef` 完成）时，您需要指定您引用的资源字段所属容器的名称，如下所示。
+- en: Listing 8.6\. Referring to container-level metadata in a `downwardAPI` volume
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.6\. 在 `downwardAPI` 卷中引用容器级元数据
+- en: '`spec:   volumes:   - name: downward     downwardAPI:       items:       -
+    path: "containerCpuRequestMilliCores"         resourceFieldRef:           containerName:
+    main` `1` `resource: requests.cpu           divisor: 1m`'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`spec:    volumes:    - name: downward    downwardAPI:        items:        -
+    path: "containerCpuRequestMilliCores"        resourceFieldRef:            containerName:
+    main    `1`    resource: requests.cpu    divisor: 1m`'
+- en: 1 Container name must be specified
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 容器名称必须指定
+- en: The reason for this becomes obvious if you consider that volumes are defined
+    at the pod level, not at the container level. When referring to a container’s
+    resource field inside a volume specification, you need to explicitly specify the
+    name of the container you’re referring to. This is true even for single-container
+    pods.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你考虑到卷是在 pod 级别定义的，而不是在容器级别定义的，那么这个原因就变得很明显。当在卷规范中引用容器的资源字段时，你需要明确指定你引用的容器的名称。即使是单容器
+    pod 也适用。
+- en: Using volumes to expose a container’s resource requests and/or limits is slightly
+    more complicated than using environment variables, but the benefit is that it
+    allows you to pass one container’s resource fields to a different container if
+    needed (but both containers need to be in the same pod). With environment variables,
+    a container can only be passed its own resource limits and requests.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用卷来暴露容器的资源请求和/或限制比使用环境变量稍微复杂一些，但好处是它允许你在需要时将一个容器的资源字段传递给另一个容器（但这两个容器需要位于同一个
+    pod 中）。使用环境变量时，容器只能传递其自身的资源限制和请求。
+- en: Understanding when to use the Downward API
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解何时使用 Downward API
+- en: As you’ve seen, using the Downward API isn’t complicated. It allows you to keep
+    the application Kubernetes-agnostic. This is especially useful when you’re dealing
+    with an existing application that expects certain data in environment variables.
+    The Downward API allows you to expose the data to the application without having
+    to rewrite the application or wrap it in a shell script, which collects the data
+    and then exposes it through environment variables.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所看到的，使用 Downward API 并不复杂。它允许你保持应用程序与 Kubernetes 无关。当你处理一个期望在环境变量中获取某些数据的现有应用程序时，这特别有用。Downward
+    API 允许你将数据暴露给应用程序，而无需重写应用程序或将其包装在 shell 脚本中，该脚本收集数据并通过环境变量将其暴露。
+- en: But the metadata available through the Downward API is fairly limited. If you
+    need more, you’ll need to obtain it from the Kubernetes API server directly. You’ll
+    learn how to do that next.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但通过 Downward API 可用的元数据相当有限。如果你需要更多，你需要直接从 Kubernetes API 服务器获取它。你将在下一节中学习如何做到这一点。
+- en: 8.2\. Talking to the Kubernetes API server
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.2. 与 Kubernetes API 服务器通信
+- en: We’ve seen how the Downward API provides a simple way to pass certain pod and
+    container metadata to the process running inside them. It only exposes the pod’s
+    own metadata and a subset of all of the pod’s data. But sometimes your app will
+    need to know more about other pods and even other resources defined in your cluster.
+    The Downward API doesn’t help in those cases.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了 Downward API 如何提供一种简单的方法将某些 pod 和容器元数据传递给它们内部运行的进程。它只暴露 pod 的自身元数据和
+    pod 数据的一个子集。但有时你的应用程序需要了解更多关于其他 pod 以及在集群中定义的其他资源。在这种情况下，Downward API 并不能提供帮助。
+- en: As you’ve seen throughout the book, information about services and pods can
+    be obtained by looking at the service-related environment variables or through
+    DNS. But when the app needs data about other resources or when it requires access
+    to the most up-to-date information as possible, it needs to talk to the API server
+    directly (as shown in [figure 8.4](#filepos816461)).
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你在整本书中看到的那样，可以通过查看服务相关的环境变量或通过 DNS 获取关于服务和 pod 的信息。但当应用程序需要关于其他资源的数据或需要尽可能访问最新信息时，它需要直接与
+    API 服务器通信（如图 8.4 所示）。
+- en: Figure 8.4\. Talking to the API server from inside a pod to get information
+    about other API objects
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.4. 从 pod 内与 API 服务器通信以获取其他 API 对象的信息
+- en: '![](images/00026.jpg)'
+  id: totrans-86
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00026.jpg)'
+- en: Before you see how apps within pods can talk to the Kubernetes API server, let’s
+    first explore the server’s REST endpoints from your local machine, so you can
+    see what talking to the API server looks like.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你看到 pod 内的应用程序如何与 Kubernetes API 服务器通信之前，让我们首先从你的本地机器上探索服务器的 REST 端点，这样你可以看到与
+    API 服务器通信的样子。
+- en: 8.2.1\. Exploring the Kubernetes REST API
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.2.1. 探索 Kubernetes REST API
+- en: You’ve learned about different Kubernetes resource types. But if you’re planning
+    on developing apps that talk to the Kubernetes API, you’ll want to know the API
+    first.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经了解了不同的 Kubernetes 资源类型。但如果你计划开发与 Kubernetes API 通信的应用程序，你首先需要了解 API。
+- en: 'To do that, you can try hitting the API server directly. You can get its URL
+    by running `kubectl cluster-info`:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做到这一点，你可以尝试直接击中 API 服务器。你可以通过运行 `kubectl cluster-info` 获取其 URL：
+- en: '`$ kubectl cluster-info` `Kubernetes master is running at https://192.168.99.100:8443`'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl cluster-info` `Kubernetes master is running at https://192.168.99.100:8443`'
+- en: 'Because the server uses HTTPS and requires authentication, it’s not simple
+    to talk to it directly. You can try accessing it with `curl` and using `curl`’s
+    `--insecure` (or `-k`) option to skip the server certificate check, but that doesn’t
+    get you far:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为服务器使用 HTTPS 并需要身份验证，所以直接与之通信并不简单。您可以尝试使用 `curl` 并使用 `curl` 的 `--insecure`（或
+    `-k`）选项来跳过服务器证书检查，但这不会让您走得太远：
+- en: '`$ curl https://192.168.99.100:8443 -k` `Unauthorized`'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl https://192.168.99.100:8443 -k` `未授权`'
+- en: Luckily, rather than dealing with authentication yourself, you can talk to the
+    server through a proxy by running the `kubectl proxy` command.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，您不必自己处理身份验证，可以通过运行 `kubectl proxy` 命令通过代理与服务器通信。
+- en: Accessing the API server through kubectl proxy
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过 kubectl proxy 访问 API 服务器
+- en: The `kubectl proxy` command runs a proxy server that accepts HTTP connections
+    on your local machine and proxies them to the API server while taking care of
+    authentication, so you don’t need to pass the authentication token in every request.
+    It also makes sure you’re talking to the actual API server and not a man in the
+    middle (by verifying the server’s certificate on each request).
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`kubectl proxy` 命令运行一个代理服务器，该服务器在您的本地机器上接受 HTTP 连接并将它们代理到 API 服务器，同时处理身份验证，因此您不需要在每次请求中传递身份验证令牌。它还确保您正在与实际的
+    API 服务器通信，而不是中间人（通过在每次请求上验证服务器的证书）。'
+- en: 'Running the proxy is trivial. All you need to do is run the following command:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行代理非常简单。您只需运行以下命令：
+- en: '`$ kubectl proxy` `Starting to serve on 127.0.0.1:8001`'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl proxy` `开始服务于 127.0.0.1:8001`'
+- en: 'You don’t need to pass in any other arguments, because `kubectl` already knows
+    everything it needs (the API server URL, authorization token, and so on). As soon
+    as it starts up, the proxy starts accepting connections on local port 8001\. Let’s
+    see if it works:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您无需传递任何其他参数，因为 `kubectl` 已经知道它需要的一切（API 服务器 URL、授权令牌等）。一旦启动，代理就会在本地端口 8001 上开始接受连接。让我们看看它是否工作：
+- en: '`$ curl localhost:8001` `{   "paths": [     "/api",     "/api/v1",     ...`'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl localhost:8001` `{   "paths": [     "/api",     "/api/v1",     ...`'
+- en: Voila! You sent the request to the proxy, it sent a request to the API server,
+    and then the proxy returned whatever the server returned. Now, let’s start exploring.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 哇！您向代理发送了请求，它向 API 服务器发送了请求，然后代理返回了服务器返回的内容。现在，让我们开始探索。
+- en: Exploring the Kubernetes API through the kubectl proxy
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过 kubectl proxy 探索 Kubernetes API
+- en: You can continue to use `curl`, or you can open your web browser and point it
+    to http://localhost:8001\. Let’s examine what the API server returns when you
+    hit its base URL more closely. The server responds with a list of paths, as shown
+    in the following listing.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以继续使用 `curl`，或者您也可以打开您的网页浏览器并将其指向 http://localhost:8001。让我们更仔细地检查当您点击其基本 URL
+    时 API 服务器返回的内容。服务器响应了一个路径列表，如下所示。
+- en: 'Listing 8.7\. Listing the API server’s REST endpoints: http://localhost:8001'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.7\. 列出 API 服务器的 REST 端点：http://localhost:8001
+- en: '`$ curl http://localhost:8001 {   "paths": [     "/api",     "/api/v1",` `1`
+    `"/apis",     "/apis/apps",     "/apis/apps/v1beta1",     ...     "/apis/batch",`
+    `2` `"/apis/batch/v1",` `2` `"/apis/batch/v2alpha1",` `2` `...`'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl http://localhost:8001 {   "paths": [     "/api",     "/api/v1",` `1`
+    `"/apis",     "/apis/apps",     "/apis/apps/v1beta1",     ...     "/apis/batch",`
+    `2` `"/apis/batch/v1",` `2` `"/apis/batch/v2alpha1",` `2` `...`'
+- en: 1 Most resource types can be found here.
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 大多数资源类型都可以在这里找到。
+- en: 2 The batch API group and its two versions
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 批量 API 组及其两个版本
+- en: These paths correspond to the API groups and versions you specify in your resource
+    definitions when creating resources such as Pods, Services, and so on.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些路径对应于您在创建资源（如 Pods、Services 等）时在资源定义中指定的 API 组和版本。
+- en: 'You may recognize the `batch/v1` in the `/apis/batch/v1` path as the API group
+    and version of the Job resources you learned about in [chapter 4](index_split_038.html#filepos358794).
+    Likewise, the `/api/v1` corresponds to the `apiVersion: v1` you refer to in the
+    common resources you created (Pods, Services, ReplicationControllers, and so on).
+    The most common resource types, which were introduced in the earliest versions
+    of Kubernetes, don’t belong to any specific group, because Kubernetes initially
+    didn’t even use the concept of API groups; they were introduced later.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '您可能已经注意到 `/apis/batch/v1` 路径中的 `batch/v1` 是您在 [第 4 章](index_split_038.html#filepos358794)
+    中了解到的 Job 资源所属的 API 组和版本。同样，`/api/v1` 对应于您在创建的常见资源（Pods、Services、ReplicationControllers
+    等）中引用的 `apiVersion: v1`。最常见的资源类型，在 Kubernetes 最早版本中引入，不属于任何特定组，因为 Kubernetes 初始时甚至没有使用
+    API 组的概念；它们是在后来引入的。'
+- en: '|  |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: These initial resource types without an API group are now considered to belong
+    to the core API group.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些没有API组的初始资源类型现在被认为是属于核心API组。
+- en: '|  |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Exploring the batch API group’s REST endpoint
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 探索批处理API组的REST端点
+- en: Let’s explore the Job resource API. You’ll start by looking at what’s behind
+    the `/apis/batch` path (you’ll omit the version for now), as shown in the following
+    listing.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们探索作业资源API。你将从查看 `/apis/batch` 路径背后的内容开始（现在暂时省略版本），如下所示。
+- en: 'Listing 8.8\. Listing endpoints under `/apis/batch`: http://localhost:8001/apis/batch'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.8\. `/apis/batch`下的端点列表：http://localhost:8001/apis/batch
+- en: '`$ curl http://localhost:8001/apis/batch` `{   "kind": "APIGroup",   "apiVersion":
+    "v1",   "name": "batch",   "versions": [     {       "groupVersion": "batch/v1",`
+    `1` `"version": "v1"` `1` `},     {       "groupVersion": "batch/v2alpha1",` `1`
+    `"version": "v2alpha1"` `1` `}   ],   "preferredVersion": {` `2` `"groupVersion":
+    "batch/v1",` `2` `"version": "v1"` `2` `},   "serverAddressByClientCIDRs": null
+    }`'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl http://localhost:8001/apis/batch` `{   "kind": "APIGroup",   "apiVersion":
+    "v1",   "name": "batch",   "versions": [     {       "groupVersion": "batch/v1",`
+    `1` `"version": "v1"` `1` `},     {       "groupVersion": "batch/v2alpha1",` `1`
+    `"version": "v2alpha1"` `1` `}   ],   "preferredVersion": {` `2` `"groupVersion":
+    "batch/v1",` `2` `"version": "v1"` `2` `},   "serverAddressByClientCIDRs": null
+    }`'
+- en: 1 The batch API group contains two versions.
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 批处理API组包含两个版本。
+- en: 2 Clients should use the v1 version instead of v2alpha1.
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 客户端应使用v1版本而不是v2alpha1。
+- en: The response shows a description of the `batch` API group, including the available
+    versions and the preferred version clients should use. Let’s continue and see
+    what’s behind the `/apis/batch/v1` path. It’s shown in the following listing.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 响应显示了 `batch` API组的描述，包括可用的版本和客户端应使用的首选版本。让我们继续，看看 `/apis/batch/v1` 路径背后的内容。如下所示。
+- en: 'Listing 8.9\. Resource types in `batch/v1`: http://localhost:8001/apis/batch/v1'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.9\. `batch/v1`中的资源类型：http://localhost:8001/apis/batch/v1
+- en: '`$ curl http://localhost:8001/apis/batch/v1` `{   "kind": "APIResourceList",`
+    `1` `"apiVersion": "v1",   "groupVersion": "batch/v1",` `1` `"resources": [` `2`
+    `{       "name": "jobs",` `3` `"namespaced": true,` `3` `"kind": "Job",` `3` `"verbs":
+    [` `4` `"create",` `4` `"delete",` `4` `"deletecollection",` `4` `"get",` `4`
+    `"list",` `4` `"patch",` `4` `"update",` `4` `"watch"` `4` `]     },     {      
+    "name": "jobs/status",` `5` `"namespaced": true,       "kind": "Job",       "verbs":
+    [` `6` `"get",` `6` `"patch",` `6` `"update"` `6` `]     }   ] }`'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl http://localhost:8001/apis/batch/v1` `{   "kind": "APIResourceList",`
+    `1` `"apiVersion": "v1",   "groupVersion": "batch/v1",` `1` `"resources": [` `2`
+    `{       "name": "jobs",` `3` `"namespaced": true,` `3` `"kind": "Job",` `3` `"verbs":
+    [` `4` `"create",` `4` `"delete",` `4` `"deletecollection",` `4` `"get",` `4`
+    `"list",` `4` `"patch",` `4` `"update",` `4` `"watch"` `4` `]     },     {      
+    "name": "jobs/status",` `5` `"namespaced": true,       "kind": "Job",       "verbs":
+    [` `6` `"get",` `6` `"patch",` `6` `"update"` `6` `]     }   ] }`'
+- en: 1 This is a list of API resources in the batch/v1 API group.
+  id: totrans-123
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 这是 `batch/v1` API组中的API资源列表。
+- en: 2 Here’s an array holding all the resource types in this group.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 这里是一个包含该组所有资源类型的数组。
+- en: 3 This describes the Job resource, which is namespaced.
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 这描述了命名空间中的作业资源。
+- en: 4 Here are the verbs that can be used with this resource (you can create Jobs;
+    delete individual ones or a collection of them; and retrieve, watch, and update
+    them).
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 这里列出了可以与该资源一起使用的动词（你可以创建作业；删除单个或多个作业；以及检索、监视和更新它们）。
+- en: 5 Resources also have a special REST endpoint for modifying their status.
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 5 资源还有一个用于修改其状态的特殊REST端点。
+- en: 6 The status can be retrieved, patched, or updated.
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 6 可以检索、修补或更新状态。
+- en: As you can see, the API server returns a list of resource types and REST endpoints
+    in the `batch/v1` API group. One of those is the Job resource. In addition to
+    the `name` of the resource and the associated `kind`, the API server also includes
+    information on whether the resource is `namespaced` or not, its short name (if
+    it has one; Jobs don’t), and a list of `verbs` you can use with the resource.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，API服务器返回了 `batch/v1` API组中的资源类型和REST端点的列表。其中之一是作业资源。除了资源的 `name` 和相关的 `kind`
+    之外，API服务器还包含了关于资源是否 `namespaced` 的信息，以及（如果有的话）其简称（作业没有），以及你可以与资源一起使用的 `verbs`
+    列表。
+- en: 'The returned list describes the REST resources exposed in the API server. The
+    `"name": "jobs"` line tells you that the API contains the `/apis/batch/v1/jobs`
+    endpoint. The `"verbs"` array says you can retrieve, update, and delete Job resources
+    through that endpoint. For certain resources, additional API endpoints are also
+    exposed (such as the `jobs/status` path, which allows modifying only the status
+    of a Job).'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '返回的列表描述了API服务器中公开的REST资源。`"name": "jobs"`行告诉你API包含`/apis/batch/v1/jobs`端点。`"verbs"`数组表示你可以通过该端点检索、更新和删除Job资源。对于某些资源，还公开了额外的API端点（例如，`jobs/status`路径，它允许仅修改Job的状态）。'
+- en: Listing all Job instances in the cluster
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列出集群中的所有Job实例
+- en: To get a list of Jobs in your cluster, perform a GET request on path `/apis/batch/
+    v1/jobs`, as shown in the following listing.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要获取集群中Job的列表，对路径`/apis/batch/v1/jobs`执行GET请求，如下所示。
+- en: 'Listing 8.10\. List of Jobs: http://localhost:8001/apis/batch/v1/jobs'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.10\. Job列表：http://localhost:8001/apis/batch/v1/jobs
+- en: '`$ curl http://localhost:8001/apis/batch/v1/jobs` `{   "kind": "JobList",  
+    "apiVersion": "batch/v1",   "metadata": {     "selfLink": "/apis/batch/v1/jobs",
+        "resourceVersion": "225162"   },   "items": [     {       "metadata": {        
+    "name": "my-job",         "namespace": "default",         ...`'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl http://localhost:8001/apis/batch/v1/jobs` `{   "kind": "JobList",  
+    "apiVersion": "batch/v1",   "metadata": {     "selfLink": "/apis/batch/v1/jobs",
+        "resourceVersion": "225162"   },   "items": [     {       "metadata": {        
+    "name": "my-job",         "namespace": "default",         ...`'
+- en: You probably have no Job resources deployed in your cluster, so the items array
+    will be empty. You can try deploying the Job in Chapter08/my-job.yaml and hitting
+    the REST endpoint again to get the same output as in [listing 8.10](#filepos829384).
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能没有在集群中部署任何Job资源，所以items数组将是空的。你可以尝试部署第08章中的`my-job.yaml`文件，并再次调用REST端点以获取与[列表8.10](#filepos829384)相同的输出。
+- en: Retrieving a specific Job instance by name
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过名称检索特定的Job实例
+- en: 'The previous endpoint returned a list of all Jobs across all namespaces. To
+    get back only one specific Job, you need to specify its name and namespace in
+    the URL. To retrieve the Job shown in the previous listing (`name: my-job`; `namespace:
+    default`), you need to request the following path: `/apis/batch/v1/namespaces/default/jobs/
+    my-job`, as shown in the following listing.'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '之前的端点返回了所有命名空间中所有Job的列表。要获取一个特定的Job，你需要指定其名称和命名空间在URL中。要检索之前列表中显示的Job（`name:
+    my-job`；`namespace: default`），你需要请求以下路径：`/apis/batch/v1/namespaces/default/jobs/my-job`，如下所示。'
+- en: Listing 8.11\. Retrieving a resource in a specific namespace by name
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.11\. 通过名称在特定命名空间中检索资源
+- en: '`$ curl http://localhost:8001/apis/batch/v1/namespaces/default/jobs/my-job`
+    `{   "kind": "Job",   "apiVersion": "batch/v1",   "metadata": {     "name": "my-job",
+        "namespace": "default",     ...`'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl http://localhost:8001/apis/batch/v1/namespaces/default/jobs/my-job`
+    `{   "kind": "Job",   "apiVersion": "batch/v1",   "metadata": {     "name": "my-job",
+        "namespace": "default",     ...`'
+- en: 'As you can see, you get back the complete JSON definition of the `my-job` Job
+    resource, exactly like you do if you run:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所见，你得到了`my-job` Job资源的完整JSON定义，就像你运行以下命令时得到的一样：
+- en: '`$ kubectl get job my-job -o json`'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get job my-job -o json`'
+- en: You’ve seen that you can browse the Kubernetes REST API server without using
+    any special tools, but to fully explore the REST API and interact with it, a better
+    option is described at the end of this chapter. For now, exploring it with `curl`
+    like this is enough to make you understand how an application running in a pod
+    talks to Kubernetes.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经看到，你可以不使用任何特殊工具来浏览Kubernetes REST API服务器，但要完全探索REST API并与它交互，本章末尾将描述一个更好的选项。现在，使用`curl`像这样探索它就足够让你理解运行在Pod中的应用程序是如何与Kubernetes通信的。
+- en: 8.2.2\. Talking to the API server from within a pod
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.2.2\. 在Pod内部与API服务器通信
+- en: 'You’ve learned how to talk to the API server from your local machine, using
+    the `kubectl proxy`. Now, let’s see how to talk to it from within a pod, where
+    you (usually) don’t have `kubectl`. Therefore, to talk to the API server from
+    inside a pod, you need to take care of three things:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经学会了如何使用`kubectl proxy`从本地机器与API服务器通信。现在，让我们看看如何从Pod内部与它通信，因为在Pod内部（通常）没有`kubectl`。因此，要从Pod内部与API服务器通信，你需要注意以下三件事：
+- en: Find the location of the API server.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 找到API服务器的位置。
+- en: Make sure you’re talking to the API server and not something impersonating it.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保你是在与API服务器通信，而不是与冒充它的东西通信。
+- en: Authenticate with the server; otherwise it won’t let you see or do anything.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用服务器进行身份验证；否则，它不会让你看到或做任何事情。
+- en: You’ll see how this is done in the next three sections.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将在接下来的三个部分中看到这是如何完成的。
+- en: Running a pod to try out communication with the API server
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行Pod以尝试与API服务器通信
+- en: The first thing you need is a pod from which to talk to the API server. You’ll
+    run a pod that does nothing (it runs the `sleep` command in its only container),
+    and then run a shell in the container with `kubectl exec`. Then you’ll try to
+    access the API server from within that shell using `curl`.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你首先需要的是一个可以与API服务器通信的Pod。你将运行一个什么也不做的Pod（它在唯一的容器中运行sleep命令），然后使用`kubectl exec`在容器中运行shell。然后你将尝试在那个shell中使用curl访问API服务器。
+- en: Therefore, you need to use a container image that contains the `curl` binary.
+    If you search for such an image on, say, Docker Hub, you’ll find the `tutum/curl`
+    image, so use it (you can also use any other existing image containing the `curl`
+    binary or you can build your own). The pod definition is shown in the following
+    listing.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，你需要使用包含`curl`二进制的容器镜像。如果你在Docker Hub上搜索这样的镜像，你会找到`tutum/curl`镜像，所以使用它（你也可以使用任何其他包含`curl`二进制的现有镜像，或者你可以构建自己的）。Pod定义如下所示。
+- en: 'Listing 8.12\. A pod for trying out communication with the API server: curl.yaml'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表8.12\. 尝试与API服务器通信的Pod：curl.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: curl spec:   containers:   - name:
+    main     image: tutum/curl` `1` `command: ["sleep", "9999999"]` `2`'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: curl spec:   containers:   - name:
+    main     image: tutum/curl` `1` `command: ["sleep", "9999999"]` `2`'
+- en: 1 Using the tutum/curl image, because you need curl available in the container
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 使用tutum/curl镜像，因为需要在容器中提供curl
+- en: 2 You’re running the sleep command with a long delay to keep your container
+    running.
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 你正在运行带有长时间延迟的sleep命令，以保持容器运行。
+- en: 'After creating the pod, run `kubectl exec` to run a bash shell inside its container:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建完Pod之后，使用`kubectl exec`命令在容器内部运行bash shell：
+- en: '`$ kubectl exec -it curl bash` `root@curl:/#`'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec -it curl bash` `root@curl:/#`'
+- en: You’re now ready to talk to the API server.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你已经准备好与API服务器通信了。
+- en: Finding the API server’s address
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查找API服务器的地址
+- en: 'First, you need to find the IP and port of the Kubernetes API server. This
+    is easy, because a Service called `kubernetes` is automatically exposed in the
+    default namespace and configured to point to the API server. You may remember
+    seeing it every time you listed services with `kubectl get svc`:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，你需要找到Kubernetes API服务器的IP地址和端口号。这很简单，因为名为`kubernetes`的服务在默认命名空间中自动暴露，并配置为指向API服务器。你可能记得每次使用`kubectl
+    get svc`列出服务时都会看到它：
+- en: '`$ kubectl get svc` `NAME         CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+    kubernetes   10.0.0.1     <none>        443/TCP   46d`'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get svc` `NAME         CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+    kubernetes   10.0.0.1     <none>        443/TCP   46d`'
+- en: 'And you’ll remember from [chapter 5](index_split_046.html#filepos469093) that
+    environment variables are configured for each service. You can get both the IP
+    address and the port of the API server by looking up the `KUBERNETES_SERVICE_HOST`
+    and `KUBERNETES_SERVICE_PORT` variables (inside the container):'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以从[第5章](index_split_046.html#filepos469093)中回忆起，每个服务都会配置环境变量。你可以通过查找`KUBERNETES_SERVICE_HOST`和`KUBERNETES_SERVICE_PORT`变量（在容器内部）来获取API服务器的IP地址和端口号：
+- en: '`root@curl:/# env | grep KUBERNETES_SERVICE` `KUBERNETES_SERVICE_PORT=443 KUBERNETES_SERVICE_HOST=10.0.0.1
+    KUBERNETES_SERVICE_PORT_HTTPS=443`'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# env | grep KUBERNETES_SERVICE` `KUBERNETES_SERVICE_PORT=443 KUBERNETES_SERVICE_HOST=10.0.0.1
+    KUBERNETES_SERVICE_PORT_HTTPS=443`'
+- en: You may also remember that each service also gets a DNS entry, so you don’t
+    even need to look up the environment variables, but instead simply point `curl`
+    to https://kubernetes. To be fair, if you don’t know which port the service is
+    available at, you also either need to look up the environment variables or perform
+    a DNS SRV record lookup to get the service’s actual port number.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你也可能记得，每个服务也会有一个DNS条目，所以你甚至不需要查找环境变量，只需将curl指向https://kubernetes。公平地说，如果你不知道服务在哪个端口可用，你也需要查找环境变量或执行DNS
+    SRV记录查找以获取服务的实际端口号。
+- en: 'The environment variables shown previously say that the API server is listening
+    on port 443, which is the default port for HTTPS, so try hitting the server through
+    HTTPS:'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前显示的环境变量表明API服务器正在443端口监听，这是HTTPS的默认端口，因此尝试通过HTTPS连接到服务器：
+- en: '`root@curl:/# curl https://kubernetes` `curl: (60) SSL certificate problem:
+    unable to get local issuer certificate ... If you''d like to turn off curl''s
+    verification of the certificate, use   the -k (or --insecure) option.`'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# curl https://kubernetes` `curl: (60) SSL certificate problem:
+    unable to get local issuer certificate ... If you''d like to turn off curl''s
+    verification of the certificate, use the -k (or --insecure) option.`'
+- en: Although the simplest way to get around this is to use the proposed `-k` option
+    (and this is what you’d normally use when playing with the API server manually),
+    let’s look at the longer (and correct) route. Instead of blindly trusting that
+    the server you’re connecting to is the authentic API server, you’ll verify its
+    identity by having `curl` check its certificate.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然绕过此问题的最简单方法是使用建议的 `-k` 选项（并且这是您在手动操作 API 服务器时通常会使用的方法），但让我们看看更长（且正确）的路线。您不会盲目信任您连接到的服务器是真实的
+    API 服务器，而是通过让 `curl` 检查其证书来验证其身份。
+- en: '|  |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Tip
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Never skip checking the server’s certificate in an actual application. Doing
+    so could make your app expose its authentication token to an attacker using a
+    man-in-the-middle attack.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实际应用中，切勿跳过检查服务器的证书。这样做可能会导致您的应用将认证令牌暴露给使用中间人攻击的攻击者。
+- en: '|  |'
+  id: totrans-171
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Verifying the server’s identity
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证服务器的身份
+- en: 'In the previous chapter, while discussing Secrets, we looked at an automatically
+    created Secret called `default-token-xyz`, which is mounted into each container
+    at /var/run/secrets/kubernetes.io/serviceaccount/. Let’s see the contents of that
+    Secret again, by listing files in that directory:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，当我们讨论机密（Secrets）时，我们查看了一个自动创建的名为 `default-token-xyz` 的机密，该机密被挂载到每个容器的
+    /var/run/secrets/kubernetes.io/serviceaccount/ 目录下。让我们再次查看该机密的目录内容：
+- en: '`root@curl:/# ls /var/run/secrets/kubernetes.io/serviceaccount/` `ca.crt   
+    namespace    token`'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# ls /var/run/secrets/kubernetes.io/serviceaccount/` `ca.crt   
+    namespace    token`'
+- en: 'The Secret has three entries (and therefore three files in the Secret volume).
+    Right now, we’ll focus on the ca.crt file, which holds the certificate of the
+    certificate authority (CA) used to sign the Kubernetes API server’s certificate.
+    To verify you’re talking to the API server, you need to check if the server’s
+    certificate is signed by the CA. `curl` allows you to specify the CA certificate
+    with the `--cacert` option, so try hitting the API server again:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该机密有三个条目（因此机密卷中有三个文件）。现在，我们将重点关注 ca.crt 文件，该文件包含用于签署 Kubernetes API 服务器证书的证书颁发机构（CA）的证书。为了验证您正在与
+    API 服务器通信，您需要检查服务器的证书是否由 CA 签署。`curl` 允许您使用 `--cacert` 选项指定 CA 证书，因此请再次尝试调用 API
+    服务器：
+- en: '`root@curl:/# curl --cacert /var/run/secrets/kubernetes.io/serviceaccount`![](images/00006.jpg)`/ca.crt
+    https://kubernetes` `Unauthorized`'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# curl --cacert /var/run/secrets/kubernetes.io/serviceaccount`![](images/00006.jpg)`/ca.crt
+    https://kubernetes` `Unauthorized`'
+- en: '|  |'
+  id: totrans-177
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: You may see a longer error description than “Unauthorized.”
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能会看到比“未授权”更长的错误描述。
+- en: '|  |'
+  id: totrans-180
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 'Okay, you’ve made progress. `curl` verified the server’s identity because its
+    certificate was signed by the CA you trust. As the `Unauthorized` response suggests,
+    you still need to take care of authentication. You’ll do that in a moment, but
+    first let’s see how to make life easier by setting the `CURL_CA_BUNDLE` environment
+    variable, so you don’t need to specify `--cacert` every time you run `curl`:'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好的，您已经取得了进展。`curl` 验证了服务器的身份，因为其证书是由您信任的 CA 签署的。正如“未授权”响应所暗示的，您仍然需要处理认证。您将在稍后进行，但首先让我们看看如何通过设置
+    `CURL_CA_BUNDLE` 环境变量来使生活更轻松，这样您就不需要在每次运行 `curl` 时都指定 `--cacert`：
+- en: '`root@curl:/# export CURL_CA_BUNDLE=/var/run/secrets/kubernetes.io/`![](images/00006.jpg)`serviceaccount/ca.crt`'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# export CURL_CA_BUNDLE=/var/run/secrets/kubernetes.io/`![](images/00006.jpg)`serviceaccount/ca.crt`'
+- en: 'You can now hit the API server without using `--cacert`:'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您现在可以不使用 `--cacert` 就调用 API 服务器：
+- en: '`root@curl:/# curl https://kubernetes` `Unauthorized`'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# curl https://kubernetes` `Unauthorized`'
+- en: This is much nicer now. Your client (`curl`) trusts the API server now, but
+    the API server itself says you’re not authorized to access it, because it doesn’t
+    know who you are.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在好多了。您的客户端（`curl`）现在信任 API 服务器了，但 API 服务器本身表示您无权访问它，因为它不知道您是谁。
+- en: Authenticating with the API server
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 API 服务器进行认证
+- en: You need to authenticate with the server, so it allows you to read and even
+    update and/or delete the API objects deployed in the cluster. To authenticate,
+    you need an authentication token. Luckily, the token is provided through the default-token
+    Secret mentioned previously, and is stored in the `token` file in the `secret`
+    volume. As the Secret’s name suggests, that’s the primary purpose of the Secret.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您需要与服务器进行认证，以便它允许您读取，甚至更新和/或删除在集群中部署的 API 对象。为了认证，您需要一个认证令牌。幸运的是，该令牌是通过之前提到的默认令牌机密（Secret）提供的，并存储在
+    `secret` 卷中的 `token` 文件中。正如机密的名字所暗示的，这就是机密的主要用途。
+- en: 'You’re going to use the token to access the API server. First, load the token
+    into an environment variable:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您将使用令牌来访问 API 服务器。首先，将令牌加载到环境变量中：
+- en: '`root@curl:/# TOKEN=$(cat /var/run/secrets/kubernetes.io/`![](images/00006.jpg)`serviceaccount/token)`'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# TOKEN=$(cat /var/run/secrets/kubernetes.io/`![](images/00006.jpg)`serviceaccount/token)`'
+- en: The token is now stored in the `TOKEN` environment variable. You can use it
+    when sending requests to the API server, as shown in the following listing.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 令牌现在存储在 `TOKEN` 环境变量中。您可以在向 API 服务器发送请求时使用它，如下面的列表所示。
+- en: Listing 8.13\. Getting a proper response from the API server
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.13\. 从 API 服务器获取适当的响应
+- en: '`root@curl:/# curl -H "Authorization: Bearer $TOKEN" https://kubernetes` `{
+      "paths": [     "/api",     "/api/v1",     "/apis",     "/apis/apps",     "/apis/apps/v1beta1",
+        "/apis/authorization.k8s.io",     ...     "/ui/",     "/version"   ] }`'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# curl -H "Authorization: Bearer $TOKEN" https://kubernetes` `{
+      "paths": [     "/api",     "/api/v1",     "/apis",     "/apis/apps",     "/apis/apps/v1beta1",
+        "/apis/authorization.k8s.io",     ...     "/ui/",     "/version"   ] }`'
+- en: '|  |'
+  id: totrans-193
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Disabling role-based access control (RBAC)
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 禁用基于角色的访问控制（RBAC）
+- en: 'If you’re using a Kubernetes cluster with RBAC enabled, the service account
+    may not be authorized to access (parts of) the API server. You’ll learn about
+    service accounts and RBAC in [chapter 12](index_split_095.html#filepos1145244).
+    For now, the simplest way to allow you to query the API server is to work around
+    RBAC by running the following command:'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用的是启用了 RBAC 的 Kubernetes 集群，服务账户可能没有权限访问（API 服务器的）部分。您将在第 12 章（index_split_095.html#filepos1145244）中学习有关服务账户和
+    RBAC 的内容。现在，允许您查询 API 服务器的最简单方法是通过运行以下命令来绕过 RBAC：
+- en: '`$ kubectl create clusterrolebinding permissive-binding \   --clusterrole=cluster-admin
+    \   --group=system:serviceaccounts`'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl create clusterrolebinding permissive-binding \   --clusterrole=cluster-admin
+    \   --group=system:serviceaccounts`'
+- en: This gives all service accounts (we could also say all pods) cluster-admin privileges,
+    allowing them to do whatever they want. Obviously, doing this is dangerous and
+    should never be done on production clusters. For test purposes, it’s fine.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将为所有服务账户（我们也可以说所有 Pod）赋予集群管理员权限，允许它们做任何想做的事情。显然，这样做是危险的，不应在生产集群上执行。出于测试目的，这是可以的。
+- en: '|  |'
+  id: totrans-198
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: As you can see, you passed the token inside the `Authorization` HTTP header
+    in the request. The API server recognized the token as authentic and returned
+    a proper response. You can now explore all the resources in your cluster, the
+    way you did a few sections ago.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，您在请求中将令牌传递给了 `Authorization` HTTP 头部。API 服务器识别了令牌为有效的，并返回了适当的响应。现在您可以探索集群中的所有资源，就像您在前面几个部分所做的那样。
+- en: For example, you could list all the pods in the same namespace. But first you
+    need to know what namespace the `curl` pod is running in.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，您可以列出同一命名空间中的所有 Pod。但首先您需要知道 `curl` Pod 在哪个命名空间中运行。
+- en: Getting the namespace the pod is running in
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 获取 Pod 运行的命名空间
+- en: In the first part of this chapter, you saw how to pass the namespace to the
+    pod through the Downward API. But if you’re paying attention, you probably noticed
+    your `secret` volume also contains a file called namespace. It contains the namespace
+    the pod is running in, so you can read the file instead of having to explicitly
+    pass the namespace to your pod through an environment variable. Load the contents
+    of the file into the NS environment variable and then list all the pods, as shown
+    in the following listing.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的第一部分，您看到了如何通过 Downward API 将命名空间传递给 Pod。但如果您注意到了，您可能已经注意到您的 `secret` 卷还包含一个名为
+    namespace 的文件。它包含 Pod 运行的命名空间，因此您可以读取该文件而不是必须通过环境变量显式地将命名空间传递给您的 Pod。将文件的全部内容加载到
+    NS 环境变量中，然后列出所有 Pod，如下面的列表所示。
+- en: Listing 8.14\. Listing pods in the pod’s own namespace
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.14\. 在 Pod 的自身命名空间中列出 Pod
+- en: '`root@curl:/# NS=$(cat /var/run/secrets/kubernetes.io/`![](images/00006.jpg)`serviceaccount/namespace)``root@curl:/#
+    curl -H "Authorization: Bearer $TOKEN"`![](images/00006.jpg)`https://kubernetes/api/v1/namespaces/$NS/pods`
+    `{   "kind": "PodList",   "apiVersion": "v1",   ...`'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl:/# NS=$(cat /var/run/secrets/kubernetes.io/`![](images/00006.jpg)`serviceaccount/namespace)``root@curl:/#
+    curl -H "Authorization: Bearer $TOKEN"`![](images/00006.jpg)`https://kubernetes/api/v1/namespaces/$NS/pods`
+    `{   "kind": "PodList",   "apiVersion": "v1",   ...`'
+- en: And there you go. By using the three files in the mounted `secret` volume directory,
+    you listed all the pods running in the same namespace as your pod. In the same
+    manner, you could also retrieve other API objects and even update them by sending
+    `PUT` or `PATCH` instead of simple `GET` requests.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就这样。通过使用挂载的 `secret` 卷目录中的三个文件，你列出了与你的 Pod 在同一命名空间中运行的所有 Pod。同样，你也可以通过发送 `PUT`
+    或 `PATCH` 而不是简单的 `GET` 请求来检索其他 API 对象，甚至更新它们。
+- en: Recapping how pods talk to Kubernetes
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回顾 Pod 如何与 Kubernetes 通信
+- en: 'Let’s recap how an app running inside a pod can access the Kubernetes API properly:'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一下运行在 Pod 内的应用程序如何正确访问 Kubernetes API：
+- en: The app should verify whether the API server’s certificate is signed by the
+    certificate authority, whose certificate is in the ca.crt file.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序应验证 API 服务器的证书是否由证书颁发机构签名，该证书的证书存储在 ca.crt 文件中。
+- en: The app should authenticate itself by sending the `Authorization` header with
+    the bearer token from the `token` file.
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序应通过发送包含 `token` 文件中的 bearer 令牌的 `Authorization` 标头来自动进行身份验证。
+- en: The `namespace` file should be used to pass the namespace to the API server
+    when performing CRUD operations on API objects inside the pod’s namespace.
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应使用 `namespace` 文件在 Pod 的命名空间内对 API 对象执行 CRUD 操作时将命名空间传递给 API 服务器。
+- en: '|  |'
+  id: totrans-211
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Definition
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义
+- en: CRUD stands for Create, Read, Update, and Delete. The corresponding HTTP methods
+    are `POST`, `GET`, `PATCH`/`PUT,` and `DELETE`, respectively.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CRUD 代表创建（Create）、读取（Read）、更新（Update）和删除（Delete）。相应的 HTTP 方法分别是 `POST`、`GET`、`PATCH`/`PUT`
+    和 `DELETE`。
+- en: '|  |'
+  id: totrans-214
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: All three aspects of pod to API server communication are displayed in [figure
+    8.5](#filepos847227).
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod 与 API 服务器通信的三个方面在[图 8.5](#filepos847227)中展示。
+- en: Figure 8.5\. Using the files from the default-token Secret to talk to the API
+    server
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.5\. 使用默认-token Secret 的文件与 API 服务器通信
+- en: '![](images/00047.jpg)'
+  id: totrans-217
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00047.jpg)'
+- en: 8.2.3\. Simplifying API server communication with ambassador containers
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.2.3\. 使用大使容器简化 API 服务器通信
+- en: Dealing with HTTPS, certificates, and authentication tokens sometimes seems
+    too complicated to developers. I’ve seen developers disable validation of server
+    certificates on way too many occasions (and I’ll admit to doing it myself a few
+    times). Luckily, you can make the communication much simpler while keeping it
+    secure.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理 HTTPS、证书和身份验证令牌有时似乎对开发者来说过于复杂。我见过很多次开发者禁用了服务器证书的验证（我承认自己也做过几次）。幸运的是，你可以在保持安全的同时使通信变得更加简单。
+- en: Remember the `kubectl proxy` command we mentioned in [section 8.2.1](#filepos816972)?
+    You ran the command on your local machine to make it easier to access the API
+    server. Instead of sending requests to the API server directly, you sent them
+    to the proxy and let it take care of authentication, encryption, and server verification.
+    The same method can be used inside your pods, as well.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记得我们在[第 8.2.1 节](#filepos816972)中提到的 `kubectl proxy` 命令吗？你在本地机器上运行该命令是为了更容易地访问
+    API 服务器。你并不是直接向 API 服务器发送请求，而是将它们发送到代理，并让它处理身份验证、加密和服务器验证。同样，你可以在你的 Pod 内使用这种方法。
+- en: Introducing the ambassador container pattern
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 介绍大使容器模式
+- en: Imagine having an application that (among other things) needs to query the API
+    server. Instead of it talking to the API server directly, as you did in the previous
+    section, you can run `kubectl proxy` in an ambassador container alongside the
+    main container and communicate with the API server through it.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下有一个应用程序（以及其他一些功能），它需要查询 API 服务器。而不是像上一节中那样直接与 API 服务器通信，你可以在主容器旁边运行 `kubectl
+    proxy` 命令，并通过它与 API 服务器通信。
+- en: Instead of talking to the API server directly, the app in the main container
+    can connect to the ambassador through HTTP (instead of HTTPS) and let the ambassador
+    proxy handle the HTTPS connection to the API server, taking care of security transparently
+    (see [figure 8.6](#filepos849260)). It does this by using the files from the default
+    token’s `secret` volume.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是直接与 API 服务器通信，主容器中的应用程序可以通过 HTTP（而不是 HTTPS）连接到大使，并让大使代理处理与 API 服务器的 HTTPS
+    连接，透明地处理安全问题（参见[图 8.6](#filepos849260)）。它是通过使用默认令牌的 `secret` 卷中的文件来做到这一点的。
+- en: Figure 8.6\. Using an ambassador to connect to the API server
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.6\. 使用大使连接到 API 服务器
+- en: '![](images/00066.jpg)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00066.jpg)'
+- en: Because all containers in a pod share the same loopback network interface, your
+    app can access the proxy through a port on localhost.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Pod 中的所有容器共享相同的回环网络接口，因此你的应用程序可以通过 localhost 的端口访问代理。
+- en: Running the curl pod with an additional ambassador container
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行带有额外大使容器的 curl Pod
+- en: To see the ambassador container pattern in action, you’ll create a new pod like
+    the `curl` pod you created earlier, but this time, instead of running a single
+    container in the pod, you’ll run an additional ambassador container based on a
+    general-purpose `kubectl-proxy` container image I’ve created and pushed to Docker
+    Hub. You’ll find the Dockerfile for the image in the code archive (in /Chapter08/kubectl-proxy/)
+    if you want to build it yourself.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看使节容器模式的作用，你将创建一个新的 pod，类似于你之前创建的 `curl` pod，但这次，你将在 pod 中运行一个额外的基于通用 `kubectl-proxy`
+    容器镜像的使节容器，该镜像我已经创建并推送到 Docker Hub。如果你想自己构建它，可以在代码存档（在 /Chapter08/kubectl-proxy/）中找到该镜像的
+    Dockerfile。
+- en: The pod’s manifest is shown in the following listing.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pod 的配置文件如下所示。
+- en: 'Listing 8.15\. A pod with an ambassador container: curl-with-ambassador.yaml'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.15\. 带有使节容器的 pod：curl-with-ambassador.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: curl-with-ambassador spec:   containers:
+      - name: main     image: tutum/curl     command: ["sleep", "9999999"]   - name:
+    ambassador` `1` `image: luksa/kubectl-proxy:1.6.2` `1`'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: curl-with-ambassador spec:   containers:
+      - name: main     image: tutum/curl     command: ["sleep", "9999999"]   - name:
+    ambassador` `1` `image: luksa/kubectl-proxy:1.6.2` `1`'
+- en: 1 The ambassador container, running the kubectl-proxy image
+  id: totrans-232
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 使节容器，运行 kubectl-proxy 镜像
+- en: The pod spec is almost the same as before, but with a different pod name and
+    an additional container. Run the pod and then enter the main container with
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pod 规范几乎与之前相同，但 pod 名称不同，还有一个额外的容器。运行 pod，然后使用以下命令进入主容器：
+- en: '`$ kubectl exec -it curl-with-ambassador -c main bash` `root@curl-with-ambassador:/#`'
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec -it curl-with-ambassador -c main bash` `root@curl-with-ambassador:/#`'
+- en: Your pod now has two containers, and you want to run `bash` in the `main` container,
+    hence the `-c main` option. You don’t need to specify the container explicitly
+    if you want to run the command in the pod’s first container. But if you want to
+    run a command inside any other container, you do need to specify the container’s
+    name using the `-c` option.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的 pod 现在有两个容器，你想要在 `main` 容器中运行 `bash`，因此使用了 `-c main` 选项。如果你想在 pod 的第一个容器中运行命令，则不需要明确指定容器。但如果你想在任何其他容器中运行命令，你确实需要使用
+    `-c` 选项指定容器的名称。
+- en: Talking to the API server through the ambassador
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使节容器与 API 服务器通信
+- en: Next you’ll try connecting to the API server through the ambassador container.
+    By default, `kubectl proxy` binds to port 8001, and because both containers in
+    the pod share the same network interfaces, including loopback, you can point `curl`
+    to `localhost:8001`, as shown in the following listing.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，你将尝试通过使节容器连接到 API 服务器。默认情况下，`kubectl proxy` 绑定到端口 8001，由于 pod 中的两个容器共享相同的网络接口，包括回环接口，因此你可以将
+    `curl` 指向 `localhost:8001`，如下所示。
+- en: Listing 8.16\. Accessing the API server through the ambassador container
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 8.16\. 通过使节容器访问 API 服务器
+- en: '`root@curl-with-ambassador:/# curl localhost:8001` `{   "paths": [     "/api",
+        ...   ] }`'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`root@curl-with-ambassador:/# curl localhost:8001` `{   "paths": [     "/api",
+        ...   ] }`'
+- en: Success! The output printed by `curl` is the same response you saw earlier,
+    but this time you didn’t need to deal with authentication tokens and server certificates.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 成功！`curl` 打印的输出与之前看到的相同，但这次你不需要处理身份验证令牌和服务器证书。
+- en: To get a clear picture of what exactly happened, refer to [figure 8.7](#filepos853367).
+    `curl` sent the plain HTTP request (without any authentication headers) to the
+    proxy running inside the ambassador container, and then the proxy sent an HTTPS
+    request to the API server, handling the client authentication by sending the token
+    and checking the server’s identity by validating its certificate.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了清楚地了解到底发生了什么，请参考[图 8.7](#filepos853367)。`curl` 向运行在使节容器内部的代理发送了纯 HTTP 请求（没有任何身份验证头），然后代理向
+    API 服务器发送了 HTTPS 请求，通过发送令牌处理客户端身份验证，并通过验证证书检查服务器的身份。
+- en: Figure 8.7\. Offloading encryption, authentication, and server verification
+    to `kubectl proxy` in an ambassador container
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 8.7\. 在使节容器中将加密、身份验证和服务器验证卸载到 `kubectl proxy`
+- en: '![](images/00085.jpg)'
+  id: totrans-243
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00085.jpg)'
+- en: This is a great example of how an ambassador container can be used to hide the
+    complexities of connecting to an external service and simplify the app running
+    in the main container. The ambassador container is reusable across many different
+    apps, regardless of what language the main app is written in. The downside is
+    that an additional process is running and consuming additional resources.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个很好的例子，说明了如何使用大使容器来隐藏连接到外部服务的复杂性，并简化在主容器中运行的应用程序。大使容器可以在许多不同的应用程序之间重用，无论主应用程序是用什么语言编写的。缺点是运行了额外的进程，并消耗了额外的资源。
+- en: 8.2.4\. Using client libraries to talk to the API server
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.2.4. 使用客户端库与 API 服务器通信
+- en: If your app only needs to perform a few simple operations on the API server,
+    you can often use a regular HTTP client library and perform simple HTTP requests,
+    especially if you take advantage of the `kubectl-proxy` ambassador container the
+    way you did in the previous example. But if you plan on doing more than simple
+    API requests, it’s better to use one of the existing Kubernetes API client libraries.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的应用程序只需要在 API 服务器上执行一些简单的操作，您通常可以使用常规的 HTTP 客户端库并执行简单的 HTTP 请求，尤其是如果您像上一个示例中那样利用了
+    `kubectl-proxy` 大使容器。但如果您计划执行比简单的 API 请求更复杂的操作，最好使用现有的 Kubernetes API 客户端库之一。
+- en: Using existing client libraries
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用现有客户端库
+- en: 'Currently, two Kubernetes API client libraries exist that are supported by
+    the API Machinery special interest group (SIG):'
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，有两个 Kubernetes API 客户端库由 API Machinery 特别兴趣小组（SIG）支持：
+- en: Golang client—[https://github.com/kubernetes/client-go](https://github.com/kubernetes/client-go)
+  id: totrans-249
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Golang 客户端—[https://github.com/kubernetes/client-go](https://github.com/kubernetes/client-go)
+- en: Python—[https://github.com/kubernetes-incubator/client-python](https://github.com/kubernetes-incubator/client-python)
+  id: totrans-250
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Python—[https://github.com/kubernetes-incubator/client-python](https://github.com/kubernetes-incubator/client-python)
+- en: '|  |'
+  id: totrans-251
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The Kubernetes community has a number of Special Interest Groups (SIGs) and
+    Working Groups that focus on specific parts of the Kubernetes ecosystem. You’ll
+    find a list of them at [https://github.com/kubernetes/community/blob/master/sig-list.md](https://github.com/kubernetes/community/blob/master/sig-list.md).
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 社区有几个特别兴趣小组（SIG）和工作组，专注于 Kubernetes 生态系统的特定部分。您可以在 [https://github.com/kubernetes/community/blob/master/sig-list.md](https://github.com/kubernetes/community/blob/master/sig-list.md)
+    找到它们的列表。
+- en: '|  |'
+  id: totrans-254
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 'In addition to the two officially supported libraries, here’s a list of user-contributed
+    client libraries for many other languages:'
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了两个官方支持的库之外，这里还有许多其他语言的用户贡献的客户端库列表：
+- en: Java client by Fabric8—[https://github.com/fabric8io/kubernetes-client](https://github.com/fabric8io/kubernetes-client)
+  id: totrans-256
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由 Fabric8 提供的 Java 客户端—[https://github.com/fabric8io/kubernetes-client](https://github.com/fabric8io/kubernetes-client)
+- en: Java client by Amdatu—[https://bitbucket.org/amdatulabs/amdatu-kubernetes](https://bitbucket.org/amdatulabs/amdatu-kubernetes)
+  id: totrans-257
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由 Amdatu 提供的 Java 客户端—[https://bitbucket.org/amdatulabs/amdatu-kubernetes](https://bitbucket.org/amdatulabs/amdatu-kubernetes)
+- en: Node.js client by tenxcloud—[https://github.com/tenxcloud/node-kubernetes-client](https://github.com/tenxcloud/node-kubernetes-client)
+  id: totrans-258
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: tenxcloud 提供的 Node.js 客户端—[https://github.com/tenxcloud/node-kubernetes-client](https://github.com/tenxcloud/node-kubernetes-client)
+- en: Node.js client by GoDaddy—[https://github.com/godaddy/kubernetes-client](https://github.com/godaddy/kubernetes-client)
+  id: totrans-259
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: GoDaddy 提供的 Node.js 客户端—[https://github.com/godaddy/kubernetes-client](https://github.com/godaddy/kubernetes-client)
+- en: PHP—[https://github.com/devstub/kubernetes-api-php-client](https://github.com/devstub/kubernetes-api-php-client)
+  id: totrans-260
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: PHP—[https://github.com/devstub/kubernetes-api-php-client](https://github.com/devstub/kubernetes-api-php-client)
+- en: Another PHP client—[https://github.com/maclof/kubernetes-client](https://github.com/maclof/kubernetes-client)
+  id: totrans-261
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 另一个 PHP 客户端—[https://github.com/maclof/kubernetes-client](https://github.com/maclof/kubernetes-client)
+- en: Ruby—[https://github.com/Ch00k/kubr](https://github.com/Ch00k/kubr)
+  id: totrans-262
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Ruby—[https://github.com/Ch00k/kubr](https://github.com/Ch00k/kubr)
+- en: Another Ruby client—[https://github.com/abonas/kubeclient](https://github.com/abonas/kubeclient)
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 另一个 Ruby 客户端—[https://github.com/abonas/kubeclient](https://github.com/abonas/kubeclient)
+- en: Clojure—[https://github.com/yanatan16/clj-kubernetes-api](https://github.com/yanatan16/clj-kubernetes-api)
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Clojure—[https://github.com/yanatan16/clj-kubernetes-api](https://github.com/yanatan16/clj-kubernetes-api)
+- en: Scala—[https://github.com/doriordan/skuber](https://github.com/doriordan/skuber)
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Scala—[https://github.com/doriordan/skuber](https://github.com/doriordan/skuber)
+- en: Perl—[https://metacpan.org/pod/Net::Kubernetes](https://metacpan.org/pod/Net::Kubernetes)
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Perl—[https://metacpan.org/pod/Net::Kubernetes](https://metacpan.org/pod/Net::Kubernetes)
+- en: These libraries usually support HTTPS and take care of authentication, so you
+    won’t need to use the ambassador container.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些库通常支持 HTTPS 并处理认证，因此您不需要使用大使容器。
+- en: An example of interacting with Kubernetes with the Fabric8 Java client
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Fabric8 Java客户端与Kubernetes交互的示例
+- en: To give you a sense of how client libraries enable you to talk to the API server,
+    the following listing shows an example of how to list services in a Java app using
+    the Fabric8 Kubernetes client.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了让您了解客户端库如何使您能够与API服务器通信，以下列表展示了如何使用Fabric8 Kubernetes客户端在Java应用程序中列出服务的示例。
+- en: Listing 8.17\. Listing, creating, updating, and deleting pods with the Fabric8
+    Java client
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列出8.17。使用Fabric8 Java客户端列出、创建、更新和删除Pod
+- en: '`import java.util.Arrays; import io.fabric8.kubernetes.api.model.Pod; import
+    io.fabric8.kubernetes.api.model.PodList; import io.fabric8.kubernetes.client.DefaultKubernetesClient;
+    import io.fabric8.kubernetes.client.KubernetesClient;  public class Test {   public
+    static void main(String[] args) throws Exception {     KubernetesClient client
+    = new DefaultKubernetesClient();      // list pods in the default namespace    
+    PodList pods = client.pods().inNamespace("default").list();     pods.getItems().stream()
+          .forEach(s -> System.out.println("Found pod: " +                s.getMetadata().getName()));     
+    // create a pod     System.out.println("Creating a pod");     Pod pod = client.pods().inNamespace("default")
+          .createNew()       .withNewMetadata()         .withName("programmatically-created-pod")
+          .endMetadata()       .withNewSpec()         .addNewContainer()          
+    .withName("main")           .withImage("busybox")           .withCommand(Arrays.asList("sleep",
+    "99999"))         .endContainer()       .endSpec()       .done();     System.out.println("Created
+    pod: " + pod);      // edit the pod (add a label to it)     client.pods().inNamespace("default")
+          .withName("programmatically-created-pod")       .edit()       .editMetadata()
+            .addToLabels("foo", "bar")       .endMetadata()       .done();     System.out.println("Added
+    label foo=bar to pod");      System.out.println("Waiting 1 minute before deleting
+    pod...");     Thread.sleep(60000);      // delete the pod     client.pods().inNamespace("default")
+          .withName("programmatically-created-pod")       .delete();     System.out.println("Deleted
+    the pod");   } }`'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`import java.util.Arrays; import io.fabric8.kubernetes.api.model.Pod; import
+    io.fabric8.kubernetes.api.model.PodList; import io.fabric8.kubernetes.client.DefaultKubernetesClient;
+    import io.fabric8.kubernetes.client.KubernetesClient;  public class Test {   public
+    static void main(String[] args) throws Exception {     KubernetesClient client
+    = new DefaultKubernetesClient();      // list pods in the default namespace    
+    PodList pods = client.pods().inNamespace("default").list();     pods.getItems().stream()
+          .forEach(s -> System.out.println("Found pod: " +                s.getMetadata().getName()));     
+    // create a pod     System.out.println("Creating a pod");     Pod pod = client.pods().inNamespace("default")
+          .createNew()       .withNewMetadata()         .withName("programmatically-created-pod")
+          .endMetadata()       .withNewSpec()         .addNewContainer()          
+    .withName("main")           .withImage("busybox")           .withCommand(Arrays.asList("sleep",
+    "99999"))         .endContainer()       .endSpec()       .done();     System.out.println("Created
+    pod: " + pod);      // edit the pod (add a label to it)     client.pods().inNamespace("default")
+          .withName("programmatically-created-pod")       .edit()       .editMetadata()
+            .addToLabels("foo", "bar")       .endMetadata()       .done();     System.out.println("Added
+    label foo=bar to pod");      System.out.println("Waiting 1 minute before deleting
+    pod...");     Thread.sleep(60000);      // delete the pod     client.pods().inNamespace("default")
+          .withName("programmatically-created-pod")       .delete();     System.out.println("Deleted
+    the pod");   } }`'
+- en: The code should be self-explanatory, especially because the Fabric8 client exposes
+    a nice, fluent Domain-Specific-Language (DSL) API, which is easy to read and understand.
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码应该是自我解释的，尤其是因为Fabric8客户端提供了一个优雅的、流畅的领域特定语言（DSL）API，这使得阅读和理解变得容易。
+- en: Building your own library with Swagger and OpenAPI
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Swagger和OpenAPI构建自己的库
+- en: If no client is available for your programming language of choice, you can use
+    the Swagger API framework to generate the client library and documentation. The
+    Kubernetes API server exposes Swagger API definitions at /swaggerapi and OpenAPI
+    spec at /swagger.json.
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您选择的编程语言没有可用的客户端，您可以使用Swagger API框架生成客户端库和文档。Kubernetes API服务器在/swaggerapi处公开Swagger
+    API定义，在/swagger.json处公开OpenAPI规范。
+- en: To find out more about the Swagger framework, visit the website at [http://swagger.io](http://swagger.io).
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解更多关于Swagger框架的信息，请访问[http://swagger.io](http://swagger.io)。
+- en: Exploring the API with Swagger UI
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Swagger UI探索API
+- en: Earlier in the chapter I said I’d point you to a better way of exploring the
+    REST API instead of hitting the REST endpoints with `curl`. Swagger, which I mentioned
+    in the previous section, is not just a tool for specifying an API, but also provides
+    a web UI for exploring REST APIs if they expose the Swagger API definitions. The
+    better way of exploring REST APIs is through this UI.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的早期，我说我会向您介绍一种更好的方法来探索REST API，而不是使用`curl`来打击REST端点。在上一节中提到的Swagger，不仅是一个指定API的工具，而且还提供了一个用于探索REST
+    API的Web UI（如果它们公开Swagger API定义）。探索REST API的更好方法是使用此UI。
+- en: Kubernetes not only exposes the Swagger API, but it also has Swagger UI integrated
+    into the API server, though it’s not enabled by default. You can enable it by
+    running the API server with the `--enable-swagger-ui=true` option.
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes不仅公开了Swagger API，而且还集成了Swagger UI到API服务器中，尽管默认情况下它是禁用的。您可以通过使用带有`--enable-swagger-ui=true`选项的API服务器来启用它。
+- en: '|  |'
+  id: totrans-279
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Tip
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示
+- en: 'If you’re using Minikube, you can enable Swagger UI when starting the cluster:
+    `minikube start --extra-config=apiserver.Features.Enable-SwaggerUI=true`'
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在使用Minikube，您可以在启动集群时启用Swagger UI：`minikube start --extra-config=apiserver.Features.Enable-SwaggerUI=true`
+- en: '|  |'
+  id: totrans-282
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 'After you enable the UI, you can open it in your browser by pointing it to:'
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您启用UI之后，您可以通过将其指向以下链接在浏览器中打开它：
+- en: '`http(s)://<api server>:<port>/swagger-ui`'
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`http(s)://<api server>:<port>/swagger-ui`'
+- en: I urge you to give Swagger UI a try. It not only allows you to browse the Kubernetes
+    API, but also interact with it (you can `POST` JSON resource manifests, `PATCH`
+    resources, or `DELETE` them, for example).
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我敦促您尝试使用Swagger UI。它不仅允许您浏览Kubernetes API，还可以与之交互（例如，您可以`POST` JSON资源规范，`PATCH`资源或`DELETE`它们）。
+- en: 8.3\. Summary
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 8.3. 摘要
+- en: After reading this chapter, you now know how your app, running inside a pod,
+    can get data about itself, other pods, and other components deployed in the cluster.
+    You’ve learned
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在阅读本章之后，您现在知道您的应用，在Pod内部运行，可以获取有关自身、其他Pod以及集群中部署的其他组件的数据。您已经学习了
+- en: How a pod’s name, namespace, and other metadata can be exposed to the process
+    either through environment variables or files in a `downwardAPI` volume
+  id: totrans-288
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过环境变量或`downwardAPI`卷中的文件将Pod的名称、命名空间和其他元数据暴露给进程
+- en: How CPU and memory requests and limits are passed to your app in any unit the
+    app requires
+  id: totrans-289
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何将CPU和内存请求和限制以应用所需的任何单位传递给应用
+- en: How a pod can use `downwardAPI` volumes to get up-to-date metadata, which may
+    change during the lifetime of the pod (such as labels and annotations)
+  id: totrans-290
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod如何使用`downwardAPI`卷来获取最新的元数据，这些元数据可能在Pod的生命周期内发生变化（例如标签和注解）
+- en: How you can browse the Kubernetes REST API through `kubectl proxy`
+  id: totrans-291
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过`kubectl proxy`浏览Kubernetes REST API
+- en: How pods can find the API server’s location through environment variables or
+    DNS, similar to any other Service defined in Kubernetes
+  id: totrans-292
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过环境变量或DNS，类似于在Kubernetes中定义的任何其他Service，Pod可以找到API服务器的位置
+- en: How an application running in a pod can verify that it’s talking to the API
+    server and how it can authenticate itself
+  id: totrans-293
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在Pod中运行的应用程序如何验证它正在与API服务器通信，以及它如何进行身份验证
+- en: How using an ambassador container can make talking to the API server from within
+    an app much simpler
+  id: totrans-294
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何使用大使容器使从应用内部与API服务器通信变得更加简单
+- en: How client libraries can get you interacting with Kubernetes in minutes
+  id: totrans-295
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 客户端库如何让您在几分钟内与Kubernetes交互
+- en: In this chapter, you learned how to talk to the API server, so the next step
+    is learning more about how it works. You’ll do that in [chapter 11](index_split_087.html#filepos1036287),
+    but before we dive into such details, you still need to learn about two other
+    Kubernetes resources—Deployments and StatefulSets. They’re explained in the next
+    two chapters.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您学习了如何与API服务器通信，所以下一步是学习它是如何工作的。您将在第11章（index_split_087.html#filepos1036287）中这样做，但在我们深入这些细节之前，您仍然需要了解两个其他Kubernetes资源——Deployments和StatefulSets。它们将在接下来的两个章节中解释。

@@ -1,0 +1,1576 @@
+- en: '9 Big data is just a lot of small data: Using pandas UDFs'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 9 大数据只是很多小数据：使用 pandas UDFs
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: Using pandas Series UDFs to accelerate column transformation compared to Python
+    UDFs
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 pandas Series UDFs 相比 Python UDFs 加速列转换
+- en: Addressing the cold start of some UDFs using Iterator of Series UDF
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 Series UDF 的迭代器解决一些 UDF 的冷启动问题
+- en: Controlling batch composition in a split-apply-combine programming pattern
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 split-apply-combine 编程模式中控制批量组成
+- en: Confidently making a decision about the best pandas UDF to use
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有信心地决定使用最佳的 pandas UDF
+- en: This chapter approaches the distributed nature of PySpark a little differently.
+    If we take a few seconds to think about it, we read data into a data frame, and
+    Spark distributes the data across partitions on nodes. What if we could directly
+    operate on those partitions as if they were single-node data frames? More interestingly,
+    what if we control how those single-node partitions are created and used using
+    a tool we know? What about pandas?
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章以不同的方式探讨了 PySpark 的分布式特性。如果我们花几秒钟思考一下，我们会将数据读入一个数据框，Spark 将数据分布在节点上的分区中。如果我们能直接操作这些分区，就像它们是单节点数据框一样呢？更有趣的是，如果我们能通过一个我们知道的工具来控制这些单节点分区是如何创建和使用的，那会怎么样？pandas
+    呢？
+- en: 'PySpark’s interoperability with pandas (also colloquially called *pandas UDF*)
+    is a huge selling point when performing data analysis at scale. pandas is the
+    dominant in-memory Python data manipulation library, while PySpark is the dominantly
+    distributed one. Combining both of them unlocks additional possibilities. In this
+    chapter, we start by scaling some basic pandas data manipulation functionality.
+    We then look into operations on `GroupedData` and how PySpark plus Pandas implement
+    the split-apply-combine pattern common to data analysis. We finish with the ultimate
+    interaction between pandas and PySpark: treating a PySpark data frame like a small
+    collection of pandas DataFrames.'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当进行大规模数据分析时，PySpark 与 pandas（口语中也称为 *pandas UDF*）的互操作性是一个巨大的卖点。pandas 是内存中 Python
+    数据操作库的领导者，而 PySpark 是分布式操作的主流。结合两者可以解锁额外的可能性。在本章中，我们首先扩展了一些基本的 pandas 数据操作功能。然后我们探讨了
+    `GroupedData` 上的操作以及 PySpark 和 Pandas 如何实现数据分析中常见的 split-apply-combine 模式。最后，我们完成了
+    pandas 和 PySpark 之间的最终交互：将 PySpark 数据框视为一个小的 pandas DataFrames 集合。
+- en: This chapter obviously makes great use of the pandas ([http://pandas.pydata.org](http://pandas.pydata.org))
+    library. Extensive pandas knowledge is a nice-to-have but is in no way expected.
+    This chapter will cover the necessary pandas skills to use in within a basic pandas
+    UDF. If you wish to level up your pandas skills to become a pandas UDF ninja,
+    I warmly recommend the *Pandas in Action* book by Boris Paskhaver (Manning, 2021).
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章显然很好地使用了 pandas ([http://pandas.pydata.org](http://pandas.pydata.org)) 库。广泛的
+    pandas 知识是很好的，但并不是必需的。本章将涵盖在基本 pandas UDF 中使用的必要 pandas 技能。如果你想提高你的 pandas 技能，成为
+    pandas UDF 大师，我强烈推荐 Boris Paskhaver（Manning，2021）的《Pandas in Action》一书。
+- en: The tale of two versions
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两个版本的传说
+- en: PySpark 3.0 completely changed how we interact with the pandas UDF API and added
+    a lot of functionality and performance improvements. Because of this, I’ve structured
+    this chapter with PySpark 3.0 in mind. For those using PySpark 2.3 or 2.4, I’ve
+    added some sidebars when applicable with the appropriate syntax for convenience.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PySpark 3.0 完全改变了我们与 pandas UDF API 的交互方式，并添加了许多功能性和性能改进。因此，我考虑到 PySpark 3.0
+    来构建这一章。对于那些使用 PySpark 2.3 或 2.4 的人来说，我在适用的情况下添加了一些侧边栏，其中包含了方便的适当语法。
+- en: pandas UDF was introduced in PySpark 2.3\. If you are using Spark 2.2 or a previous
+    version, you’re out of luck!
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pandas UDF 是在 PySpark 2.3 中引入的。如果你使用的是 Spark 2.2 或更早的版本，那么你就不幸了！
+- en: 'For the examples in the chapter, you need three previously unused libraries:
+    pandas, scikit-learn, and PyArrow. If you have installed Anaconda (see appendix
+    B), you can use `conda` to install the libraries; otherwise, you can use `pip`.[¹](#pgfId-1046716)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于本章中的示例，你需要三个之前未使用的库：pandas、scikit-learn 和 PyArrow。如果你已经安装了 Anaconda（见附录 B），你可以使用
+    `conda` 安装这些库；否则，你可以使用 `pip`。[¹](#pgfId-1046716)
+- en: 'If you are using Spark 2.3 or 2.4, you also need to set a flag in the conf/spark-env.sh
+    file of your Spark root directory to account for a change in Arrow serialization
+    format. The Spark root directory is the one we set with the `SPARK_HOME` environment
+    variable when installing Spark, as seen in appendix B. In the `conf/` directory,
+    you should find a spark-env.sh.template file. Make a copy, name it spark-env.sh,
+    and add this line in the file:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你使用的是 Spark 2.3 或 2.4，你还需要在 Spark 根目录的 conf/spark-env.sh 文件中设置一个标志，以处理 Arrow
+    序列化格式的变化。Spark 根目录是我们安装 Spark 时设置的 `SPARK_HOME` 环境变量所指向的目录，如附录 B 所示。在 `conf/`
+    目录中，你应该找到一个 spark-env.sh.template 文件。创建一个副本，命名为 spark-env.sh，并在文件中添加以下行：
+- en: '[PRE0]'
+  id: totrans-14
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'This will tell PyArrow to use a serialization format compatible with a version
+    of Spark greater than 2.0, instead of the newer one that is only compatible with
+    Spark 3.0\. The Spark JIRA ticket contains more information about this ([https://issues.apache.org/jira/browse/SPARK-29367](https://issues.apache.org/jira/browse/SPARK-29367)).
+    You can also use PyArrow version 0.14 and avoid the problem altogether:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将告诉 PyArrow 使用与 Spark 2.0 版本兼容的序列化格式，而不是仅与 Spark 3.0 兼容的新格式。有关更多信息，请参阅 Spark
+    JIRA 工单 ([https://issues.apache.org/jira/browse/SPARK-29367](https://issues.apache.org/jira/browse/SPARK-29367))。你也可以使用
+    PyArrow 版本 0.14 来避免这个问题：
+- en: '[PRE1]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '9.1 Column transformations with pandas: Using Series UDF'
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.1 使用 pandas 进行列转换：使用系列 UDF
+- en: 'In this section, we cover the simplest family of pandas UDFs: the Series UDFs.
+    This family shares a column-first focus with regular PySpark data transformation
+    functions. All of our UDFs in this section will take a `Column` object (or objects)
+    as input and return a `Column` object as output. In practice, they serve as the
+    most common type of UDF and work in cases where you want to bring a functionality
+    already implemented in pandas—or a library that plays well with pandas—and promote
+    it to the distributed world of PySpark.'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍 pandas UDF 的最简单家族：系列 UDF。这个家族与常规 PySpark 数据转换函数一样，以列优先为焦点。本节中所有我们的
+    UDF 都将接受一个 `Column` 对象（或多个对象）作为输入，并返回一个 `Column` 对象作为输出。在实践中，它们是 UDF 最常见的类型，适用于你想要将已经在
+    pandas 中实现的功能（或与 pandas 兼容的库）提升到 PySpark 分布式世界的情况。
+- en: 'PySpark provides three types of Series UDFs. Here is a summary of them; we
+    will explore them further in the rest of the section:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PySpark 提供了三种类型的系列 UDF。以下是它们的总结；我们将在本节的其余部分进一步探讨：
+- en: The *Series to Series* is the simplest. It takes `Columns` objects as inputs,
+    converts them to pandas `Series` objects (giving it its name), and returns a `Series`
+    object that gets promoted back to a PySpark `Column` object.
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*系列到系列* 是最简单的。它接受 `Columns` 对象作为输入，将它们转换为 pandas `Series` 对象（因此得名），并返回一个 `Series`
+    对象，该对象被提升回 PySpark `Column` 对象。'
+- en: The *Iterator of Series to Iterator of Series* differs in the sense that the
+    `Column` objects get batched into batches and then fed as Iterator objects. It
+    takes a single `Column` object as input and returns a single `Column`. It provides
+    performance improvements, especially when the UDF need to initialize an expensive
+    state before working on the data (e.g., local ML models created in scikit-learn).
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*系列到系列迭代器* 的不同之处在于，`Column` 对象被分批处理，然后作为迭代器对象提供。它接受单个 `Column` 对象作为输入，并返回单个
+    `Column`。它提供了性能改进，尤其是在 UDF 需要在处理数据之前初始化一个昂贵的状态时（例如，在 scikit-learn 中创建的本地 ML 模型）。'
+- en: The *Iterator of multiple Series to Iterator of Series* is a combination of
+    the previous Series UDFs and can take multiple `Columns` as input, like the Series
+    to Series UDF, yet preserves the iterator pattern from the Iterator of Series
+    to Iterator of Series.
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*多个系列到系列迭代器* 是前面系列 UDF 的组合，可以接受多个 `Columns` 作为输入，就像系列到系列 UDF 一样，同时保留了系列到系列迭代器的迭代模式。'
+- en: Note There is also a *Series to Scalar* UDF that is part of the Group Aggregate
+    UDF family. See section 9.2.1 for more information. Although it looks similar
+    to the three previously mentioned, it serves a different purpose.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：还有一个属于分组聚合 UDF 家族的 *系列到标量* UDF。有关更多信息，请参阅第 9.2.1 节。尽管它看起来与前面提到的三个类似，但它服务于不同的目的。
+- en: Before we start exploring Series UDF, let’s grab a data set to experiment with.
+    The next section introduces how to connect PySpark to Google BigQuery’s data sets
+    to efficiently read data from a data warehouse.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们开始探索系列 UDF 之前，让我们获取一个数据集来实验。下一节将介绍如何将 PySpark 连接到 Google BigQuery 的数据集，以有效地从数据仓库中读取数据。
+- en: 9.1.1 Connecting Spark to Google’s BigQuery
+  id: totrans-25
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.1.1 连接 Spark 到 Google 的 BigQuery
+- en: 'This section provides instructions for connecting PySpark to Google’s BigQuery,
+    where we will use the National Oceanic and Atmospheric Administration’s (NOAA)
+    Global Surface Summary of the Day (GSOD) data set. In the same vein, this provides
+    a blueprint for connecting PySpark to other data warehouses, such as SQL or NoSQL
+    databases. Spark has a growing list of connectors to popular data storage and
+    processing solutions—and we can’t reasonably cover all of them!—but it’ll often
+    follow the same steps as we are using with BigQuery:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节提供了将 PySpark 连接到 Google 的 BigQuery 的说明，我们将使用美国国家海洋和大气管理局（NOAA）的每日全球表面综合数据集（GSOD）。同样，这也为将
+    PySpark 连接到其他数据仓库，如 SQL 或 NoSQL 数据库提供了蓝图。Spark 有一个不断增长的连接器列表，用于流行的数据存储和处理解决方案——我们无法合理地涵盖所有这些！——但它通常会遵循与我们使用
+    BigQuery 相同的步骤：
+- en: Install and configure the connector (if necessary), following the vendor’s documentation.
+  id: totrans-27
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 按照供应商的文档安装和配置连接器（如果需要）。
+- en: Customize the `SparkReader` object to account for the new data source type.
+  id: totrans-28
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 修改 `SparkReader` 对象以适应新的数据源类型。
+- en: Read the data, authenticating as needed.
+  id: totrans-29
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 读取数据，并在需要时进行身份验证。
+- en: You do not need to use BigQuery
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您不需要使用 BigQuery
+- en: 'I understand that getting a GCP account just to access some data can be a little
+    annoying. I recommend you try—it’s quite representative of connecting Spark with
+    external data sources—but should you want to simply get familiar with the contents
+    of this chapter, skip the rest of this section and use the (Parquet) data available
+    from the repository:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我明白仅为了访问一些数据就创建一个 GCP 帐户可能会有些烦人。我建议您尝试一下——这相当典型地展示了如何将 Spark 与外部数据源连接——但如果您只想熟悉本章内容，请跳过本节的其余部分，并使用存储库中可用的（Parquet）数据：
+- en: '[PRE2]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Installing and configuring the connector
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装和配置连接器
+- en: Google BigQuery is a serverless data warehouse engine that uses a SQL dialect
+    to rapidly process data. Google provides a number of public data sets for experimentation.
+    In this section, we install and configure the Google Spark BigQuery connector
+    to directly access the data made available through BigQuery.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google BigQuery 是一种无服务器数据仓库引擎，它使用 SQL 语法快速处理数据。Google 为实验提供了一系列公共数据集。在本节中，我们安装和配置
+    Google Spark BigQuery 连接器，以便直接访问通过 BigQuery 提供的数据。
+- en: First, you need a GCP account. Once your account is created, you need to create
+    a service account and a service account key to tell BigQuery to give you access
+    to the public data programmatically. To do so, select `Service` `Account` (under
+    `IAM` `&` `Admin`) and click `+` `Create` `Service` `Account`. Give a meaningful
+    name to your service account. In the service account permissions menu, select
+    `BigQuery` → `BigQuery` `admin` and click Continue. In the last step, click `+`
+    `CREATE` `KEY` and select JSON. Download the key and store it somewhere safe (see
+    figure 9.1).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，您需要一个 GCP 帐户。一旦您的帐户创建完成，您需要创建一个服务帐户和一个服务帐户密钥，以便告诉 BigQuery 以编程方式向您提供访问公共数据的权限。为此，选择
+    `服务` `帐户`（在 `IAM` `&` `Admin` 下）并点击 `+` `创建` `服务` `帐户`。为您的服务帐户提供一个有意义的名称。在服务帐户权限菜单中，选择
+    `BigQuery` → `BigQuery `admin` 并点击继续。在最后一步，点击 `+` `CREATE` `KEY` 并选择 JSON。下载密钥并将其存储在安全的地方（见图
+    9.1）。
+- en: '![](../Images/09-01.png)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/09-01.png)'
+- en: Figure 9.1 The key under the `BigQuery-DataAnalysisPySpark` service account
+    I created
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 9.1 我创建的 `BigQuery-DataAnalysisPySpark` 服务帐户下的密钥
+- en: Warning Treat this key like any other password. If a malicious person steals
+    your key, go back to the Service Accounts menu, delete this key, and create a
+    new one.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告 将此密钥视为任何其他密码。如果恶意人员窃取了您的密钥，请返回“服务帐户”菜单，删除此密钥，并创建一个新的密钥。
+- en: 'With your account created and your key downloaded, you can now fetch the connector.
+    The connector is hosted on GitHub ([http://mng.bz/aDZz](http://mng.bz/aDZz)).
+    Because it is under active development, the instructions for installation and
+    usage might change over time. I encourage you to read its `README`. No need to
+    download the connector right now: we’ll let Spark take care of that during the
+    next step.'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建帐户并下载密钥后，您现在可以获取连接器。连接器托管在 GitHub 上 ([http://mng.bz/aDZz](http://mng.bz/aDZz))。因为它处于积极开发中，安装和使用的说明可能会随时间变化。我鼓励您阅读其
+    `README` 文件。现在不需要下载连接器：我们将在下一步让 Spark 负责此事。
+- en: Making the connection between PySpark and BigQuery through the connector
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过连接器在 PySpark 和 BigQuery 之间建立连接
+- en: Now we make the connection between BigQuery and our PySpark environment using
+    the connector and the key created in the previous section. This will close the
+    loop and directly connect our PySpark shell to BigQuery, effectively using it
+    as an external data store.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们使用连接器和上一节中创建的密钥在 BigQuery 和我们的 PySpark 环境之间建立连接。这将闭合循环，并直接将我们的 PySpark shell
+    连接到 BigQuery，有效地将其用作外部数据存储。
+- en: 'If you use PySpark through a regular Python shell and have it running (as seen
+    in appendix B), you need to restart your Python shell. Simply using `spark.stop()`
+    and starting a new `SparkSession` will not work in this case, as we are adding
+    a new dependency to our Spark installation. With a fresh Python REPL, we add,
+    in listing 9.1, a `config` flag: `spark.jars.packages`. This instructs Spark to
+    fetch and install external dependencies, in our case, the `com.google.cloud.spark:spark-bigquery`
+    connector. As it is a Java/Scala dependency, we need to match the correct Spark
+    and Scala version (at the time of writing, it is Spark 3.2, using Scala 2.12);
+    refer to the connector’s `README` for the latest information.'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你通过常规 Python shell 使用 PySpark 并使其运行（如附录 B 所示），你需要重新启动你的 Python shell。在这种情况下，仅使用
+    `spark.stop()` 并启动一个新的 `SparkSession` 是不起作用的，因为我们正在向我们的 Spark 安装添加一个新的依赖项。使用新的
+    Python REPL，我们在列表 9.1 中添加了一个 `config` 标志：`spark.jars.packages`。这指示 Spark 获取并安装外部依赖项，在我们的例子中，是
+    `com.google.cloud.spark:spark-bigquery` 连接器。由于它是一个 Java/Scala 依赖项，我们需要匹配正确的 Spark
+    和 Scala 版本（撰写本文时为 Spark 3.2，使用 Scala 2.12）；请参阅连接器的 `README` 以获取最新信息。
+- en: 'The log messages printed when the `SparkSession` gets instantiated are self-explanatory:
+    Spark fetches the connector from Maven Central—a central repository for Java and
+    JVM language packages, similar to Python’s PyPI when you use pip—installs it,
+    and configures it for your Spark instance. No need for manual download!'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 `SparkSession` 被实例化时打印的日志消息是自解释的：Spark 从 Maven Central（Java 和 JVM 语言包的中央存储库，类似于当你使用
+    pip 时 Python 的 PyPI）获取连接器，安装它，并为你的 Spark 实例配置它。无需手动下载！
+- en: Listing 9.1 Initializing PySpark within your Python shell with BigQuery connector
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.1 在 Python shell 中使用 BigQuery 连接器初始化 PySpark
+- en: '[PRE3]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ I took the package version recommended for the Spark/Scala version (3.2/2.12)
+    on my computer. Check the connector’s repository for the most recent version.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我在我的电脑上选择了推荐的 Spark/Scala 版本（3.2/2.12）的软件包版本。请检查连接器的存储库以获取最新版本。
+- en: Now that PySpark is connected to BigQuery, we simply have to read the data,
+    using our authentication key via GCP.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，PySpark 已连接到 BigQuery，我们只需使用 GCP 的认证密钥读取数据即可。
+- en: Using the connector when invoking PySpark directly
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 直接调用 PySpark 时使用连接器
+- en: 'If you are in an environment where you can’t dynamically download dependencies
+    (e.g., behind a corporate firewall), you can download the jar manually and add
+    its location for the `spark.jars` config flag when instantiating your `SparkSession`.
+    An alternative way, when using `pyspark` or `spark-submit` as a way to launch
+    a REPL or a PySpark job, is to use the `--jars` configuration flag:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你在一个无法动态下载依赖的环境（例如，在公司的防火墙后面），你可以手动下载 jar 文件，并在实例化 `SparkSession` 时将其位置添加到
+    `spark.jars` 配置标志。当使用 `pyspark` 或 `spark-submit` 作为启动 REPL 或 PySpark 作业的方式时，另一种方法是使用
+    `--jars` 配置标志：
+- en: '[PRE4]'
+  id: totrans-50
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: If you are using PySpark in the cloud, refer to your provider documentation.
+    Each cloud provider has a different way of managing Spark dependencies and libraries.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在云中使用 PySpark，请参阅你的提供商文档。每个云提供商都有不同的管理 Spark 依赖项和库的方式。
+- en: If you use PySpark through your Python/IPython shell, you can load the library
+    directly from Maven (Java/Scala’s equivalent of PyPI) when creating your `SparkSession`.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你通过 Python/IPython shell 使用 PySpark，你可以在创建 `SparkSession` 时直接从 Maven（Java/Scala
+    的 PyPI 等价物）加载库。
+- en: Reading the data from BigQuery using our secret key
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用我们的密钥从 BigQuery 读取数据
+- en: 'We are now in the final stage before we can start creating pandas UDFs: with
+    our environment configured, we just have to read the data. In this section, we
+    assemble 10 years’ worth of weather data located in BigQuery, which totals over
+    40 million records.'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在处于创建 pandas UDF 之前的最后阶段：在我们的环境配置完成后，我们只需读取数据。在本节中，我们组装了位于 BigQuery 中的 10
+    年天气数据，总计超过 4000 万条记录。
+- en: 'Reading data from BigQuery is straightforward. In listing 9.2, we use the `bigquery`-specialized
+    `SparkReader`—provided by the connector library we embedded to our PySpark shell—which
+    provides two options:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从 BigQuery 读取数据非常简单。在列表 9.2 中，我们使用了由我们嵌入到 PySpark shell 中的连接器库提供的 `bigquery`
+    专用 `SparkReader`，它提供了两种选项：
+- en: The `table` parameter pointing to the table we want to ingest. The format is
+    `project.dataset.table`; the `bigquery-public-data` is a project available to
+    all.
+  id: totrans-56
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 指向我们要导入的表的`table`参数。其格式为`project.dataset.table`；`bigquery-public-data`是一个对所有用户都可用的项目。
+- en: The `credentialsFile` is the JSON key downloaded in section 9.1.1\. You need
+    to adjust the path and file name according to the location of the file.
+  id: totrans-57
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`credentialsFile`是第9.1.1节中下载的JSON密钥。您需要根据文件的位置调整路径和文件名。'
+- en: Listing 9.2 Reading the `stations` and `gsod` tables for 2010 to 2020
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.2 读取2010年到2020年的`stations`和`gsod`表
+- en: '[PRE5]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Since all the tables are read the same way, I abstract my reading routine
+    in a reusable function, returning the resulting data frame.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 由于所有表都是用相同的方式读取的，我将我的读取例程抽象成一个可重用的函数，返回结果数据帧。
+- en: ❷ I use the bigquery specialized reader via the format() method.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 我通过format()方法使用bigquery专用读取器。
+- en: ❸ The stations table is available in BigQuery under bigquery-public-data.noaa_gsod.gsodXXXX,
+    where XXXX is the four-digit year.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 站点表在BigQuery中可用，位于bigquery-public-data.noaa_gsod.gsodXXXX下，其中XXXX是四位数的年份。
+- en: ❹ I pass my JSON service account key to the credentialsFile option to tell Google
+    I am allowed to use the BigQuery service.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 我将我的JSON服务账户密钥传递给credentialsFile选项，以告诉Google我有权使用BigQuery服务。
+- en: ❺ I create a lambda function over my list comprehension of data frames to union
+    them all.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 我在我的数据帧列表解析上创建了一个lambda函数来合并它们所有。
+- en: Rather than using a looping construct, here I propose a handy pattern for unioning
+    multiple tables in PySpark using `reduce`, also used in chapter 7\. It’s easier
+    to understand the reduce operation if we break it down into discrete steps.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是使用循环结构，这里我提出了一个在PySpark中使用`reduce`（在第7章中也使用过）合并多个表的实用模式。如果我们将其分解为离散步骤，将更容易理解归约操作。
+- en: I start with a range of years (in my example, 2010 to 2020, including 2010 but
+    excluding 2020). For this, I use the `range()` function.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我从一个年份范围开始（在我的例子中，从2010年到2020年，包括2010年但不包括2020年）。为此，我使用了`range()`函数。
+- en: I apply my helper function, `read_df_from_bq()`, to each year via a list comprehension,
+    yielding a list of data frames. I don’t have to worry about memory consumption
+    as the list contains only a reference to the data frame (`DataFrame[...]`).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我通过列表解析将我的辅助函数`read_df_from_bq()`应用于每个年份，从而得到一个数据帧列表。我不必担心内存消耗，因为列表中只包含数据帧的引用（`DataFrame[...]`）。
+- en: As a reducing function, I use a lambda function (which we used when creating
+    one-usage functions in chapter 8) that unions two data frames by column names
+    (with `unionByName`). `reduce` will take the first data frame in the list and
+    union it with the second. It’ll then take the result of the previous union and
+    apply it again with the next data frame in line. The end result is a single data
+    frame that contains every record from 2010 to 2020 inclusively.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为归约函数，我使用了一个lambda函数（我们在第8章创建单次使用函数时使用过），它通过列名（使用`unionByName`）合并两个数据帧。`reduce`将取列表中的第一个数据帧，并将其与第二个数据帧合并。然后，它将取上一次合并的结果，并再次与下一个数据帧合并。最终结果是包含2010年到2020年（包括）每条记录的单个数据帧。
+- en: We could do this iteratively, using a for loop. In the next listing, I show
+    how to accomplish the same goal without using `reduce()`. Since higher-order functions
+    usually yield cleaner code, I prefer using them instead of looping constructs
+    where it make sense.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以迭代地这样做，使用一个for循环。在下一个列表中，我将展示如何在不使用`reduce()`的情况下完成相同的目标。由于高阶函数通常产生更干净的代码，因此我更喜欢在合理的情况下使用它们而不是循环结构。
+- en: Listing 9.3 Reading the `gsod` data from 2010 to 2020 via a loop
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.3 通过循环读取2010年到2020年的`gsod`数据
+- en: '[PRE6]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ When using a looping approach to union tables, you need an explicit starting
+    seed. I use the table from 2010.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当使用循环方法合并表时，需要一个显式的起始种子。我使用2010年的表。
+- en: 'Because `gsod2020` has an additional `date` column that the previous years
+    do not, `unionByName` will fill the values with `null` since we passed `True`
+    to the `allowMissingColumns` attribute. Instead, the date is represented in the
+    data set via three integer columns: `year`, `mo` (for month), and `da` (for day).'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于`gsod2020`有一个额外的`date`列，而前几年没有，因此`unionByName`会使用`null`填充值，因为我们传递了`True`给`allowMissingColumns`属性。相反，日期通过数据集中的三个整数列表示：`year`（年），`mo`（月）和`da`（日）。
+- en: Tip If you are using a local Spark, loading 2010-2019 will make the examples
+    in this chapter rather slow. I use 2018 only when working on my local instance,
+    so I don’t have to wait too long for code execution. Inversely, if you are working
+    with a more powerful setup, you can add years to the range. The `gsod` tables
+    go back to 1929.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：如果你使用的是本地Spark，加载2010-2019年的数据将使本章的示例运行得相当慢。我在本地实例上只使用2018年，这样我就不必等待太长时间来执行代码。相反，如果你使用的是更强大的配置，你可以添加年份到范围。`gsod`表可以追溯到1929年。
+- en: 'In this section, we read a large amount of data from a warehouse and assembled
+    a single data frame representing the weather information across the globe for
+    a period of 10 years. In the next sections, I introduce the three members of the
+    Series UDF, starting with the most common: the Series to Series UDF.'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们从仓库中读取了大量数据，并组装了一个代表过去10年全球天气信息的单一数据框。在接下来的几节中，我将介绍Series UDF的三个成员，首先是最常见的：Series到Series
+    UDF。
+- en: '9.1.2 Series to Series UDF: Column functions, but with pandas'
+  id: totrans-76
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.1.2 Series到Series UDF：列函数，但使用pandas
+- en: 'In this section, we cover the most common type of Pandas UDF: the Series to
+    Series UDF, also called *Scalar* UDF. Series to Series UDFs are akin to most of
+    the functions in the `pyspark.sql` model. For the most part, they work just like
+    Python UDFs (seen in chapter 8), with one key difference: Python UDFs work on
+    one record at a time, and you express your logic through regular Python code.
+    Scalar UDFs work on one Series at a time, and you express your logic through pandas
+    code. The difference is subtle, and it’s easier to explain visually.'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍Pandas UDF中最常见的一种类型：Series到Series UDF，也称为*标量* UDF。Series到Series UDFs类似于`pyspark.sql`模型中的大多数函数。就大部分而言，它们的工作方式与第8章中看到的Python
+    UDFs相同，但有一个关键区别：Python UDFs一次处理一条记录，并且你通过常规Python代码表达你的逻辑。标量 UDFs一次处理一个Series，并且你通过pandas代码表达你的逻辑。这种区别很微妙，而且更易于直观解释。
+- en: In a Python UDF, when you pass column objects to your UDF, PySpark will unpack
+    each value, perform the computation, and then return the value for each record
+    in a `Column` object. In a Scalar UDF, depicted in figure 9.2, PySpark will serialize
+    (through a library called PyArrow, which we installed at the beginning of the
+    chapter) each partitioned column into a pandas `Series` object ([http://mng.bz/g41l](http://mng.bz/g41l)).
+    You then perform the operations on the Series object directly, returning a Series
+    of the same dimension from your UDF. From an end user perspective, they are the
+    same functionally. Because pandas is optimized for rapid data manipulation, it
+    is preferable to use a Series to Series UDF when you can instead of using a regular
+    Python UDF, as it’ll be much faster.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Python UDF中，当你将列对象传递给你的UDF时，PySpark将每个值拆包，执行计算，然后在一个`Column`对象中为每条记录返回一个值。在标量
+    UDF中，如图9.2所示，PySpark将通过一个名为PyArrow的库（我们在本章开头安装了它）将每个分区列序列化为一个pandas `Series`对象([http://mng.bz/g41l](http://mng.bz/g41l))。然后你直接在Series对象上执行操作，从你的UDF返回相同维度的Series。从最终用户的角度来看，它们在功能上是相同的。因为pandas针对快速数据处理进行了优化，所以当你可以选择时，使用Series到Series
+    UDF而不是常规Python UDF会更优，因为它会快得多。
+- en: '![](../Images/09-02.png)'
+  id: totrans-79
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/09-02.png)'
+- en: Figure 9.2 Comparing a Python UDF to a pandas scalar UDF. The former splits
+    a column into individual records, whereas the latter breaks them into Series.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.2 比较Python UDF和pandas标量 UDF。前者将列拆分为单个记录，而后者将它们拆分为Series。
+- en: 'Now armed with the “how it works” of Series to Series UDFs, let’s create one
+    ourselves. I chose to create a simple function that will transform Fahrenheit
+    degrees to Celsius. In Canada, we use both scales depending on the usage: °F for
+    cooking, °C for body or outside temperature. As a true Canadian, I cook my dinner
+    at 350°F but know that 10°C is sweater weather. The function is depicted in listing
+    9.4\. The building blocks are eerily similar, but we can pick out two main differences:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经掌握了Series到Series UDFs的“如何工作”原理，让我们自己创建一个。我选择创建一个简单的函数，它可以将华氏度转换为摄氏度。在加拿大，我们根据用途使用这两个尺度：°F用于烹饪，°C用于体温或室外温度。作为一个真正的加拿大人，我会在350°F的温度下烹饪晚餐，但我知道10°C是穿毛衣的天气。该函数在列表9.4中展示。构建块非常相似，但我们能找出两个主要区别：
+- en: Instead of `udf()`, I use `pandas_udf()`, again, from the `pyspark.sql.functions`
+    module. Optionally (but recommended), we can pass the return type of the UDF as
+    an argument to the `pandas_udf()` decorator.
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我使用`pandas_udf()`而不是`udf()`，它同样来自`pyspark.sql.functions`模块。可选的（但推荐），我们可以将UDF的返回类型作为参数传递给`pandas_udf()`装饰器。
+- en: 'Our function signature is also different: rather than using scalar values (such
+    as `int` or `str`), the UDF takes `pd.Series` and return a `pd.Series`.'
+  id: totrans-83
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的功能签名也有所不同：而不是使用标量值（如 `int` 或 `str`），UDF 接受 `pd.Series` 并返回一个 `pd.Series`。
+- en: The code within the function could be used as is for a regular Python UDF. I
+    am (ab)using the fact that you can do arithmetic operations with a pandas Series.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数内的代码可以像常规 Python UDF 一样使用。我正在（滥用）你可以用 pandas Series 进行算术运算的事实。
+- en: Listing 9.4 Creating a pandas scalar UDF that transforms Fahrenheit into Celsius
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.4 创建将华氏度转换为摄氏度的 pandas 标量 UDF
+- en: '[PRE7]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ For a scalar UDF, the biggest change happens in the decorator used. I could
+    use the pandas_udf function directly too.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 对于标量 UDF，最大的变化发生在使用的装饰器上。我也可以直接使用 pandas_udf 函数。
+- en: ❷ The signature for a Series to Series UDF is a function that takes one or multiple
+    pandas.Series.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 系列到系列 UDF 的签名是一个函数，它接受一个或多个 pandas.Series。
+- en: 'Tip If you’re using a Spark 2 version, you need to add another parameter to
+    the decorator here, as only Spark 3.0 and above recognize function signatures
+    for pandas UDFs. The code in listing 9.4 would read `@F.pandas_udf (T.DoubleType(),`
+    `PandasUDFType.SCALAR)`. See the official PySpark documentation here: [http://mng.bz/5KZz](http://mng.bz/5KZz).'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：如果你使用的是 Spark 2 版本，你需要在这里为装饰器添加另一个参数，因为只有 Spark 3.0 及以上版本才识别 pandas UDF 的函数签名。列表
+    9.4 中的代码将读取 `@F.pandas_udf (T.DoubleType(),` `PandasUDFType.SCALAR)`。请参阅官方 PySpark
+    文档：[http://mng.bz/5KZz](http://mng.bz/5KZz)。
+- en: In listing 9.5, we apply our newly created Series to Series UDF to the `temp`
+    column of the `gsod` data frame, which contains the temperature (in Fahrenheit)
+    of each station-day combination. Just like with regular Python UDFs, Series to
+    Series (and all Scalar UDF) are used like any data manipulation function. Here,
+    I create a new column, `temp_c`, with `withColumn()` and apply the `f_to_c` temperature
+    on the `temp` column.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表 9.5 中，我们将新创建的系列到系列 UDF 应用到 `gsod` 数据框的 `temp` 列，该列包含每个站点-天组合的温度（华氏度）。就像常规的
+    Python UDFs 一样，系列到系列（以及所有标量 UDF）就像任何数据操作函数一样使用。在这里，我使用 `withColumn()` 创建了一个新列
+    `temp_c`，并将 `f_to_c` 温度应用到 `temp` 列上。
+- en: Listing 9.5 Using a Series to Series UDF like any other column manipulation
+    function
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.5 使用系列到系列 UDF 像其他任何列操作函数一样
+- en: '[PRE8]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Series to Series UDFs, just like regular Python UDFs, are very convenient when
+    the record-wise transformation (or mapping) you want to apply to your data frame
+    is not available within the stock PySpark functions (`pyspark.sql.functions`).
+    Creating a Fahrenheit-to-Celsius converter as part of core Spark would be a little
+    intense, so a Python or a pandas Series to Series UDF is a way to extend the core
+    functionality with minimal fuss. Next, we see how to gain more control over the
+    split and use the split-apply-combine pattern in PySpark.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系列到系列 UDFs，就像常规的 Python UDFs 一样，当您想要应用到数据框中的记录级转换（或映射）在 PySpark 的标准函数（`pyspark.sql.functions`）中不可用时，非常方便。将华氏度到摄氏度的转换器作为
+    Spark 核心的一个部分来创建可能会有些复杂，因此使用 Python 或 pandas 系列到系列 UDF 是以最小的麻烦扩展核心功能的一种方式。接下来，我们将看看如何更有效地控制拆分并使用
+    PySpark 中的拆分-应用-组合模式。
+- en: Working with complex types in pandas UDF
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 pandas UDF 中处理复杂类型
+- en: PySpark has a richer data type system than pandas, which clubs strings and complex
+    types into a catchall `object` type. Since you are dropping from PySpark into
+    pandas during the execution of the UDF, you are solely responsible for aligning
+    the types accordingly. This is where the return type attribute of the `pandas_udf`
+    decorator comes in handy, as it’ll help in diagnosing bugs early.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PySpark 拥有比 pandas 更丰富的数据类型系统，它将字符串和复杂类型组合成一个通用的 `object` 类型。由于你在执行 UDF 期间从
+    PySpark 跳转到 pandas，你完全负责相应地对齐类型。这就是 `pandas_udf` 装饰器的返回类型属性派上用场的地方，因为它可以帮助早期诊断错误。
+- en: What if you want to accept or return complex types, such as the array of the
+    struct? pandas will accept as values within a series a list of items that will
+    be promoted to an `ArrayType` column. For `StructType` columns, you will need
+    to replace the relevant `pd.Series` by a `pd.DataFrame`. In chapter 6, we saw
+    that struct columns are like mini data frames, and the equivalence continues here!
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想接受或返回复杂类型，比如结构数组的数组？pandas 会接受一个系列中的项目列表作为值，这些项目将被提升为 `ArrayType` 列。对于 `StructType`
+    列，你需要将相关的 `pd.Series` 替换为 `pd.DataFrame`。在第 6 章中，我们看到了结构列就像迷你数据框，这里的等价性继续存在！
+- en: 9.1.3 Scalar UDF + cold start = Iterator of Series UDF
+  id: totrans-97
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.1.3 标量 UDF + 冷启动 = 系列到系列 UDF 的迭代器
+- en: Tip This is only available with PySpark 3.0+.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：这仅在 PySpark 3.0+ 中可用。
+- en: 'This section combines the other two types of Scalar UDFs: the Iterator of Series
+    to Iterator of Series UDF and the Iterator of multiple Series to Iterator of Series.
+    (Try to say that quickly five times!) Because they are so similar to the Series
+    to Series UDF in their application, I will focus on the Iterator portion that
+    gives them their power. Iterator of Series UDFs are very useful when you have
+    an *expensive cold start* operation you need to perform. By cold start, we mean
+    an operation we need to perform once at the beginning of the processing step,
+    before working through the data. Deserializing a local ML model (fitted with scikit-learn
+    or another Python modeling library) is an example: we would need to unpack and
+    read the model once for the whole data frame, and then it could be used to process
+    all records. Here, I’ll reuse our `f_to_c` function but will add a cold start
+    to demonstrate the usage.'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一节结合了其他两种类型的标量UDF：序列到序列迭代器UDF和多个序列到序列迭代器。 (试着快速说五遍！）由于它们在应用上与序列到序列UDF非常相似，我将重点关注赋予它们力量的迭代器部分。当你需要执行昂贵的冷启动操作时，序列迭代器UDF非常有用。冷启动意味着在处理步骤开始时需要执行一次的操作，在处理数据之前。反序列化本地ML模型（使用scikit-learn或其他Python建模库拟合）是一个例子：我们需要为整个数据帧解包并读取模型一次，然后它可以用来处理所有记录。在这里，我将重用我们的`f_to_c`函数，但会添加一个冷启动来演示用法。
+- en: 'Our UDF in listing 9.6 is similar to the Series to Series UDF from section
+    9.1.2\. A few differences should be noted:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.6中的我们的UDF与9.1.2节中的序列到序列UDF相似。应该注意以下几点：
+- en: The signature goes from `(pd.Series)` `->` `pd.Series` to `(Iterator[pd.Series])`
+    `->` `Iterator[pd.Series]`. This is consequential to using an Iterator of Series
+    UDF.
+  id: totrans-101
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 签名从`(pd.Series)` `->` `pd.Series`变为`(Iterator[pd.Series])` `->` `Iterator[pd.Series]`。这对于使用序列迭代器UDF是重要的。
+- en: When working with the Series to Series UDF, we assumed that PySpark would give
+    us one batch at a time. Here, since we are working with an Iterator of Series,
+    we are explicitly iterating over each batch one by one. PySpark will distribute
+    the work for us.
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当使用序列到序列UDF时，我们假设PySpark会一次给我们一个批次。在这里，由于我们正在处理序列迭代器，我们明确地逐个迭代每个批次。PySpark会为我们分配工作。
+- en: Rather than using a `return` value, we `yield` so that our function returns
+    an iterator.
+  id: totrans-103
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 而不是使用`return`值，我们`yield`，这样我们的函数就返回一个迭代器。
+- en: Listing 9.6 Using an Iterator of Series to Iterator of Series UDF
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.6 使用序列到序列迭代器到序列迭代器UDF
+- en: '[PRE9]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ The signature is now (Iterator[pd.Series]) -> Iterator[pd.Series]. Notice
+    the add-on of the Iterator keyword (from the typing module).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 现在的签名是 (Iterator[pd.Series]) -> Iterator[pd.Series]。注意添加了迭代器关键字（来自typing模块）。
+- en: ❷ We simulate a cold start using sleep() for five seconds. The cold start will
+    happen on each worker once, rather than for every batch.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 我们使用sleep()模拟了五秒的冷启动。冷启动将在每个工作节点上发生一次，而不是每个批次。
+- en: ❸ Since we are working with an iterator here, we iterate over each batch, using
+    yield (instead of return).
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 由于我们在这里使用迭代器，我们遍历每个批次，使用yield（而不是return）。
+- en: We have covered the Iterator of Series to Iterator of Series case. What about
+    the Iterator of multiple Series to Iterator of Series? This special case is to
+    wrap multiple columns in a single iterator. For this example, I’ll assemble the
+    `year`, `mo`, and `da` columns (representing the year, month, and day) into a
+    single column. This example requires more data transformation than when using
+    an Iterator of a single Series; I illustrate the process of data transformation
+    in figure 9.3.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经涵盖了从序列迭代器到序列迭代器的案例。那么，多个序列到序列迭代器的情况又是怎样的呢？这个特殊情况是将多个列包裹在一个单独的迭代器中。在这个例子中，我将`year`、`mo`和`da`列（代表年份、月份和日期）组合成一个单独的列。这个例子比使用单个序列迭代器时需要更多的数据转换；我在图9.3中展示了数据转换的过程。
+- en: '![](../Images/09-03.png)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/09-03.png)'
+- en: Figure 9.3 The transformation of three Series of values into a single date column.
+    We iterate over each batch using a `for` loop, use multiple assignment to get
+    the individual columns from the tuple, and pack them into a dictionary that feeds
+    into a data frame where we can apply our `to_datetime()` function.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.3 将三个值序列转换为单个日期列的转换。我们使用`for`循环遍历每个批次，使用多重赋值从元组中获取单个列，并将它们打包成一个字典，该字典可以输入到数据帧中，在那里我们可以应用我们的`to_datetime()`函数。
+- en: 'Our date assembly UDF works like this:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们日期组装UDF的工作方式是这样的：
+- en: '`year_mo_da` is an Iterator of a tuple of Series, representing all the batches
+    of values contained in the `year`, `mo`, and `da` columns.'
+  id: totrans-113
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`year_mo_da`是一个包含`year`、`mo`和`da`列中所有值批次的元组序列的迭代器。'
+- en: To access each batch, we use a `for` loop over the iterator, the same principle
+    as for the Iterator of Series UDF (section 9.1.3).
+  id: totrans-114
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 要访问每个批次，我们使用对迭代器的 `for` 循环，这与 Series UDF 的 Iterator（第 9.1.3 节）中的原理相同。
+- en: To extract each individual series from the tuple, we use multiple assignments.
+    In this case, `year` will map to the first Series of the tuple, `mo` to the second,
+    and `da` to the third.
+  id: totrans-115
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 要从元组中提取每个单独的序列，我们使用多重赋值。在这种情况下，`year` 将映射到元组的第一个 Series，`mo` 映射到第二个，`da` 映射到第三个。
+- en: Since `pd.to_datetime` requests a data frame containing the `year`, `month`,
+    and `day` columns, we create the data frame via a dictionary, giving the keys
+    the relevant column names. `pd.to_datetime` returns a Series.
+  id: totrans-116
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 由于 `pd.to_datetime` 需要一个包含 `year`、`month` 和 `day` 列的数据框，我们通过字典创建数据框，给键赋予相关的列名。`pd.to_datetime`
+    返回一个 Series。
+- en: Finally, we `yield` the answer to build the Iterator of Series, fulfilling our
+    contract.
+  id: totrans-117
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 最后，我们 `yield` 答案以构建 Series 的 Iterator，履行我们的合同。
+- en: Listing 9.7 Assembling the date from three columns using an Iterator of multiple
+    Series UDF
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.7 使用多个 Series UDF 组装来自三个列的日期
+- en: '[PRE10]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: This concludes our overview of how to use Scalar UDFs. Scalar UDFs are very
+    useful when you make column-level transformations, just like the functions in
+    `pyspark.sql.functions`. When using any Scalar user-defined function, you need
+    to remember that PySpark will not guarantee the order or the composition of the
+    batches when applying it. If you follow the same “columns in, columns out” mantra
+    we use when working with PySpark column functions, you’ll do great.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就结束了我们对如何使用标量 UDF 的概述。标量 UDF 在进行列级转换时非常有用，就像 `pyspark.sql.functions` 中的函数一样。当使用任何标量用户定义函数时，你需要记住
+    PySpark 不会保证应用时的顺序或批次的组成。如果你遵循我们在处理 PySpark 列函数时使用的相同的“输入列，输出列”咒语，你会做得很好。
+- en: Tip By default, Spark will aim for 10,000 records per batch. You can customize
+    the maximum size of each batch using the `spark.sql.execution.arrow .maxRecordsPerBatch`
+    config when creating the `SparkSession` object; 10,000 records is a good balance
+    for most jobs. If you are working with memory-starved executors, you might want
+    to reduce this.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：默认情况下，Spark 会尝试每个批次包含 10,000 条记录。在创建 `SparkSession` 对象时，你可以使用 `spark.sql.execution.arrow.maxRecordsPerBatch`
+    配置自定义每个批次的最大大小；对于大多数工作来说，10,000 条记录是一个很好的平衡点。如果你正在使用内存受限的执行器，你可能想减少这个数值。
+- en: Should you need to worry about batch composition based on one or more columns,
+    you’ll learn how to apply UDFs on a `GroupedData` object (seen in chapter 5) to
+    have a finer level of control over the records in the next section. We will not
+    only create aggregate functions (e.g., `sum()`) but also apply functions while
+    controlling the batches’ composition.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你需要担心基于一个或多个列的批次组成，你将在下一节中学习如何在 `GroupedData` 对象（见第 5 章）上应用 UDF 以获得对记录的更精细的控制。我们不仅会创建聚合函数（例如，`sum()`），还会在控制批次组成的同时应用函数。
+- en: Exercise 9.1
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 练习 9.1
+- en: What are the values of `WHICH_TYPE` and `WHICH_SIGNATURE` in the following code
+    block?
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下代码块中 `WHICH_TYPE` 和 `WHICH_SIGNATURE` 的值是什么？
+- en: '[PRE11]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: '9.2 UDFs on grouped data: Aggregate and apply'
+  id: totrans-126
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.2 对分组数据的 UDF：聚合和应用
+- en: 'This section covers UDFs in the case where you need to worry about the composition
+    of the batches. This is useful in two cases. For completion, I provide the common
+    names used in Spark 3 versions:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一节涵盖了当你需要担心批次组成时的情况。这在两种情况下很有用。为了完整起见，我提供了 Spark 3 版本中常用的常见名称：
+- en: '*Group aggregate UDFs* : You need to perform aggregate functions such as `count()`
+    or `sum()`, as we saw in chapter 5.'
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*分组聚合 UDFs*：你需要执行聚合函数，如 `count()` 或 `sum()`，就像我们在第 5 章中看到的那样。'
+- en: '*Group map UDFs* : Your data frame can be split into batches based on the values
+    of certain columns; you then apply a function on each batch as if it were a pandas
+    `DataFrame` before combining each batch back into a Spark data frame. For instance,
+    we could have our `gsod` data batched by station month and perform operations
+    on the resulting data frames.'
+  id: totrans-129
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*分组映射 UDFs*：你的数据框可以根据某些列的值分割成批次；然后你将函数应用于每个批次，就像它是一个 pandas `DataFrame` 一样，然后再将每个批次合并回
+    Spark 数据框。例如，我们可以将 `gsod` 数据批次化按站点月份，并对结果数据框进行操作。'
+- en: 'Both group aggregate and group map UDFs are PySpark’s answer to the split-apply-combine
+    pattern. At the core, split-apply-combine is just a series of three steps that
+    are frequently used in data analysis:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论是分组聚合还是分组映射 UDFs，都是 PySpark 对 split-apply-combine 模式的回答。在核心上，split-apply-combine
+    只是一系列在数据分析中经常使用的三个步骤：
+- en: '*Split* your data set into logical batches (using `groupby()`).'
+  id: totrans-131
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '*分割* 你的数据集成逻辑批次（使用 `groupby()`）。'
+- en: '*Apply* a function to each batch independently.'
+  id: totrans-132
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '*应用*一个函数到每个批次独立地。'
+- en: '*Combine* the batches into a unified data set.'
+  id: totrans-133
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '*合并*这些批次到一个统一的数据集中。'
+- en: To be perfectly honest, I did not know this pattern’s name until somebody pointed
+    at my code one day and said, “This is some nice split-apply-combine work you did
+    there.” You probably use it intuitively as well. In the PySpark world, I see it
+    more as a *divide and process* move, as illustrated in figure 9.4.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完全诚实地说，直到有一天有人指着我的代码说，“你这里做了一些很好的分而治之-应用-合并工作。”我才知道这个模式的名字。你可能也是本能地使用它。在PySpark的世界里，我更把它看作是一个*分割和加工*的动作，如图9.4所示。
+- en: '![](../Images/09-04.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/09-04.png)'
+- en: Figure 9.4 Split-apply-combine depicted visually. We batch/group the data frame
+    and process each one with pandas before unioning them into a (Spark) data frame
+    again.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.4展示了分而治之-应用-合并的视觉表示。我们将数据帧批量/分组，并在合并回（Spark）数据帧之前，使用pandas对每个分组进行处理。
+- en: Here, we will cover each type of UDF and illustrate how each relates to the
+    split-apply-combine pattern. While group map and group aggregate UDFs are clubbed
+    in the same family and both work on `GroupedData` objects (seen in chapter 5 when
+    we review the `groupby()` method), their syntax and usage are quite different.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们将涵盖每种类型的UDF，并说明每种如何与分而治之-应用-合并模式相关。虽然分组映射和分组聚合UDF属于同一类，并且都在`GroupedData`对象上工作（在第5章回顾`groupby()`方法时看到），但它们的语法和用法相当不同。
+- en: 'Warning With great power comes great responsibility: when grouping your data
+    frame, make sure each batch/group is “pandas-size,” (i.e., it can be loaded comfortably
+    in memory). If one or more batches is too big, you’ll get an out-of-memory exception.'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：权力越大，责任越大：在分组你的数据帧时，确保每个批次/分组是“pandas-size”（即可以舒适地加载到内存中）。如果有一个或多个批次太大，你会得到内存不足异常。
+- en: 9.2.1 Group aggregate UDFs
+  id: totrans-139
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.2.1 分组聚合UDF
+- en: Note Only available from Spark 2.4 on. Spark 2.4 provided a `functionType` of
+    `PandasUDFType.GROUPED_AGG` (from `pyspark.sql.functions`; see [http://mng.bz/6Zmy](http://mng.bz/6Zmy)).
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：仅从Spark 2.4版本开始可用。Spark 2.4提供了`functionType`为`PandasUDFType.GROUPED_AGG`（来自`pyspark.sql.functions`；参见[http://mng.bz/6Zmy](http://mng.bz/6Zmy)）。
+- en: This section covers the group aggregate UDF, also known as the *Series to Scalar
+    UDF*. With such a name, we already can imagine that it shares some affinities
+    with the Series to Series UDF seen in section 9.1.2\. Unlike the Series to Series,
+    the group aggregate UDF distills the Series received as input to a single value.
+    In the split-apply-combine pattern, the apply stage collapses the batches into
+    a single record based on the values of the columns we batch against.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节涵盖了分组聚合UDF，也称为*序列到标量UDF*。有了这个名字，我们就可以想象它和第9.1.2节中看到的序列到序列UDF有一些相似之处。与序列到序列不同，分组聚合UDF将接收到的序列简化为单个值。在分而治之-应用-合并模式中，应用阶段根据我们分组的列值将批次折叠成单个记录。
+- en: PySpark provides the group aggregate functionality though the `groupby().agg()`
+    pattern we learned during chapter 5\. A group aggregate UDF is simply a custom
+    aggregate function we pass as an argument to `agg()`. For this section’s example,
+    I wanted to do something a little more complex than reproducing the common aggregate
+    functions (count, min, max, average). In listing 9.8, I compute the linear slope
+    of the temperature for a given period using scikit-learn’s `LinearRegression`
+    object. You do not need to know scikit-learn or machine learning to follow along;
+    I’m using basic functionality and explain each step.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PySpark通过我们在第5章中学到的`groupby().agg()`模式提供了分组聚合功能。一个分组聚合UDF（用户定义函数）简单来说就是我们将作为参数传递给`agg()`的自定义聚合函数。在本节的示例中，我想做一些比重现常见的聚合函数（计数、最小值、最大值、平均值）更复杂的事情。在列表9.8中，我使用scikit-learn的`LinearRegression`对象计算了给定时期的温度线性斜率。你不需要了解scikit-learn或机器学习就能跟随理解；我正在使用基本功能，并解释每个步骤。
+- en: 'Note This is not a machine learning exercise: I am just using scikit-learn’s
+    plumbing to create a feature. Machine learning in Spark is covered in part 3 of
+    this book. Don’t take this code as robust model training!'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：这不是一个机器学习练习：我只是使用scikit-learn的管道来创建一个特征。Spark中的机器学习将在本书的第三部分介绍。不要将此代码视为健壮的模型训练！
+- en: To train a model in scikit-learn, we start by initializing the model object.
+    In this case, I use `LinearRegression()` without any other parameters. I then
+    `fit` the model, providing `X`, my feature matrix, and `y`, my prediction vector.
+    In this case, since I have a single feature, I need to “reshape” my `X` matrix,
+    or scikit-learn will complain about a shape mismatch. It does not change the values
+    of the matrix whatsoever.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在 scikit-learn 中训练一个模型，我们首先初始化模型对象。在这种情况下，我使用 `LinearRegression()` 而不带任何其他参数。然后我
+    `fit` 模型，提供 `X`，我的特征矩阵，和 `y`，我的预测向量。在这种情况下，由于我只有一个特征，我需要“重塑”我的 `X` 矩阵，否则 scikit-learn
+    会抱怨形状不匹配。这根本不会改变矩阵的值。
+- en: Tip `fit()` is the common method for training an ML model. As a matter of fact,
+    Spark ML library uses the same method when training a distributed ML model. See
+    chapter 13 for more information.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：`fit()` 是训练 ML 模型的常用方法。事实上，Spark ML 库在训练分布式 ML 模型时也使用相同的方法。更多信息请见第 13 章。
+- en: At the end of the fit method, our `LinearRegression` object has trained a model
+    and, in the case of a linear regression, keeps its coefficient in a `coef_` vector.
+    Since I really only care about the coefficient, I simply extract and return it.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 fit 方法的末尾，我们的 `LinearRegression` 对象已经训练了一个模型，在线性回归的情况下，它将系数保存在 `coef_` 向量中。由于我真正关心的是系数，我简单地提取并返回它。
+- en: Listing 9.8 Creating a grouped aggregate UDF
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.8 创建一个分组聚合 UDF
+- en: '[PRE12]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ I import the linear regression object from sklearn.linear_model.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我从 sklearn.linear_model 导入了线性回归对象。
+- en: ❷ I initialize the LinearRegression object.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 我初始化了 LinearRegression 对象。
+- en: ❸ The fit method trains the model, using the day Series as a feature and the
+    temp series as the prediction.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ fit 方法使用 day 序列作为特征，temp 序列作为预测来训练模型。
+- en: ❹ Since I only have one feature, I select the first value of the coef_ attribute
+    as my slope.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 由于我只有一个特征，我选择 coef_ 属性的第一个值作为我的斜率。
+- en: It’s easy to apply a grouped aggregate UDF to our data frame. In listing 9.9,
+    I `groupby()` the station code, name, and country, as well as the year and the
+    month. I pass my newly created grouped aggregate function as a parameter to `agg()`,
+    passing my `Column` objects as parameters to the UDF.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将分组聚合 UDF 应用到我们的数据框上很容易。在列表 9.9 中，我按站点代码、名称和国家，以及年份和月份进行了 `groupby()`。我将新创建的分组聚合函数作为
+    `agg()` 方法的参数传递，并将我的 `Column` 对象作为参数传递给 UDF。
+- en: Listing 9.9 Applying our grouped aggregate UDF using `agg()`
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.9 使用 `agg()` 应用我们的分组聚合 UDF
+- en: '[PRE13]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: '❶ Applying a grouped aggregate UDF is the same as using a Spark aggregating
+    function: you add it as an argument to the agg() method of the GroupedData object.'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 应用分组聚合 UDF 与使用 Spark 聚合函数相同：你将其作为 GroupedData 对象的 `agg()` 方法的参数添加。
+- en: In this section, we created a custom aggregate function using the Series to
+    Scalar UDF, also known at the group aggregate UDF. Following our split-apply-combine
+    pattern, a successful group aggregate UDF usage relies on the `groupby()` method
+    and uses a Series to Scalar UDF as one or more of the arguments to `agg()`. Like
+    its namesake, the return value of the apply stage is a singular value, so each
+    batch becomes a single record that gets combined in a grouped data frame. In the
+    next section, we explore an alternative to the aggregation pattern, where the
+    return value of the apply stage is a data frame.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们使用 Series 到标量 UDF 创建了一个自定义聚合函数，也称为分组聚合 UDF。遵循我们的拆分-应用-组合模式，成功的分组聚合 UDF
+    使用依赖于 `groupby()` 方法，并使用 Series 到标量 UDF 作为 `agg()` 方法的参数之一或多个。像它的名字一样，应用阶段的返回值是一个单一值，因此每个批次变成一个单独的记录，在分组数据框中合并。在下一节中，我们将探讨聚合模式的一个替代方案，其中应用阶段的返回值是一个数据框。
+- en: 9.2.2 Group map UDF
+  id: totrans-158
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.2.2 分组映射 UDF
+- en: Note Only available from Spark 2.3+. Spark 2.3/2.4 provide a `functionType`
+    of `PandasUDFType.GROUPED_MAP` and use the `apply()` method (from `pyspark .sql.functions`;
+    see [http://mng.bz/oa8M](http://mng.bz/oa8M)) and a `@pandas_udf()` decorator.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：仅从 Spark 2.3+ 开始可用。Spark 2.3/2.4 提供了 `functionType` 为 `PandasUDFType.GROUPED_MAP`，并使用
+    `apply()` 方法（来自 `pyspark.sql.functions`；见 [http://mng.bz/oa8M](http://mng.bz/oa8M)）和
+    `@pandas_udf()` 装饰器。
+- en: The second type of UDF on grouped data is the group map UDF. Unlike the group
+    aggregate UDF, which returns a scalar value as a result over a batch, the grouped
+    map UDF maps over each batch and returns a (pandas) data frame that gets combined
+    back into a single (Spark) data frame. Because of this flexibility, PySpark provides
+    a different usage pattern (and the syntax changed greatly between Spark 2 and
+    Spark 3; see the note at the top of this section).
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分组数据上的第二种 UDF 是分组映射 UDF。与返回一个标量值的分组聚合 UDF 不同，分组映射 UDF 在每个批次上映射并返回一个（pandas）数据框，该数据框随后被合并回一个单独的（Spark）数据框。正因为这种灵活性，PySpark
+    提供了不同的使用模式（并且 Spark 2 和 Spark 3 之间的语法变化很大；请参阅本节顶部的注释）。
+- en: Before looking at the PySpark plumbing, we focus on the pandas side of the equation.
+    Where scalar UDFs relied on pandas Series, group map UDFs use pandas DataFrame.
+    Each logical batch from step 1 in figure 9.4 becomes a pandas DataFrame ready
+    for action. Our function must return a complete DataFrame, meaning that all the
+    columns we want to display need to be returned, including the one we grouped against.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在查看 PySpark 的管道之前，我们关注等式的 pandas 部分。标量 UDF 依赖于 pandas Series，而分组映射 UDF 使用 pandas
+    DataFrame。图 9.4 第 1 步中的每个逻辑批次都变成一个准备就绪的 pandas DataFrame。我们的函数必须返回一个完整的 DataFrame，这意味着我们需要返回所有想要显示的列，包括我们分组所针对的列。
+- en: 'Our `scale_temperature` function in listing 9.10 looks very much like a pandas
+    function—no `pandas_udf()` decorator (when using Spark 3) needed. pandas functions,
+    when applied as group map UDFs, don’t need any special definition. The return
+    value data frame contains six columns: `stn`, `year`, `mo`, `da`, `temp`, and
+    `temp_norm`. All the columns but `temp_norm` are assumed to be present in the
+    input data frame. We create the `temp_norm` column, which holds the scaled temperature
+    using the maximum and minimum temperature for each batch/pandas DataFrame. Since
+    I have a division in my UDF, I am giving a reasonable value of 0.5 if the minimum
+    temperature in my batch equals the maximum temperature. By default, pandas will
+    give an infinite value for division by zero; PySpark will interpret this as `null`.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.10 中的 `scale_temperature` 函数看起来非常像 pandas 函数——不需要 `pandas_udf()` 装饰器（当使用
+    Spark 3 时）。当作为分组映射 UDF 应用时，pandas 函数不需要任何特殊定义。返回值数据框包含六个列：`stn`、`year`、`mo`、`da`、`temp`
+    和 `temp_norm`。除了 `temp_norm` 之外的所有列都假定为输入数据框中存在。我们创建 `temp_norm` 列，该列包含使用每个批次/
+    pandas DataFrame 的最大和最小温度缩放的温度。由于我在 UDF 中有一个除法操作，如果我的批次中的最小温度等于最大温度，我将提供一个合理的值
+    0.5。默认情况下，pandas 将在除以零时给出无限值；PySpark 将将其解释为 `null`。
+- en: Listing 9.10 A group map UDF to scale temperature values
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.10 用于缩放温度值的分组映射 UDF
+- en: '[PRE14]'
+  id: totrans-164
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Now that the apply is step done, the rest is a piece of cake. Just like with
+    the group aggregate UDF, we use `groupby()` to split a data frame into manageable
+    batches but then pass our function to the `applyInPandas()` method. The method
+    takes a function as a first argument and a `schema` as a second. I am using the
+    simplified DDL syntax seen in chapter 7 here; if you are more comfortable with
+    the `StructType` syntax seen in chapter 6, it can be applied here interchangeably.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在应用步骤已完成，剩下的就是小菜一碟。就像分组聚合 UDF 一样，我们使用 `groupby()` 将数据框拆分为可管理的批次，然后将我们的函数传递给
+    `applyInPandas()` 方法。该方法将一个函数作为第一个参数，将 `schema` 作为第二个参数。我在这里使用的是第 7 章中看到的简化 DDL
+    语法；如果您更习惯于第 6 章中看到的 `StructType` 语法，它也可以在这里互换使用。
+- en: Tip Spark 2 uses the `pandas_udf()` decorator and passes the return schema as
+    an argument, so if you’re using this version, you would use the `apply()` method
+    here.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示 Spark 2 使用 `pandas_udf()` 装饰器并将返回模式作为参数传递，因此如果您使用这个版本，您会在这里使用 `apply()` 方法。
+- en: 'In the next listing, we group our data frame using three columns: `stn`, `year`,
+    and `mo`. Each batch will represent a station-month’s worth of observation. My
+    UDF has six columns in its return value; the data frame after `applyInPandas()`
+    has the same six.'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个列表中，我们使用三个列：`stn`、`year` 和 `mo` 对数据框进行分组。每个批次将代表一个站点-月份的观测值。我的 UDF 返回值中有六个列；`applyInPandas()`
+    后的数据框也有相同的六个列。
+- en: Listing 9.11 Split-apply-combing in PySpark
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.11 PySpark 中的拆分-应用-组合
+- en: '[PRE15]'
+  id: totrans-169
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'Group map UDFs are highly flexible constructs: as long as you respect the schema
+    you provide to the `applyInPandas()`, Spark will not require that you keep the
+    same (or any) number of records. This is as close as we will get to treating a
+    Spark data frame like a predetermined collection (via `groupby()`) of a pandas
+    DataFrame. If you do not care about the chunk composition but need the flexibility
+    of “pandas DataFrame in, pandas DataFrame out,” see the `mapInPandas()` method
+    of the PySpark `DataFrame` object: it reuses the iterator pattern seen in section
+    9.1.3 but applies it to a full data frame instead of a number of series.'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分组映射 UDF 是高度灵活的结构：只要尊重你提供给 `applyInPandas()` 的模式，Spark 就不会要求你保持相同（或任何）数量的记录。这几乎是我们将
+    Spark 数据帧视为预先确定的集合（通过 `groupby()`）的 pandas 数据帧的方式。如果你不关心块组成，但需要“pandas DataFrame
+    输入，pandas DataFrame 输出”的灵活性，请查看 PySpark `DataFrame` 对象的 `mapInPandas()` 方法：它重用了第
+    9.1.3 节中看到的迭代器模式，但将其应用于整个数据帧而不是一系列系列。
+- en: 'Because of that flexibility, group map UDFs are often those I see developers
+    having the hardest time to get right. This is where your pen and paper comes in:
+    map your inputs and outputs, taking the time to ensure that the structure of your
+    data frame stays consistent.'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这种灵活性，分组映射 UDF 通常是我看到开发者最难正确实现的部分。这时你的笔和纸就派上用场了：绘制你的输入和输出，花时间确保你的数据帧结构保持一致。
+- en: The next and final section of this chapter summarizes how to decide between
+    the cornucopia of pandas UDFs. By utilizing a few questions, you’ll know which
+    one to use, every time.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的下一节和最后一节总结了如何在众多 pandas UDF 中做出选择。通过利用几个问题，你将知道每次应该使用哪个。
+- en: 9.3 What to use, when
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.3 何时使用什么
+- en: This small final section is about making the right choice regarding pandas UDFs.
+    Because each one fills a specific use case, I think that the best way to approach
+    this is to use the properties of each and ask ourselves a few questions about
+    our use case. This way, there is no more hesitation!
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这一小节是关于如何正确选择 pandas UDF。因为每个 UDF 都针对特定的用例，我认为最好的方法是利用每个 UDF 的特性，并就我们的用例提出几个问题。这样，就不再犹豫了！
+- en: 'In figure 9.5, I provide a small decision tree to follow when you hesitate
+    about which pandas UDF to use. Here’s a summary:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图 9.5 中，我提供了一个小的决策树，当你犹豫使用哪个 pandas UDF 时可以遵循。以下是总结：
+- en: If you need to control how the batches are made, you need to use a grouped data
+    UDF. If the return value is scalar, group aggregate, or otherwise, use a group
+    map and return a transformed (complete) data frame.
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你需要控制批次的制作方式，你需要使用分组数据 UDF。如果返回值是标量、分组聚合或其他，请使用分组映射并返回一个转换后的（完整）数据帧。
+- en: If you only want batches, you have more options. The most flexible is `mapInPandas()`,
+    where an iterator of pandas DataFrame comes in and a transformed one comes out.
+    This is very useful when you want to distribute a pandas/local data transformation
+    on the whole data frame, such as with inference of local ML models. Use it if
+    you work with most of the columns from the data frame, and use a Series to Series
+    UDF if you only need a few columns.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你只想使用批次，你有更多选择。最灵活的是 `mapInPandas()`，其中 pandas DataFrame 迭代器进入并输出一个转换后的数据帧。这在你想在整个数据帧上分布
+    pandas/本地数据转换时非常有用，例如使用本地 ML 模型的推理。如果你处理数据帧的大部分列，请使用它；如果你只需要几个列，请使用 Series 到 Series
+    UDF。
+- en: If you have a cold-start process, use a Iterator of Series/multiple Series UDF,
+    depending on the number of columns you need within your UDF.
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你有一个冷启动过程，使用 Series/multiple Series UDF 的迭代器，具体取决于你 UDF 中需要的列数。
+- en: Finally, if you only need to transform some columns using pandas, a Series to
+    Series UDF is the way to go.
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后，如果你只需要使用 pandas 转换一些列，那么 Series 到 Series UDF 是最佳选择。
+- en: '![](../Images/09-05.png)'
+  id: totrans-180
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/09-05.png)'
+- en: Figure 9.5 A summary of the decision-making for selecting the UDF
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 9.5 选择 UDF 的决策总结
+- en: pandas UDFs are quite useful for extending PySpark with transformations that
+    are not included in the `pyspark.sql` module. I find that they’re also quite easy
+    to understand but pretty hard to get right. I finish this chapter with a few pointers
+    on testing out and debugging your pandas UDF.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pandas UDF 对于扩展 PySpark，添加 `pyspark.sql` 模块中未包含的转换非常有用。我发现它们也相当容易理解，但很难正确实现。我在本章结束时提供了一些关于测试和调试你的
+    pandas UDF 的提示。
+- en: 'The most important aspect of a pandas UDF (and any UDF) is that it needs to
+    work on the nondistributed version of your data. For regular UDFs, this means
+    passing *any argument of the type of values you expect* should yield an answer.
+    For instance, if you divide an array of values by another one, you need to cover
+    the case of dividing by zero. The same is true for any pandas UDF: you need to
+    be lenient with the input you accept and strict with the output you provide.'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pandas UDF（以及任何 UDF）最重要的方面是它需要在非分布式版本的数据上工作。对于常规 UDF，这意味着传递 *任何你期望的值的类型* 的参数应该得到一个答案。例如，如果你将一个值数组除以另一个值数组，你需要处理除以零的情况。对于任何
+    pandas UDF 也是如此：你需要对接受的输入宽容，对提供的输出严格。
+- en: To test your pandas UDF, my favorite strategy is to bring a sample of the data
+    using the `func()` method of my UDF. This way, I can play around in the REPL until
+    I get it just right, then promote it to my script. I show an example of the `rate_of_change_temperature()`
+    UDF, applied locally, in the next listing.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要测试你的 pandas UDF，我最喜欢的策略是使用 UDF 的 `func()` 方法来获取数据样本。这样，我可以在 REPL 中进行尝试，直到得到正确的结果，然后将其提升到脚本中。在下一个列表中，我将展示
+    `rate_of_change_temperature()` UDF 的一个本地应用示例。
+- en: Listing 9.12 Moving one station, one month’s worth of data into a local pandas
+    DataFrame
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.12 将一个站点和一个月份的数据移动到本地 pandas DataFrame
+- en: '[PRE16]'
+  id: totrans-186
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Using func() to access the underlying pandas function of our UDF
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 func() 访问 UDF 的底层 pandas 函数
+- en: When bringing a sample of your data frame into a pandas DataFrame for a grouped
+    map or grouped aggregate UDF, you need to ensure you’re getting a full batch to
+    reproduce the results. In our specific case, since we grouped by `"station",`
+    `"year",` `"month"`, I brought one station and one month (one specific year/month,
+    to be precise) of data. Since the grouping of the data happens at PySpark’s level
+    (via `groupby()`), you need to think of the filters for your sample data in the
+    same way.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当将你的数据框样本带入 pandas DataFrame 进行分组映射或分组聚合 UDF 时，你需要确保你得到的是完整的一批数据以重现结果。在我们的特定情况下，由于我们按
+    `"station"`，`"year"`，`"month"` 进行分组，我带来了一个站点和一个月份（确切地说是一个特定的年/月）的数据。由于数据分组是在 PySpark
+    的级别上发生的（通过 `groupby()`），你需要以相同的方式思考你的样本数据的过滤器。
+- en: pandas UDFs are probably the most powerful feature PySpark offers for data manipulation.
+    This chapter covered the most useful and frequent types. With the popularity of
+    the Python programming language within the Spark ecosystem, I am confident that
+    new types of optimized UDFs will make their entrance. pandas, PySpark—you no longer
+    have to choose. Use the right tool for the job and for your data, knowing that
+    you can leverage powerful pandas UDFs to scale your code when it make sense.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: pandas UDF 可能是 PySpark 为数据操作提供的最强大的功能。本章涵盖了最有用和最常见类型。随着 Python 编程语言在 Spark 生态系统中的普及，我坚信新的优化
+    UDF 类型将会出现。pandas，PySpark——你不再需要做出选择。根据工作内容和数据使用合适的工具，并知道你可以利用强大的 pandas UDF 来扩展你的代码，当这有意义时。
+- en: Summary
+  id: totrans-190
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: pandas UDFs allow you to take code that works on a pandas DataFrame and scale
+    it to the Spark data frame structure. Efficient serialization between the two
+    data structures is ensured by PyArrow.
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: pandas UDF 允许你将适用于 pandas DataFrame 的代码扩展到 Spark DataFrame 结构。PyArrow 确保了两者之间的高效序列化。
+- en: We can group pandas UDFs into two main families, depending on the level of control
+    we need over the batches. Series and Iterator of Series (and Iterator of DataFrame/`mapInPandas`)
+    will batch efficiently, with the user having no control over the batch composition.
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 根据我们需要对批次的控制级别，我们可以将 pandas UDF 分为两大类。Series 和 Series 的迭代器（以及 DataFrame 的迭代器/`mapInPandas`）将有效地批量处理，用户对批组成没有控制权。
+- en: If you need control over the contents of each batch, you can use grouped data
+    UDFs with the split-apply-combine programming pattern. PySpark provides access
+    to the values inside each batch of a `GroupedData` object, either as a Series
+    (group aggregate UDF) or as a data frame (group map UDF).
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你需要控制每个批次的内容，你可以使用分组数据 UDF 并采用 split-apply-combine 编程模式。PySpark 提供了对 `GroupedData`
+    对象每个批次中的值的访问，无论是作为 Series（分组聚合 UDF）还是作为数据框（分组映射 UDF）。
+- en: Additional exercises
+  id: totrans-194
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 额外练习
+- en: Exercise 9.2
+  id: totrans-195
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 练习 9.2
+- en: Using the following definitions, create a `temp_to_temp(value,` `from_temp,`
+    `to_temp)` that takes a numerical `value` in `from_temp` degrees and converts
+    it to `to` degrees. Use a pandas UDF this time (we did the same exercise in chapter
+    8).
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用以下定义，创建一个 `temp_to_temp(value, from_temp, to_temp)` 函数，它接受 `from_temp` 度数中的数值
+    `value` 并将其转换为 `to` 度。这次使用 pandas UDF（我们在第 8 章中做了同样的练习）。
+- en: '`C` `=` `(F` `-` `32)` `*` `5` `/` `9` (Celsius)'
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`C` `=` `(F` `-` `32)` `*` `5` `/` `9` (摄氏度)'
+- en: '`K` `=` `C` `+` `273.15` (Kelvin)'
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`K` `=` `C` `+` `273.15` (开尔文)'
+- en: '`R` `=` `F` `+` `459.67` (Rankine)'
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`R` `=` `F` `+` `459.67` (兰金)'
+- en: Exercise 9.3
+  id: totrans-200
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 练习 9.3
+- en: Modify the following code block to use Celsius degrees instead of Fahrenheit.
+    How is the result of the UDF different if applied to the same data frame?
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将以下代码块修改为使用摄氏度而不是华氏度。如果将用户定义函数（UDF）应用于相同的数据框，结果会有何不同？
+- en: '[PRE17]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Exercise 9.4
+  id: totrans-203
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 练习 9.4
+- en: Complete the schema of the following code block, using `scale_temperature_C`
+    from the previous exercise. What happens if we apply our group map UDF like so
+    instead?
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完成以下代码块的架构，使用之前练习中的 `scale_temperature_C`。如果我们像这样应用我们的分组映射 UDF，会发生什么？
+- en: '[PRE18]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Exercise 9.5
+  id: totrans-206
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 练习 9.5
+- en: 'Modify the following code block to return both the intercept of the linear
+    regression as well as the slope in an `ArrayType`. (Hint: The intercept is in
+    the `intercept_` attribute of the fitted model.)'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将以下代码块修改为返回线性回归的截距以及斜率在一个 `ArrayType` 中。（提示：截距在拟合模型的 `intercept_` 属性中。）
+- en: '[PRE19]'
+  id: totrans-208
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: '* * *'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '* * *'
+- en: '¹ On Windows, sometimes you might have issues with the pip wheels. If this
+    is the case, refer to the PyArrow documentation page for installing: [https://arrow.apache.org/docs/python/install.html](https://arrow.apache.org/docs/python/install.html)'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹ 在 Windows 上，有时你可能会遇到 pip 轮子的问题。如果是这种情况，请参阅 PyArrow 文档页面进行安装：[https://arrow.apache.org/docs/python/install.html](https://arrow.apache.org/docs/python/install.html)

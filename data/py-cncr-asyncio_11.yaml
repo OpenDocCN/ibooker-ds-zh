@@ -1,0 +1,1140 @@
+- en: 11 Synchronization
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 11 同步
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Single-threaded concurrency issues
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 单线程并发问题
+- en: Using locks to protect critical sections
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用锁来保护关键部分
+- en: Using semaphores to limit concurrency
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用信号量来限制并发
+- en: Using events to notify tasks
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用事件来通知任务
+- en: Using conditions to notify tasks and acquire a resource
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用条件来通知任务和获取资源
+- en: When we write applications using multiple threads and multiple processes, we
+    need to worry about race conditions when using non-atomic operations. Something
+    as simple as incrementing an integer concurrently can cause subtle, hard-to-reproduce
+    bugs. When we are using asyncio, however, we’re always using a single thread (unless
+    we’re interoperating with multithreading and multiprocessing), so doesn’t that
+    mean we don’t need to worry about race conditions? It turns out it is not quite
+    so simple.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们使用多线程和多进程编写应用程序时，在使用非原子操作时必须担心竞态条件。像并发增加一个整型变量这样简单的事情都可能引起微妙且难以复现的错误。然而，当我们使用asyncio时，我们始终在单个线程上操作（除非我们与多线程和多进程交互），那么这难道不是意味着我们不需要担心竞态条件吗？实际上事情并没有这么简单。
+- en: While certain concurrency bugs that would occur in multithreaded or multiprocessing
+    applications are eliminated by asyncio’s single-threaded nature, they are not
+    completely eliminated. While you likely won’t need to use synchronization often
+    with asyncio, there are still cases where we need these constructs. asyncio’s
+    *synchronization primitives* can help us prevent bugs unique to a single-threaded
+    concurrency model.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然asyncio的单线程特性消除了多线程或多进程应用程序中可能发生的某些并发错误，但它们并没有完全消除。虽然你很可能不需要经常使用同步与asyncio一起工作，但仍然有一些情况下我们需要这些结构。asyncio的同步原语可以帮助我们防止单线程并发模型特有的错误。
+- en: Synchronization primitives are not limited to preventing concurrency bugs and
+    have other uses as well. As an example, we may be working with an API that lets
+    us make only a few requests concurrently as per a contract we have with a vendor,
+    or there may be an API we’re concerned about overloading with requests. We may
+    also have a workflow with several workers that need to be notified when new data
+    is available.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同步原语不仅限于防止并发错误，还有其他用途。例如，我们可能正在使用一个 API，根据我们与供应商的合同，我们只能并发地发出少量请求，或者我们可能担心某个
+    API 会被请求过载。我们可能还有一个工作流程，其中包含多个需要在有新数据可用时被通知的工作者。
+- en: In this chapter, we’ll look at a few examples where we can introduce race conditions
+    in our asyncio code and learn how to solve them with locks and other concurrency
+    primitives. We’ll also learn how to use semaphores to limit concurrency and control
+    access to a shared resource, such as a database connection pool. Finally, we’ll
+    look at events and conditions that we can use to notify tasks when something occurs
+    and gain access to shared resources when that happens.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨一些示例，展示如何在我们的 asyncio 代码中引入竞态条件，并学习如何使用锁和其他并发原语来解决这些问题。我们还将学习如何使用信号量来限制并发并控制对共享资源（如数据库连接池）的访问。最后，我们将探讨事件和条件，这些事件和条件可以用来在发生某些情况时通知任务，并在那时获取共享资源。
+- en: 11.1 Understanding single-threaded concurrency bugs
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.1 理解单线程并发错误
+- en: In earlier chapters on multiprocessing and multithreading, recall that when
+    we were working with data that is shared among different processes and threads,
+    we had to worry about race conditions. This is because a thread or process could
+    read data while it is being modified by a different thread or process, leading
+    to an inconsistent state and therefore corruption of data.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在早期关于多进程和多线程的章节中，回想一下，当我们处理在不同进程和线程之间共享的数据时，我们必须担心竞态条件。这是因为一个线程或进程可能在另一个线程或进程修改数据时读取数据，导致不一致的状态，从而损坏数据。
+- en: This corruption was in part due to some operations being non-atomic, meaning
+    that while they appear like one operation, they comprise multiple separate operations
+    under the hood. The example we gave in chapter 6 dealt with incrementing an integer
+    variable; first, we read the current value, then we increment it, then we reassign
+    it back to the variable. This gives other threads and processes ample opportunities
+    to get data in an inconsistent state.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种损坏部分是由于某些操作不是原子的，这意味着虽然它们看起来像是一个操作，但在底层实际上由多个单独的操作组成。我们在第 6 章中给出的例子是处理一个整型变量的增加；首先，我们读取当前值，然后增加它，然后将其重新赋值回变量。这给其他线程和进程提供了充足的机会在数据不一致的状态下获取数据。
+- en: In a single-threaded concurrency model, we avoid race conditions caused by non-atomic
+    operations. In asyncio’s single-threaded model, we only have one thread executing
+    one line of Python code at any given time. This means that even if an operation
+    is non-atomic, we’ll always run it to completion without other coroutines reading
+    inconsistent state information.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在单线程并发模型中，我们避免了由非原子操作引起的竞态条件。在asyncio的单线程模型中，我们只有一个线程在任何给定时间执行一行Python代码。这意味着即使一个操作是非原子的，我们也会始终将其运行到完成，而不会让其他协程读取不一致的状态信息。
+- en: To prove this to ourselves, let’s try and re-create the race condition we looked
+    at in chapter 7 with multiple threads trying to implement a shared counter. Instead
+    of having multiple threads modify the variable, we’ll have multiple tasks. We’ll
+    repeat this 1,000 times and assert that we get the correct value back.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了证明这一点，让我们尝试重新创建第7章中我们查看的竞态条件，其中多个线程试图实现一个共享计数器。我们不会让多个线程修改变量，而是会有多个任务。我们将重复这一过程1,000次，并断言我们得到正确的值。
+- en: Listing 11.1 Attempting to create a race condition
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.1 尝试创建竞态条件
+- en: '[PRE0]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: In the preceding listing, we create an increment coroutine function that adds
+    one to a global counter, adding a 1-millisecond delay to simulate a slow operation.
+    In our main coroutine, we create 100 tasks to increment the counter and then run
+    them all concurrently with `gather`. We then assert that our counter is the expected
+    value, which, since we ran 100 increment tasks, should always be 100\. Running
+    this, you should see that the value we get is always 100 even though incrementing
+    an integer is non-atomic. If we ran multiple threads instead of coroutines, we
+    should see our assertion fail at some point in execution.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个递增协程函数，该函数将1加到全局计数器上，并添加了1毫秒的延迟来模拟慢速操作。在我们的主协程中，我们创建了100个任务来递增计数器，然后使用`gather`并发运行它们。然后我们断言我们的计数器是预期的值，由于我们运行了100个递增任务，这个值应该始终是100。运行这个程序，你应该看到我们得到的值始终是100，即使整数递增是非原子的。如果我们用多个线程而不是协程来运行，我们应该在执行过程中看到我们的断言在某些时候失败。
+- en: Does this mean that with a single-threaded concurrency model we’ve found a way
+    to completely avoid race conditions? Unfortunately, it’s not quite the case. While
+    we avoid race conditions where a single non-atomic operation can cause a bug,
+    we still have the problem where multiple operations executed in the wrong order
+    can cause issues. To see this in action, let’s make incrementing an integer in
+    the eyes of asyncio non-atomic.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是否意味着在单线程并发模型中，我们已经找到了完全避免竞态条件的方法？不幸的是，情况并非如此。虽然我们避免了单个非原子操作可能引起错误的情况，但我们仍然存在多个操作执行顺序错误可能引起问题的状况。为了看到这一点，让我们让asyncio眼中的整数递增变得非原子。
+- en: To do this, we’ll replicate what happens under the hood when we increment a
+    global counter. We read the global value, increment it, then write it back. The
+    basic idea is if other code modifies state while our coroutine is suspended on
+    an `await`, once the `await` finishes we may be in an inconsistent state.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了做到这一点，我们将复制在递增全局计数器时底层发生的情况。我们读取全局值，递增它，然后写回。基本思想是，如果其他代码在协程在`await`上挂起时修改状态，一旦`await`完成，我们可能处于不一致的状态。
+- en: Listing 11.2 A single-threaded race condition
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.2 单线程竞态条件
+- en: '[PRE1]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Instead of our increment coroutine directly incrementing the counter, we first
+    read it into a temporary variable and then increment the temporary counter by
+    one. We then `await` `asyncio.sleep` to simulate a slow operation, suspending
+    our coroutine, and only then do we reassign it back to the global counter variable.
+    Running this, you should see this code fail with an assertion error instantly,
+    and our counter only ever gets set to `1`! Each coroutine reads the counter value
+    first, which is `0`, stores it to a temp value, then goes to sleep. Since we’re
+    single-threaded, each read to a temporary variable runs sequentially, meaning
+    each coroutine stores the value of counter as `0` and increments this to `1`.
+    Then, once the sleep is finished, every coroutine sets the value of the counter
+    to `1`, meaning despite running 100 coroutines to increment our counter, our counter
+    is only ever `1`. Note that if you remove the `await` expression, things will
+    operate in the correct order because there is no opportunity to modify the application
+    state while we’re paused at an `await` point.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不是直接使用增量协程来增加计数器，而是首先将其读入一个临时变量，然后通过一个临时计数器增加一个。然后我们`await` `asyncio.sleep`来模拟慢速操作，挂起我们的协程，然后我们才将其重新赋值回全局计数器变量。运行此代码，你应该会立即看到此代码因断言错误而失败，并且我们的计数器始终被设置为`1`！每个协程首先读取计数器的值，该值为`0`，将其存储到临时值中，然后进入睡眠状态。由于我们单线程，每个对临时变量的读取都是顺序执行的，这意味着每个协程都将计数器的值存储为`0`，然后将其增加到`1`。然后，一旦睡眠结束，每个协程都将计数器的值设置为`1`，这意味着尽管我们运行了100个协程来增加我们的计数器，但我们的计数器始终是`1`。请注意，如果你删除`await`表达式，事情将按正确的顺序进行，因为在`await`点暂停时没有机会修改应用程序状态。
+- en: This is admittedly a simplistic and somewhat unrealistic example. To better
+    see when this may occur, let’s create a slightly more complex race condition.
+    Imagine we’re implementing a server that sends messages to connected users. In
+    this server, we keep a dictionary of usernames to sockets we can use to send messages
+    to these users. When a user disconnects, a callback runs that will remove the
+    user from the dictionary and close their socket. Since we close the socket on
+    disconnect, attempting to send any other messages will fail with an exception.
+    What happens if a user disconnects while we’re in the process of sending messages?
+    Let’s assume the desired behavior is for all users to receive a message if they
+    were connected when we started to send messages.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这确实是一个简单且有些不切实际的例子。为了更好地了解这种情况可能何时发生，让我们创建一个稍微复杂一点的竞争条件。想象一下，我们正在实现一个向已连接用户发送消息的服务器。在这个服务器中，我们保留一个用户名到套接字的字典，我们可以使用它向这些用户发送消息。当用户断开连接时，将运行一个回调，该回调将从字典中删除用户并关闭他们的套接字。由于我们在断开连接时关闭套接字，尝试发送任何其他消息将因异常而失败。如果我们正在发送消息的过程中用户断开连接会发生什么？让我们假设期望的行为是，如果我们在开始发送消息时用户是已连接的，则所有用户都应该收到消息。
+- en: To test this out, let’s implement a mock socket. This mock socket will have
+    a `send` coroutine and a `close` method. Our `send` coroutine will simulate a
+    message send over a slow network. This coroutine will also check a flag to see
+    if we’ve closed the socket, and if we have it will throw an exception.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了测试这一点，让我们实现一个模拟套接字。这个模拟套接字将有一个`send`协程和一个`close`方法。我们的`send`协程将模拟通过慢速网络发送消息。这个协程还将检查一个标志以查看我们是否已经关闭了套接字，如果是的话，它将抛出一个异常。
+- en: We’ll then create a dictionary with a few connected users and create mock sockets
+    for each of them. We’ll send messages to each user and manually trigger a disconnect
+    for a single user while we’re sending messages to see what happens.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们将创建一个包含一些已连接用户的字典，并为每个用户创建模拟套接字。我们将向每个用户发送消息，并在发送消息的同时手动触发单个用户的断开连接，以查看会发生什么。
+- en: Listing 11.3 A race condition with dictionaries
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.3 字典中的竞争条件
+- en: '[PRE2]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Simulate a slow send of a message to a client.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 模拟向客户端发送消息的慢速发送。
+- en: ❷ Disconnect a user and remove them from application memory.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 断开一个用户并从应用程序内存中删除他们。
+- en: ❸ Send messages to all users concurrently.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 同时向所有用户发送消息。
+- en: 'If you run this code, you will see the application crash with the following
+    output:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你运行此代码，你将看到应用程序崩溃，并显示以下输出：
+- en: '[PRE3]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: In this example, we first create the message tasks, then we `await`, suspending
+    our `message_all_users` coroutine. This gives `user_disconnect('Eric')` a chance
+    to run, which will close Eric’s socket and remove it from the `user_names_to_sockets`
+    dictionary. Once this is finished, `message_all_users` resumes; and we start to
+    send out messages. Since Eric’s socket was closed, we see an exception, and he
+    won’t get the message we intended to send. Note that we also modified the `user_names_to_sockets`
+    dictionary. If we somehow needed to use this dictionary and relied on Eric still
+    being in there, we could potentially have an exception or another bug.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，我们首先创建消息任务，然后我们 `await`，挂起我们的 `message_all_users` 协程。这给了 `user_disconnect('Eric')`
+    运行的机会，这将关闭 Eric 的套接字并将其从 `user_names_to_sockets` 字典中删除。一旦完成，`message_all_users`
+    将恢复；我们开始发送消息。由于 Eric 的套接字已关闭，我们看到一个异常，并且他不会收到我们打算发送的消息。请注意，我们还修改了 `user_names_to_sockets`
+    字典。如果我们需要使用这个字典并且依赖于 Eric 仍然在其中，我们可能会遇到异常或另一个错误。
+- en: These are the types of bugs you tend to see in a single-threaded concurrency
+    model. You hit a suspension point with `await`, and another coroutine runs and
+    modifies some shared state, changing it for the first coroutine once it resumes
+    in an undesired way. The key difference between multithreaded concurrency bugs
+    and single-threaded concurrency bugs is that in a multithreaded application, race
+    conditions are possible anywhere you modify a mutable state. In a single-threaded
+    concurrency model, you need to modify the mutable state during an `await` point.
+    Now that we understand the types of concurrency bugs in a single-threaded model,
+    let’s see how to avoid them by using asyncio locks.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是在单线程并发模型中你倾向于看到的错误类型。你遇到一个 `await` 暂停点，另一个协程运行并修改一些共享状态，一旦它恢复，就会以不期望的方式改变它。多线程并发错误和单线程并发错误的关键区别在于，在多线程应用程序中，任何修改可变状态的地方都可能发生竞态条件。在单线程并发模型中，你需要在
+    `await` 点修改可变状态。既然我们已经了解了单线程模型中的并发错误类型，让我们看看如何通过使用 asyncio 锁来避免它们。
+- en: 11.2 Locks
+  id: totrans-36
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.2 锁
+- en: '*asyncio* *locks* operate similarly to the locks in the multiprocessing and
+    multithreading modules. We acquire a lock, do work inside of a critical section,
+    and when we’re done, we release the lock, letting other interested parties acquire
+    it. The main difference is that asyncio locks are awaitable objects that suspend
+    coroutine execution when they are blocked. This means that when a coroutine is
+    blocked waiting to acquire a lock, other code can run. In addition, asyncio locks
+    are also asynchronous context managers, and the preferred way to use them is with
+    `async` `with` syntax.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*asyncio* *锁* 的操作方式与 `multiprocessing` 和 `multithreading` 模块中的锁类似。我们获取一个锁，在临界区内部执行工作，完成后释放锁，让其他感兴趣的方获取它。主要区别是
+    asyncio 锁是可等待的对象，当它们被阻塞时，会挂起协程的执行。这意味着当一个协程被阻塞等待获取锁时，其他代码可以运行。此外，asyncio 锁也是异步上下文管理器，使用它们的推荐方式是
+    `async` `with` 语法。'
+- en: To get familiar with how locks work, let’s look at a simple example with one
+    lock shared between two coroutines. We’ll acquire the lock, which will prevent
+    other coroutines from running code in the critical section until someone releases
+    it.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了熟悉锁的工作方式，让我们看看一个简单的例子，其中两个协程之间共享一个锁。我们将获取锁，这将防止其他协程在锁被释放之前在临界区运行代码。
+- en: Listing 11.4 Using an asyncio lock
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.4 使用 asyncio 锁
+- en: '[PRE4]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'When we run the preceding listing, we will see that coroutine `a` acquires
+    the lock first, leaving coroutine `b` waiting until `a` releases the lock. Once
+    `a` releases the lock, `b` can do its work in the critical section, giving us
+    the following output:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行前面的列表时，我们将看到协程 `a` 首先获取锁，而协程 `b` 将等待直到 `a` 释放锁。一旦 `a` 释放锁，`b` 就可以在临界区执行其工作，给我们以下输出：
+- en: '[PRE5]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Here we used `async` `with` syntax. If we had wanted, we could use the `acquire`
+    and `release` methods on the lock like so:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里我们使用了 `async` `with` 语法。如果我们愿意，我们可以在锁上使用 `acquire` 和 `release` 方法，如下所示：
+- en: '[PRE6]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: That said, it is best practice to use `async` `with` syntax where possible.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 话虽如此，最佳实践是在可能的情况下使用 `async` `with` 语法。
+- en: 'One important thing to note is that we created the lock inside of the `main`
+    coroutine. Since the lock is shared globally amongst the coroutines we create,
+    we may be tempted to make it a global variable to avoid passing it in each time
+    like so:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的一个重要事项是我们是在 `main` 协程内部创建了锁。由于锁是在我们创建的协程之间全局共享的，我们可能会想将其作为一个全局变量来避免每次都传递它，如下所示：
+- en: '[PRE7]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'If we do this, we’ll quickly see a crash with an error reporting multiple event
+    loops:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们这样做，我们很快就会看到崩溃，并报告多个事件循环的错误：
+- en: '[PRE8]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Why is this happening when all we’ve done is move our lock definition? This
+    is a confusing quirk of the asyncio library and is not unique to just locks. Most
+    objects in asyncio provide an optional loop parameter that lets you specify the
+    specific event loop to run in. When this parameter is not provided, asyncio tries
+    to get the currently running event loop, but if there is none, it creates a new
+    one. In the above case, creating a `Lock` creates a new event loop, since when
+    our script first runs we haven’t yet created one. Then, `asyncio.run(main())`
+    creates a second event loop, and when we attempt to use our lock we intermingle
+    these two separate event loops, which causes a crash.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么只是移动了锁的定义就会发生这种情况？这是 asyncio 库的一个令人困惑的怪癖，并不仅限于锁。大多数 asyncio 中的对象都提供了一个可选的
+    loop 参数，允许你指定要运行的特定事件循环。当这个参数未提供时，asyncio 会尝试获取当前正在运行的事件循环，但如果没有，它会创建一个新的。在上面的例子中，创建一个
+    `Lock` 会创建一个新的事件循环，因为当我们的脚本首次运行时，我们还没有创建一个。然后，`asyncio.run(main())` 创建了第二个事件循环，当我们尝试使用我们的锁时，我们会混合这两个独立的事件循环，这会导致崩溃。
+- en: This behavior is tricky enough that in Python 3.10, event loop parameters are
+    going to be removed, and this confusing behavior will go away, but until then
+    you’ll need to think through these cases when using global asyncio variables carefully.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种行为足够复杂，以至于在 Python 3.10 中，事件循环参数将被移除，这种令人困惑的行为将消失，但在此之前，你需要在使用全局 asyncio 变量时仔细考虑这些情况。
+- en: 'Now that we know the basics, let’s see how to use a lock to solve the bug we
+    had in listing 11.3, where we attempted to send a message to a user whose socket
+    we closed too early. The idea to solve this is to use a lock in two places: first,
+    when a user disconnects and, second, when we send out messages to users. This
+    way, if a disconnect happens while we’re sending out messages, we’ll wait until
+    they all finish before finally closing any sockets.'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了基础知识，让我们看看如何使用锁来解决列表 11.3 中的错误，我们尝试向一个我们过早关闭套接字的用户发送消息。解决这个问题的想法是在两个地方使用锁：首先，当用户断开连接时，其次，当我们向用户发送消息时。这样，如果在我们发送消息时发生断开连接，我们将等待它们全部完成，然后再最终关闭任何套接字。
+- en: Listing 11.5 Using locks to avoid a race condition
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.5 使用锁来避免竞态条件
+- en: '[PRE9]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Acquire the lock before removing a user and closing the socket.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在移除用户和关闭套接字之前获取锁。
+- en: ❷ Acquire the lock before sending.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在发送之前获取锁。
+- en: 'When we run the following listing, we won’t see any more crashes, and we’ll
+    get the following output:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行以下列表时，我们不会再看到任何崩溃，并会得到以下输出：
+- en: '[PRE10]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: We first acquire the lock and create the message tasks. While this is happening,
+    Eric disconnects, and the code in disconnect tries to acquire the lock. Since
+    `message_` `all_users` still holds the lock, we need to wait for it to finish
+    before running the code in disconnect. This lets all the messages finish sending
+    out before closing out the socket, preventing our bug.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先获取锁并创建消息任务。在这个过程中，埃里克断开了连接，断开连接中的代码试图获取锁。由于`message_` `all_users`仍然持有锁，我们需要等待它完成才能运行断开连接中的代码。这样可以让所有消息在关闭套接字之前发送完毕，防止我们的错误。
+- en: You likely won’t often need to use locks in asyncio code because many concurrency
+    issues are avoided by its single-threaded nature. Even when race conditions occur,
+    sometimes you can refactor your code such that state isn’t modified while a coroutine
+    is suspended (by using immutable objects, for example). When you can’t refactor
+    in this way, locks can force modifications to happen in a desired synchronized
+    order. Now that we understand the concepts around avoiding concurrency bugs with
+    locks, let’s look at how to use synchronization to implement new functionality
+    in our asyncio applications.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能不会经常需要在 asyncio 代码中使用锁，因为许多并发问题可以通过其单线程特性避免。即使发生竞态条件，有时你也可以重构你的代码，使得状态在协程挂起时不会被修改（例如，使用不可变对象）。当你不能以这种方式重构时，锁可以强制以期望的同步顺序发生修改。现在我们了解了使用锁避免并发错误的原理，让我们看看如何使用同步在
+    asyncio 应用程序中实现新功能。
+- en: 11.3 Limiting concurrency with semaphores
+  id: totrans-61
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.3 使用信号量限制并发
+- en: Resources that our applications need to use are often finite. We may have a
+    limited number of connections we can use concurrently with a database; we may
+    have a limited number of CPUs that we don’t want to overload; or we may be working
+    with an API that only allows a few concurrent requests, based on our current subscription
+    pricing. We could also be using our own internal API and may be concerned with
+    overwhelming it with load, effectively launching a distributed denial of service
+    attack against ourselves.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的应用程序需要使用的资源通常是有限的。我们可能只能同时使用有限数量的数据库连接；我们可能只有有限数量的CPU，我们不想过载它们；或者我们可能正在使用一个API，它只允许基于我们当前的订阅定价进行少数并发请求。我们也可能在使用我们自己的内部API，并担心过载它，实际上是对我们自己发起分布式拒绝服务攻击。
+- en: '*Semaphores* are a construct that can help us out in these situations. A semaphore
+    acts much like a lock in that we can acquire it and we can release it, with the
+    major difference being that we can acquire it multiple times up to a limit we
+    specify. Internally, a semaphore keeps track of this limit; each time we acquire
+    the semaphore we decrement the limit, and each time we release the semaphore we
+    increment it. If the count reaches zero, any further attempts to acquire the semaphore
+    will block until someone else calls release and increments the count. To draw
+    parallels to what we just learned with locks, you can think of a lock as a special
+    case of a semaphore with a limit of one.'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*信号量*是一种可以帮助我们解决这些情况的构造。信号量的工作方式与锁非常相似，我们都可以获取它和释放它，主要区别在于我们可以多次获取它，直到达到我们指定的限制。内部，信号量跟踪这个限制；每次我们获取信号量时，我们都会减少限制，每次我们释放信号量时，我们都会增加它。如果计数达到零，任何进一步的获取信号量的尝试都将阻塞，直到有人调用释放并增加计数。为了将我们刚刚学到的与锁的平行，你可以将锁视为一个限制为一次的信号量的特殊情况。'
+- en: To see semaphores in action, let’s build a simple example where we only want
+    two tasks running at the same time, but we have four tasks to run in total. To
+    do this, we’ll create a `semaphore` with a limit of two and `acquire` it in our
+    coroutine.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要看到信号量的实际应用，让我们构建一个简单的例子，其中我们只想同时运行两个任务，但总共需要运行四个任务。为此，我们将创建一个限制为两个的`信号量`并在我们的协程中`获取`它。
+- en: Listing 11.6 Using semaphores
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.6 使用信号量
+- en: '[PRE11]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'In our main coroutine, we create a semaphore with a limit of two, indicating
+    we can acquire it twice before additional acquisition attempts start to block.
+    We then create four concurrent calls to `operation`—this coroutine acquires the
+    semaphore with an `async` `with` block and simulates some blocking work with sleep.
+    When we run this, we’ll see the following output:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的主协程中，我们创建了一个限制为两个的信号量，表示我们可以在额外的获取尝试开始阻塞之前获取它两次。然后我们创建了四个对`operation`的并发调用——这个协程使用`async`
+    `with`块获取信号量，并通过sleep模拟一些阻塞工作。当我们运行这个程序时，我们将看到以下输出：
+- en: '[PRE12]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Since our semaphore only allows two acquisitions before it blocks, our first
+    two tasks successfully acquire the lock while our other two tasks wait for the
+    first two tasks to release the semaphore. Once the work in the first two tasks
+    finishes and we release the semaphore, our other two tasks can acquire the semaphore
+    and start doing their work.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的信号量在阻塞之前只允许获取两次，所以我们的前两个任务成功获取了锁，而其他两个任务则在等待前两个任务释放信号量。一旦前两个任务的工作完成并且我们释放了信号量，其他两个任务就可以获取信号量并开始它们的工作。
+- en: Let’s take this pattern and apply it to a real-world use case. Let’s imagine
+    you’re working for a scrappy, cash-strapped startup, and you’ve just partnered
+    with a third-party REST API vendor. Their contracts are particularly expensive
+    for unlimited queries, but they offer a plan that allows for only 10 concurrent
+    requests that is more budget-friendly. If you make more than 10 requests concurrently,
+    their API will return a status code of 429 (too many requests). You could send
+    a set of requests and retry if you get a 429, but this is inefficient and places
+    extra load on your vendor’s servers, which probably won’t make their site reliability
+    engineers happy. A better approach is to create a semaphore with a limit of 10
+    and then acquire that whenever you make an API request. Using a semaphore when
+    making a request will ensure that you only ever have 10 requests in flight at
+    any given time.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们将这个模式应用到实际用例中。让我们想象你正在为一个资金紧张、现金短缺的初创公司工作，你刚刚与第三方REST API供应商建立了合作关系。他们的合同对于无限查询特别昂贵，但他们提供了一个允许只有10个并发请求的计划，这更加经济实惠。如果你同时发起超过10个请求，他们的API将返回状态码429（请求过多）。你可以发送一组请求并在收到429时重试，但这效率低下，并且会给供应商的服务器带来额外的负载，这可能不会让他们的网站可靠性工程师感到高兴。更好的方法是创建一个限制为10的信号量，并在发起API请求时获取它。在请求时使用信号量将确保在任何给定时间你只有10个请求在运行。
+- en: Let’s see how to do this with the aiohttp library. We’ll make 1,000 requests
+    to an example API but limit the total concurrent requests to 10 with a semaphore.
+    Note that aiohttp has connection limits we can tweak as well, and by default it
+    only allows 100 connections at a time. It is possible achieve the same as below
+    by tweaking this limit.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何使用aiohttp库来做这件事。我们将向一个示例API发送1,000个请求，但使用信号量限制总并发请求为10。请注意，aiohttp有我们可以调整的连接限制，默认情况下它一次只允许100个连接。通过调整这个限制，我们可以实现以下相同的效果。
+- en: Listing 11.7 Limiting API requests with semaphores
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.7 使用信号量限制API请求
+- en: '[PRE13]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'While output will be nondeterministic depending on external latency factors,
+    you should see output similar to the following:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然输出将取决于外部延迟因素而不确定，但你应该看到类似以下内容的输出：
+- en: '[PRE14]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Each time a request finishes, the semaphore is released, meaning a task that
+    is blocked waiting for the semaphore can begin. This means that we only ever have
+    at most 10 requests running at a given time, and when one finishes, we can start
+    a new one.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次请求完成时，信号量都会被释放，这意味着等待信号量的阻塞任务可以开始。这意味着我们任何时候最多只有10个请求在运行，当一个请求完成时，我们可以启动一个新的请求。
+- en: This solves the issue of having too many requests running concurrently, but
+    the code above is *bursty*, meaning that it has the potential to burst 10 requests
+    at the same moment, creating a potential spike in traffic. This may not be desirable
+    if we’re concerned about spikes of load on the API we’re calling. If you need
+    to only burst up to a certain number of requests per some unit of time, you’ll
+    need to use this with an implementation of a traffic-shaping algorithm, such as
+    the “leaky bucket” or “token bucket.”
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这解决了同时运行过多请求的问题，但上面的代码是**突发性的**，意味着它有可能在同一时刻突发10个请求，从而在流量上造成潜在的峰值。如果我们担心调用API时的负载峰值，这可能不是我们想要的。如果你需要在每个时间单位内只突发一定数量的请求，你需要使用这种实现方式配合流量整形算法，例如“漏桶”或“令牌桶”。
+- en: 11.3.1 Bounded semaphores
+  id: totrans-78
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.3.1 有界信号量
+- en: One aspect of semaphores is that it is valid to call `release` more times than
+    we call `acquire`. If we always use semaphores with an `async` `with` block, this
+    isn’t possible, since each `acquire` is automatically paired with a `release`.
+    However, if we’re in a situation where we need finer-grained control over our
+    releasing and acquisition mechanisms (for example, perhaps we have some branching
+    code where one branch lets us release earlier than another), we can run into issues.
+    As an example, let’s see what happens when we have a normal coroutine that acquires
+    and releases a semaphore with an `async` `with` block, and while that coroutine
+    is executing another coroutine calls `release`.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 信号量的一个方面是，调用`release`的次数可以多于调用`acquire`的次数。如果我们总是使用带有`async` `with`块的信号量，这是不可能的，因为每个`acquire`都会自动配对一个`release`。然而，如果我们处于需要更精细控制释放和获取机制的情况（例如，可能有一些分支代码，其中一个分支允许我们比另一个分支更早释放），我们可能会遇到问题。作为一个例子，让我们看看当一个正常的协程使用`async`
+    `with`块获取和释放信号量，同时该协程正在执行时，另一个协程调用`release`会发生什么。
+- en: Listing 11.8 Releasing more than we acquire
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.8 释放多于获取
+- en: '[PRE15]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'In the preceding listing, we create a `semaphore` with two permits. We then
+    run two calls to `acquire` and one call to `release`, meaning we’ll call release
+    three times. Our first call to gather seems to run okay, giving us the following
+    output:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个有两个许可证的`semaphore`。然后我们运行了两次`acquire`调用和一次`release`调用，这意味着我们将调用`release`三次。我们的第一次`acquire`调用似乎运行正常，给出了以下输出：
+- en: '[PRE16]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'However, our second call where we acquire the semaphore three times runs into
+    issues, and we acquire the lock three times at once! We’ve inadvertently increased
+    the number of permits our semaphore has available:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我们第二次调用，我们获取信号量三次，遇到了问题，我们一次性获取了三次锁！我们无意中增加了信号量可用的许可证数量：
+- en: '[PRE17]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: To deal with these types of situations, asyncio provides a `BoundedSemaphore`.
+    This semaphore behaves exactly as the semaphore we’ve been using, with the key
+    difference being that release will throw a `ValueError:` `BoundedSemaphore` `released`
+    `too` `many` `times` exception if we call `release` such that it would change
+    the available permits. Let’s look at a very simple example in the following listing.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了处理这些类型的情况，asyncio提供了`BoundedSemaphore`。这个信号量的行为与我们一直在使用的信号量完全一样，关键区别在于，如果我们调用`release`使得它改变可用的许可证数量，释放将抛出一个`ValueError`异常：“`BoundedSemaphore`释放次数过多”。让我们在下面的列表中查看一个非常简单的例子。
+- en: Listing 11.9 Bounded semaphores
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.9 有限信号量
+- en: '[PRE18]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: When we run the preceding listing, our second call to release will throw a `ValueError`
+    indicating we’ve released the semaphore too many times. You’ll see similar results
+    if you change the code in listing 11.8 to use a `BoundedSemaphore` instead of
+    a `Semaphore`. If you’re manually calling `acquire` and `release` such that dynamically
+    increasing the number of permits your semaphore has available would be an error,
+    it is wise to use a `BoundedSemaphore`, so you’ll see an exception to warn you
+    of the mistake.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行前面的代码列表时，我们第二次调用`release`将抛出一个`ValueError`，表明我们释放了信号量太多次。如果你将列表11.8中的代码更改为使用`BoundedSemaphore`而不是`Semaphore`，你也会看到类似的结果。如果你手动调用`acquire`和`release`，使得动态增加信号量可用的许可证数量将是一个错误，那么使用`BoundedSemaphore`是明智的，这样你将看到一个异常来警告你错误。
+- en: We’ve now seen how to use semaphores to limit concurrency, which can be useful
+    in situations where we need to constrain concurrency within our applications.
+    asyncio synchronization primitives not only allow us to limit concurrency but
+    also allow us to notify tasks when something happens. Next, let’s see how to do
+    this with the `Event` synchronization primitive.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到了如何使用信号量来限制并发，这在需要在我们应用程序中约束并发的情况下可能很有用。asyncio同步原语不仅允许我们限制并发，还允许我们在发生某些事情时通知任务。接下来，让我们看看如何使用`Event`同步原语来完成这个操作。
+- en: 11.4 Notifying tasks with events
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.4 使用事件通知任务
+- en: Sometimes, we may need to wait for some external event to happen before we can
+    proceed. We might need to wait for a buffer to fill up before we can begin to
+    process it, we might need to wait for a device to connect to our application,
+    or we may need to wait for some initialization to happen. We may also have multiple
+    tasks waiting to process data that may not yet be available. `Event` objects provide
+    a mechanism to help us out in situations where we want to idle while waiting for
+    something specific to happen.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时候，在我们继续之前，我们可能需要等待某些外部事件发生。我们可能需要等待缓冲区填满才能开始处理它，我们可能需要等待设备连接到我们的应用程序，或者我们可能需要等待某些初始化发生。我们可能还有多个任务等待处理可能尚未可用的数据。`Event`对象提供了一种机制，帮助我们处理我们想要空闲等待某个特定事件发生的情况。
+- en: Internally, the `Event` class keeps track of a flag that indicates whether the
+    event has happened yet. We can control this flag is with two methods, `set` and
+    `clear`. The `set` method sets this internal flag to `True` and notifies anyone
+    waiting that the event happened. The `clear` method sets this internal flag to
+    `False`, and anyone who is waiting for the event will now block.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内部，`Event`类跟踪一个标志，表示事件是否已经发生。我们可以通过两个方法`set`和`clear`来控制这个标志。`set`方法将这个内部标志设置为`True`，并通知任何等待的人事件已经发生。`clear`方法将这个内部标志设置为`False`，现在任何等待事件的人都将阻塞。
+- en: With these two methods, we can manage internal state, but how do we block until
+    an event happens? The `Event` class has one coroutine method named `wait`. When
+    we `await` this coroutine, it will block until someone calls `set` on the event
+    object. Once this occurs, any additional calls to `wait` will not block and will
+    return instantly. If we call `clear` once we have called `set`, then calls to
+    `wait` will start blocking again until we call `set` again.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这两种方法，我们可以管理内部状态，但如何阻塞直到事件发生？`Event` 类有一个名为 `wait` 的协程方法。当我们 `await` 这个协程时，它将阻塞，直到有人调用事件对象的
+    `set` 方法。一旦发生这种情况，任何额外的 `wait` 调用都不会阻塞，将立即返回。如果我们调用 `clear`，那么在调用 `set` 之后，`wait`
+    的调用将再次开始阻塞，直到我们再次调用 `set`。
+- en: Let’s create a dummy example to see events in action. We’ll pretend we have
+    two tasks that are dependent on something happening. We’ll have these tasks wait
+    and idle until we trigger the event.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们创建一个示例来观察事件的实际操作。我们将假装有两个任务依赖于某些事件的发生。我们将让这些任务等待并空闲，直到我们触发事件。
+- en: Listing 11.10 Event basics
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.10 事件基础
+- en: '[PRE19]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Wait until the event occurs.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 等待事件发生。
+- en: ❷ Once the event occurs, wait will no longer block, and we can do work.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 一旦事件发生，`wait` 将不再阻塞，我们可以进行工作。
+- en: ❸ Reset the event, so future calls to wait will block.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 重置事件，以便未来对 wait 的调用将阻塞。
+- en: ❹ Trigger the event 5 seconds in the future.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在未来 5 秒后触发事件。
+- en: 'In the preceding listing, we create a coroutine method `do_work_on_event`,
+    this coroutine takes in an event and first calls its `wait` coroutine. This will
+    block until someone calls the event’s `set` method to indicate the event has happened.
+    We also create a simple method `trigger_event`, which sets a given event. In our
+    main coroutine, we create an event object and use `call_later` to trigger the
+    event 5 seconds in the future. We then call `do_work_on_event` twice with `gather`,
+    which will create two concurrent tasks for us. We’ll see the two `do_work_on_event`
+    tasks idle for 5 seconds until we trigger the event, after which we’ll see them
+    do their work, giving us the following output:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个协程方法 `do_work_on_event`，这个协程接受一个事件，首先调用它的 `wait` 协程。这将阻塞，直到有人调用事件的
+    `set` 方法来指示事件已发生。我们还创建了一个简单的方法 `trigger_event`，它设置一个给定的事件。在我们的主协程中，我们创建一个事件对象，并使用
+    `call_later` 在未来 5 秒后触发事件。然后我们两次调用 `do_work_on_event`，使用 `gather` 创建两个并发任务。我们将看到这两个
+    `do_work_on_event` 任务空闲 5 秒，直到我们触发事件，之后我们将看到它们执行工作，输出如下：
+- en: '[PRE20]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: This shows us the basics; waiting on an event will block one or more coroutines
+    until we trigger an event, after which they can proceed to do work. Next, let’s
+    look at a more real-world example. Imagine we’re building an API to accept file
+    uploads from clients. Due to network latency and buffering, a file upload may
+    take some time to complete. With this constraint, we want our API to have a coroutine
+    to block until the file is fully uploaded. Callers of this coroutine can then
+    wait for all the data to come in and do anything they want with it.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这展示了基本概念；在事件上等待将阻塞一个或多个协程，直到我们触发事件，之后它们可以继续执行工作。接下来，让我们看看一个更贴近现实世界的例子。想象我们正在构建一个
+    API 来接受来自客户端的文件上传。由于网络延迟和缓冲，文件上传可能需要一些时间才能完成。有了这个限制，我们希望我们的 API 有一个协程来阻塞，直到文件完全上传。这个协程的调用者可以等待所有数据到来，并对其进行任何操作。
+- en: We can use an event to accomplish this. We’ll have a coroutine that listens
+    for data from an upload and stores it in an internal buffer. Once we’ve reached
+    the end of the file, we’ll trigger an event indicating the upload is finished.
+    We’ll then have a coroutine method to grab the file contents, which will wait
+    for the event to be set. Once the event is set, we can then return the fully formed
+    uploaded data. Let’s create this API in a class called `FileUpload`:.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用一个事件来完成这个任务。我们将有一个协程来监听上传的数据并将其存储在内部缓冲区中。一旦我们到达文件的末尾，我们将触发一个事件来指示上传已完成。然后我们将有一个协程方法来获取文件内容，它将等待事件被设置。一旦事件被设置，我们就可以返回完整的上传数据。让我们在名为
+    `FileUpload` 的类中创建这个 API：
+- en: Listing 11.11 A file upload API
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.11 文件上传 API
+- en: '[PRE21]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ Create a task to listen for the upload and append it to a buffer.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个任务来监听上传并将它追加到缓冲区。
+- en: ❷ Block until the finished event is set, then return the contents of the buffer.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 阻塞直到完成事件被设置，然后返回缓冲区的内容。
+- en: Now let’s create a file upload server to test out this API. Let’s say that on
+    every successful upload we want to dump contents to standard out. When a client
+    connects, we’ll create a `FileUpload` object and call `listen_for_uploads`. Then,
+    we’ll create a separate task that awaits the results of `get_contents`.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们创建一个文件上传服务器来测试这个 API。假设在每次成功上传后，我们想要将内容输出到标准输出。当客户端连接时，我们将创建一个 `FileUpload`
+    对象并调用 `listen_for_uploads`。然后，我们将创建一个单独的任务，等待 `get_contents` 的结果。
+- en: Listing 11.12 Using the API in a file upload server
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.12 在文件上传服务器中使用 API
+- en: '[PRE22]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: In the preceding listing, we create a `FileServer` class. Each time a client
+    connects to our server we create an instance of the `FileUpload` class that we
+    created in the previous listing, which starts listening for an upload from a connected
+    client. We also concurrently create a task for the `dump_contents_on_complete`
+    coroutine. This calls the `get_contents` coroutine (which will only return once
+    the upload is complete) on the file upload and prints the file to standard out.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个 `FileServer` 类。每当一个客户端连接到我们的服务器时，我们都会创建一个 `FileUpload` 类的实例，该实例是我们之前列表中创建的，它开始监听来自连接客户端的上传。我们还并发地创建了一个
+    `dump_contents_on_complete` 协程的任务。这个任务在文件上传上调用 `get_contents` 协程（它只在上传完成后返回）并将文件打印到标准输出。
+- en: 'We can test this server out by using `netcat`. Pick a file on your filesystem,
+    and run the following command, replacing `file` with the file of your choice:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用 `netcat` 来测试这个服务器。在你的文件系统中选择一个文件，并运行以下命令，将 `file` 替换为你选择的文件：
+- en: '[PRE23]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: You should then see any file you upload printed to standard out once all the
+    contents have fully uploaded.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你应该会看到你上传的任何文件在所有内容完全上传后打印到标准输出。
+- en: One drawback to be aware of with events is that they may fire more frequently
+    than your coroutines can respond to them. Suppose we’re using a single event to
+    wake up multiple tasks in a type of producer-consumer workflow. If our all our
+    worker tasks are busy for a long time, the event could run while we’re doing work,
+    and we’ll never see it. Let’s create a dummy example to demonstrate this. We’ll
+    create two worker tasks each of which does 5 seconds of work. We’ll also create
+    a task that fires an event every second, outpacing the rate that our consumers
+    can handle.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的一个缺点是，事件可能比你的协程能够响应它们的频率要高。假设我们正在使用单个事件唤醒多个任务，这是一种生产者-消费者工作流程。如果我们的所有工作进程长时间忙碌，事件可能会在我们工作时运行，而我们永远不会看到它。让我们创建一个示例来演示这一点。我们将创建两个工作进程，每个工作进程执行
+    5 秒钟的工作。我们还将创建一个每秒触发一个事件的任务，其速率超过了消费者能够处理的速度。
+- en: Listing 11.13 A worker falling behind an event
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.13 一个工作进程落后于事件
+- en: '[PRE24]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: When we run the preceding listing, we’ll see our event fires and our two workers
+    start their work concurrently. In the meantime, we keep triggering our event.
+    Since our workers are busy, they won’t see that our event fired a second time
+    until they finish their work and call `event.wait()` a second time. If you care
+    about responding every time an event occurs, you’ll need to use a queueing mechanism,
+    which we’ll learn about in the next chapter.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行前面的列表时，我们会看到事件被触发，我们的两个工作进程并发开始工作。与此同时，我们继续触发事件。由于我们的工作进程很忙，他们直到完成工作并第二次调用
+    `event.wait()` 时才会看到我们的事件第二次被触发。如果你关心每次事件发生时都要做出响应，你需要使用排队机制，我们将在下一章中学习。
+- en: Events are useful for when we want to alert when a specific event happens, but
+    what happens if we need a combination of waiting for an event alongside exclusive
+    access to a shared resource, such as a database connection? Conditions can help
+    us solve these types of workflows.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件在需要当特定事件发生时发出警报时很有用，但如果我们需要等待事件的同时获得对共享资源（如数据库连接）的独占访问怎么办？条件可以帮助我们解决这些类型的流程。
+- en: 11.5 Conditions
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.5 条件
+- en: Events are good for simple notifications when something happens, but what about
+    more complex use cases? Imagine needing to gain access to a shared resource that
+    requires a lock on an event, waiting for a more complex set of facts to be true
+    before proceeding or waking up only a certain number of tasks instead of all of
+    them. Conditions can be useful in these types of situations. They are by far the
+    most complex synchronization primitives we’ve encountered so far, and as such,
+    you likely won’t need to use them all that often.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件在发生某些简单通知时很有用，但更复杂的使用案例怎么办？想象一下，你需要访问一个需要事件锁的共享资源，在继续之前等待更复杂的事实集为真，或者只唤醒一定数量的任务而不是所有任务。在这些情况下，条件可能很有用。它们是我们迄今为止遇到的最复杂的同步原语，因此，你很可能不会经常使用它们。
+- en: A *condition* combines aspects of a lock and an event into one synchronization
+    primitive, effectively wrapping the behavior of both. We first acquire the condition’s
+    lock, giving our coroutine exclusive access to any shared resource, allowing us
+    to safely change any state we need. Then, we wait for a specific event to happen
+    with the `wait` or `wait_for` coroutine. These coroutines release the lock and
+    block until the event happens, and once it does it reacquires the lock giving
+    us exclusive access.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*条件* 结合了锁和事件的方面，成为一个同步原语，有效地封装了两种行为。我们首先获取条件的锁，给我们的协程提供对任何共享资源的独占访问，允许我们安全地更改所需的任何状态。然后，我们使用
+    `wait` 或 `wait_for` 协程等待特定事件的发生。这些协程释放锁并阻塞，直到事件发生，然后重新获取锁，给我们提供独占访问。'
+- en: Since this is a bit confusing, let’s create a dummy example to understand how
+    to use conditions. We’ll create two worker tasks that each attempt to acquire
+    the condition lock and then wait for an event notification. Then, after a few
+    seconds, we’ll trigger the condition, which will wake up the two worker tasks
+    and allow them to do work.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这有点令人困惑，让我们创建一个示例来理解如何使用条件。我们将创建两个工作任务，每个任务都尝试获取条件锁并等待事件通知。然后，经过几秒钟，我们将触发条件，这将唤醒两个工作任务，并允许它们进行工作。
+- en: Listing 11.14 Condition basics
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.14 条件基础
+- en: '[PRE25]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Wait to acquire the condition lock; once acquired, release the lock.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 等待获取条件锁；一旦获取，释放锁。
+- en: ❷ Wait for the event to fire; once it does, reacquire the condition lock.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待事件触发；一旦触发，重新获取条件锁。
+- en: ❸ Once we exit the async with block, release the condition lock.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 一旦退出 `async with` 块，释放条件锁。
+- en: ❹ Notify all tasks that the event has happened.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 通知所有任务事件已经发生。
+- en: 'In the preceding listing, we create two coroutine methods: `do_work` and `fire_event`.
+    The `do_work` method acquires the condition, which is analogous to acquiring a
+    lock, and then calls the condition’s `wait` coroutine method. The `wait` coroutine
+    method will block until someone calls the condition’s `notify_all` method.'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的代码示例中，我们创建了两个协程方法：`do_work` 和 `fire_event`。`do_work` 方法获取条件，这类似于获取锁，然后调用条件的
+    `wait` 协程方法。`wait` 协程方法将阻塞，直到有人调用条件的 `notify_all` 方法。
+- en: 'The `fire_event` coroutine method sleeps for a little bit and then acquires
+    the condition and calls the `notify_all` method, which will wake up any tasks
+    that are currently waiting on the condition. Then, in our main coroutine we create
+    one `fire_event` task and two `do_work` tasks and run them concurrently. When
+    running this you’ll see the following repeated if the application runs:'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fire_event` 协程方法稍微休眠一下，然后获取条件并调用 `notify_all` 方法，这将唤醒任何当前正在等待条件的任务。然后，在我们的主协程中创建一个
+    `fire_event` 任务和两个 `do_work` 任务，并发运行它们。运行此代码时，如果应用程序运行，你会看到以下重复：'
+- en: '[PRE26]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: You’ll notice that the two workers start right away and block waiting for the
+    `fire_` `event` coroutine to call `notify_all`. Once `fire_event` calls `notify_all`,
+    the worker tasks wake up and then proceed to do their work.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会注意到两个工作线程立即开始，并阻塞等待 `fire_` `event` 协程调用 `notify_all`。一旦 `fire_event` 调用 `notify_all`，工作任务就会醒来，然后继续执行它们的工作。
+- en: Conditions have an additional coroutine method called `wait_for`. Instead of
+    blocking until someone notifies the condition, `wait_for` accepts a predicate
+    (a no-argument function that returns a `Boolean`) and will block until that predicate
+    returns `True`. This proves useful when there is a shared resource with some coroutines
+    dependent on certain states becoming true.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 条件有一个额外的协程方法称为 `wait_for`。与阻塞直到有人通知条件不同，`wait_for` 接受一个谓词（一个无参数的函数，返回一个 `Boolean`），并将阻塞直到该谓词返回
+    `True`。当有共享资源且某些协程依赖于某些状态变为真时，这非常有用。
+- en: As an example, let’s pretend we’re creating a class to wrap a database connection
+    and run queries. We first have an underlying connection that can’t run multiple
+    queries at the same time, and the database connection may not be initialized before
+    someone tries to run a query. The combination of a shared resource and an event
+    we need to block gives us the right conditions to use a `Condition`. Let’s simulate
+    this with a mock database connection class. This class will run queries but will
+    only do so once we’ve properly initialized a connection. We’ll then use this mock
+    connection class to try to run two queries concurrently before we’ve finished
+    initializing the connection.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，让我们假设我们正在创建一个包装数据库连接并运行查询的类。我们首先有一个底层连接，它不能同时运行多个查询，并且在有人尝试运行查询之前，数据库连接可能尚未初始化。共享资源和我们需要阻塞的事件的组合为我们提供了使用
+    `Condition` 的正确条件。让我们通过模拟一个模拟数据库连接类来做到这一点。这个类将运行查询，但只有在正确初始化连接后才会这样做。然后，我们将使用这个模拟连接类在完成初始化连接之前尝试并发运行两个查询。
+- en: Listing 11.15 Using conditions to wait for specific states
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.15 使用条件等待特定状态
+- en: '[PRE27]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: In the preceding listing, we create a connection class that contains a condition
+    object and keeps track of an internal state that we initialize to `WAIT_INIT`,
+    indicating we’re waiting for initialization to happen. We also create a few methods
+    on the `Connection` class. The first is `initialize`, which simulates creating
+    a database connection. This method calls the _`change_state` method to set the
+    state to `INITIALIZING` when first called and then once the connection is initialized,
+    it sets the state to `INITIALIZED`. Inside the _`change_state` method, we set
+    the internal state and then call the conditions `notify_` `all` method. This will
+    wake up any tasks that are waiting for the condition.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个包含条件对象并跟踪内部状态的连接类，我们将该状态初始化为 `WAIT_INIT`，表示我们正在等待初始化发生。我们还在 `Connection`
+    类上创建了一些方法。第一个是 `initialize`，它模拟创建数据库连接。该方法在首次调用时通过调用 `_` `change_state` 方法将状态设置为
+    `INITIALIZING`，然后在连接初始化后，将状态设置为 `INITIALIZED`。在 `_` `change_state` 方法内部，我们设置内部状态，然后调用条件的
+    `notify_all` 方法。这将唤醒任何正在等待条件的任务。
+- en: 'In our `execute` method, we acquire the condition object in an `async` `with`
+    block and then we call `wait_for` with a predicate that checks to see if the state
+    is `INITIALIZED`. This will block until our database connection is fully initialized,
+    preventing us from accidently issuing a query before the connection exists. Then,
+    in our main coroutine, we create a connection class and create two tasks to run
+    queries, followed by one task to initialize the connection. Running this code,
+    you’ll see the following output, indicating that our queries properly wait for
+    the initialization task to finish before running the queries:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的 `execute` 方法中，我们在 `async` `with` 块中获取条件对象，然后调用 `wait_for` 并带有检查状态是否为 `INITIALIZED`
+    的谓词。这将阻塞，直到我们的数据库连接完全初始化，从而防止我们在连接存在之前意外发出查询。然后，在我们的主协程中，我们创建一个连接类并创建两个运行查询的任务，然后是一个初始化连接的任务。运行此代码，您将看到以下输出，表明我们的查询在运行查询之前正确地等待初始化任务完成：
+- en: '[PRE28]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: Conditions are useful in scenarios in which we need access to a shared resource
+    and there are states that we need to be notified about before doing work. This
+    is a somewhat complicated use case, and as such, you won’t likely come across
+    or need conditions in asyncio code.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们需要访问共享资源并且需要在工作之前通知我们有关状态的场景中，条件非常有用。这是一个相对复杂的用例，因此您不太可能在 asyncio 代码中遇到或需要条件。
+- en: Summary
+  id: totrans-144
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: We’ve learned about single-threaded concurrency bugs and how they differ from
+    concurrency bugs in multithreading and multiprocessing.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经了解了单线程并发错误以及它们与多线程和进程池中的并发错误的区别。
+- en: We know how to use asyncio locks to prevent concurrency bugs and synchronize
+    coroutines. This happens less often due to asyncio’s single-threaded nature, they
+    can sometimes be needed when shared state could change during an `await`.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们知道如何使用 asyncio 锁来防止并发错误并同步协程。由于 asyncio 的单线程特性，这种情况较少发生，但在共享状态可能在 `await`
+    期间发生变化时，有时可能需要它们。
+- en: We’ve learned how to use semaphores to control access to finite resources and
+    limit concurrency, which can be useful in traffic-shaping.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用信号量来控制对有限资源的访问并限制并发性，这在流量整形中可能很有用。
+- en: We know how to use events to trigger actions when something happens, such as
+    initialization or waking up worker tasks.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们知道如何使用事件在发生某些事情时触发操作，例如初始化或唤醒工作任务。
+- en: We know how to use conditions to wait for an action and, because of an action,
+    gain access to a shared resource.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们知道如何使用条件来等待一个动作，并且由于一个动作，我们可以访问共享资源。

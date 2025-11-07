@@ -1,0 +1,1045 @@
+- en: 9 Investigating locks in multithreaded architectures
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 9 在多线程架构中调查锁
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Monitoring an application’s threads
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 监控应用程序的线程
+- en: Identifying thread locks and what causes them
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 识别线程锁及其原因
+- en: Analyzing threads that are waiting
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 分析等待的线程
+- en: In this chapter, we discuss approaches to investigating the execution of apps
+    that leverage multithreaded architectures. Generally, developers find implementing
+    multithreaded architectures one of the most challenging things in app development,
+    and making the app performant brings another dimension of difficulty. The techniques
+    we discuss in this chapter will give you visibility into the execution of such
+    apps, allowing you to more easily identify problems and optimize the app execution.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了调查利用多线程架构的应用程序执行的方法。通常，开发者发现实现多线程架构是应用程序开发中最具挑战性的事情之一，而使应用程序性能良好又带来了另一个维度的难度。本章中讨论的技术将使你对这类应用程序的执行有更清晰的了解，从而更容易识别问题并优化应用程序的执行。
+- en: To properly understand the content of this chapter, you need to know the basics
+    of threading mechanisms in Java, including thread states and synchronization.
+    For a refresher, read appendix D; it won’t give you all the possible knowledge
+    on threads and concurrency in Java (that would need its own bookshelf), but it
+    will give you enough detail to understand this chapter’s discussion.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了正确理解本章的内容，你需要了解Java中线程机制的基础，包括线程状态和同步。为了复习，请阅读附录D；它不会给你所有关于Java中线程和并发的可能知识（那需要自己的书架），但它会提供足够的细节来理解本章的讨论。
+- en: 9.1 Monitoring threads for locks
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.1 监控线程以获取锁
+- en: 'In this section, we discuss thread locks and how to analyze them to find eventual
+    issues or opportunities to optimize an app’s execution. *Thread locks* are caused
+    by different thread synchronization approaches, usually implemented to control
+    the flow of events in a multithreaded architecture. Examples include these:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们讨论线程锁以及如何分析它们以发现潜在的问题或优化应用程序执行的机会。"线程锁"是由不同的线程同步方法引起的，通常用于控制多线程架构中事件流的流程。以下是一些例子：
+- en: A thread wants to prevent other threads from accessing a resource while it’s
+    changing that resource.
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个线程想要防止其他线程在它更改资源时访问该资源。
+- en: A thread needs to wait for another one to finish or reach a certain point in
+    its execution before being able to continue its work.
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个线程需要等待另一个线程完成或达到其执行中的某个特定点，然后才能继续其工作。
+- en: Thread locks are necessary; they help an app control threads. But implementing
+    thread synchronization leaves a lot of room for mistakes. Wrongly implemented
+    locks may cause app freezes or performance issues. We need to use profilers to
+    make sure our implementations are optimal and to make an app more efficient by
+    minimizing the lock time.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 线程锁是必要的；它们帮助应用程序控制线程。但是实现线程同步留下了很多错误的空间。错误实现的锁可能导致应用程序冻结或性能问题。我们需要使用分析器来确保我们的实现是最优的，并通过最小化锁的时间来使应用程序更高效。
+- en: 'In this section, we’ll use a small application (project da-ch9-ex1) that implements
+    a simple multithreaded architecture. We’ll use a profiler to analyze the locks
+    during the app’s execution. We want to find out if the threads are locked and
+    how they behave:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将使用一个小型应用程序（项目da-ch9-ex1）来实现一个简单的多线程架构。我们将使用分析器来分析应用程序执行期间的锁。我们想了解线程是否被锁定以及它们的行为如何：
+- en: Which thread locks another
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 哪个线程锁定了另一个
+- en: How many times a thread is locked
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程被锁定的次数
+- en: The time at which a thread pauses instead of executing
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程暂停而不是执行的时间
+- en: 'These details allow us to understand whether the app execution is optimal and
+    whether there are ways we can improve our app’s execution. The app we use for
+    our example implements two threads that run concurrently: the producer and the
+    consumer. The producer generates random values and adds them to a list instance,
+    and the consumer removes values from the same collection used by the producer
+    (figure 9.1).'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些细节使我们能够了解应用程序执行是否优化，以及我们是否有改进应用程序执行的方法。我们用于示例的应用程序实现了两个并发运行的线程：生产者和消费者。生产者生成随机值并将它们添加到列表实例中，而消费者从生产者使用的同一集合中移除值（图9.1）。
+- en: '![](../../OEBPS/Images/CH09_F01_Spilca3.png)'
+  id: totrans-17
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F01_Spilca3.png)'
+- en: 'Figure 9.1 The app starts two threads that we refer to as “the producer” and
+    “the consumer.” Both threads use a common resource: they change a list instance
+    of type `ArrayList`. The producer generates random values and adds them to the
+    list, while the consumer concurrently removes the values added by the producer.'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.1 应用程序启动了两个线程，我们称之为“生产者”和“消费者”。这两个线程使用一个公共资源：它们改变`ArrayList`类型的列表实例。生产者生成随机值并将其添加到列表中，而消费者同时移除生产者添加的值。
+- en: Let’s follow the app implementation in listings 9.1, 9.2, and 9.3 to see what
+    to expect when we investigate the execution. In listing 9.1, you find the `Main`
+    class, which starts the two thread instances. I made the app wait for 10 seconds
+    before starting the threads to allow us some time to start the profiler and observe
+    the entire threads’ timelines. The app names the threads `_Producer` and `_Consumer`
+    to allow us to easily identify them when working with the profiler.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们跟随应用程序在列表9.1、9.2和9.3中的实现，看看在调查执行时我们可以期待什么。在列表9.1中，你可以找到启动两个线程实例的`Main`类。我在启动线程之前让应用程序等待10秒钟，这样我们就有时间启动分析器并观察整个线程的时间线。应用程序将线程命名为`_Producer`和`_Consumer`，以便我们在使用分析器时可以轻松识别它们。
+- en: Listing 9.1 App’s `Main` method that starts two threads
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.1 应用程序的`Main`方法，它启动两个线程
+- en: '[PRE0]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Waits 10 seconds, in the beginning, to let the programmer start the profiling
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在开始时等待10秒钟，以便程序员开始分析
+- en: ❷ Starts a producer thread
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启动一个生产者线程
+- en: ❸ Starts a consumer thread
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启动一个消费者线程
+- en: In listing 9.2, you find the consumer thread’s implementation. The thread iterates
+    over a block of code one million times (this number should be enough for the app
+    to run a few seconds and allow us to use the profiler to take some statistics).
+    During every iteration, the thread uses a static list instance declared in the
+    `Main` class. The consumer thread checks whether the list has values and removes
+    the first value in the list. The whole block of code implementing the logic is
+    synchronized, using the list instance itself as a monitor. The monitor won’t allow
+    multiple threads to enter at the same time in the synchronized blocks it protects.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表9.2中，你可以找到消费者线程的实现。该线程遍历一个包含一百万行代码的代码块（这个数字应该足够让应用程序运行几秒钟，并允许我们使用分析器来获取一些统计数据）。在每次迭代中，线程使用在`Main`类中声明的静态列表实例。消费者线程检查列表中是否有值，并移除列表中的第一个值。实现逻辑的整个代码块都是同步的，使用列表实例本身作为监视器。监视器不会允许多个线程同时进入它保护的同步块。
+- en: Listing 9.2 The consumer thread’s definition
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.2 消费者线程的定义
+- en: '[PRE1]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Iterates one million times over the consumer’s synchronized block of code
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在消费者的同步代码块上迭代一百万次
+- en: ❷ Synchronizes the block of code using the static list defined in the Main class
+    as a monitor
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用在主类中定义的静态列表作为监视器同步代码块
+- en: ❸ Tries to consume a value only if the list is not empty
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅当列表不为空时才尝试消费一个值
+- en: ❹ Consumes the first value in the list and removes that value
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消费列表中的第一个值并移除该值
+- en: ❺ Logs the removed value
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记录移除的值
+- en: Listing 9.3 presents the producer’s thread implementation, which is pretty similar
+    to the consumer’s. The producer also iterates one million times over a block of
+    code. For each iteration, the producer generates a random value and adds it to
+    a list statically declared in the `Main` class. This list is the same one from
+    which the consumer removes the values. The producer adds new values only if the
+    list size is smaller than 100.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.3展示了生产者线程的实现，它与消费者线程的实现非常相似。生产者也会遍历一个包含一百万行代码的代码块。对于每次迭代，生产者生成一个随机值并将其添加到在`Main`类中静态声明的列表中。这个列表就是消费者从中移除值的列表。生产者只有在列表大小小于100时才添加新值。
+- en: Listing 9.3 The producer thread’s definition
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表9.3 生产者线程的定义
+- en: '[PRE2]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Iterates one million times over the producer’s synchronized block of code
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产者的同步代码块上迭代一百万次
+- en: ❷ Synchronizes the block of code using the static list defined in the Main class
+    as a monitor
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用在主类中定义的静态列表作为监视器同步代码块
+- en: ❸ Adds a value only if the list has under 100 elements
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅当列表元素少于100个时才添加值
+- en: ❹ Generates a new random value and adds it to the list
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成一个新的随机值并将其添加到列表中
+- en: ❺ Logs the value added to the list
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记录添加到列表中的值
+- en: The producer’s logic is also synchronized using the list as a monitor. This
+    way, only one of the threads, the producer or the consumer, can change this list
+    at a time. The monitor (the list instance) allows one of the threads to enter
+    its logic and keeps the other thread waiting at the beginning of its block of
+    code until the other thread finishes the execution of the synchronized block (figure
+    9.2).
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产者的逻辑也使用列表作为监视器进行同步。这样，一次只有一个线程，即生产者或消费者，可以更改此列表。监视器（列表实例）允许一个线程进入其逻辑，并使另一个线程在其代码块的开始处等待，直到另一个线程完成同步块的执行（图9.2）。
+- en: '![](../../OEBPS/Images/CH09_F02_Spilca3.png)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图9.2](../../OEBPS/Images/CH09_F02_Spilca3.png)'
+- en: Figure 9.2 Only one thread at a time can be in the synchronized block. Either
+    the producer executes the logic defined in its `run()` method or the consumer
+    executes its logic.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.2 一次只有一个线程可以进入同步代码块。要么是生产者执行其`run()`方法中定义的逻辑，要么是消费者执行其逻辑。
+- en: Can we find this app behavior and other details about the execution using a
+    profiler? In a real-world app, the code may be much more complicated, so understanding
+    what the app does just by reading the code would, in most cases, not be enough.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能否使用分析器找到这种应用行为和其他关于执行的细节？在现实世界的应用中，代码可能要复杂得多，所以仅通过阅读代码来理解应用的行为，在大多数情况下是不够的。
+- en: Remember that the projects we use in this book are simplified and tailored to
+    the purpose of our discussion. Don’t take them as best practices and apply them
+    as is in real-world apps.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，本书中使用的项目是简化和定制以适应我们讨论的目的。不要将它们视为最佳实践，并在现实世界的应用中直接应用。
+- en: '![](../../OEBPS/Images/icon_guy3.png)'
+  id: totrans-46
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图9.2](../../OEBPS/Images/icon_guy3.png)'
+- en: Let’s use VisualVM to see what this looks like in the Threads monitoring tab
+    (figure 9.3). Notice that the colors (shading) alternate since most of the code
+    for each thread is synchronized. In most cases, either the producer is running
+    and the consumer waits or the consumer is running and the producer waits.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们使用VisualVM来查看在“线程监控”标签页（图9.3）中这看起来是什么样子。注意颜色（阴影）交替，因为每个线程的大多数代码都是同步的。在大多数情况下，要么是生产者正在运行而消费者等待，要么是消费者正在运行而生产者等待。
+- en: These two threads may rarely execute code simultaneously. Since there are instructions
+    outside the synchronized block, the two threads can run simultaneously to execute
+    the code. An example of such code is the `for` loop, which in both cases is defined
+    outside the synchronized block.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个线程很少会同时执行代码。由于存在同步块之外的指令，这两个线程可以同时运行以执行代码。这种代码的一个例子是`for`循环，在两种情况下都是在同步块外部定义的。
+- en: '![](../../OEBPS/Images/CH09_F03_Spilca3.png)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图9.2](../../OEBPS/Images/CH09_F03_Spilca3.png)'
+- en: Figure 9.3 In most cases, the threads will sequentially lock each other and
+    execute their synchronized blocks of code. The two threads can still concurrently
+    execute the instructions, which are outside the synchronized block.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.3 在大多数情况下，线程将依次锁定彼此并执行它们的同步代码块。这两个线程仍然可以并发执行同步块之外的指令。
+- en: A thread can be blocked by a synchronized block of code, it can be waiting for
+    another thread to finish its execution (joining), or it can be controlled by a
+    blocking object. In cases where the thread is blocked and it can’t continue its
+    execution, we say the thread is *locked*. In figure 9.4 you can see the same information
+    presented in JProfiler, which works with the approaches we used.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个线程可能被同步代码块阻塞，它可能正在等待另一个线程完成其执行（连接），或者它可能被阻塞对象控制。在线程被阻塞且无法继续执行的情况下，我们说线程是*锁定*的。在图9.4中，你可以看到JProfiler以我们使用的方法呈现的相同信息，JProfiler是一种替代VisualVM的分析器。
+- en: '![](../../OEBPS/Images/CH09_F04_Spilca3.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图9.3](../../OEBPS/Images/CH09_F04_Spilca3.png)'
+- en: Figure 9.4 You can use other profilers instead of VisualVM. Here, you see the
+    way thread timelines are displayed in JProfiler.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.4 你可以使用其他分析器代替VisualVM。在这里，你看到线程时间线在JProfiler中的显示方式。
+- en: 9.2 Analyzing thread locks
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.2 分析线程锁
+- en: When working with an app architecture that uses thread locks, we want to make
+    sure that the app is optimally implemented. For that, we need a way to identify
+    the locks to find how many times threads are blocked and the length of the lock
+    time. We also need to understand what causes a thread to wait in given scenarios.
+    Can we collect all this information somehow? Yes, a profiler can tell us everything
+    we need to know about the thread’s behavior.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当与使用线程锁的应用架构一起工作时，我们希望确保应用得到最佳实现。为此，我们需要一种方法来识别锁，以找出线程被阻塞的次数和锁的时间长度。我们还需要了解在特定场景下导致线程等待的原因。我们能否以某种方式收集所有这些信息？是的，一个分析器可以告诉我们关于线程行为所需了解的一切。
+- en: 'We’ll continue using the same steps you learned in chapter 7 for profiling
+    investigations:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将继续使用你在第7章中学到的相同步骤进行性能分析调查：
+- en: Use sampling to understand at a high level what happens during execution and
+    identify where to go into further detail.
+  id: totrans-57
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用样本分析来了解在执行过程中发生的事情，并确定进一步深入了解的地方。
+- en: Use profiling (instrumentation) to get the details on a specific subject we
+    want to investigate.
+  id: totrans-58
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用性能分析（工具化）来获取我们想要调查的特定主题的详细信息。
+- en: Figure 9.5 shows the results of sampling the app’s execution. When looking at
+    the execution times, we observe that the total time is longer than the total CPU
+    time. In chapter 7, you saw a similar situation, and we figured out that when
+    this happens, it means the app waits for something.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.5显示了应用程序执行样本的结果。在查看执行时间时，我们观察到总时间比总CPU时间更长。在第7章中，你看到了类似的情况，我们得出结论，当这种情况发生时，意味着应用程序正在等待某事物。
+- en: '![](../../OEBPS/Images/CH09_F05_Spilca3.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F05_Spilca3.png)'
+- en: Figure 9.5 When the total CPU time is shorter than the total execution time,
+    it means the app is waiting for something. We want to figure out what the app
+    waits for and if this time can be optimized.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.5 当总CPU时间短于总执行时间时，意味着应用程序正在等待某事物。我们想要弄清楚应用程序等待的是什么，以及这段时间是否可以优化。
+- en: 'In figure 9.6, we can see something interesting: the method waits, but, as
+    shown in the sampling data, it doesn’t wait for something else. It simply seems
+    to wait on itself. The row marked as “Self time” tells us how much time it took
+    the method to execute. Notice that the method spent only about 700 ms CPU time
+    as self time but a much larger value of 4903 ms as total execution self time.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图9.6中，我们可以看到一些有趣的事情：方法在等待，但正如样本数据所示，它并没有等待其他事物。它似乎只是在等待自己。标记为“自我时间”的行告诉我们方法执行花费了多少时间。请注意，方法只花费了大约700毫秒的CPU时间作为自我时间，但作为总执行自我时间的一个更大的值4903毫秒。
+- en: '![](../../OEBPS/Images/CH09_F06_Spilca3.png)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F06_Spilca3.png)'
+- en: Figure 9.6 The method doesn’t wait for something, but instead it waits for itself.
+    We observe that its self-execution time is longer than the total CPU time, which
+    usually means that the thread is locked. The thread could have been blocked by
+    another thread.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.6 该方法不是等待某事物，而是等待自身。我们观察到它的自我执行时间比总CPU时间更长，这通常意味着线程被锁定。线程可能被另一个线程阻塞。
+- en: In chapter 7, we worked on an example in which the app was waiting for an external
+    service to respond. The app was sending a call and then waiting for the other
+    service to reply. In that case, why the app was waiting made sense, but here the
+    situation looks peculiar. What could cause such behavior?
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第7章中，我们处理了一个示例，其中应用程序正在等待外部服务响应。应用程序发送了一个调用，然后等待另一个服务回复。在这种情况下，为什么应用程序等待是有意义的，但这里的情况看起来很奇怪。什么可能造成这种行为？
+- en: You may wonder, “How can a method be waiting for itself? Is it too lazy to run?”
+    When we observe such behavior, in which a method is waiting but not for something
+    external, its thread has likely been locked. To get more details about what locks
+    the thread, we need to engage in further analysis by profiling the execution.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想，“一个方法怎么能等待自己呢？它是不是太懒了？”当我们观察到这样的行为，即一个方法正在等待但不是等待外部事物时，其线程可能已经被锁定。为了获取有关线程锁定更详细的信息，我们需要通过性能分析执行进一步的分析。
+- en: '![](../../OEBPS/Images/CH09_F07_Spilca3.png)'
+  id: totrans-67
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F07_Spilca3.png)'
+- en: Figure 9.7 To start profiling for locks, use the Locks button in the Profiler
+    tab. At the end of the profiling session, we observe more than 3,600 locks on
+    each of our producer and consumer threads.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.7 要开始对锁进行性能分析，请使用性能分析标签页中的锁按钮。在性能分析会话结束时，我们观察到每个生产者和消费者线程上都有超过3,600个锁。
+- en: Sampling didn’t answer all our questions. We can see the methods are waiting,
+    but we don’t know what they are waiting for. We need to continue with profiling
+    (instrumentation) to get more information. In VisualVM, we use the Profiler tab
+    to start lock monitoring. To start profiling for locks, use the Locks button,
+    as presented in figure 9.7, which shows the profiling result. The button appears
+    disabled in the figure because the process was already stopped at the end of the
+    profiling session.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 样本分析并没有回答我们所有的问题。我们可以看到方法正在等待，但我们不知道它们在等待什么。我们需要继续进行性能分析（工具化）以获取更多信息。在VisualVM中，我们使用性能分析标签页来开始锁监控。要开始对锁进行性能分析，请使用图9.7中所示的锁按钮，该按钮显示了性能分析结果。按钮在图中显示为禁用状态，因为性能分析会话结束时进程已经被停止。
+- en: For each thread, we can go into detail by selecting the small plus sign (+)
+    to the left of the thread name. Now, you can get details about each monitor object
+    that affected the thread’s execution. The profiler shows details about the threads
+    that were blocked by another thread as well as what blocked the thread.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于每个线程，我们可以通过选择线程名称左侧的小加号（+）来深入了解。现在，你可以获取到影响线程执行的每个监视对象的详细信息。分析器显示了被其他线程阻塞的线程的详细信息，以及是什么阻塞了线程。
+- en: '![](../../OEBPS/Images/CH09_F08_Spilca3.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F08_Spilca3.png)'
+- en: 'Figure 9.8 The profiling results give us a good understanding of what creates
+    locks and what is affected by them. We see that there’s only one monitor the producer
+    thread works with. Also, the producer thread was blocked by the consumer thread
+    3,698 times using the monitor. Using the same monitor instance, the producer blocked
+    the consumer for a similar number of times: 3,699.'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.8 分析结果让我们对什么创建了锁以及什么受到它们的影响有了很好的理解。我们看到生产者线程只与一个监视器合作。此外，生产者线程使用监视器被消费者线程阻塞了3,698次。使用相同的监视器实例，生产者以类似的数量阻塞了消费者：3,699次。
+- en: You can find these details in figure 9.8\. We see that the producer thread was
+    blocked by a monitor instance of type `ArrayList`. The object reference (4476199c
+    in the figure) helps us to uniquely identify the object instance to figure out
+    whether the same monitor affected multiple threads. It also allows us to precisely
+    identify the relationship between the threads and the monitor.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图9.8中找到这些详细信息。我们看到生产者线程被一个`ArrayList`类型的监视器实例阻塞。对象引用（图中的4476199c）帮助我们唯一地识别对象实例，以确定是否同一个监视器影响了多个线程。它还允许我们精确地识别线程和监视器之间的关系。
+- en: 'What we find in figure 9.8 can be read this way:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.8中的发现可以这样阅读：
+- en: The thread named `_Producer` was blocked by a monitor instance with reference
+    4476199c—an instance of type `ArrayList`.
+  id: totrans-75
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 命名为`_Producer`的线程被引用4476199c的监视器实例（`ArrayList`类型的实例）阻塞。
+- en: The `_Consumer` thread blocked the `_Producer` thread 3,698 times by acquiring
+    the monitor 4476199c.
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`_Consumer`线程通过获取监视器4476199c阻塞了`_Producer`线程3,698次。'
+- en: The producer thread also held (owned) the monitor with reference 4476199c for
+    3,699 times, or the thread `_Producer` blocked the thread `_Consumer` 3,699 times.
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 生产者线程还持有（拥有）引用4476199c的监视器3,699次，或者说线程`_Producer`阻塞了线程`_Consumer` 3,699次。
+- en: Figure 9.9 extends the perspective to the consumer thread. You find that all
+    data correlates. Throughout the whole execution, only one monitor instance, an
+    instance of type `ArrayList`, locks one of the threads or another. The consumer
+    thread ends up being locked 3,699 times while the producer thread executed a block
+    synchronized by the `ArrayList` object. The producer thread is blocked 3,698 times
+    while the consumer thread executed a block synchronized with the `ArrayList` monitor.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.9扩展了消费者线程的视角。你会发现所有数据都相关联。在整个执行过程中，只有一个监视实例，即`ArrayList`类型的实例，锁定了一个线程或另一个线程。消费者线程最终被锁定3,699次，而生产者线程执行了由`ArrayList`对象同步的代码块。生产者线程被阻塞3,698次，而消费者线程执行了与`ArrayList`监视器同步的代码块。
+- en: Remember that you won’t necessarily get the same numbers when you execute the
+    app on your computer. In fact, it’s very likely you won’t, even when you repeat
+    the execution on the same computer. Although you may get different values, overall,
+    you can make similar observations.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，当你在自己的计算机上执行应用程序时，你不会必然得到相同的数字。事实上，即使你在同一台计算机上重复执行，也很可能不会得到相同的数字。尽管你可能得到不同的值，但总体上，你可以做出类似的观察。
+- en: '![](../../OEBPS/Images/icon_guy4.png)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/icon_guy4.png)'
+- en: '![](../../OEBPS/Images/CH09_F09_Spilca3.png)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F09_Spilca3.png)'
+- en: Figure 9.9 Both threads use the same monitor to block each other. While one
+    thread executes the synchronized block with an `ArrayList` instance monitor, the
+    other waits. This way, one thread is locked for 3,698 times and the other for
+    3,699.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.9两个线程使用相同的监视器相互阻塞。当一个线程执行带有`ArrayList`实例监视器的同步代码块时，另一个线程等待。这样，一个线程被锁定3,698次，另一个线程被锁定3,699次。
+- en: For this demonstration, I used VisualVM because it’s free and I’m comfortable
+    with it. But you can use the same approach with other tools as well, such as JProfiler.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个演示，我使用了VisualVM，因为它免费，而且我很熟悉它。但您也可以使用其他工具以相同的方法，例如JProfiler。
+- en: After attaching JProfiler to a process (as discussed in chapter 8), make sure
+    you set the JVM exit action to Keep the VA Alive for Profiling, as presented in
+    figure 9.10.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在将JProfiler附加到进程（如第8章所述）后，确保您将JVM退出操作设置为“为分析保持VA活动”，如图9.10所示。
+- en: '![](../../OEBPS/Images/CH09_F10_Spilca3.png)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F10_Spilca3.png)'
+- en: Figure 9.10 When starting the profiling session with JProfiler, remember to
+    set the JVM action to Keep the VM Alive for Profiling so that you can see the
+    profiling results after the app finishes its execution.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.10 当使用JProfiler开始性能分析会话时，请记住将JVM操作设置为“为性能保持虚拟机活动”，这样您就可以在应用程序执行完毕后看到性能分析结果。
+- en: JProfiler offers multiple perspectives for visualizing the same details we obtained
+    with VisualVM, but the results are the same. Figure 9.11 shows the Monitor History
+    view report for locks.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: JProfiler提供了多个视角来可视化我们使用VisualVM获得的相同细节，但结果是一样的。图9.11显示了锁的监视器历史视图报告。
+- en: '![](../../OEBPS/Images/CH09_F11_Spilca3.png)'
+  id: totrans-88
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F11_Spilca3.png)'
+- en: Figure 9.11 JProfiler shows a detailed history of all the locks the app’s threads
+    encountered. The tool displays the exact time of the event, the event duration,
+    the monitor that caused the lock, and the threads that were involved.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.11 JProfiler显示了应用程序线程遇到的所有锁的详细历史记录。该工具显示了事件的准确时间、事件持续时间、导致锁定的监视器以及涉及的线程。
+- en: In most cases, you don’t need such a detailed report. I prefer to group the
+    events (locks) either by threads or, less often, by the monitor. In JProfiler,
+    you can group the events as presented in figure 9.12\. From Monitor Usage Statistics
+    in the left menu, you can choose to group the events either by threads that were
+    involved or the monitors that caused the locks. JProfiler even has a more exotic
+    option in which you can group the locks by the monitor objects’ classes.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数情况下，您不需要如此详细的报告。我更喜欢将事件（锁）按线程分组，或者较少的情况下，按监视器分组。在JProfiler中，您可以像图9.12所示那样分组事件。从左侧菜单的监视器使用统计中，您可以选择按参与线程或导致锁定的监视器来分组事件。JProfiler甚至有一个更独特的选项，您可以按监视器对象的类来分组锁。
+- en: '![](../../OEBPS/Images/CH09_F12_Spilca3.png)'
+  id: totrans-91
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F12_Spilca3.png)'
+- en: Figure 9.12 You can group the lock events by threads involved or by monitors
+    using the Monitor Usage Statistics section. You can use the aggregated view to
+    understand which threads are more affected and what affects them or which monitor
+    causes the threads to stop more often.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.12 您可以使用监视器使用统计部分按参与线程或监视器分组锁事件。您可以使用聚合视图来了解哪些线程受影响更大以及它们受到什么影响，或者哪个监视器导致线程更频繁地停止。
+- en: If you group the lock events by involved threads, you get a statistic similar
+    to the one VisualVM provided. Each thread is locked over 3,600 times during the
+    app’s execution (figure 9.13).
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您按参与线程分组锁事件，您将得到一个类似于VisualVM提供的统计。每个线程在应用程序执行期间被锁定超过3,600次（图9.13）。
+- en: '![](../../OEBPS/Images/CH09_F13_Spilca3.png)'
+  id: totrans-94
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F13_Spilca3.png)'
+- en: Figure 9.13 Grouping the lock events by threads provides you with an aggregated
+    view showing how many times each of the threads locked during its execution.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.13 按线程分组锁事件为您提供了一个聚合视图，显示了每个线程在执行期间锁定了多少次。
+- en: Is the execution optimal? To answer this question, we need to know the app’s
+    purpose. In our case, the app is a simple, demonstrative example, and because
+    it doesn’t have a real purpose, it’s difficult to fully analyze whether the results
+    indicate the app can be enhanced.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行是否最优？要回答这个问题，我们需要了解应用程序的目的。在我们的案例中，应用程序是一个简单、演示性的例子，因为它没有真正的目的，所以很难完全分析结果是否表明应用程序可以被增强。
+- en: 'But since the app uses two threads that use a common resource (the list), if
+    we consider the fact that they can’t work at the same time with the shared resource,
+    then we expect the following:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，由于应用程序使用两个使用公共资源（列表）的线程，如果我们考虑到它们不能同时使用共享资源，那么我们期望以下情况：
+- en: The total execution time should be the sum of the CPU execution times (because
+    the threads can’t work at the same time, they will mutually exclude each other),
+    approximately.
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 总执行时间应该是CPU执行时间的总和（因为线程不能同时工作，它们将相互排斥），大约如此。
+- en: 'The threads should have a similar time allocated for execution and should be
+    locked approximately the same number of times. If one of the threads is preferred,
+    the other can end up in *starvation*: the situation in which a thread is blocked
+    in an “unfair” way and doesn’t get to execute.'
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程应该分配给执行的相似时间，并且应该锁定大约相同数量的次数。如果其中一个线程被优先考虑，另一个线程可能会陷入*饥饿*：线程以一种“不公平”的方式被阻塞，并且无法执行。
+- en: If you look again at the thread analysis, you can see that the two threads are
+    fairly treated. They indeed get locked a similar number of times, and they mutually
+    exclude each other but have a similar active (CPU time) execution. This is optimal,
+    and there’s not much we can do to enhance it. But remember that it depends on
+    what the app does and our expectations about how should it execute.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你再次查看线程分析，你可以看到两个线程得到了公平的对待。它们确实被锁定相似的次数，并且它们相互排斥但具有相似的活动（CPU时间）执行。这是最优的，我们无法做太多来增强它。但请记住，这取决于应用做什么以及我们对它如何执行的期望。
+- en: 'Here’s an example of a different scenario in which the app would not necessarily
+    be considered optimal. Suppose that you had an app that was actually processing
+    values. Say that the producer needed more time to add each value to the list than
+    the consumer needed to process the value afterward. In a real-world app, something
+    like this can happen: the threads don’t need to have equivalent difficult “work”
+    to do.'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一个不同场景的例子，在这种情况下，该应用可能并不一定被认为是最佳的。假设你有一个实际处理值的程序。比如说，生产者需要更多的时间将每个值添加到列表中，而消费者需要的时间却比处理该值的时间少。在现实世界的应用中，类似的情况可能会发生：线程不需要做等效的困难“工作”。
+- en: 'In such a case, you can enhance the app:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，你可以增强应用：
+- en: Minimize the number of locks for the consumer and make it wait to allow the
+    producer to work more.
+  id: totrans-103
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最小化消费者线程的锁数量，并让它等待以允许生产者工作更多。
+- en: Define more producer threads or make the consumer thread read and process the
+    values in batches (multiple at a time).
+  id: totrans-104
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义更多的生产者线程或让消费者线程批量（一次多个）读取和处理值。
+- en: Everything depends on what the app does, but understanding what you can do to
+    make it better starts with analyzing the execution. Because you never have one
+    approach you can apply to all apps, I always recommend developers use a profiler
+    and analyze the changes in app execution when they implement a multithreaded app.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一切都取决于应用做什么，但了解你可以做什么来使其变得更好，首先要从分析执行开始。因为你不可能有一种可以应用于所有应用的通用方法，所以我总是建议开发者使用分析器并分析在实现多线程应用时应用执行的更改。
+- en: 9.3 Analyzing waiting threads
+  id: totrans-106
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.3 分析等待线程
+- en: In this section, we analyze threads that are waiting to be notified. Waiting
+    threads are different than locked threads. A monitor locks a thread for the execution
+    of a synchronized block of code. In this case, we don’t expect the monitor to
+    execute a specific action to “tell” the blocked thread to continue its execution.
+    But a monitor can make the thread wait for an indefinite amount of time and later
+    decide when to allow that thread to continue its execution. Once a monitor makes
+    a thread wait, the thread will return to execution only after being notified by
+    the same monitor. The ability to make a thread wait until being notified gives
+    great flexibility in controlling threads, but it can also cause issues when not
+    used correctly.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们分析等待被通知的线程。等待线程与锁定线程不同。监视器锁定线程以执行同步代码块。在这种情况下，我们并不期望监视器执行特定操作来“告诉”被阻塞的线程继续其执行。但监视器可以使线程等待不确定的时间，然后决定何时允许该线程继续其执行。一旦监视器使线程等待，该线程只有在被同一监视器通知后才会返回执行。使线程等待直到被通知的能力在控制线程方面提供了很大的灵活性，但如果不正确使用，也可能导致问题。
+- en: '![](../../OEBPS/Images/CH09_F14_Spilca3.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F14_Spilca3.png)'
+- en: Figure 9.14 Locked threads versus waiting threads. A locked thread is blocked
+    at the entrance of a synchronized block. The monitor won’t allow a thread to enter
+    a synchronized block while another thread actively runs inside the block. A waiting
+    thread is a thread that the monitor has explicitly set to the blocked state. The
+    monitor can make any thread inside the synchronized block it manages wait. The
+    waiting thread can continue its execution only after the monitor explicitly tells
+    it that it can proceed with its execution.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.14 锁定线程与等待线程。一个锁定线程在同步块的入口处被阻塞。监视器不允许一个线程在另一个线程在块内积极运行时进入同步块。一个等待线程是监视器明确设置为阻塞状态的线程。监视器可以使其管理的任何线程在同步块中等待。等待线程只有在监视器明确告诉它可以继续执行后才能继续其执行。
+- en: To visualize the difference between locked and waiting threads, look at figure
+    9.14\. Imagine the synchronized block is a restricted area managed by a police
+    officer. The threads are cars. The police officer allows just one car to run at
+    a time in the restricted area (the synchronized block). The cars that are blocked
+    we say are *locked*. The police officer can also manage the cars running in the
+    restricted area. The police officer can order a car running inside this area to
+    wait until they are explicitly ordered to continue; we say they are *waiting*.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了可视化锁定线程和等待线程之间的差异，请看图9.14。想象一下，同步块是由警察管理的受限区域。线程是汽车。警察一次只允许一辆汽车在受限区域（同步块）内运行。被阻塞的汽车我们称之为*锁定*。警察还可以管理受限区域内运行的汽车。警察可以命令在区域内运行的汽车等待，直到它们被明确命令继续；我们称之为*等待*。
+- en: 'We’ll use the same application we analyzed earlier in this chapter and consider
+    the following scenario: one of the developers working on the app thought about
+    an improvement to our producer-consumer architecture. Now, the consumer thread
+    can’t do anything when the list is empty, so it just iterates multiple times over
+    a false condition until the JVM makes it wait to allow a producer thread to run
+    and to add values to the list. The same thing happens when the producer adds 100
+    values to the list. The producer thread runs over a false condition until the
+    JVM allows a consumer to remove some of the values from the list.'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用本章前面分析过的相同应用程序，并考虑以下场景：负责该应用程序的一位开发者考虑了对我们的生产者-消费者架构的改进。现在，当列表为空时，消费者线程无法执行任何操作，因此它只是多次迭代一个错误条件，直到JVM让它等待，以便允许生产者线程运行并向列表添加值。当生产者向列表添加100个值时，也会发生同样的事情。生产者线程会运行在一个错误条件上，直到JVM允许消费者从列表中移除一些值。
+- en: Can we do something to make the consumer wait when it has no value to consume
+    and make it run only when we know the list contains at least one value (figure
+    9.15)? Similarly, can we make the producer wait when there are already too many
+    values in the list and allow it to run only when it makes sense to add other values?
+    Would this approach make our app more efficient?
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能否做些什么，使得消费者在没有可消费的值时等待，并且只有在我们知道列表中至少有一个值时才运行（见图9.15）？同样，我们能否让生产者在列表中已有太多值时等待，并且只有在添加其他值有意义时才允许它运行？这种方法会使我们的应用程序更高效吗？
+- en: '![](../../OEBPS/Images/CH09_F15_Spilca3.png)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图9.15](../../OEBPS/Images/CH09_F15_Spilca3.png)'
+- en: Figure 9.15 Some of the cars are consumer threads, and others are producer threads.
+    The police officer orders a consumer to wait if the list doesn’t have values that
+    can be consumed, allowing producers to work and add values. Once the list contains
+    at least a value that can be consumed, the officer orders the waiting consumer
+    to continue its execution.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.15 中的一些汽车是消费者线程，而另一些是生产者线程。警察命令消费者等待，如果列表中没有可以消费的值，允许生产者工作并添加值。一旦列表中至少有一个可以消费的值，警察会命令等待的消费者继续执行。
+- en: We’ll change the application to implement this new behavior, but we’ll also
+    demonstrate that, for our scenario, the app isn’t more efficient. On the contrary,
+    the execution is less optimal.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将更改应用程序以实现这种新行为，但也会证明，对于我们的场景，应用程序并没有变得更高效。相反，执行效率更低。
+- en: It might look like a good idea to make the threads wait when they can’t work
+    with the shared resource (the list). But, upon analysis, you can see that it badly
+    affects the performance instead of helping the app run faster.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当线程无法与共享资源（列表）一起工作时，让他们等待可能看起来是个好主意。但经过分析，你会发现这反而严重影响了性能，而不是帮助应用程序运行得更快。
+- en: I always recommend using a profiler during development to prove that the app
+    executes optimally.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我总是建议在开发期间使用分析器来证明应用程序执行得最优。
+- en: '![](../../OEBPS/Images/icon_guy4.png)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图9.14](../../OEBPS/Images/icon_guy4.png)'
+- en: Listing 9.4 shows the new implementation of the consumer thread. The consumer
+    thread waits when the list is empty since it has nothing to consume. The monitor
+    makes the consumer thread wait and will notify it to continue its execution only
+    after a producer adds something to the list. We use the `wait()` method to tell
+    the consumer to wait if the list is empty. At the same time, when the consumer
+    removes values from the list, it notifies the waiting threads so that if a producer
+    is waiting, it now knows it can continue its execution because the list is no
+    longer full. We use the `notifyAll()` method to notify the waiting threads. You
+    can find this implementation in project da-ch9-ex2.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.4 展示了消费者线程的新实现。当列表为空时，消费者线程会等待，因为它没有可以消费的内容。监视器使消费者线程等待，并且只有在生产者向列表添加了某些内容之后，才会通知它继续执行。我们使用
+    `wait()` 方法告诉消费者如果列表为空则等待。同时，当消费者从列表中移除值时，它会通知等待的线程，这样如果生产者在等待，现在它知道它可以继续执行，因为列表不再满。我们使用
+    `notifyAll()` 方法来通知等待的线程。您可以在项目 da-ch9-ex2 中找到此实现。
+- en: Listing 9.4 Making the consumer thread wait when the list is empty
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.4 在列表为空时使消费者线程等待
+- en: '[PRE3]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ After consuming an element from the list, the consumer notifies the waiting
+    threads a change has been made in the list contents.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在从列表中消费一个元素之后，消费者通知等待的线程列表内容已发生变化。
+- en: ❷ When the list is empty, the consumer waits until it gets notified something
+    has been added to the list.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当列表为空时，消费者会等待直到它被通知列表中已添加了某些内容。
+- en: The following code shows the producer thread implementation. Similar to the
+    consumer thread, the producer thread waits if there are too many values in the
+    list. A consumer will eventually notify the producer and allow it to run again
+    when it consumes a value from the list.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码展示了生产者线程的实现。与消费者线程类似，如果列表中有太多值，生产者线程会等待。消费者最终会通知生产者，并在从列表中消费一个值后允许它再次运行。
+- en: Listing 9.5 Making the producer thread wait if the list is already full
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 9.5 如果列表已满，使生产者线程等待
+- en: '[PRE4]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ After adding an element to the list, the producer notifies the waiting threads
+    a change has been made in the list contents.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在向列表添加一个元素之后，生产者通知等待的线程列表内容已发生变化。
+- en: ❷ When the list has 100 elements, the producer waits until it gets notified
+    something has been removed from the list.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当列表中有 100 个元素时，生产者会等待直到它被通知列表中已移除某些内容。
+- en: 'As you know, we start our investigations by sampling the execution. We already
+    see something suspicious: the execution seems to take much longer (figure 9.16).
+    If you go back to the previous observations we made in section 9.1, you’ll see
+    that the whole execution was only about 9 seconds. Now, the execution takes about
+    50 seconds—a huge difference.'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如你所知，我们通过采样执行来开始我们的调查。我们已经看到一些可疑之处：执行似乎比我们之前在 9.1 节中观察到的要长得多（图 9.16）。如果你回到我们在
+    9.1 节中做出的前观察，你会发现整个执行只花了大约 9 秒。现在，执行需要大约 50 秒——这是一个巨大的差异。
+- en: '![](../../OEBPS/Images/CH09_F16_Spilca3.png)'
+  id: totrans-130
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH09_F16_Spilca3.png)'
+- en: Figure 9.16 By sampling the execution, we see that the execution time is slower
+    than before we made threads wait.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 9.16 通过采样执行，我们看到执行时间比我们使线程等待之前要慢。
+- en: Sample details (figure 9.17) show us that the `wait()` method we added caused
+    most of the thread waiting time. The thread is not locked for long since the self
+    execution time is very close to the CPU execution time. Still, our purpose is
+    to make our app more efficient overall, but it seems we only shifted the waiting
+    from one side to the other, and we made the app slower in the process.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 样本细节（图 9.17）显示我们添加的 `wait()` 方法导致了大部分线程等待时间。由于自我执行时间非常接近 CPU 执行时间，线程并没有长时间锁定。然而，我们的目的是使我们的应用程序整体上更高效，但看起来我们只是将等待从一边移到了另一边，在这个过程中使应用程序变慢了。
+- en: '![](../../OEBPS/Images/CH09_F17_Spilca3.png)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH09_F17_Spilca3.png)'
+- en: Figure 9.17 By analyzing the details, we can see that the self execution time
+    is not that long, but the thread is blocked and thus waits for a longer time.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 9.17 通过分析细节，我们可以看到自我执行时间并不长，但线程被阻塞，因此等待时间更长。
+- en: We continue by profiling for more detail (figure 9.18). Indeed, the profiling
+    results show fewer locks, but that doesn’t help much, since the execution is much
+    slower.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们继续通过更详细的性能分析（图 9.18）。确实，性能分析结果显示锁的数量更少，但这并没有很大帮助，因为执行速度仍然很慢。
+- en: '![](../../OEBPS/Images/CH09_F18_Spilca3.png)'
+  id: totrans-136
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH09_F18_Spilca3.png)'
+- en: Figure 9.18 The lock pattern is similar to our previous results, but the threads
+    are locked less frequently.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.18 锁的模式与我们的先前结果相似，但线程被锁定的频率更低。
+- en: Figure 9.19 shows you the same investigation details obtained using JProfiler.
+    In JProfiler, once we group the lock events by threads, we get both the number
+    of locks and the waiting time. In the previous exercise, the waiting time was
+    zero, but we had many more locks. Now we have fewer locks but a longer waiting
+    time. This tells us that the JVM changes more slowly between threads when using
+    a wait/notify approach than when allowing the threads to get naturally locked
+    and unlocked by the monitor of a synchronized block.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.19展示了使用JProfiler获得的相同调查细节。在JProfiler中，一旦我们将锁事件按线程分组，我们就可以得到锁的数量和等待时间。在前面的练习中，等待时间为零，但我们有更多的锁。现在锁的数量更少，但等待时间更长。这告诉我们，当使用等待/通知方法时，JVM在线程之间变化得更慢，而不是允许线程由同步块的监视器自然锁定和解锁。
+- en: '![](../../OEBPS/Images/CH09_F19_Spilca3.png)'
+  id: totrans-139
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH09_F19_Spilca3.png)'
+- en: Figure 9.19 We get the same details using JProfiler. Fewer threads are locked,
+    but now they are blocked for a much longer time.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.19 使用JProfiler我们可以得到相同的详细信息。锁定的线程更少，但现在它们被阻塞的时间更长。
+- en: Summary
+  id: totrans-141
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: A thread can be locked and forced to wait by a synchronized block of code. Locks
+    appear when threads are synchronized to avoid changing shared resources at the
+    same time.
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 线程可以通过同步代码块被锁定并强制等待。当线程同步以避免同时更改共享资源时，会出现锁。
+- en: Locks are needed to avoid race conditions, but sometimes apps use faulty thread
+    synchronization approaches, which can lead to undesired results such as performance
+    issues or even app freezes (in the case of deadlocks).
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 锁是避免竞态条件所必需的，但有时应用程序会使用有缺陷的线程同步方法，这可能导致不希望的结果，例如性能问题或甚至应用程序冻结（在死锁的情况下）。
+- en: Locks caused by synchronized code blocks slow down the app’s execution because
+    they force threads to wait instead of letting them work. Locks may be needed in
+    certain implementations, but it’s better to find ways to minimize the time an
+    app’s threads are locked.
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由同步代码块引起的锁会减慢应用程序的执行速度，因为它们迫使线程等待而不是让它们工作。在某些实现中可能需要锁，但最好找到方法来最小化应用程序线程被锁定的时长。
+- en: We can use a profiler to identify when locks slow down an app, how many locks
+    the app encounters during execution, and how much they slow down performance.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用性能分析器来识别何时锁会减慢应用程序，应用程序在执行过程中遇到了多少锁，以及它们会降低多少性能。
+- en: When using a profiler, always sample the execution first to figure out if the
+    app’s execution is affected by locks. You’ll usually identify locks when sampling
+    by observing that a method is waiting on itself.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当使用性能分析器时，始终先采样执行，以确定应用程序的执行是否受到锁的影响。你通常会通过观察一个方法正在等待自身来识别采样时的锁。
+- en: If you find by sampling that locks may be affecting the app’s execution, you
+    can continue investigating using lock profiling (instrumentation), which will
+    show the threads affected, the number of locks, the monitors involved, and the
+    relationship between locked threads and threads that cause the locks. These details
+    help you decide if the app’s execution is optimal or if you can find ways to enhance
+    it.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你通过采样发现锁可能影响应用程序的执行，你可以继续使用锁分析（仪器）进行调查，这将显示受影响的线程、锁的数量、涉及的监视器以及锁定线程和引起锁的线程之间的关系。这些细节有助于你决定应用程序的执行是否最优，或者你是否可以找到方法来增强它。
+- en: Each app has a different purpose, so there’s no unique formula for understanding
+    thread locks. In general, we want to minimize the time threads are locked or waiting
+    and make sure threads are not unfairly excluded from execution (starving threads).
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个应用程序都有不同的目的，因此没有理解线程锁的通用公式。一般来说，我们希望最小化线程被锁定或等待的时间，并确保线程不会被不公平地排除在执行之外（饥饿线程）。

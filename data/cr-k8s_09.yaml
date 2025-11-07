@@ -1,0 +1,1388 @@
+- en: '9 Running Pods: How the kubelet works'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 9 运行 Pods：kubelet 的工作原理
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Learning what the kubelet does and how it’s configured
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 学习 kubelet 的功能和配置方式
+- en: Connecting container runtimes and launching containers
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 连接容器运行时和启动容器
+- en: Controlling the Pod’s life cycle
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 控制 Pod 的生命周期
+- en: Understanding the CRI
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解 CRI
+- en: Looking at the Go interfaces inside the kubelet and CRI
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 查看 kubelet 和 CRI 内部的 Go 接口
+- en: The kubelet is the workhorse of a Kubernetes cluster, and there can be thousands
+    of kubelets in a production data center, as every node runs the kubelet. In this
+    chapter, we’ll go through the internals of what the kubelet does and precisely
+    how it uses the CRI (Container Runtime Interface) to run containers and manage
+    the life cycle of workloads.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 是 Kubernetes 集群的功臣，在生产数据中心中可能有成千上万的 kubelet，因为每个节点都运行 kubelet。在本章中，我们将深入了解
+    kubelet 的内部工作原理以及它如何精确地使用 CRI（容器运行时接口）来运行容器并管理工作负载的生命周期。
+- en: One of the kubelet’s jobs is to start and stop containers, and the CRI is the
+    interface that the kubelet uses to interact with container runtimes. For example,
+    *containerd* is categorized as a container runtime because it takes an image and
+    creates a running container. The *Docker engine* is a container runtime, but it
+    is now depreciated by the Kubernetes community in favor of containerd, runC, or
+    other runtimes.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 的一个任务是启动和停止容器，CRI 是 kubelet 用于与容器运行时交互的接口。例如，*containerd* 被归类为容器运行时，因为它接受镜像并创建运行中的容器。*Docker
+    引擎* 是一个容器运行时，但现在 Kubernetes 社区已经废弃它，转而使用 containerd、runC 或其他运行时。
+- en: Note We want to thank Dawn Chen for allowing us to interview her about the kubelet.
+    Dawn is the original author of the kubelet binary and is currently one of the
+    leads of the Node Special Interest Group for Kubernetes. This group maintains
+    the kubelet codebase.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们想感谢陈 Dawn 允许我们对她进行关于 kubelet 的采访。陈 Dawn 是 kubelet 二进制文件的原始作者，目前是 Kubernetes
+    节点特别兴趣小组的负责人之一。该小组维护 kubelet 代码库。
+- en: 9.1 The kubelet and the node
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.1 kubelet 和节点
+- en: At a high level, the kubelet is a binary, started by systemd. The kubelet runs
+    on every node and is a Pod scheduler and node agent, but only for the local node.
+    The kubelet monitors and maintains information about the server it runs on for
+    the node. The binary updates the Node object via calls to the API server, based
+    on changes to the node.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从高层次来看，kubelet 是一个由 systemd 启动的二进制文件。kubelet 在每个节点上运行，是 Pod 调度器和节点代理，但仅限于本地节点。kubelet
+    监控并维护其运行的节点上的信息。根据节点的变化，二进制文件通过调用 API 服务器来更新节点对象。
+- en: 'Let’s start by looking at a Node object, which we get by executing `kubectl`
+    `get` `nodes` `<insert_node_name>` `-o` `yaml` on a running cluster. The next
+    few code blocks are snippets produced by the `kubectl get nodes` command. You
+    can follow along by executing `kind` `create` `cluster` and running the `kubectl`
+    commands. For example, `kubectl` `get` `nodes` `-o` `yaml` produces the following
+    output, which is shortened for the sake of brevity:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先看看节点对象，这是通过在运行中的集群上执行 `kubectl get nodes <insert_node_name>` `-o` `yaml`
+    命令获得的。接下来的几个代码块是 `kubectl get nodes` 命令生成的片段。你可以通过执行 `kind create cluster` 并运行
+    `kubectl` 命令来跟进。例如，`kubectl get nodes -o yaml` 生成以下输出，为了简洁起见已缩短：
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ The kubelet uses this socket to communicate with the container runtime.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ kubelet 使用此套接字与容器运行时通信。
+- en: 'The metadata in the Node object in this code tells us what its container runtime
+    is and what Linux architecture it runs. The kubelet interacts with the CNI provider.
+    As we have mentioned in other chapters, the CNI provider’s job is to allocate
+    IP addresses for Pods and to create the Pod’s network, which allows networking
+    inside a Kubernetes cluster. The Node API object includes the CIDR (an IP address
+    range) for all Pods. Importantly, we also specify an internal IP address for the
+    node itself, which is necessarily different from that of the Pod’s CIDR. The next
+    source block displays part of the YAML produced by `kubectl` `get` `node`:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此代码中，节点对象中的元数据告诉我们它的容器运行时是什么以及它运行的 Linux 架构。kubelet 与 CNI 提供者交互。正如我们在其他章节中提到的，CNI
+    提供者的任务是为 Pods 分配 IP 地址并创建 Pod 的网络，这允许 Kubernetes 集群内部的网络通信。节点 API 对象包括所有 Pods
+    的 CIDR（IP 地址范围）。重要的是，我们还指定了节点本身的内部 IP 地址，这必然与 Pod 的 CIDR 不同。下一个源代码块显示了 `kubectl
+    get node` 命令生成的部分 YAML：
+- en: '[PRE1]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Now we get to the `status` portion of the definition. All Kubernetes API objects
+    have `spec` and `status` fields:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看定义中的 `status` 部分。所有 Kubernetes API 对象都有 `spec` 和 `status` 字段：
+- en: '`spec`—Defines an object’s specifications (what you want it to be)'
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`spec`—定义对象的规范（你希望它成为什么）'
+- en: '`status`—Represents the current state of an object'
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`status`—表示对象当前状态'
+- en: 'The `status` stanza is the data that the kubelet maintains for the cluster,
+    and it also includes a list of conditions that are heartbeat messages communicated
+    to the API server. All additional system information is acquired automatically
+    when the node starts. This status information is sent to the Kubernetes API server
+    and is updated continually. The following code block displays part of the YAML
+    produced by `kubectl get node` that shows the `status` fields:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`status`部分是kubelet为集群维护的数据，它还包括一个条件列表，这些条件是发送到API服务器的心跳消息。节点启动时自动获取所有附加的系统信息。此状态信息发送到Kubernetes
+    API服务器，并持续更新。以下代码块显示了`kubectl get node`产生的部分YAML，显示了`status`字段：'
+- en: '[PRE2]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'Further down in the YAML document, you’ll find the `allocatable` fields for
+    this node. If you can explore these fields, you’ll see that there is information
+    about CPU and memory:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在YAML文档的下方，你会找到这个节点的`allocatable`字段。如果你可以探索这些字段，你会看到有关CPU和内存的信息：
+- en: '[PRE3]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: There are other fields available in a Node object, so we encourage you to look
+    at the YAML for yourself when your nodes report back as you inspect them. You
+    can have anywhere from 0–15,000 nodes (15,000 nodes is considered the current
+    limit of nodes on a cluster due to endpoints and other metadata-intensive operations
+    that become costly at scale). The information in the Node object is critical for
+    things like scheduling Pods.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 节点对象中还有其他可用的字段，所以我们鼓励你在检查节点时查看YAML文件。你可以有0到15,000个节点（15,000个节点被认为是集群中节点的当前极限，因为端点和其他大量元数据密集型操作在规模扩大时变得成本高昂）。节点对象中的信息对于像调度Pods这样的任务至关重要。
+- en: 9.2 The core kubelet
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.2 核心kubelet
+- en: We know that the kubelet is a binary that is installed on every node, and we
+    know that it is critical. Let’s get into the world of the kubelet and what it
+    does. Nodes and kubelets are not useful without a container runtime, which they
+    rely on to execute containerized processes. We’ll take a look at container runtimes
+    next.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道kubelet是一个安装在每个节点上的二进制文件，我们也知道它是关键的。让我们深入了解kubelet的世界以及它所做的工作。没有容器运行时，节点和kubelet就失去了作用，它们依赖容器运行时来执行容器化进程。我们将接下来查看容器运行时。
+- en: '9.2.1 Container runtimes: Standards and conventions'
+  id: totrans-27
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.2.1 容器运行时：标准和规范
+- en: 'Images, which are tarballs, and the kubelet need well-defined APIs for executing
+    binaries that run these tarballs. This is where standard APIs come into play.
+    Two specifications, CRI and OCI, define the *how* and the *what* for the kubelet’s
+    goal of running containers:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 镜像，它们是tar包，kubelet需要定义良好的API来执行运行这些tar包的二进制文件。这就是标准API发挥作用的地方。两个规范，CRI和OCI，定义了kubelet运行容器目标中的*如何*和*什么*：
+- en: '*The CRI defines the how.* These are the remote calls used to start, stop,
+    and manage containers and images. Any container runtime fulfills this interface
+    in one way or another as a remote service.'
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*CRI定义了如何实现。* 这些是用于启动、停止和管理容器和镜像的远程调用。任何容器运行时都以某种方式作为远程服务实现此接口。'
+- en: '*The OCI defines the what.* This is the standard for container image formats.
+    When you start or stop a container via a CRI implementation, you are relying on
+    that container’s image format to be standardized in a certain way. The OCI defines
+    a tarball that contains more tarballs with a metadata file.'
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*OCI定义了什么。* 这是容器镜像格式的标准。当你通过CRI实现启动或停止容器时，你依赖于该容器的镜像格式以某种方式标准化。OCI定义了一个包含更多tar包和元数据文件的tar包。'
+- en: 'If you can, start a `kind` cluster so that you can walk through these examples
+    with us. The kubelet’s core dependency, the CRI, must be provided as a startup
+    argument to the kubelet or configured in an alternative manner. As an example
+    of a containerd’s configuration, you can look for /etc/containerd/config.toml
+    inside a running `kind` cluster and observe the various configuration inputs,
+    which include the hooks that defined the CNI provider. For example:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果可能的话，启动一个`kind`集群，这样你就可以与我们一起遍历这些示例。kubelet的核心依赖项CRI必须作为启动参数提供给kubelet或以其他方式配置。例如，作为containerd配置的示例，你可以在运行的`kind`集群中查找`/etc/containerd/config.toml`，并观察各种配置输入，包括定义了CNI提供者的钩子。例如：
+- en: '[PRE4]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'In the next example, we use `kind` to create a Kubernetes v1.20.2 cluster.
+    Note that this output may vary between Kubernetes versions. To view the file on
+    a `kind` cluster, run these commands:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个示例中，我们使用 `kind` 创建一个 Kubernetes v1.20.2 集群。请注意，此输出可能因 Kubernetes 版本而异。要在
+    `kind` 集群中查看文件，请运行以下命令：
+- en: '[PRE5]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Creates a Kubernetes cluster
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个 Kubernetes 集群
+- en: ❷ Finds the Docker container ID of the running kind container
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 查找正在运行的 kind 容器的 Docker 容器 ID
+- en: ❸ Executes into the running container and gets an interactive command line
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 执行到正在运行的容器中并获取交互式命令行
+- en: ❹ Displays the containerd configuration file
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 显示 containerd 配置文件
+- en: 'We’re not going to be diving into container implementation details here. Still,
+    you need to know that it is the underlying runtime that the kubelet usually depends
+    on under the hood. It takes a CRI provider, image registry, and runtime values
+    as inputs, meaning that the kubelet can accommodate many different containerization
+    implementations (VM containers, gVisor containers, and so on). If you are in the
+    same shell running inside the `kind` container, you can execute the following
+    command:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会深入探讨容器实现细节。然而，您需要知道，kubelet 通常在底层依赖于底层运行时。它接受 CRI 提供程序、镜像注册表和运行时值作为输入，这意味着
+    kubelet 可以适应许多不同的容器化实现（VM 容器、gVisor 容器等）。如果您在 `kind` 容器内部运行的相同 shell 中，您可以执行以下命令：
+- en: '[PRE6]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This prints the list of configuration options and command-line flags provided
+    to the kubelet running inside the `kind` container. These options are covered
+    next; however, we do not cover all the options because there are a lot.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将打印出提供给 `kind` 容器内运行的 kubelet 的配置选项和命令行标志。接下来将介绍这些选项；然而，我们不会介绍所有选项，因为有很多。
+- en: 9.2.2 The kubelet configurations and its API
+  id: totrans-42
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.2.2 kubelet 配置及其 API
+- en: 'The kubelet is an integration point for a broad range of primitives in the
+    Linux OS. Some of its data structures reveal the form and function of how it has
+    evolved. The kubelet has well over 100 different command-line options in two different
+    categories:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 是 Linux 操作系统中各种原语的综合点。其中一些数据结构揭示了其演变的形式和功能。kubelet 在两个不同类别中拥有超过 100
+    个不同的命令行选项：
+- en: '*Options*—Toggle the behavior of the low-level Linux functionality used with
+    Kubernetes, such as rules related to maximum iptables usage or DNS configuration'
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*选项*—切换与 Kubernetes 一起使用的低级 Linux 功能的行为，例如与最大 iptables 使用或 DNS 配置相关的规则'
+- en: '*Choices*—Define the life cycle and health of the kubelet binary'
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*选择*—定义 kubelet 二进制文件的生命周期和健康状态'
+- en: The kubelet has numerous corner cases; for example, how it handles Docker versus
+    containerd workloads, how it manages Linux versus Windows workloads, and so on.
+    Each one of these corner cases may take weeks or even months to debate when it
+    comes down to defining its specification. Because of this, it’s good to understand
+    the structure of the kubelet’s codebase so that you can dig into it and provide
+    yourself with some self-soothing in cases where you hit a bug or an otherwise
+    unexpected behavior.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 有许多边缘情况；例如，它如何处理 Docker 与 containerd 工作负载，如何管理 Linux 与 Windows 工作负载等。在定义其规范时，每个这些边缘情况可能需要几周甚至几个月的时间进行辩论。因此，了解
+    kubelet 代码库的结构是很好的，这样您就可以深入挖掘，并在遇到错误或意外行为时给自己一些安慰。
+- en: Note The Kubernetes v1.22 release introduced quite a few changes to the kubelet.
+    Some of these changes included removal of in-tree storage providers, new security
+    defaults via the `--seccomp-default` flag, the ability to rely on memory swapping
+    (known as the NodeSwap feature), and memory QoS improvements. If you are interested
+    in learning more about all the improvements in the Kubernetes v1.22 release, we
+    highly recommend reading through [http://mng.bz/2jy0](http://mng.bz/2jy0). Relevant
+    to this chapter, a recent bug in the kubelet can cause static Pod manifest changes
+    to break long running Pods.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：Kubernetes v1.22 版本对 kubelet 引入了许多更改。其中一些更改包括删除树内存储提供程序、通过 `--seccomp-default`
+    标志引入新的安全默认值、依赖内存交换（称为 NodeSwap 功能）的能力以及内存 QoS 的改进。如果您想了解更多关于 Kubernetes v1.22
+    版本中所有改进的信息，我们强烈建议您阅读[http://mng.bz/2jy0](http://mng.bz/2jy0)。与本章节相关的是，kubelet
+    中最近的一个错误可能导致静态 Pod 清单更改破坏长时间运行的 Pod。
+- en: 'The kubelet.go file is the main entry point for the start of the kubelet binary.
+    The cmd folder contains the definitions for the kubelet’s flags. (Take a look
+    at [http://mng.bz/REVK](http://mng.bz/REVK) for the flags, CLI options, and definitions.)
+    The following declares the `kubeletFlags` struct. This struct is for the CLI flags,
+    but we also have API values as well:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet.go 文件是 kubelet 二进制程序启动的主要入口点。cmd 文件夹包含 kubelet 标志的定义。（查看 [http://mng.bz/REVK](http://mng.bz/REVK)
+    了解标志、CLI 选项和定义。）以下声明了 `kubeletFlags` 结构。这个结构是用于 CLI 标志的，但我们也有 API 值：
+- en: '[PRE7]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Previously, we had a code block where we grepped for `/usr/bin/kubelet`, and
+    part of the result included `--config=/var/lib/kubelet/config.yaml`. The `--config`
+    flag defines a configuration file. The following code block `cat`s that configuration
+    file:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前，我们有一个代码块，其中我们使用 `grep` 搜索 `/usr/bin/kubelet`，结果的一部分包括 `--config=/var/lib/kubelet/config.yaml`。`--config`
+    标志定义了一个配置文件。以下代码块使用 `cat` 查看该配置文件：
+- en: '[PRE8]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ Outputs the config.yaml file
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 输出 config.yaml 文件
+- en: 'The next code block shows the output of the `cat` command:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码块显示了 `cat` 命令的输出：
+- en: '[PRE9]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: All of the kubelet API values are defined in the types.go file at [http://mng.bz/wnJP](http://mng.bz/wnJP).
+    This file is an API data structure holding input configuration data for the kubelet.
+    It defines many of the configurable aspects of the kubelet referenced via [http://mng.bz/J1YV](http://mng.bz/J1YV).
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有 kubelet API 值都在 [http://mng.bz/wnJP](http://mng.bz/wnJP) 的 types.go 文件中定义。此文件是一个
+    API 数据结构，包含 kubelet 的输入配置数据。它定义了通过 [http://mng.bz/J1YV](http://mng.bz/J1YV) 引用的
+    kubelet 的许多可配置方面。
+- en: Note Although we reference Kubernetes version 1.20.2 in the URLs, when you read
+    this information, keep in mind that although the code location may vary, the API
+    objects change quite slowly.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：尽管我们在 URL 中引用了 Kubernetes 版本 1.20.2，但在你阅读此信息时，请注意，尽管代码位置可能不同，但 API 对象的变化相当缓慢。
+- en: '*Kubernetes API machinery* is the mechanism or standard for how API objects
+    are defined within Kubernetes and the Kubernetes source base.'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*Kubernetes API 机制* 是定义 Kubernetes 中 API 对象的机制或标准，以及 Kubernetes 源代码库。'
+- en: 'You will notice in the types.go file that many low-level networking and process
+    control knobs are sent directly to the kubelet as input. The following example
+    shows the ClusterDNS configuration that you probably can relate to. It is important
+    for a functioning Kubernetes cluster:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会在 types.go 文件中注意到，许多低级网络和进程控制功能直接发送到 kubelet 作为输入。以下示例显示了 ClusterDNS 配置，你可能能够与之相关联。这对于一个正常工作的
+    Kubernetes 集群非常重要：
+- en: '[PRE10]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: When a Pod is created, multiple files are also produced dynamically. One of
+    those files is /etc/resolv.conf. It is used by the Linux networking stack to perform
+    DNS lookups because the file defines DNS servers. We’ll see how to create this
+    next.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当创建 Pod 时，还会动态生成多个文件。其中之一是 /etc/resolv.conf。它被 Linux 网络堆栈用于执行 DNS 查询，因为该文件定义了
+    DNS 服务器。我们将看到如何创建此文件。
+- en: 9.3 Creating a Pod and seeing it in action
+  id: totrans-61
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.3 创建 Pod 并观察其运行
+- en: 'Run the following commands to create a NGINX Pod running on a Kubernetes cluster.
+    Then, from the command line, you can `cat` the file with the next code block:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行以下命令以在 Kubernetes 集群上创建一个运行中的 NGINX Pod。然后，从命令行，你可以使用 `cat` 命令查看下一个代码块中的文件：
+- en: '[PRE11]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Starts the Pod
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 启动 Pod
+- en: ❷ Executes into the shell of the running NGINX container
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 执行到运行中的 NGINX 容器的 shell 中
+- en: ❸ Use cat to inspect the resolv.conf file.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用 `cat` 检查 resolv.conf 文件。
+- en: You can now see how the kubelet, when creating a Pod (as in the previous section),
+    creates and mounts the resolv.conf file. Now your Pod can do a DNS lookup and,
+    if you want, you can `ping` google.com. Other interesting structs in the types.go
+    file include
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以看到 kubelet 在创建 Pod（如前一个部分所示）时创建和挂载 resolv.conf 文件。现在你的 Pod 可以执行 DNS 查询，如果你愿意，你可以
+    `ping` google.com。types.go 文件中的其他有趣的结构包括
+- en: '`ImageMinimumGCAge` (for image garbage collection)—In long-running systems,
+    images might fill up drive space over time.'
+  id: totrans-68
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`ImageMinimumGCAge`（用于图像垃圾收集）——在长时间运行的系统中，图像可能会随着时间的推移填满磁盘空间。'
+- en: '`kubeletCgroups` (for Pod cgroup roots and drivers)—The ultimate upstream pool
+    for Pod resources can be systemd, and this struct unifies the administration of
+    all processes along with the administration of containers.'
+  id: totrans-69
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`kubeletCgroups`（用于 Pod cgroup 根和驱动程序）——Pod 资源的最终上游池可以是 systemd，这个结构统一了所有进程的管理以及容器的管理。'
+- en: '`EvictionHard` (for hard limits)—This struct specifies when Pods should be
+    deleted, which is based on system load.'
+  id: totrans-70
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`EvictionHard`（用于硬限制）——这个结构指定了何时应该删除 Pod，这基于系统负载。'
+- en: '`EvictionSoft` (for soft limits)—This struct specifies how long the kubelet
+    waits before evicting a greedy Pod.'
+  id: totrans-71
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`EvictionSoft`（用于软限制）——这个结构体指定了 kubelet 在驱逐贪婪 Pod 之前等待多长时间。'
+- en: These are just a few of the types.go file options; the kubelet has hundreds
+    of permutations. All of these values are set via command-line options, default
+    values, or YAML configuration files.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些只是 types.go 文件选项中的一小部分；kubelet 有数百种排列组合。所有这些值都是通过命令行选项、默认值或 YAML 配置文件设置的。
+- en: 9.3.1 Starting the kubelet binary
+  id: totrans-73
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.1 启动 kubelet 二进制文件
+- en: When a node starts, several events occur that ultimately lead to its availability
+    as a scheduling target in a Kubernetes cluster. Note that the ordering of events
+    is approximate due to changes in the kubelet codebase and the asynchrony of Kubernetes
+    in general. Figure 9.1 shows the kubelet at startup. Looking at the steps in the
+    figure, we notice that
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个节点启动时，会发生几个事件，最终导致它作为一个 Kubernetes 集群中的调度目标可用。请注意，由于 kubelet 代码库的变化和 Kubernetes
+    的一般异步性，事件的顺序是近似的。图 9.1 显示了 kubelet 的启动状态。观察图中的步骤，我们注意到
+- en: Some simple sanity checks occur to make sure that Pods (containers) are runnable
+    by the kubelet. (`NodeAllocatable` inputs are checked, which defines how much
+    CPU and memory are allocated.)
+  id: totrans-75
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 进行一些简单的合理性检查以确保 Pod（容器）可以被 kubelet 运行。(`NodeAllocatable` 输入被检查，这定义了分配了多少 CPU
+    和内存。)
+- en: The `containerManager` routine begins. This is the kubelet’s main event loop.
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`containerManager` 例程开始。这是 kubelet 的主要事件循环。'
+- en: A cgroup is added. If necessary, it’s created with the `setupNode` function.
+    The Scheduler and ControllerManager both “notice” that there is a new node in
+    the system. They “watch” it via the API server so that it can run processes that
+    need homes (it can even run new Pods) and ensure that it is not skipping periodic
+    heartbeats from the API server. If the kubelet skips a heartbeat, the node eventually
+    is removed from the cluster by the ControllerManager.
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 添加了一个 cgroup。如果需要，它将通过 `setupNode` 函数创建。调度器和 ControllerManager 都“注意到”系统中有一个新的节点。它们通过
+    API 服务器“监视”它，以便它可以运行需要家园（它甚至可以运行新的 Pod）的过程，并确保它不会跳过来自 API 服务器的周期性心跳。如果 kubelet
+    跳过心跳，节点最终会被 ControllerManager 从集群中移除。
+- en: The deviceManager event loop starts. This takes external plugin devices into
+    the kubelet. These devices are then sent as part of the continuous updates (mentioned
+    in the previous step).
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: deviceManager 事件循环开始。这会将外部插件设备引入 kubelet。然后，这些设备作为连续更新的一部分（在上一步骤中提到）被发送。
+- en: Logging, CSI, and device-plugin functionality are attached to the kubelet and
+    registered.
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将日志记录、CSI 和设备插件功能附加到 kubelet 并注册。
+- en: '![](../Images/CH09_F02_love.png)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH09_F02_love.png)'
+- en: Figure 9.1 The kubelet startup cycle
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 9.1 kubelet 启动周期
+- en: '9.3.2 After startup: Node life cycle'
+  id: totrans-82
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.2 启动后：节点生命周期
+- en: In earlier versions of Kubernetes (before 1.17), the Node object was updated
+    in a status loop every 10 seconds via the kubelet making a call to the API server.
+    By design, the kubelet is a bit chatty with the API server because the control
+    plane in a cluster needs to know if nodes are healthy or not. If you watch a cluster
+    starting, you will notice the kubelet binary attempting to communicate with the
+    control plane, and it will do so multiple times until the control plane is available.
+    This control loop allows the control plane to not be available, and the nodes
+    are aware of this. When the kubelet binary starts, it configures the network layer
+    as well, having the CNI provider create the proper networking features, such as
+    a bridge for CNI networking to function.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Kubernetes 的早期版本（1.17 之前），节点对象通过 kubelet 调用 API 服务器的方式，每 10 秒更新一次状态循环。按照设计，kubelet
+    与 API 服务器有点健谈，因为集群中的控制平面需要知道节点是否健康。如果你观察一个集群的启动过程，你会注意到 kubelet 二进制文件正在尝试与控制平面通信，并且它将多次这样做，直到控制平面可用。这个控制循环允许控制平面不可用，而节点知道这一点。当
+    kubelet 二进制文件启动时，它还配置了网络层，让 CNI 提供商创建适当的网络功能，例如为 CNI 网络功能创建一个网桥。
+- en: 9.3.3 Leasing and locking in etcd and the evolution of the node lease
+  id: totrans-84
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.3 etcd 中的租赁和锁定以及节点租赁的演变
+- en: To optimize the performance of large clusters and decrease network chattiness,
+    Kubernetes versions 1.17 and later implement a specific API server endpoint for
+    managing the kubelets via etcd’s *leasing mechanism*. etcd introduced the concept
+    of a lease so that HA (highly available) components that might need failovers
+    can rely on a central leasing and locking mechanism rather than implementing their
+    own.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了优化大型集群的性能并减少网络嘈杂，Kubernetes 1.17及以后的版本实现了一个特定的API服务器端点，用于通过etcd的*租赁机制*管理kubelet。etcd引入了租赁的概念，以便可能需要故障转移的HA（高可用性）组件可以依赖于中央租赁和锁定机制，而不是实现自己的。
+- en: 'Anyone who has taken a computer science course on semaphores can identify with
+    why the creators of Kubernetes did not want to rely on a myriad of home-grown
+    locking implementations for different components. Two independent control loops
+    maintain the kubelet’s state:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何上过计算机科学课程关于信号量的学生都能理解为什么Kubernetes的创造者不希望依赖于为不同组件定制的众多自研锁定实现。两个独立的控制循环维护kubelet的状态：
+- en: '*The NodeStatus object is updated by the kubelet every 5 minutes to tell the
+    API server about its state.* For example, if you reboot a node after upgrading
+    its memory, you will see this update in the API server’s view of the NodeStatus
+    object of the kubelet 5 minutes later. If you’re wondering how big this data structure
+    is, run `kubectl` `get` `nodes` `-o` `yaml` on a large production cluster. You
+    will likely see tens of thousands of lines of text amounting to at least 10 KB
+    per node.'
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*kubelet每5分钟更新一次NodeStatus对象，以告诉API服务器其状态。例如，如果您在升级内存后重新启动节点，您将在5分钟后在API服务器查看kubelet的NodeStatus对象中看到此更新。如果您想知道这个数据结构有多大，请在大型生产集群上运行`kubectl
+    get nodes -o yaml`。您可能会看到成千上万的文本行，每节点至少10 KB。*'
+- en: '*Independently, the kubelet updates a Lease object (which is quite tiny) every
+    10 seconds.* These updates allow the controllers in the Kubernetes control plane
+    to evict a node within a few seconds if it appears to have gone offline, without
+    incurring the high cost of sending a large amount of status information.'
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*独立地，kubelet每10秒更新一次Lease对象（非常小）。这些更新允许Kubernetes控制平面中的控制器在几秒钟内驱逐似乎已离线的节点，而无需承担发送大量状态信息的高成本。*'
+- en: 9.3.4 The kubelet’s management of the Pod life cycle
+  id: totrans-89
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.4 kubelet对Pod生命周期的管理
+- en: 'After all of the preflight checks are complete, the kubelet starts a big sync
+    loop: the `containerManager` routine. This routine handles the Pod’s life cycle,
+    which consists of a control loop of actions. Figure 9.2 shows the Pod’s life cycle
+    and the steps to managing a Pod:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有预检检查完成后，kubelet启动一个大的同步循环：`containerManager`例程。此例程处理Pod的生命周期，它由一系列动作的控制循环组成。图9.2显示了Pod的生命周期和管理Pod的步骤：
+- en: Starts the Pod life cycle
+  id: totrans-91
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 启动Pod生命周期
+- en: Ensures the Pod can run on the node
+  id: totrans-92
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 确保Pod可以在节点上运行
+- en: Sets up storage and networking (CNI)
+  id: totrans-93
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 设置存储和网络（CNI）
+- en: Starts the containers via CRI
+  id: totrans-94
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过CRI启动容器
+- en: Monitors the Pod
+  id: totrans-95
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 监控Pod
+- en: Performs restarts
+  id: totrans-96
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 执行重启
+- en: Stops the Pod
+  id: totrans-97
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 停止Pod
+- en: '![](../Images/CH09_F03_love.png)'
+  id: totrans-98
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH09_F03_love.png)'
+- en: Figure 9.2 A kubelet’s Pod life cycle
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.2 一个kubelet的Pod生命周期
+- en: Figure 9.3 illustrates the life of a container hosted on a Kubernetes node.
+    As depicted in the figure
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.3说明了托管在Kubernetes节点上的容器的生命周期。如图所示
+- en: A user or the replica set controller decides to create a Pod via the Kubernetes
+    API.
+  id: totrans-101
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 用户或副本集控制器决定通过Kubernetes API创建Pod。
+- en: The scheduler finds the right home for the Pod (e.g., a host with the IP Address
+    of 1.2.3.4).
+  id: totrans-102
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调度器找到Pod的正确归宿（例如，IP地址为1.2.3.4的主机）。
+- en: The kubelet on host 1.2.3.4 gets new data from its watch on the API server’s
+    Pods, and it notices that it is not yet running the Pod.
+  id: totrans-103
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 主机1.2.3.4上的kubelet从其监视API服务器Pod的数据中获取新数据，并注意到它尚未运行Pod。
+- en: The Pod’s creation process starts.
+  id: totrans-104
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Pod的创建过程开始。
+- en: The pause container has a sandbox where the requested one or more containers
+    will live, defining the Linux namespaces and IP address created for it by the
+    the kubelet and the CNI (container networking interface) provider.
+  id: totrans-105
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 暂停容器有一个沙盒，其中请求的一个或多个容器将驻留，定义了kubelet和CNI（容器网络接口）提供者为它创建的Linux命名空间和IP地址。
+- en: The kubelet communicates with the container runtime, pulling the layers of a
+    container, and runs the actual image.
+  id: totrans-106
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: kubelet与容器运行时通信，拉取容器的层，并运行实际镜像。
+- en: The NGINX container starts.
+  id: totrans-107
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: NGINX容器启动。
+- en: '![](../Images/CH09_F04_love.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH09_F04_love.png)'
+- en: Figure 9.3 Pod creation
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图9.3 Pod创建
+- en: If something goes wrong, such as if the container dies or its health check fails,
+    the Pod itself may get moved to a new node. This is known as *rescheduling*. We
+    mentioned the pause container, which is a container that is used to create the
+    Pod-shared Linux namespaces. We’ll cover the pause container later in this chapter.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果出现错误，例如容器死亡或健康检查失败，Pod 本身可能会被移动到新的节点。这被称为 *重新调度*。我们提到了暂停容器，这是一个用于创建 Pod 共享
+    Linux 命名空间的容器。我们将在本章后面介绍暂停容器。
+- en: '9.3.5 CRI, containers, and images: How they are related'
+  id: totrans-111
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.5 CRI、容器和镜像：它们是如何相关的
+- en: Part of the kubelet’s job is image management. You probably are familiar with
+    this process if you have ever run `docker` `rm` `-a` `-q` or `docker` `images`
+    `--prune` on your laptop. Although the kubelet only concerns itself with running
+    containers, to come to life, these containers ultimately rely on *base images*.
+    These images are pulled from image registries. One such registry is Docker Hub.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 的工作之一是镜像管理。如果你曾经在你的笔记本电脑上运行过 `docker rm -a -q` 或 `docker images --prune`，你可能熟悉这个过程。尽管
+    kubelet 只关心运行容器，但这些容器要启动，最终依赖于 *基础镜像*。这些镜像是从镜像仓库中拉取的。Docker Hub 是这样的一个仓库。
+- en: A new layer on top of existing images creates a container. Commonly used images
+    use the same layers, and these layers are cached by the container runtime running
+    on the kubelet. The caching time is based on the garbage collection facility in
+    the kubelet itself. This functionality expires and deletes old images from the
+    ever-growing registry cache, which ultimately is the kubelet’s job to maintain.
+    This process optimizes container startup while preventing disks from getting flooded
+    with images that are no longer utilized.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在现有镜像之上创建一个新的层来创建容器。常用的镜像使用相同的层，这些层由运行在 kubelet 上的容器运行时进行缓存。缓存时间基于 kubelet 自身的垃圾收集功能。这个功能会过期并删除从不断增长的注册缓存中删除旧镜像，这最终是
+    kubelet 的职责来维护。这个过程优化了容器的启动，同时防止磁盘被不再使用的镜像淹没。
+- en: '9.3.6 The kubelet doesn’t run containers: That’s the CRI’s job'
+  id: totrans-114
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.6 kubelet 不运行容器：这是 CRI 的职责
+- en: 'A container runtime provides functionality associated with managing the containers
+    you need to run from the kubelet. Remember, the kubelet itself can’t run containers
+    on its own: it relies on something like containerd or runC under the hood. This
+    reliance is managed via the CRI interface.'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器运行时提供了与从 kubelet 运行所需容器相关的功能。记住，kubelet 本身不能独立运行容器：它依赖于底层的 containerd 或 runC。这种依赖通过
+    CRI 接口进行管理。
+- en: 'The chances are that, regardless of what Kubernetes release you are running,
+    you have runC installed. You can efficiently run any image manually with runC.
+    For example, run `docker ps` to list a container that is running locally. You
+    could export the image as a tarball as well. In our case, we can do the following:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 很可能，无论你运行的是哪个版本的 Kubernetes，你都安装了 runC。你可以使用 runC 高效地手动运行任何镜像。例如，运行 `docker
+    ps` 来列出本地正在运行的容器。你也可以将镜像导出为 tarball。在我们的例子中，我们可以做以下操作：
+- en: '[PRE12]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Gets the image ID
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取镜像 ID
+- en: ❷ Exports the image to a tarball
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将镜像导出为 tarball
+- en: ❸ Extracts the tarball
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 解压 tarball
+- en: ❹ Starts runC
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 启动 runC
+- en: 'These commands create a config.json file. For example:'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些命令创建一个 config.json 文件。例如：
+- en: '[PRE13]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Typically, you will want to chat the args section `sh`, which is the default
+    command created by runC, to do something meaningful (such as `python` `mycontainerizedapp.py`).
+    We omitted most of the boilerplate from the preceding config.json file, but we
+    kept an essential part: the `namespaces` section.'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，你将想要修改 args 部分 `sh`，这是 runC 创建的默认命令，以执行一些有意义的事情（例如 `python mycontainerizedapp.py`）。我们从先前的
+    config.json 文件中省略了大部分样板代码，但保留了一个关键部分：`namespaces` 部分。
+- en: '9.3.7 Pause container: An “aha” moment'
+  id: totrans-125
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.3.7 暂停容器：一个“啊哈”时刻
+- en: Every container in a Pod corresponds to a runC action. We therefore need a pause
+    container, which precedes all of the containers. A pause container
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod 中的每个容器都对应于一个 runC 操作。因此，我们需要一个暂停容器，它位于所有容器之前。一个暂停容器
+- en: Waits until a network namespace is available so all containers in a Pod can
+    share a single IP and talk over 127.0.0.1
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 等待直到网络命名空间可用，这样 Pod 中的所有容器都可以共享单个 IP 并通过 127.0.0.1 进行通信
+- en: Pauses until a filesystem is available so all containers in a Pod can share
+    data over emptyDir
+  id: totrans-128
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 暂停，直到文件系统可用，这样 Pod 中的所有容器都可以通过 emptyDir 共享数据
+- en: Once the Pod is set up, each runC call takes the same namespace parameters.
+    Although the kubelet does not run the containers, there is a lot of logic that
+    goes into creating Pods, which the kubelet needs to manage. The kubelet ensures
+    that Kubernetes has the networking and storage guarantees for containers. This
+    makes it easy to run in distributed scenarios. Other tasks precede running a container,
+    like pulling images, which we will walk through later in this chapter. First,
+    we need to back up and look at the CRI so that we can understand the boundary
+    between the container runtime and the kubelet a little more clearly.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦 Pod 设置完成，每次 runC 调用都使用相同的命名空间参数。尽管 kubelet 不运行容器，但在创建 Pod 的过程中有很多逻辑，这是 kubelet
+    需要管理的。kubelet 确保 Kubernetes 为容器提供网络和存储保证，这使得在分布式场景下运行变得容易。在运行容器之前，还有其他任务，例如拉取镜像，我们将在本章后面详细介绍。首先，我们需要备份并查看
+    CRI，以便我们能够更清楚地了解容器运行时和 kubelet 之间的边界。
+- en: 9.4 The Container Runtime Interface (CRI)
+  id: totrans-130
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.4 容器运行时接口 (CRI)
+- en: The runC program is one small part of the puzzle when it comes to what Kubernetes
+    needs for running containers at scale. The whole mystery is primarily defined
+    by the CRI interface, which abstracts runC along with other functionality to enable
+    higher-order scheduling, image management, and container runtime functionality.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当涉及到 Kubernetes 在大规模下运行容器时，runC 程序只是谜团中的一小部分。整个谜团主要是由 CRI 接口定义的，该接口抽象了 runC
+    以及其他功能，以实现高级调度、镜像管理和容器运行时功能。
+- en: 9.4.1 Telling Kubernetes where our container runtime lives
+  id: totrans-132
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.4.1 告诉 Kubernetes 我们的容器运行时所在位置
+- en: 'How do we tell Kubernetes where our CRI service is running? If you look inside
+    a running `kind` cluster, you will see that the kubelet runs with the following
+    two options:'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何告诉 Kubernetes我们的 CRI 服务在哪里运行？如果您查看一个正在运行的 `kind` 集群，您将看到 kubelet 以以下两个选项运行：
+- en: '[PRE14]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The kubelet communicates via gRPC, a remote procedure call (RPC) framework,
+    with the container runtime endpoint; containerd itself has a CRI plugin built
+    into it. By `remote`, what is meant is that Kubernetes can use the containerd
+    socket as a minimal implementation of an interface to create and manage Pods and
+    their life cycles. The CRI is a minimal interface that any container runtime can
+    implement. It was mainly designed so that the community could quickly innovate
+    different container runtimes (other than Docker) and plug those into and unplug
+    from Kubernetes.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 通过 gRPC（一个远程过程调用框架）与容器运行时端点进行通信；containerd 本身内置了一个 CRI 插件。这里的“远程”意味着
+    Kubernetes 可以使用 containerd 套接字作为创建和管理 Pod 及其生命周期的最小接口实现。CRI 是任何容器运行时都可以实现的最低接口。它主要是为了使社区能够快速创新不同的容器运行时（除了
+    Docker 之外）并将它们插入到 Kubernetes 中并从 Kubernetes 中拔出。
+- en: Note Although Kubernetes is modular in how it runs containers, it is still stateful.
+    You cannot “hot” unplug a container runtime from a running Kubernetes cluster
+    without also draining (and potentially removing) a node from a live cluster. This
+    limitation is due to metadata and cgroups that the kubelet manages and creates.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：尽管 Kubernetes 在运行容器方面是模块化的，但它仍然是状态化的。您不能在不排空（并可能删除）活动集群中的一个节点的情况下“热插拔”容器运行时从运行中的
+    Kubernetes 集群中拔出。这种限制是由于 kubelet 管理和创建的元数据和 cgroups 引起的。
+- en: Because the CRI is a gRPC interface, the `container-runtime` option in Kubernetes
+    ideally should be defined as `remote` for newer Kubernetes distributions. The
+    CRI describes all container creation through an interface, and like storage and
+    networking, Kubernetes aims to move container runtime logic out of the Kubernetes
+    core over time.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 CRI 是一个 gRPC 接口，因此 Kubernetes 中的 `container-runtime` 选项在理想情况下应该定义为 `remote`，对于较新的
+    Kubernetes 发行版。CRI 通过一个接口描述了所有容器创建过程，并且像存储和网络一样，Kubernetes 旨在随着时间的推移将容器运行时逻辑从
+    Kubernetes 核心中移出。
+- en: 9.4.2 The CRI routines
+  id: totrans-138
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.4.2 CRI 程序
+- en: The CRI consists of four high-level go interfaces. This unifies all the core
+    functionality Kubernetes needs to run containers. CRI’s interfaces include
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CRI 由四个高级 go 接口组成。这统一了 Kubernetes 运行容器所需的所有核心功能。CRI 的接口包括
+- en: '*PodSandBoxManager*—Creates the setup environment for Pods'
+  id: totrans-140
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*PodSandBoxManager*—为 Pods 创建设置环境'
+- en: '*ContainerRuntime*—Starts, stops, and executes containers'
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*ContainerRuntime*—启动、停止和执行容器'
+- en: '*ImageService*—Pulls, lists, and removes images'
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*ImageService*—拉取、列出和删除镜像'
+- en: '*ContainerMetricsGetter*—Provides quantitative information about running containers'
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*ContainerMetricsGetter*—提供关于运行中容器的定量信息'
+- en: These interfaces provide pausing, pulling, and sandboxing functions. Kubernetes
+    expects this functionality to be implemented by any remote CRI and invokes this
+    functionality using gRPC.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些接口提供了暂停、拉取和沙箱功能。Kubernetes期望任何远程CRI实现这些功能，并使用gRPC调用这些功能。
+- en: '9.4.3 The kubelet’s abstraction around CRI: The GenericRuntimeManager'
+  id: totrans-145
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.4.3 节点管理器围绕CRI的抽象：GenericRuntimeManager
+- en: 'The CRI’s functionality does not necessarily cover all the bases for a production
+    container orchestration tool, such as garbage collecting old images, managing
+    container logs, and dealing with the life cycle of image pulls and image pull
+    backoffs. The kubelet provides a Runtime interface, implemented by `kuberuntime.NewKubeGenericRuntimeManager`,
+    as a wrapper for any CRI provider (containerd, CRI-O, Docker, and so on). The
+    runtime manager (inside of [http://mng.bz/lxaM](http://mng.bz/lxaM)) manages all
+    calls to the four core CRI interfaces. As an example, let’s see what happens when
+    we create a new Pod:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CRI的功能并不一定涵盖生产容器编排工具的所有基础，例如回收旧镜像、管理容器日志以及处理镜像拉取和镜像拉取回退的生命周期。节点管理器提供了一个Runtime接口，由`kuberuntime.NewKubeGenericRuntimeManager`实现，作为任何CRI提供者（containerd、CRI-O、Docker等）的包装器。运行时管理器（位于[http://mng.bz/lxaM](http://mng.bz/lxaM)）管理对所有四个核心CRI接口的所有调用。以下是一个例子，看看当我们创建一个新的Pod时会发生什么：
+- en: '[PRE15]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Pulls the image
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 拉取镜像
+- en: ❷ Creates the container’s cgroups without starting the container
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在不启动容器的情况下创建容器的cgroups
+- en: ❸ Performs network or device configuration, which is cgroup- or namespace-dependent
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 执行网络或设备配置，这取决于cgroup或命名空间
+- en: ❹ Starts the container
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 启动容器
+- en: You might wonder why we need a prestart hook in this code. A few common examples
+    of where Kubernetes uses prestart hooks include certain networking plugins and
+    GPU drivers, which need to be configured with cgroups-specific information before
+    a GPU process starts.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想知道为什么在这段代码中需要一个预启动钩子。Kubernetes使用预启动钩子的几个常见例子包括某些网络插件和GPU驱动程序，这些在GPU进程启动之前需要使用cgroup特定的信息进行配置。
+- en: 9.4.4 How is the CRI invoked?
+  id: totrans-153
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.4.4 CRI是如何被调用的？
+- en: Several lines of code obfuscate the remote calls to the CRI in the previous
+    code snippet, and we’ve removed a lot of the bloat. We will go through the `EnsureImageExists`
+    function in detail in a few moments, but let’s first look at the way Kubernetes
+    abstracts the low-level CRI functionality into the two main APIs that are internally
+    utilized by the kubelet to work with containers.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上一段代码片段中有一行或多行代码模糊了远程调用CRI，我们删除了很多冗余。我们将在稍后详细解释`EnsureImageExists`函数，但首先让我们看看Kubernetes如何将低级CRI功能抽象为两个主要的API，这两个API是节点管理器内部用来与容器一起工作的。
+- en: 9.5 The kubelet’s interfaces
+  id: totrans-155
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.5 节点管理器的接口
+- en: In the source code of the kubelet, various Go interfaces are defined. The next
+    few sections will walk through the interfaces in order to provide an overview
+    of the inner workings of the kubelet.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在节点管理器的源代码中，定义了各种Go接口。接下来的几节将按顺序介绍这些接口，以提供对节点管理器内部工作原理的概述。
+- en: 9.5.1 The Runtime internal interface
+  id: totrans-157
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.5.1 Runtime内部接口
+- en: 'The CRI in Kubernetes is broken into three parts: Runtime, StreamingRuntime,
+    and CommandRunner. The KubeGenericRuntime interface (located at [http://mng.bz/
+    BMxg](http://mng.bz/BMxg)) is managed inside of Kubernetes, wrapping core functions
+    in the CRI runtime. For example:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes中的CRI被分为三个部分：Runtime、StreamingRuntime和CommandRunner。KubeGenericRuntime接口（位于[http://mng.bz/
+    BMxg](http://mng.bz/BMxg)）在Kubernetes内部管理，它封装了CRI运行时的核心功能。例如：
+- en: '[PRE16]'
+  id: totrans-159
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Defines the interface that’s specified by a CRI provider
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 定义由CRI提供者指定的接口
+- en: ❷ Defines functions to handle streaming calls (like exec/attach/port-forward)
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 定义处理流式调用（如exec/attach/port-forward）的函数
+- en: ❸ Defines a function that executes the command in the container, returning the
+    output
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 定义一个在容器中执行命令并返回输出的函数
+- en: For vendors, this means that you first implement the Runtime interface and then
+    the StreamingRuntime interface because the Runtime interface describes most of
+    the core functionality of Kubernetes (see [http://mng.bz/1jXj](http://mng.bz/1jXj)
+    and [http://mng.bz/PWdn](http://mng.bz/PWdn)). The gRPC service clients are the
+    functions that let you get your head around how the kubelet interacts with CRI.
+    These functions are defined in the `kubeGenericRuntimeManager` struct. Specifically,
+    `runtimeService` `internalapi.RuntimeService` interacts with the CRI provider.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于供应商来说，这意味着您首先实现Runtime接口，然后是StreamingRuntime接口，因为Runtime接口描述了Kubernetes的大部分核心功能（参见[http://mng.bz/1jXj](http://mng.bz/1jXj)和[http://mng.bz/PWdn]）。gRPC服务客户端是让您了解kubelet如何与CRI交互的函数。这些函数定义在`kubeGenericRuntimeManager`结构体中。具体来说，`runtimeService
+    internalapi.RuntimeService`与CRI提供者交互。
+- en: 'Within the RuntimeService, we have the ContainerManager, and this is where
+    the magic happens. This interface is part of the actual CRI definition. The function
+    calls in the next code snippet allow the kubelet to use a CRI provider to start,
+    stop, and remove containers:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在RuntimeService中，我们有ContainerManager，这就是魔法发生的地方。这个接口是实际CRI定义的一部分。下一段代码中的函数调用允许kubelet使用CRI提供者来启动、停止和移除容器：
+- en: '[PRE17]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '9.5.2 How the kubelet pulls images: The ImageService interface'
+  id: totrans-166
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.5.2 kubelet如何拉取镜像：ImageService接口
+- en: 'Lurking in the routines for a container runtime is the ImageService interface,
+    which defines a few core methods: `PullImage`, `GetImage`, `ListImages`, and `RemoveImage`.
+    The concept of pulling an image, which derives from Docker semantics, is part
+    of the CRI specification. You can see its definition in the same file (runtime.go)
+    as the other interfaces. Thus, every container runtime implements these functions:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在容器运行时的常规操作中隐藏着ImageService接口，它定义了一些核心方法：`PullImage`、`GetImage`、`ListImages`和`RemoveImage`。拉取镜像的概念，源自Docker语义，是CRI规范的一部分。您可以在与其它接口相同的文件（runtime.go）中看到其定义。因此，每个容器运行时都实现了这些功能：
+- en: '[PRE18]'
+  id: totrans-168
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'A container runtime could call `docker pull` to pull an image. Similarly, this
+    runtime could make a call to execute `docker run` to create a container. The container
+    runtime, as you’ll recall, can be set on the kubelet when it starts, using the
+    `container-runtime-endpoint` flag like so:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器运行时可以调用`docker pull`来拉取镜像。同样，此运行时可以调用执行`docker run`来创建容器。如您所记得的，容器运行时可以在kubelet启动时设置，使用`container-runtime-endpoint`标志，如下所示：
+- en: '[PRE19]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 9.5.3 Giving ImagePullSecrets to the kubelet
+  id: totrans-171
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 9.5.3 向kubelet提供ImagePullSecrets
+- en: 'Let’s make the connection between `kubectl`, the kubelet, and the CRI interface
+    concrete. To do that, we will look at how you can provide information to the kubelet
+    so that it can download images securely from a private registry. The following
+    is a block of YAML that defines a Pod and a Secret. The Pod references a secure
+    registry that requires login credentials, and the Secret stores the login credentials:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们具体了解`kubectl`、kubelet和CRI接口之间的联系。为了做到这一点，我们将查看如何向kubelet提供信息，以便它可以安全地从私有仓库下载镜像。以下是一段YAML代码块，它定义了一个Pod和一个Secret。Pod引用了一个需要登录凭证的安全仓库，而Secret存储了登录凭证：
+- en: '[PRE20]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'In the snippet, you need to generate the `.dockerconfigjson` value yourself.
+    You can also generate the Secret interactively using `kubectl` itself like so:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在代码片段中，您需要自己生成`.dockerconfigjson`值。您也可以使用`kubectl`本身交互式地生成Secret，如下所示：
+- en: '[PRE21]'
+  id: totrans-175
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'Or you can do this with the equivalent command, if you already have an existing
+    Docker configuration JSON file:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，如果您已经有一个现有的Docker配置JSON文件，您也可以使用等效的命令：
+- en: '[PRE22]'
+  id: totrans-177
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: This command creates an entire Docker configuration, puts it into the .dockerconfigjson
+    file, and then uses that JSON payload when pulling images through ImageService.
+    More importantly, this service ultimately calls the `EnsureImageExists` function.
+    You can then run `kubectl` `get` `secret` `-o` `yaml` to view the Secret and copy
+    the entire Secret value. Then use Base64 to decode it to see your Docker login
+    token, which the kubelet uses.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令创建整个Docker配置，将其放入.dockerconfigjson文件中，然后使用该JSON有效载荷通过ImageService拉取镜像。更重要的是，此服务最终会调用`EnsureImageExists`函数。然后您可以通过运行`kubectl
+    get secret -o yaml`来查看Secret并复制整个Secret值。然后使用Base64对其进行解码以查看kubelet使用的Docker登录令牌。
+- en: 'Now that you know how the Secret is used by the Docker daemon when pulling
+    images, we will get back to looking at the plumbing in Kubernetes, which allows
+    this functionality to work entirely via Secrets managed by Kubernetes. The key
+    to all this is the ImageManager interface, which implements this functionality
+    via an `EnsureImageExists` method. This method calls the `PullImage` function
+    under the hood, if necessary, depending on the `ImagePullPolicy` defined on your
+    Pod. The next code snippet sends the required pull Secrets:'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经了解了 Docker 守护进程在拉取镜像时如何使用 Secret，我们将回到 Kubernetes 的管道部分，它允许此功能完全通过 Kubernetes
+    管理的 Secrets 来工作。这一切的关键是 ImageManager 接口，它通过 `EnsureImageExists` 方法实现此功能。如果需要，此方法会调用
+    `PullImage` 函数，具体取决于您 Pod 上定义的 `ImagePullPolicy`。下一个代码片段发送所需的拉取 Secrets：
+- en: '[PRE23]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: The `EnsureImageExists` function receives the pull Secrets that you created
+    in the YAML document earlier in this chapter. Then a `docker pull` is executed
+    securely by deserializing the `dockerconfigjson` value. Once the daemon pulls
+    this image, Kubernetes can move forward, starting the Pod.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`EnsureImageExists` 函数接收您在本章前面 YAML 文档中创建的拉取 Secrets。然后通过反序列化 `dockerconfigjson`
+    值安全地执行 `docker pull`。一旦守护进程拉取了此镜像，Kubernetes 就可以继续前进，启动 Pod。'
+- en: 9.6 Further reading
+  id: totrans-182
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 9.6 进一步阅读
+- en: M. Crosby. “What is containerd ?” Docker blog. [http://mng.bz/Nxq2](http://mng.bz/Nxq2)
+    (accessed 12/27/21).
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: M. Crosby. “什么是 containerd？” Docker 博客。 [http://mng.bz/Nxq2](http://mng.bz/Nxq2)
+    (accessed 12/27/21).
+- en: 'J. Jackson. “GitOps: ‘Git Push’ All the Things.” [http://mng.bz/6Z5G](http://mng.bz/6Z5G)
+    (accessed 12/27/21).'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'J. Jackson. “GitOps: ‘Git Push’ All the Things.” [http://mng.bz/6Z5G](http://mng.bz/6Z5G)
+    (accessed 12/27/21).'
+- en: “How does copy-on-write in fork() handle multiple fork?” Stack Exchange documentation.
+    [http://mng.bz/Exql](http://mng.bz/Exql) (accessed 12/27/21).
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “copy-on-write 在 fork() 中如何处理多个 fork？” Stack Exchange 文档。 [http://mng.bz/Exql](http://mng.bz/Exql)
+    (accessed 12/27/21).
+- en: “Deep dive into Docker storage drivers.” YouTube video. [https://www.youtube.com/watch?v=9oh_M11-foU](https://www.youtube.com/watch?v=9oh_M11-foU)
+    (accessed 12/27/21).
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “深入探讨 Docker 存储驱动。” YouTube 视频。 [https://www.youtube.com/watch?v=9oh_M11-foU](https://www.youtube.com/watch?v=9oh_M11-foU)
+    (accessed 12/27/21).
+- en: Summary
+  id: totrans-187
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: The kubelet runs on every node and controls the lifecyle of Pods on that node.
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 在每个节点上运行并控制该节点上 Pods 的生命周期。
+- en: The kubelet interacts with the container runtime to start, stop, create, and
+    delete containers.
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 与容器运行时交互以启动、停止、创建和删除容器。
+- en: We have the capability to configure various functionality (such as time to evict
+    Pods) within the kubelet.
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以在 kubelet 中配置各种功能（例如驱逐 Pods 的时间）。
+- en: When the kubelet starts, it runs various sanity checks on the node, creates
+    cgroups, and starts various plugins, such as CSI.
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当 kubelet 启动时，它会在节点上运行各种合理性检查，创建 cgroups，并启动各种插件，如 CSI。
+- en: 'The kubelet controls the life cycle of a Pod: starting the Pod, ensuring that
+    it’s running, creating storage and networking, monitoring, performing restarts,
+    and stopping Pods.'
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 控制 Pod 的生命周期：启动 Pod、确保其运行、创建存储和网络、监控、执行重启以及停止 Pods。
+- en: CRI defines the way that the kubelet interacts with the container runtime that
+    is installed.
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CRI 定义了 kubelet 与已安装的容器运行时交互的方式。
+- en: The kubelet is built from various Go interfaces. These include interfaces for
+    CRI, image pulling, and the kubelet itself.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 是由各种 Go 接口构建的。这些接口包括 CRI、镜像拉取以及 kubelet 本身。

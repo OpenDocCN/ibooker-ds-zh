@@ -1,0 +1,1904 @@
+- en: Chapter 6\. Tuning in Storm
+  id: totrans-0
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第6章：Storm中的调优
+- en: '*This chapter covers*'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*本章涵盖*'
+- en: Tuning a Storm topology
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调优Storm拓扑
+- en: Handling latency in a Storm topology
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 处理Storm拓扑中的延迟
+- en: Using Storm’s built-in metrics-collecting API
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Storm内置的指标收集API
+- en: So far, we’ve given you as gentle an introduction to Storm concepts as we can.
+    It’s time to kick things up a notch. In this chapter, we’ll discuss life as a
+    developer after you’ve deployed your topology to a Storm cluster. You thought
+    your job was over once the topology was deployed, didn’t you? Think again! Once
+    you deploy your topology, you need to make sure it’s running as efficiently as
+    possible. That’s why we’ve devoted two chapters to tuning and troubleshooting.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经尽可能地为您提供了对Storm概念的温和介绍。现在是时候提高难度了。在本章中，我们将讨论在你将拓扑部署到Storm集群后作为开发者的生活。你以为拓扑部署后你的工作就结束了，不是吗？再想想！一旦你部署了拓扑，你需要确保它尽可能高效地运行。这就是为什么我们投入了两个章节来讨论调优和故障排除。
+- en: 'We’ll briefly revisit the Storm UI, because this will be the most important
+    tool you’ll use to determine whether your topology is running efficiently. Then
+    we’ll outline a repeatable process you can use in order to identify bottlenecks
+    and resolve those bottlenecks. Our lesson on tuning doesn’t end there—we still
+    need to discuss one of the greatest enemies of fast code: latency. We’ll conclude
+    by covering Storm’s metrics-collecting API as well as introduce a few custom metrics
+    of our own. After all, knowing exactly what your topology is doing is an important
+    part of understanding how to make it faster.'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将简要回顾Storm UI，因为这将是你用来确定你的拓扑是否运行高效的最重要的工具。然后我们将概述一个可重复的过程，你可以使用它来识别瓶颈并解决这些瓶颈。我们的调优课程并没有结束——我们还需要讨论快速代码的最大敌人之一：延迟。我们将通过介绍Storm的指标收集API以及介绍我们自己的几个自定义指标来结束讨论。毕竟，确切地知道你的拓扑在做什么是理解如何使其更快的重要部分。
+- en: '|  |'
+  id: totrans-7
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-8
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'In this chapter, we have you check out source code from GitHub when running
+    through the tuning examples. To check out this code, run the following command:
+    `git checkout [tag]`, replacing [`tag]` with a version of the code we specify.
+    The GitHub repository is located at [https://github.com/Storm-Applied/C6-Flash-sale-recommender](https://github.com/Storm-Applied/C6-Flash-sale-recommender).'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们在运行调优示例时让你从GitHub检查源代码。要检查此代码，请运行以下命令：`git checkout [tag]`，将`[tag]`替换为我们指定的代码版本。GitHub存储库位于[https://github.com/Storm-Applied/C6-Flash-sale-recommender](https://github.com/Storm-Applied/C6-Flash-sale-recommender)。
+- en: '|  |'
+  id: totrans-10
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 'Before we get into each of these topics, let’s set the stage with a use case
+    that will serve as our example throughout the chapter: Daily Deals! reborn.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们深入探讨这些主题之前，让我们通过一个将在本章中作为示例案例的使用场景来设定场景：每日特价！重生。
+- en: '6.1\. Problem definition: Daily Deals! reborn'
+  id: totrans-12
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1. 问题定义：每日特价！重生
+- en: Here’s the story. We work for an up-and-coming flash sale site. Every day, we
+    put a number of items on sale for a short period of time and watch the traffic
+    roll in. Over time, the number of sales per day has been growing and it’s become
+    difficult for customers to find sales they’re interested in. Another team at our
+    company has built an online “Find My Sale!” recommendation system. Find My Sale!
+    narrows down the number of products customers might be interested in. It starts
+    with some basic information the customer has given but also incorporates purchase
+    history, browsing history, and so forth to try to get sales in which customers
+    will most likely be interested in front of them. Our website interacts with this
+    system via an HTTP API where we pass a customer identifier and get back a list
+    of recommendation identifiers. We can then turn around and look up the details
+    of those sales and display them to the customer on site.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是这个故事的来龙去脉。我们为一家新兴的闪购网站工作。每天，我们都会在短时间内推出一些商品，并观察流量涌入。随着时间的推移，每天的销售数量一直在增长，对于客户来说，找到他们感兴趣的销售变得越来越困难。我们公司另一个团队已经建立了一个在线的“找到我的销售！”推荐系统。“找到我的销售！”会缩小客户可能感兴趣的产品数量。它从客户提供的某些基本信息开始，但也结合了购买历史、浏览历史等等，试图将客户最可能感兴趣的销售放在他们面前。我们的网站通过HTTP
+    API与该系统交互，我们传递一个客户标识符，然后返回一个推荐标识符列表。然后我们可以回过头来查找这些销售的详细信息，并在网站上向客户展示。
+- en: It has been a great boon to the company and has helped fuel excellent growth.
+    At the same time, we have an aging "Daily Deals!" email that has survived from
+    the early days of the company about upcoming sales. In the beginning, its one
+    sale per email was quite effective. Eventually it was changed to use a basic heuristic
+    of getting a decent upcoming sale in our customers’ inboxes every day. Over time,
+    the effectiveness of the email has declined. Early testing indicates that the
+    problem is that the contents of the email simply aren’t relevant anymore. With
+    many sales every day, the simple heuristic isn’t picking highly relevant sales
+    to send; it picks only moderately relevant ones.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这对公司来说是一大福音，并帮助推动了卓越的增长。同时，我们有一个过时的“每日特价！”电子邮件，它从公司早期关于即将到来的销售的信息中幸存下来。最初，每封电子邮件只有一个销售信息非常有效。最终，它被改为每天在我们的客户收件箱中获取一个合理的即将到来的销售信息。随着时间的推移，电子邮件的有效性有所下降。早期的测试表明，问题是电子邮件的内容已经不再相关。每天都有很多销售，简单的启发式方法没有挑选出高度相关的销售信息发送；它只挑选出适度相关的销售信息。
+- en: 'We’ve been tasked with a new initiative: crafting an email to replace Daily
+    Deals! that will be sent to customers once a day with any sales coming the next
+    day that Find My Sales! targets as being of interest to the customer. We want
+    to use the Find My Sale! system to improve relevancy and hopefully the click-through
+    rate and eventual sales on site. There’s a caveat or two, though. Find My Sale!
+    is purely an online system where currently the recommending of sales is somewhat
+    tangled up with its external HTTP interface. Before we consider rewriting it,
+    we want to validate our idea that more relevant Daily Deals! emails are going
+    to have a significant impact on business (some members of the team think the current
+    emails are good enough and increased relevancy isn’t going to result in more than
+    a small uptick in traffic).'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们被分配了一个新的任务：制作一封电子邮件来替代每日特价活动！这封电子邮件将在每天发送给客户，包含下一天Find My Sales!系统标记为对客户感兴趣的销售信息。我们希望使用Find
+    My Sale!系统来提高相关性和点击率，以及最终在网站上的销售额。尽管如此，还有一些需要注意的地方。Find My Sale!是一个纯在线系统，目前推荐的销售额与其外部HTTP接口有些混乱。在我们考虑重写它之前，我们希望验证我们的想法，即更相关的每日特价活动电子邮件将对业务产生重大影响（团队中的一些成员认为当前的电子邮件已经足够好，提高相关性不会导致流量有大幅增长）。
+- en: 6.1.1\. Formation of a conceptual solution
+  id: totrans-16
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.1\. 构建概念解决方案
+- en: We set about designing a solution that will handle the email creation. It consumes
+    an incoming stream of customer information and makes a real-time call to Find
+    My Sale! to find any upcoming flash sales that would be of interest. (We’ve had
+    to modify Find My Sale! slightly—normally it only considers active sales, but
+    we’ve changed it to take a date range of active times to consider.) We then look
+    up information about those sales and finally store it for another process that
+    performs the email sending. [Figure 6.1](#ch06fig01) gives a general overview
+    of this design.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们着手设计一个处理电子邮件创建的解决方案。它消费客户信息的输入流，并实时调用Find My Sale!以找到任何即将到来的闪购活动，这些活动可能会引起客户的兴趣。（我们不得不稍微修改Find
+    My Sale!——通常它只考虑活跃的销售，但我们已经将其修改为考虑活跃时间范围的日期范围。）然后我们查找有关这些销售的信息，并将其存储起来，以便另一个执行电子邮件发送的过程。图6.1给出了这个设计的一般概述。
+- en: 'Figure 6.1\. The Find My Sale! topology: its components and data points'
+  id: totrans-18
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.1\. Find My Sale!拓扑：其组件和数据点
+- en: '![](06fig01.jpg)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图6.1](06fig01.jpg)'
+- en: The design is fairly straightforward; it has four components that talk to two
+    external services and one database. With this design in hand, let’s turn our focus
+    to how it maps to Storm concepts.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设计相当直接；它有四个组件，与两个外部服务和数据库进行通信。有了这个设计在手，让我们将注意力转向它是如何映射到Storm概念的。
+- en: 6.1.2\. Mapping the solution to Storm concepts
+  id: totrans-21
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.1.2\. 将解决方案映射到Storm概念
+- en: This design maps in Storm terms to a fairly simple topology to start. We have
+    a spout that emits customer information, which in turn hands it off to the Find
+    My Sale bolt, which interacts with the external service. Any found sales are emitted
+    along with the customer information to a bolt that looks up information about
+    the sale, which emits that information with the customer information to a persistence
+    bolt that stores the information so another process can pick it up later for sending
+    the email. [Figure 6.2](#ch06fig02) illustrates the design mapped to these Storm
+    concepts.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Storm 的术语中，这种设计映射到一个相对简单的拓扑结构。我们有一个喷嘴发射客户信息，然后将其传递给“查找我的销售”bolt，该bolt与外部服务交互。找到的销售信息会与客户信息一起发射到一个查找销售信息的bolt，该bolt将信息与客户信息一起发射到一个持久化bolt，以便另一个进程可以在稍后提取信息用于发送电子邮件。[图6.2](#ch06fig02)展示了将设计映射到这些Storm概念。
+- en: Figure 6.2\. The Find My Sale! design mapped to Storm concepts
+  id: totrans-23
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.2\. 将“查找我的销售”设计映射到Storm概念
+- en: '![](06fig02_alt.jpg)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig02_alt.jpg)'
+- en: The mapping of our design to Storm concepts follows a pattern similar to the
+    one found in [chapters 2](kindle_split_010.html#ch02)–[4](kindle_split_012.html#ch04).
+    We have a spout acting as the source of tuples, with three bolts performing transformations
+    on these tuples. We’ll now show you a first-pass implementation of this design
+    in code.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的设计映射到Storm概念的模式与第2章到第4章中找到的模式相似。我们有一个喷嘴作为元组的来源，有三个bolt对这些元组进行转换。现在我们将向您展示这个设计的首次代码实现。
+- en: 6.2\. Initial implementation
+  id: totrans-26
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2\. 初始实现
+- en: 'Before we get into the implementation of the design, it’s important to keep
+    in mind a couple of interfaces that will be referenced frequently in the following
+    code:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进入设计的实现之前，重要的是要记住以下将在后续代码中频繁引用的几个接口：
+- en: '**`TopologyBuilder`—** Exposes the API for specifying a topology for Storm
+    to execute'
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`TopologyBuilder`—** 提供了指定Storm执行拓扑的API'
+- en: '**`OutputCollector`—** The core API for emitting and failing tuples'
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`OutputCollector`—** 发射和失败元组的核心API'
+- en: 'We’ll start with `FlashSaleTopologyBuilder`, which is responsible for connecting
+    our spout and bolts (see the following listing). All work for building the topology
+    is handled in this class, regardless of how we are going to run it: in local mode
+    or deploying to a remote cluster.'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从`FlashSaleTopologyBuilder`开始，它负责连接我们的喷嘴和bolt（见以下列表）。所有构建拓扑的工作都由这个类处理，无论我们如何运行它：在本地模式或在远程集群中部署。
+- en: Listing 6.1\. `FlashSaleTopologyBuilder.java`
+  id: totrans-31
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.1\. `FlashSaleTopologyBuilder.java`
+- en: '[PRE0]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Now that we’ve seen how to put all the components in our topology together via
+    the `FlashSaleTopologyBuilder`, we’ll go into more detail for each individual
+    component, starting with the spout.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到如何通过`FlashSaleTopologyBuilder`将拓扑中的所有组件组合在一起，我们将更详细地介绍每个单独的组件，从喷嘴开始。
+- en: '6.2.1\. Spout: read from a data source'
+  id: totrans-34
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.2.1\. 喷嘴：从数据源读取
+- en: Data will flow into our topology through the spout. This data comes in the form
+    of a single customer ID, as shown in [figure 6.3](#ch06fig03).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据将通过喷嘴流入我们的拓扑。这种数据以单个客户ID的形式出现，如[图6.3](#ch06fig03)所示。
+- en: Figure 6.3\. The spout emits a tuple for each customer ID that it receives.
+  id: totrans-36
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.3\. 喷嘴为每个接收到的客户ID发射一个元组。
+- en: '![](06fig03.jpg)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig03.jpg)'
+- en: But as in other topologies, we’re going to cheat in order to get up and running
+    quickly. For now, we’ll have the spout generate data whenever its `nextTuple()`
+    method is called rather than being hooked up to a real message queue, as shown
+    in the following listing.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但与其他拓扑一样，我们将为了快速启动而作弊。目前，我们将喷嘴生成数据，每当调用其`nextTuple()`方法时，而不是将其连接到真实的消息队列，如以下列表所示。
+- en: Listing 6.2\. `CustomerRetrievalSpout.nextTuple` generating customer IDs
+  id: totrans-39
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.2\. `CustomerRetrievalSpout.nextTuple`生成客户ID
+- en: '[PRE1]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: If we released our topology into a real production environment, the customer
+    retrieval spout would be hooked up to a messaging bus like Kafka or RabbitMQ.
+    We’d keep the list of customers we needed to process on a queue, and should our
+    topology completely crash or otherwise come to a halt, we could restart and continue
+    on from where we left off. Our stream of data has a durable home that’s separate
+    from the system that’ll process it.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将我们的拓扑结构部署到实际的生产环境中，客户检索的喷嘴将会连接到一个消息总线，例如 Kafka 或 RabbitMQ。我们会将需要处理的客户列表保存在队列中，如果我们的拓扑结构完全崩溃或以其他方式停止，我们可以重新启动并从上次停止的地方继续。我们的数据流有一个持久的家，它独立于处理它的系统。
+- en: In addition, if we decided we didn’t want to do this in a batch fashion, we’d
+    have to convert it to a real-time system. With Storm and our design, we’re processing
+    our data as a stream but kicking off the run as a batch. We’ve separated the “how”
+    of stream processing as a stream from the “when” of our batch orientation. Any
+    time we want to, we could take this system from its current form as a batch system
+    to a real-time system without changing anything about our topology.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，如果我们决定不想以批处理方式执行此操作，我们就必须将其转换为实时系统。使用Storm和我们的设计，我们正在以流的形式处理我们的数据，但以批处理的方式启动运行。我们将流处理“如何”与批处理导向的“何时”分开。任何时候我们想要，我们都可以将这个系统从当前的批处理系统形式转换为实时系统，而无需更改我们的拓扑中的任何内容。
+- en: Before we get to the meat of this chapter, let’s step through each of our bolts
+    and identify the important bits of logic.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们进入本章的主要内容之前，让我们逐一检查我们的螺栓并确定重要的逻辑部分。
+- en: '6.2.2\. Bolt: find recommended sales'
+  id: totrans-44
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.2.2\. 螺栓：查找推荐销售
+- en: 'The bolt that finds recommended sales accepts a customer ID in its input tuple
+    and emits a tuple containing two values: the customer ID and a list of sales IDs.
+    To retrieve the sales IDs, it makes a call to an external service. [Figure 6.4](#ch06fig04)
+    illustrates where we are in the topology.'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 找到推荐销售记录的螺栓在其输入元组中接受一个客户ID，并发出包含两个值的元组：客户ID和销售ID列表。为了检索销售ID，它调用外部服务。[图6.4](#ch06fig04)说明了我们在拓扑中的位置。
+- en: Figure 6.4\. The `FindRecommendedSales` bolt accepts a customer ID in its input
+    tuple and emits a tuple containing a customer ID and a list of sales IDs.
+  id: totrans-46
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.4\. `FindRecommendedSales`螺栓在其输入元组中接受一个客户ID，并发出包含一个客户ID和销售ID列表的元组。
+- en: '![](06fig04.jpg)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06fig04.jpg](06fig04.jpg)'
+- en: The implementation of this bolt is seen in the next listing.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表显示了此螺栓的实现。
+- en: Listing 6.3\. `FindRecommendedSales.java`
+  id: totrans-49
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.3\. `FindRecommendedSales.java`
+- en: '![](136fig01_alt.jpg)'
+  id: totrans-50
+  prefs: []
+  type: TYPE_IMG
+  zh: '![136fig01_alt.jpg](136fig01_alt.jpg)'
+- en: All we’re getting back from our `client.findSalesFor` call is a list of sales
+    identifiers. To send our email, we’ll need some additional information about the
+    product and sale. This is where our next bolt comes into play.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们从`client.findSalesFor`调用中只得到销售标识符列表。为了发送我们的电子邮件，我们需要有关产品和销售的一些额外信息。这就是我们的下一个螺栓发挥作用的地方。
+- en: '6.2.3\. Bolt: look up details for each sale'
+  id: totrans-52
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.2.3\. 螺栓：查找每个销售的详细信息
+- en: To send a meaningful email with details about each sale, we need to look up
+    the details for each of the recommended sales. The bolt that does this accepts
+    a tuple containing the customer ID and list of sales IDs, looks up the details
+    for each sale by making a call to an external service, and emits a tuple containing
+    the customer ID and a list of `Sale` objects containing the details for each sale
+    (see [figure 6.5](#ch06fig05)).
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了发送包含每个销售详细信息的有意义电子邮件，我们需要查找每个推荐销售的详细信息。执行此操作的螺栓接受包含客户ID和销售ID列表的元组，通过调用外部服务查找每个销售的详细信息，并发出包含客户ID和包含每个销售详细信息的`Sale`对象列表的元组（见[图6.5](#ch06fig05)）。
+- en: Figure 6.5\. The bolt for looking up sales details accepts a customer ID and
+    list of sales IDs in its input tuple and emits a tuple containing a customer ID
+    and list of `Sale` objects containing the details of each sale.
+  id: totrans-54
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.5\. 查找销售详细信息的螺栓在其输入元组中接受客户ID和销售ID列表，并发出包含客户ID和包含每个销售详细信息的`Sale`对象列表的元组。
+- en: '![](06fig05.jpg)'
+  id: totrans-55
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06fig05.jpg](06fig05.jpg)'
+- en: The following listing shows the implementation for the `LookupSalesDetails`
+    bolt.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表显示了`LookupSalesDetails`螺栓的实现。
+- en: Listing 6.4\. `LookupSalesDetails.java`
+  id: totrans-57
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.4\. `LookupSalesDetails.java`
+- en: '![](ch06ex04-0.jpg)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ch06ex04-0.jpg](ch06ex04-0.jpg)'
+- en: '![](ch06ex04-1.jpg)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ch06ex04-1.jpg](ch06ex04-1.jpg)'
+- en: The one big difference between this bolt and the previous one is that this one
+    can both succeed and fail at the same time. We could attempt to look up ten sales,
+    get nine, and not get one. To handle this more complicated definition of success,
+    we extend `BaseRichBolt` and manually ack tuples ourselves. As long as we can
+    look up at least one of the sales from the sale IDs obtained from our input tuple,
+    we’ll call it a success and move on. Our main priority is to get as many emails
+    out on time as possible.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与之前那个螺栓相比，最大的不同之处在于这个螺栓可以同时成功和失败。我们可能会尝试查找十个销售记录，得到九个，但一个也得不到。为了处理这种更复杂的成功定义，我们扩展了`BaseRichBolt`并手动确认元组。只要我们能从输入元组中获取到的销售ID中至少查找到一个销售记录，我们就将其视为成功并继续。我们的主要优先级是尽可能多地及时发送电子邮件。
+- en: This leads us to our last bolt, where we’ll save the results to a database for
+    sending via another process.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这引导我们到达最后一个螺栓，我们将结果保存到数据库中，以便通过另一个进程发送。
+- en: '6.2.4\. Bolt: save recommended sales'
+  id: totrans-62
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.2.4\. 螺栓：保存推荐的销售记录
+- en: The bolt that saves the recommended sales accepts an input tuple containing
+    a customer ID and a list of `Sale` objects with the details for each sale. It
+    then persists that data to a database for later processing, emitting no tuples
+    because this is the last bolt in our topology (see [figure 6.6](#ch06fig06)).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存推荐销售的bolt接受包含客户ID和每个销售的详细信息的`Sale`对象列表的输入元组。然后它将数据持久化到数据库中，以便稍后处理，因为它是我们拓扑中的最后一个bolt，所以不发出元组（见[图6.6](#ch06fig06)）。
+- en: Figure 6.6\. The save recommended sales bolt accepts an input tuple containing
+    the customer ID and a list of Sale objects and persists that information to a
+    database.
+  id: totrans-64
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.6\. 保存推荐销售bolt接受包含客户ID和销售对象列表的输入元组，并将该信息持久化到数据库中。
+- en: '![](06fig06.jpg)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](06fig06.jpg)'
+- en: The next listing shows the implementation for `SaveRecommendedSales`.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表显示了`SaveRecommendedSales`的实现。
+- en: Listing 6.5\. `SaveRecommendedSales.java`
+  id: totrans-67
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.5\. `SaveRecommendedSales.java`
+- en: '![](138fig01_alt.jpg)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](138fig01_alt.jpg)'
+- en: The same patterns we used in the previous two bolts are used here as well. There’s
+    our logic. It all looks sound. Imagine we’ve done some testing of our topology
+    and its working but it’s far from ready to be released into production. Is it
+    going to be fast enough? It’s hard to tell. Let’s see how we would go about finding
+    out.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这里也使用了之前两个bolt中使用的相同模式。这是我们的逻辑。看起来都很合理。想象一下，我们已经对我们的拓扑及其工作进行了测试，但它离投入生产还远。它会足够快吗？很难说。让我们看看我们如何找到答案。
+- en: '6.3\. Tuning: I wanna go fast'
+  id: totrans-70
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3\. 调优：我想跑得快
+- en: How does one go about tuning their topologies? It may seem like a daunting task
+    at first, but Storm provides us with tools that can be used to quickly identify
+    bottlenecks, allowing us to take steps to alleviate those bottlenecks. Using the
+    Storm UI and metrics-collecting API, you have tools at your disposal to establish
+    a repeatable process you can use for tuning your topologies.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何对拓扑进行调优？一开始这可能看起来像是一项艰巨的任务，但Storm为我们提供了工具，可以帮助我们快速识别瓶颈，从而采取措施缓解这些瓶颈。使用Storm
+    UI和指标收集API，您有可用的工具来建立一个可重复的过程，用于调优您的拓扑。
+- en: '6.3.1\. The Storm UI: your go-to tool for tuning'
+  id: totrans-72
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.1\. Storm UI：您的调优首选工具
+- en: An understanding of the Storm UI is essential because it’s the primary tool
+    that will give us feedback on whether your tuning efforts are having any effect.
+    [Figure 6.7](#ch06fig07) gives a quick refresher on the Topology summary screen
+    of the Storm UI.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解Storm UI是至关重要的，因为它是主要的工具，将给我们反馈，了解您的调优努力是否产生了效果。[图6.7](#ch06fig07)提供了对Storm
+    UI拓扑摘要屏幕的快速回顾。
+- en: Figure 6.7\. Topology summary screen of the Storm UI
+  id: totrans-74
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.7\. Storm UI的拓扑摘要屏幕
+- en: '![](06fig07_alt.jpg)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](06fig07_alt.jpg)'
+- en: 'As you’ll recall, there are seven sections in the UI for a single topology:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所回忆的，单个拓扑在UI中有七个部分：
+- en: '***Topology summary*—** Shows the status, uptime, and the number of workers,
+    executors and tasks assigned to the entire topology.'
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***拓扑摘要*—** 显示整个拓扑的状态、运行时间和分配给整个拓扑的工作者、执行者和任务数量。'
+- en: '***Topology actions*—** Allows you to deactivate, rebalance, or kill your topology
+    straight from the UI.'
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***拓扑操作*—** 允许您从UI直接停用、重新平衡或终止您的拓扑。'
+- en: '***Topology stats*—** Shows high-level statistics for the entire topology across
+    four time windows; one of those windows is All Time.'
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***拓扑统计*—** 显示整个拓扑在四个时间窗口中的高级统计数据；其中一个窗口是所有时间。'
+- en: '***Spouts (All time)*—** Shows the statistics for your spout(s) across all
+    time. This includes the number of executors and tasks; the number of tuples that
+    have been emitted, acked, and failed by the spout(s); and the last error (if there
+    has been one) associated with the spout(s).'
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***Spouts (All time)*—** 显示您在所有时间内的spout(s)的统计数据。这包括执行者和任务的数量；由spout(s)发出的、确认的和失败的元组数量；以及与spout(s)关联的最后一个错误（如果有）。'
+- en: '***Bolts (All time)*—** Shows your statistics for your bolt(s) across all time.
+    This includes the number of executors and tasks; the number of tuples that have
+    been emitted, acked, and failed by the bolt(s); some metrics related to latency
+    and how busy the bolt(s) are; and the last error (if there has been one) associated
+    with the bolt(s).'
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***Bolts (All time)*—** 显示您在所有时间内的bolt(s)的统计数据。这包括执行者和任务的数量；由bolt(s)发出的、确认的和失败的元组数量；一些与延迟和bolt(s)的繁忙程度相关的指标；以及与bolt(s)关联的最后一个错误（如果有）。'
+- en: '***Visualization*—** Shows a visualization of the spouts, bolts, how they are
+    connected, and the flow of tuples between all of the streams.'
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***可视化*—** 显示spouts、bolt(s)的连接方式以及所有流之间元组的流动。'
+- en: '***Topology Configuration*—** Shows all the configuration options that have
+    been set for your topology.'
+  id: totrans-83
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***拓扑配置*—** 显示为您的拓扑设置的配置选项。'
+- en: We’ll focus on the Bolts section of the UI for our tuning lesson. Before we
+    get into figuring out what needs to be tuned and how, we need to define a set
+    of baseline numbers for our topology.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将专注于UI的Bolts部分进行调优课程。在我们开始确定需要调整什么以及如何调整之前，我们需要为我们的拓扑定义一组基准数字。
+- en: '|  |'
+  id: totrans-85
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '**Defining your service level agreement (SLA)**'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**定义你的服务等级协议（SLA**）'
+- en: Before you start analyzing whether your topology is a finely tuned machine,
+    ask yourself what *fast enough* means to you. What velocity do you need to hit?
+    Think of Twitter’s trending topics for a moment. If it took eight hours to process
+    every tweet, those topics wouldn’t be anywhere near as trending as they are on
+    the site. A SLA could be fairly flexible in regard to time “within an hour” but
+    rigid according to data flow. Events can’t back up beyond a certain point; there’s
+    a queue out there somewhere, holding onto all the data that’s going to be processed.
+    After a certain high watermark is set, we need to be consuming data as fast as
+    it’s going on, lest we hit a queue limit or, worse, cause an out-of-memory error.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你开始分析你的拓扑是否是一个精细调优的机器之前，问问自己对你来说“足够快”意味着什么。你需要达到什么样的速度？暂时想想Twitter的热门话题。如果处理每条推文需要八个小时，那么这些话题就不会像网站上那样热门。在时间上，SLA可能相对灵活，比如“在一小时内”，但在数据流上可能非常严格。事件不能超过某个点；某个地方有一个队列，保留着所有将要处理的数据。在设置了一定的最高水位线之后，我们需要以尽可能快的速度消费数据，否则我们可能会达到队列限制，或者更糟糕的是，引发内存不足错误。
+- en: 'For our use case, where we’re processing a stream in a batch-like fashion,
+    our SLA is different. We need to have fully processed all our data in time for
+    our email to go out. *Fast enough* has a couple of simple metrics: 1) Did it finish
+    on time? 2) As we process more data each day, will it continue to finish on time?'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的用例，我们以批量方式处理流数据，我们的SLA是不同的。我们需要在电子邮件发出之前完全处理所有数据。“足够快”有几个简单的指标：1）它是否按时完成？2）随着我们每天处理更多数据，它是否会继续按时完成？
+- en: Let’s make our SLA a little more real. It takes a while to process all these
+    emails (say 60 minutes) before sending. And we want to start sending at 8 a.m.
+    every morning. Deals for the coming day can be entered until 11 p.m. and we can’t
+    start processing until after that. This gives us eight hours from the time we
+    start to when we have to finish. Currently we have 20 million customers—which
+    means that to barely hit our mark we need to process some 695 customers per second.
+    That’s cutting it pretty close; we decide for our first pass we need to feel confident
+    in finishing in seven hours. That’s 794 customers a second, and, given our growth,
+    we want to rapidly ramp up to being done within three hours so we don’t have to
+    worry about tuning for a while. To do that, we need to process 1,852 customers
+    a second.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们的服务等级协议（SLA）变得更加真实一些。在发送之前，处理所有这些电子邮件（比如说60分钟）需要一段时间。我们希望每天早上8点开始发送。对于即将到来的日子，可以输入交易直到晚上11点，我们只能在之后开始处理。这给我们从开始到必须完成的时间提供了八个小时。目前我们有2000万客户——这意味着为了勉强达到我们的目标，我们需要每秒处理大约695个客户。这已经很接近了；我们决定在第一次尝试中，我们需要有信心在七小时内完成。这意味着每秒794个客户，考虑到我们的增长，我们希望迅速将完成时间缩短到三小时以内，这样我们就不必担心调整一段时间了。为了做到这一点，我们需要每秒处理1,852个客户。
+- en: '|  |'
+  id: totrans-90
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 6.3.2\. Establishing a baseline set of performance numbers
+  id: totrans-91
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.2\. 建立基准性能数字集
+- en: 'Time to dive into developing basic Storm tuning skills that can be used to
+    take a topology and make it progressively faster. In our source code, you’ll find
+    version 0.0.1 of the Find My Sale! topology. To check out that specific version,
+    use this command:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 是时候深入开发基本的Storm调优技能了，这些技能可以用来使拓扑逐渐变快。在我们的源代码中，你可以找到Find My Sale!拓扑的0.0.1版本。要查看该特定版本，请使用以下命令：
+- en: '[PRE2]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'While we’re tuning, we need to pay attention to one primary class: `FlashSaleTopology-Builder`.
+    This is where we build our topology and set the parallelism of each component.
+    Let’s take a look at its build method again to refresh your memory:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们调整时，我们需要注意一个主要类：`FlashSaleTopology-Builder`。这是我们构建拓扑并设置每个组件并行性的地方。让我们再次看看它的构建方法，以刷新您的记忆：
+- en: '[PRE3]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Note that we’re creating one executor (in the call to `setBolt`) and one task
+    for each bolt (in `setNumTasks`). This will give us a basic baseline of how our
+    topology is performing. Next we’ll take it, deploy it to a remote cluster, and
+    then run it with some customer data for 10–15 minutes, collecting basic data from
+    the Storm UI. [Figure 6.8](#ch06fig08) shows what we have at this point, with
+    the important parts highlighted and annotated.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们在`setBolt`的调用中创建了一个执行者，在`setNumTasks`中为每个螺栓创建了一个任务。这将给我们一个基本的基础线，了解我们的拓扑性能。接下来，我们将将其部署到远程集群，然后用一些客户数据运行10-15分钟，从Storm
+    UI收集基本数据。[图6.8](#ch06fig08)显示了这一点，重要的部分被突出显示并标注。
+- en: Figure 6.8\. Identifying the important parts of the Storm UI for our tuning
+    lesson
+  id: totrans-97
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.8.确定我们的调整课程中Storm UI的重要部分
+- en: '![](06fig08_alt.jpg)'
+  id: totrans-98
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig08_alt.jpg)'
+- en: We now have a useful interface for displaying the metrics related to our topology
+    along with a baseline set of performance numbers. The next step in the tuning
+    process is to identify the bottlenecks in our topology and do something about
+    them.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们有一个有用的界面来显示与我们的拓扑相关的指标以及一组基准性能数字。调整过程的下一步是确定我们的拓扑中的瓶颈并采取相应措施。
+- en: 6.3.3\. Identifying bottlenecks
+  id: totrans-100
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.3.识别瓶颈
+- en: What can we see from these metrics after our first run? Let’s zero in on capacity.
+    For two of our bolts, it’s fairly high. The `find-recommended-sales` bolt is at
+    1.001 and the `lookup-sales-details` bolt is hovering around .7\. The value of
+    1.001 indicates a bottleneck for `find-recommended-sales`. We’re going to need
+    to increase its parallelism. Given that `lookup-sales-details` is at .7, it’s
+    highly likely that opening up `find-recommended-sales` without also opening up
+    `lookup-sales-details` will just turn `it` into a new bottleneck. Our intuition
+    says they should be tuned in tandem. `save-recommended-sales`, on the other hand,
+    is really low at 0.07 and probably won’t be a bottleneck for quite some time.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在第一次运行这些指标后能看到什么？让我们聚焦于容量。对于我们的两个螺栓，它的值相当高。`find-recommended-sales`螺栓的值为1.001，而`lookup-sales-details`螺栓的值在0.7左右徘徊。1.001的值表明`find-recommended-sales`存在瓶颈。我们需要增加其并行度。鉴于`lookup-sales-details`的值为0.7，很可能在不打开`lookup-sales-details`的情况下打开`find-recommended-sales`只会将其变成一个新的瓶颈。我们的直觉告诉我们它们应该同时调整。另一方面，`save-recommended-sales`的值非常低，为0.07，可能在未来相当长一段时间内都不会成为瓶颈。
+- en: Next, we’ll guess how high we might want to take our parallelism, set our number
+    of tasks to that, and release again. We’ll show you the stats from that run as
+    well so you can see that changing the number of tasks without changing the number
+    of executors makes no difference.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将猜测我们可能希望将并行度提高到多高，将任务数量设置为那个值，然后再次发布。我们也会向您展示那次运行的统计数据，以便您可以看到在不改变执行者数量的情况下改变任务数量不会产生任何影响。
+- en: 'You can check out version 0.0.2 of the code by executing this command:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过执行此命令来查看代码的0.0.2版本：
+- en: '[PRE4]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'The only important change is in `FlashSaleTopologyBuilder`:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 唯一的重要变化是在`FlashSaleTopologyBuilder`中：
+- en: '[PRE5]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Why 32, 32, and 8 for bolt tasks? We probably won’t need more than 16, 16, and
+    4 when we’re done, but it’s smart to go with double that as a first pass. With
+    this change in place, we don’t need to release the topology multiple times. We
+    can release just version 0.0.2 and use the `rebalance` command on our Nimbus node
+    to adjust the parallelism of our running topology.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么螺栓任务为32、32和8？当我们完成时，我们可能不需要超过16、16和4，但作为第一次尝试，选择双倍的数量是明智的。有了这个变化，我们不需要多次发布拓扑。我们只需发布版本0.0.2，并在我们的Nimbus节点上使用`rebalance`命令来调整运行拓扑的并行度。
+- en: After release, we let it run for about 10–15 minutes. As you can see, the only
+    meaningful change in the UI is the number of tasks per bolt.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发布后，我们让它运行大约10-15分钟。如您所见，UI中唯一有意义的变化是每个螺栓的任务数量。
+- en: What do we do next? Let’s start by quadrupling the parallelism for both the
+    `find-recommended-sales` and `lookup-sales-details` bolts by running the `rebalance`
+    command.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来我们做什么？让我们首先通过运行`rebalance`命令将`find-recommended-sales`和`lookup-sales-details`螺栓的并行度翻倍。
+- en: '|  |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-111
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The `rebalance` command used throughout this chapter takes the form `storm rebalance
+    topology-name –e [bolt-name]=[number-of-executors]`. This command will redistribute
+    executors for the given bolt, allowing us to increase the parallelism for the
+    given bolt on the fly. All `rebalance` commands assume we’re running on our Nimbus
+    node and that we have the Storm command in our `PATH`.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中使用的`rebalance`命令的形式是`storm rebalance topology-name –e [bolt-name]=[number-of-executors]`。这个命令将重新分配给定bolt的执行器，允许我们在运行时增加给定bolt的并行性。所有`rebalance`命令都假设我们在Nimbus节点上运行，并且我们在`PATH`中具有Storm命令。
+- en: '|  |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 'We’ll run one `rebalance`, wait for the change to appear in the UI, and then
+    run the second `rebalance` command:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将运行一个`rebalance`命令，等待变化出现在UI中，然后运行第二个`rebalance`命令：
+- en: '[PRE6]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Okay, our rebalance is done. It’s 10 minutes later—let’s see what we got ([figure
+    6.9](#ch06fig09)).
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好的，我们的重新平衡已完成。10分钟过去了——让我们看看我们得到了什么([图6.9](#ch06fig09))。
+- en: Figure 6.9\. Storm UI shows a minimal change in capacity after a first attempt
+    at increasing parallelism for our first two bolts.
+  id: totrans-117
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.9\. Storm UI显示在尝试增加我们前两个bolt的并行性后的容量变化最小。
+- en: '![](06fig09_alt.jpg)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig09_alt.jpg)'
+- en: Here’s something that might surprise you. We increased the parallelism of our
+    `find-recommended-sales` bolt but there’s no change in capacity. It’s just as
+    busy as it was before. How can that be possible? The flow of tuples coming in
+    from the spout was unaffected; our bolt was/is a bottleneck. If we were using
+    a real queue, messages would’ve backed up on that queue as a result. Note the
+    capacity metrics of the `save-recommended-sales` bolt has gone up to about 0.3
+    as well. That’s still fairly low, so we don’t have to worry about that becoming
+    a bottleneck yet.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一件可能会让你感到惊讶的事情。我们增加了`find-recommended-sales` bolt的并行性，但容量没有变化。它和之前一样忙碌。这怎么可能呢？从spout流入的元组流没有受到影响；我们的bolt是一个瓶颈。如果我们使用真实的队列，消息就会在那个队列上积压。注意`save-recommended-sales`
+    bolt的容量指标也上升到了大约0.3。这仍然相当低，所以我们不必担心它成为瓶颈。
+- en: 'Let’s try that again, this time doubling the parallelism of both bolts. That
+    has to make a dent in that queue:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们再次尝试，这次将两个bolt的并行性都加倍。这肯定会在那个队列上留下痕迹：
+- en: '[PRE7]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Let’s pretend the rebalances are done and we’ve waited 10 minutes ([figure 6.10](#ch06fig10)).
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们假设重新平衡已完成，并且我们已经等待了10分钟([图6.10](#ch06fig10))。
+- en: Figure 6.10\. Storm UI showing minimal change in capacity after doubling the
+    number of executors for our first two bolts
+  id: totrans-123
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.10\. Storm UI显示将我们前两个bolt的执行器数量加倍后的容量变化最小
+- en: '![](06fig10_alt.jpg)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig10_alt.jpg)'
+- en: 'The capacity is unchanged for both `find-recommended-sales` and `lookup-sales-details`.
+    That queue behind our spout must be really backed up. `save-recommended-sales`
+    capacity has just about doubled, though. If we ratchet up the parallelism on our
+    first two bolts, that might become a bottleneck for us, so let’s bring it up some
+    as well. Again, double the parallelism for our first two bolts and then quadruple
+    the parallelism used for the `save-recommended-sales` bolt:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`find-recommended-sales`和`lookup-sales-details`的容量都没有变化。我们spout后面的队列肯定积压得很严重。尽管如此，`save-recommended-sales`的容量几乎翻倍了。如果我们提高我们前两个bolt的并行性，这可能会成为我们的瓶颈，所以我们也提高一下。再次，将我们前两个bolt的并行性加倍，然后将`save-recommended-sales`
+    bolt使用的并行性增加到四倍：'
+- en: '[PRE8]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Three rebalancing commands and 10 minutes later we have [figure 6.11](#ch06fig11).
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经过三次重新平衡命令和10分钟的等待，我们有了[图6.11](#ch06fig11)。
+- en: Figure 6.11\. Storm UI showing improved capacity for all three bolts in our
+    topology
+  id: totrans-128
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.11\. Storm UI显示我们拓扑中所有三个bolt的容量有所提高
+- en: '![](06fig11_alt.jpg)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig11_alt.jpg)'
+- en: Excellent! We’ve finally made a dent, and a decent one in terms of capacity.
+    The number of spouts (one) might now be our limiting factor. In a topology where
+    we’re hooked up to a real message queue, we’d check to make sure the flow of messages
+    met whatever our SLA was. In our use case, we don’t care about messages backing
+    up but we’re concerned with time to get through all messages. If our job from
+    start to finish would take too long, we could increase the parallelism of our
+    spout and go through the tuning steps we just showed you. Faking out spout parallelism
+    is beyond the realm of our little test topology, but feel free to go about trying
+    to emulate it. It might be a rewarding exercise.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 太棒了！我们终于取得了一些进展，在容量方面也有了相当不错的提升。现在，喷嘴的数量（一个）可能成为我们的限制因素。在一个连接到真实消息队列的拓扑中，我们会检查消息流是否满足我们的服务级别协议（SLA）。在我们的用例中，我们不在乎消息的积压，但我们关心处理所有消息所需的时间。如果我们的工作从开始到结束需要太长时间，我们可以增加喷嘴的并行性，并采取我们刚刚向您展示的调整步骤。在我们的小型测试拓扑中，模拟喷嘴并行性超出了我们的范围，但您可以自由尝试去模拟它。这可能是一项有益的练习。
+- en: '|  |'
+  id: totrans-131
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '**Increasing parallelism at executor vs. worker level**'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**在执行器级别与工作者级别增加并行性**'
+- en: So far, we haven’t touched the parallelism of workers at all. Everything is
+    running on a single worker and with a single spout, and we don’t need more than
+    one worker. Our advice is to scale on a single worker with executors until you
+    find increasing executors doesn’t work anymore. The basic principle we just used
+    for scaling our bolts can be applied to spouts and workers.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们还没有触及工作者的并行性。一切都在单个工作者和单个喷嘴上运行，我们不需要超过一个工作者。我们的建议是在单个工作者上使用执行器进行扩展，直到您发现增加执行器不再有效。我们刚才用于扩展bolt的基本原则也可以应用于喷嘴和工作者。
+- en: '|  |'
+  id: totrans-134
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '6.3.4\. Spouts: controlling the rate data flows into a topology'
+  id: totrans-135
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.3.4. 喷嘴：控制数据流入拓扑的速度
+- en: 'If we still aren’t meeting our SLAs at this point in tuning, it’s time to start
+    looking at how we can control the rate that data flows into our topology: controls
+    on spout parallelism. Two factors come into play:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们在调整过程中仍然没有达到我们的SLA，那么是时候开始考虑如何控制数据流入我们拓扑的速度了：对喷嘴并行性的控制。有两个因素起作用：
+- en: The number of spouts
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 喷嘴的数量
+- en: The maximum number of tuples each spout will allow to be live in our topology
+  id: totrans-138
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个喷嘴将允许在我们的拓扑中活跃的最大元组数
+- en: '|  |'
+  id: totrans-139
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-140
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Before we get started, remember in [chapter 4](kindle_split_012.html#ch04) when
+    we discussed guaranteed message processing and how Storm uses tuple trees for
+    tracking whether or not a tuple emitted from a spout is fully processed? Here
+    when we mention a tuple being unacked/live, we’re referring to a tuple tree that
+    hasn’t been marked as fully processed.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们开始之前，记得在[第4章](kindle_split_012.html#ch04)中我们讨论了保证消息处理以及Storm如何使用元组树来跟踪从喷嘴发出的元组是否被完全处理？在这里，当我们提到元组未确认/活跃时，我们指的是尚未被标记为完全处理的元组树。
+- en: '|  |'
+  id: totrans-142
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 'These two factors, the number of spouts and maximum number of live tuples,
+    are intertwined. We’ll start with the discussion of the second point because it’s
+    more nuanced. Storm spouts have a concept called *max spout pending*. Max spout
+    pending allows you to set a maximum number of tuples that can be unacked at any
+    given time. In the `FlashSaleTopologyBuilder` code, we’re setting a max spout
+    pending value of 250:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个因素，喷嘴的数量和最大活跃元组数，是相互关联的。我们将从第二个点开始讨论，因为它更为复杂。Storm的喷嘴有一个称为*最大喷嘴挂起*的概念。最大喷嘴挂起允许您设置在任何给定时间可以未确认的最大元组数。在`FlashSaleTopologyBuilder`代码中，我们设置最大喷嘴挂起值为250：
+- en: '[PRE9]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'By setting that value to 250, we ensure that, per spout task, 250 tuples can
+    be unacked at a given time. If we had two instances of the spout, each with two
+    tasks, that would be:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将该值设置为250，我们确保每个喷嘴任务在给定时间可以有250个元组未确认。如果我们有两个喷嘴实例，每个实例有两个任务，那么将是：
+- en: '*2 spouts x 2 tasks x 250 max spout pending = 1000 unacked tuples possible*'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*2个喷嘴 x 2个任务 x 250最大喷嘴挂起 = 1000个可能的未确认元组*'
+- en: When setting parallelism in your topology, it’s important to make sure that
+    max spout pending isn’t a bottleneck. If the number of possible unacked tuples
+    is lower than the total parallelism you’ve set for your topology, then it could
+    be a bottleneck. In this case, we have the following
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当在您的拓扑中设置并行性时，确保最大喷嘴挂起数量不是瓶颈非常重要。如果可能未确认的元组数量低于您为拓扑设置的总体并行性，那么它可能是一个瓶颈。在这种情况下，我们有以下
+- en: 16 `find-recommended-sales` bolts
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 16个`find-recommended-sales` bolt
+- en: 16 `lookup-sales-details` bolts
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 16个`lookup-sales-details` bolt
+- en: 4 `saved-recommended-sales` bolts
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4个`saved-recommended-sales` bolt
+- en: which yields 36 tuples at a time we can process.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次我们可以处理36个元组。
+- en: In this example, with a single spout, our maximum possible unacked tuples, 250,
+    is greater than the maximum number of tuples we can process based on our parallelization,
+    36, so we can feel safe saying that max spout pending isn’t causing a bottleneck
+    ([figure 6.12](#ch06fig12)).
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，使用单个spout，我们可能的最大未确认元组数，250，大于基于我们的并行化可以处理的元组数，36，因此我们可以放心地说，最大spout挂起不会造成瓶颈（[图6.12](#ch06fig12)）。
+- en: Figure 6.12\. Because max spout pending is greater than the total number of
+    tuples we can process at one time, it’s not a bottleneck.
+  id: totrans-153
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.12。因为最大spout挂起数大于我们一次可以处理的元组总数，所以它不是瓶颈。
+- en: '![](06fig12_alt.jpg)'
+  id: totrans-154
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig12_alt.jpg)'
+- en: If max spout pending can cause bottlenecks, why would you set it at all? Without
+    it, tuples will continue to flow into your topology whether or not you can keep
+    up with processing them. Max spout pending allows us to control our ingest rate.
+    Without controlling our ingest rate, it’s possible to swamp our topology so that
+    it collapses under the weight of incoming data. Max spout pending lets us erect
+    a dam in front of our topology, apply back pressure, and avoid being overwhelmed.
+    We recommend that, despite the optional nature of max spout pending, you always
+    set it.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果最大spout挂起数可以造成瓶颈，为什么还要设置它呢？如果没有它，元组将继续流入你的拓扑，无论你是否能够跟上处理它们。最大spout挂起数允许我们控制我们的摄入速率。如果没有控制我们的摄入速率，可能会使我们的拓扑被涌入的数据淹没，导致崩溃。最大spout挂起数让我们在拓扑前建立一道堤坝，施加反向压力，避免被淹没。我们建议，尽管最大spout挂起数是可选的，但你总是应该设置它。
+- en: When attempting to increase performance to meet an SLA, we’d increase the rate
+    of data ingest by either increasing spout parallelism or increasing the max spout
+    pending. If we made a fourfold increase in the maximum number of active tuples
+    allowed, we’d expect to see the speed of messages leaving our queue increase (maybe
+    not by a factor of four, but it’d certainly increase). If that caused the capacity
+    metric for any of our bolts to return to one or near it, we’d tune the bolts again
+    and repeat with the spout and bolt until we hit our SLA. If adjusting spout and
+    bolt parallelism failed to provide additional benefits, we’d play with the number
+    of workers to see if we were now bound by the JVM we were running on and needed
+    to parallelize across JVMs. This basic method can be applied over and over, and
+    in many cases, we can meet our SLAs based on this.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当试图提高性能以满足SLA时，我们可以通过增加spout并行度或增加最大spout挂起数来增加数据摄入速率。如果我们允许的最大活动元组数增加了四倍，我们预计消息离开我们的队列的速度会增加（可能不会增加四倍，但肯定会增加）。如果这导致我们任何bolt的容量指标返回到一或接近一，我们会再次调整bolt，并重复使用spout和bolt，直到我们达到SLA。如果调整spout和bolt的并行度未能提供额外的收益，我们会尝试调整工作线程的数量，看看我们是否现在受限于我们运行的JVM，需要跨JVM进行并行化。这个基本方法可以反复应用，在许多情况下，我们可以根据这个方法满足我们的SLA。
+- en: 'Keep the following points in mind if you’re working with external services
+    from a topology you’re tuning:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在调整拓扑中的外部服务，请记住以下要点：
+- en: It’s easy when interacting with external services (such as a SOA service, database,
+    or filesystem) to ratchet up the parallelism to a high enough level in a topology
+    that limits in that external service keep your capacity from going higher. Before
+    you start tuning parallelism in a topology that interacts with the outside world,
+    be positive you have good metrics on that service. We could keep turning up the
+    parallelism on our `find-recommended-sales` bolt to the point that it brings the
+    Find My Sales! service to its knees, crippling it under a mass of traffic that
+    it’s not designed to handle.
+  id: totrans-158
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 与外部服务（如SOA服务、数据库或文件系统）交互时，很容易在拓扑中提高并行度到一个足够高的水平，但该外部服务的限制会阻止你的容量进一步提升。在你开始调整与外界交互的拓扑中的并行度之前，请确保你对该服务有良好的指标。我们可以不断调整`find-recommended-sales`螺栓的并行度，直到它使“找到我的销售！”服务陷入瘫痪，在它无法处理的大量流量下崩溃。
+- en: The second point is about latency. This is a bit more nuanced and requires a
+    longer explanation and some background information, so before we get to that,
+    let’s take our parallelism changes and check them in.
+  id: totrans-159
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 第二点是关于延迟。这一点更为微妙，需要更长的解释和一些背景信息，所以在我们到达那里之前，让我们检查我们的并行度变化。
+- en: 'You can check out the version of the code we have at this point in our tuning
+    example by executing this command:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过执行以下命令来查看我们在调整示例中此阶段的代码版本：
+- en: '[PRE10]'
+  id: totrans-161
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: '6.4\. Latency: when external systems take their time'
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.4. 延迟：当外部系统耗时长时
+- en: 'Let’s talk about one of the greatest enemies of fast code: latency. Latency
+    is generally defined as the period of time one part of your system spends waiting
+    on a response from another part of your system. There’s latency accessing memory
+    on your computer, accessing the hard drive, and accessing another system over
+    the network. Different interactions have different levels of latency, and understanding
+    the latency in your system is one of the keys to tuning your topology.'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们谈谈快速代码的最大敌人：延迟。延迟通常定义为系统的一部分等待从系统的另一部分获得响应的时间段。访问你电脑上的内存、访问硬盘驱动器和通过网络访问另一个系统都会有延迟。不同的交互有不同的延迟级别，理解你系统中的延迟是调整你的拓扑结构的关键之一。
+- en: 6.4.1\. Simulating latency in your topology
+  id: totrans-164
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.4.1\. 在你的拓扑结构中模拟延迟
+- en: 'If you look at the code for this topology, you’ll find something that looks
+    like this inside code from Database.java:'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你查看这个拓扑结构的代码，你会在Database.java的代码中找到类似这样的东西：
+- en: '[PRE11]'
+  id: totrans-166
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Don’t worry if you haven’t gone through the code. We’ll cover all the important
+    parts here. The `LatencySimulator` is our way of making this topology behave something
+    like a real one would when interacting with external services. Anything you interact
+    with exhibits latency, from main memory on your computer to that networked filesystem
+    you have to read from. Different systems will display different latency characteristics
+    that our `LatencySimulator` attempts to emulate in a simple fashion.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你没有看过代码，不要担心。我们在这里会涵盖所有重要的部分。`LatencySimulator`是我们使这个拓扑结构在与外部服务交互时表现得像真实的一个方法。你与之交互的任何东西都会表现出延迟，从你电脑上的主内存到你必须从中读取的网络化文件系统。不同的系统将表现出不同的延迟特性，我们的`LatencySimulator`试图以简单的方式模拟这些特性。
+- en: Let’s break down its five constructor arguments (see [figure 6.13](#ch06fig13)).
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们分解其五个构造函数参数（见[图6.13](#ch06fig13)）。
+- en: Figure 6.13\. `LatencySimulator` constructor arguments explained
+  id: totrans-169
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.13\. `LatencySimulator`构造函数参数说明
+- en: '![](06fig13_alt.jpg)'
+  id: totrans-170
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig13_alt.jpg)'
+- en: 'Note that we’re not expressing latency in terms of a basic average that we
+    vary from. That’s rarely how latency works. You’ll usually get fairly consistent
+    response times and all of the sudden those response times will vary wildly because
+    of any number of factors:'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们不是用基本平均值来表示延迟，这很少是延迟工作的方式。你通常会得到相当一致的反应时间，突然间这些反应时间会因为各种因素而剧烈变化：
+- en: The external service is having a garbage collection event.
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 外部服务正在进行垃圾回收事件。
+- en: A network switch somewhere is momentarily overloaded.
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 某处的网络交换机暂时过载。
+- en: Your coworker wrote a runaway query that’s currently hogging most of the database’s
+    CPU.
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的同事编写了一个失控的查询，目前正占用数据库的大部分CPU。
+- en: '|  |'
+  id: totrans-175
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-176
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 注意
+- en: At our day job, almost all our systems run on the JVM and we use Coda Hale’s
+    excellent Metrics library^([[1](#ch06fn01)]) as well as Netflix’s great Hystrix
+    library^([[2](#ch06fn02)]) to measure the latency of our systems and adjust accordingly.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的日常工作岗位上，我们几乎所有的系统都在JVM上运行，我们使用Coda Hale的优秀Metrics库^([[1](#ch06fn01)])以及Netflix的出色Hystrix库^([[2](#ch06fn02)])来测量我们系统的延迟并相应调整。
+- en: ¹ [https://github.com/dropwizard/metrics](https://github.com/dropwizard/metrics)
+  id: totrans-178
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: ¹ [https://github.com/dropwizard/metrics](https://github.com/dropwizard/metrics)
+- en: ² [https://github.com/Netflix/Hystrix](https://github.com/Netflix/Hystrix)
+  id: totrans-179
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: ² [https://github.com/Netflix/Hystrix](https://github.com/Netflix/Hystrix)
+- en: '|  |'
+  id: totrans-180
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '[Table 6.1](#ch06table01) shows the latency of the various systems our topology
+    is interacting with. Looking at the table, we can see there’s a lot of variance
+    from the best request to the worst in each of these services. But what really
+    stands out is how often we get hit by latency. On occasion, the database takes
+    longer than any other service, but it rarely happens when compared to the `FlashSaleRecommendationService`,
+    which hits a high latency period an order of magnitude more. Perhaps there’s something
+    we can address there.'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表6.1](#ch06table01)显示了我们的拓扑结构交互的各种系统的延迟。查看表格，我们可以看到在这些服务中，从最佳请求到最差请求有很大的差异。但真正引人注目的是我们经常受到延迟的影响。有时，数据库的延迟比其他任何服务都要长，但与`FlashSaleRecommendationService`相比，后者遇到高延迟期要高一个数量级。也许我们可以在那里解决一些问题。'
+- en: Table 6.1\. Latency of external services
+  id: totrans-182
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 表6.1\. 外部服务的延迟
+- en: '| System | Low floor | Low variance | High floor | High variance | High % |'
+  id: totrans-183
+  prefs: []
+  type: TYPE_TB
+  zh: '| 系统 | 低点 | 低变异性 | 高点 | 高变异性 | 高百分比 |'
+- en: '| --- | --- | --- | --- | --- | --- |'
+  id: totrans-184
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- |'
+- en: '| FlashSaleRecommendationService | 100 | 50 | 150 | 1000 | 10 |'
+  id: totrans-185
+  prefs: []
+  type: TYPE_TB
+  zh: '| FlashSaleRecommendationService | 100 | 50 | 150 | 1000 | 10 |'
+- en: '| FlashSaleService | 50 | 50 | 100 | 200 | 5 |'
+  id: totrans-186
+  prefs: []
+  type: TYPE_TB
+  zh: '| FlashSaleService | 50 | 50 | 100 | 200 | 5 |'
+- en: '| Database | 20 | 10 | 30 | 1500 | 1 |'
+  id: totrans-187
+  prefs: []
+  type: TYPE_TB
+  zh: '| 数据库 | 20 | 10 | 30 | 1500 | 1 |'
+- en: 'When you look in the `FindRecommendedSales` bolt, you’ll see this:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你查看`FindRecommendedSales`bolt时，你会看到：
+- en: '[PRE12]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'We’ve set a timeout of 200 ms for looking up recommendations per client. It’s
+    a nice number, 200, but how did we settle on that? It probably seemed right when
+    we were trying to get the topology working. In [figure 6.14](#ch06fig14), look
+    at the Last Error column. You’ll see that all our bolts are experiencing timeouts.
+    That makes sense. We wait only 200 ms to get recommendations, yet according to
+    [table 6.1](#ch06table01), one out of ten requests hits a higher-than-normal latency
+    that could take anywhere from 150 to 1049 ms to return a result and nine out of
+    ten requests will return less than 150 ms. There are two primary types of reasons
+    this could happen: extrinsic and intrinsic.'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们为每个客户端查找推荐设置了200毫秒的超时。这是一个不错的数字，200，但我们是如何确定这个数字的呢？当我们试图让拓扑工作的时候，这看起来可能是正确的。在[图6.14](#ch06fig14)中，看看“最后错误”列。你会发现我们所有的bolt都在经历超时。这是有道理的。我们只等待200毫秒来获取推荐，但根据[表6.1](#ch06table01)，每十个请求中有一个会达到高于正常的延迟，可能需要从150毫秒到1049毫秒的时间来返回结果，而九个请求将返回少于150毫秒。这种情况可能有两个主要原因：外在和内在。
+- en: Figure 6.14\. Storm UI showing the last error for each of our bolts
+  id: totrans-191
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图6.14\. Storm UI显示我们每个bolt的最后错误
+- en: '![](06fig14_alt.jpg)'
+  id: totrans-192
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](06fig14_alt.jpg)'
+- en: 6.4.2\. Extrinsic and intrinsic reasons for latency
+  id: totrans-193
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.4.2\. 延迟的外在和内在原因
+- en: An *extrinsic* reason is one that has little to nothing to do with the data.
+    We hit high latency because of network issues or a garbage collection event or
+    something that should pass with time. The next time we retry that request, our
+    situation might be different.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个**外在**的原因是与数据几乎没有关系的原因。我们遇到高延迟是因为网络问题或垃圾回收事件，或者是一些应该随时间流逝而解决的问题。下次我们重试那个请求时，我们的情况可能不同。
+- en: An *intrinsic* reason is related to something about the data that’s likely to
+    cause the delay. In our example, it may take longer to come up with recommended
+    sales for certain customers. No matter how many times we fail the tuple in this
+    bolt and try again, we won’t get recommended sales for those customers. It’s just
+    going to take too long. Intrinsic reasons can combine with extrinsic ones; they
+    aren’t mutually exclusive.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个**内在**的原因是与可能导致延迟的数据相关的某个原因。在我们的例子中，为某些客户提供推荐销售可能需要更长的时间。无论我们在这个bolt中失败多少次并再次尝试，我们都不会为这些客户提供推荐销售。这只会花费太长时间。内在原因可以与外在原因结合；它们不是相互排斥的。
+- en: That’s all well and good, but what does it have to do with our topology? Well,
+    as we are interacting with external services, we can account for latency and attempt
+    to increase our throughput without increasing our parallelism. Let’s be smarter
+    about our latency.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这都很好，但这与我们的拓扑有什么关系呢？嗯，当我们与外部服务交互时，我们可以考虑延迟，并尝试在不增加并行性的情况下提高我们的吞吐量。让我们更聪明地处理我们的延迟。
+- en: 'All right, we’re making recommendations here, so we’re declaring that after
+    investigation, we’ve discovered that our variance with the `FlashSaleRecommendationService`
+    is based on the customer. Certain customers are going to be slower to look up:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好吧，我们在这里做推荐，所以我们宣布经过调查，我们已经发现我们的`FlashSaleRecommendationService`的方差是基于客户的。某些客户查找起来会慢一些：
+- en: We can generate recommendations for 75% of them in less than 125 ms.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以在125毫秒内为其中75%生成推荐。
+- en: For another 15%, it takes about 125–150 ms.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于另外15%，大约需要125-150毫秒。
+- en: The last 10% usually take at least 200 ms, sometimes as long as 1500 ms.
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后的10%通常需要至少200毫秒，有时长达1500毫秒。
+- en: Those are intrinsic variances in latency. Sometimes one of those “fast” lookups
+    might end up taking longer due to an extrinsic event. One strategy that has worked
+    well for us with services that exhibit this problem is to perform initial lookup
+    attempts with a hard ceiling on timeouts. In this example, we could use 150 ms,
+    and, if that fails, send it to a less parallelized instance of the same bolt that
+    will take longer with its timeout. The end result is that our time to process
+    a large number of messages goes down—we’re effectively declaring war on extrinsic
+    latency. If 90% of requests take longer than 150 ms, it’s probably either because
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些是延迟的内在差异。有时，由于一个外在事件，这些“快速”查找中的一个可能会花费更长的时间。对于表现出这种问题的服务，我们有一个策略效果很好，那就是在超时上有硬上限的初始查找尝试。在这个例子中，我们可以使用150毫秒，如果失败了，就将其发送到同一个bolt的较不并行化的实例，该实例的超时会更长。最终结果是，我们处理大量消息的时间减少了——我们实际上是在对外在延迟宣战。如果90%的请求超过150毫秒，那可能是因为
+- en: It’s a customer with intrinsic issues.
+  id: totrans-202
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 这是一个存在内在问题的客户。
+- en: Extrinsic issues such as stop-the-world garbage collection are having an effect.
+  id: totrans-203
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 外部问题，如停止世界的垃圾收集正在产生影响。
+- en: Your mileage will vary with this strategy, so test before you use it. Caveats
+    aside, let’s look at one way you can pull this off. Check out version 0.0.4 of
+    our code
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种策略的效果可能会有所不同，所以在使用之前请进行测试。不考虑警告，让我们看看一种可以实现的方法。查看我们代码的0.0.4版本
+- en: '[PRE13]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: and see the following listing for the changes in `FindRecommendedSales` and
+    `FlashSaleTopologyBuilder`.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并查看以下列表，以了解 `FindRecommendedSales` 和 `FlashSaleTopologyBuilder` 中的更改。
+- en: Listing 6.6\. `FindRecommendedSales.java` with retry logic
+  id: totrans-207
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.6. `FindRecommendedSales.java` 带有重试逻辑
+- en: '![](151fig01_alt.jpg)'
+  id: totrans-208
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](151fig01_alt.jpg)'
+- en: 'Check out what’s going on in `FlashSaleTopologyBuilder`:'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看在 `FlashSaleTopologyBuilder` 中发生的事情：
+- en: '[PRE14]'
+  id: totrans-210
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Where we previously had a single `FindRecommendedSales` bolt, we now have two:
+    one for “fast” lookups and the other for “slow.” Let’s take a closer look at the
+    fast one:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前有一个单独的 `FindRecommendedSales` bolt，现在我们有两个：一个用于“快速”查找，另一个用于“慢速”。让我们更仔细地看看快速的那个：
+- en: '[PRE15]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'It’s identical to our previous `FindRecommendedSales` bolt except that it has
+    one addition:'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它与我们的先前 `FindRecommendedSales` bolt 相同，只是增加了一个功能：
+- en: '[PRE16]'
+  id: totrans-214
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'This is the timeout value (in ms) that we’re using in the bolt’s `prepare()`
+    method to initialize the `FindRecommendationSalesClient`’s timeout value. Every
+    tuple through the fast bolt will time out after 150 ms and be emitted on the retry
+    stream. Here’s the “slow” version of the `FindRecommendedSales` bolt:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们在bolt的 `prepare()` 方法中用来初始化 `FindRecommendationSalesClient` 超时值的超时值（以毫秒为单位）。每个通过快速bolt的元组将在150毫秒后超时，并在重试流上发出。以下是
+    `FindRecommendedSales` bolt的“慢”版本：
+- en: '[PRE17]'
+  id: totrans-216
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Note that it has a timeout of 1500 ms:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，它有一个1500毫秒的超时时间：
+- en: '[PRE18]'
+  id: totrans-218
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: That’s the maximum we decided we should ever need to wait based on reasons that
+    are intrinsic to that customer.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是基于该客户内在原因我们决定应该等待的最长时间。
+- en: What’s going on with those two shuffle groupings?
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那两个shuffle分组发生了什么？
+- en: '[PRE19]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'We’ve hooked up the slow `FindRecommendedSales` bolt to two different streams:
+    the retry streams from both the fast and slow versions of the `FindRecommendedSales`
+    bolts. Whenever a timeout occurs in any version of the bolt, it’ll be emitted
+    on the retry stream and retried at a slower speed.'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将慢速的 `FindRecommendedSales` bolt连接到两个不同的流：来自快速和慢速版本的 `FindRecommendedSales`
+    bolts的重试流。每当bolt的任何版本发生超时，它将在重试流上发出，并以较慢的速度重试。
+- en: 'We have to make one more big change to our topology to incorporate this. Our
+    next bolt, the `LookupSalesDetails`, has to get tuples from the success stream
+    of both `FindRecommendedSales` bolts, slow and fast:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们必须对我们的拓扑进行一次更大的更改来整合这一点。我们的下一个bolt，`LookupSalesDetails`，必须从两个 `FindRecommendedSales`
+    bolts的成功流中获取元组，无论是慢速还是快速：
+- en: '[PRE20]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: We could also consider applying this pattern to other bolts further downstream.
+    It’s important to weigh the additional complexity this creates against possible
+    performance increases. As always, it’s all about trade-offs.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也可以考虑将这种模式应用到更下游的其他bolt上。重要的是要权衡由此产生的额外复杂性以及可能的性能提升。像往常一样，一切都是关于权衡。
+- en: Let’s go back to a previous decision. Remember the code in `LookupSalesDetails`
+    that can result in some sales details not being looked up?
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一个先前的决定。还记得 `LookupSalesDetails` 中的代码，它可能导致某些销售详情没有被查询到吗？
+- en: '[PRE21]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: We made a trade-off to get speed. We’re willing to accept the occasional loss
+    of fidelity in the number of recommended sales to each customer versus emailing
+    them to make sure we hit our SLA. But what kind of impact is this decision having?
+    How many sales aren’t being sent to customers? Currently, we have no insight.
+    Thankfully, Storm ships with some built-in metrics capabilities we can leverage.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们为了速度做出了权衡。我们愿意接受偶尔在向每个客户推荐销售数量上损失精度，而不是通过电子邮件确保我们达到服务级别协议（SLA）。但是这个决定会产生什么影响？有多少销售没有发送给客户？目前，我们没有任何洞察。幸运的是，Storm自带一些内置的度量能力，我们可以利用。
+- en: 6.5\. Storm’s metrics-collecting API
+  id: totrans-229
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.5. Storm的度量收集API
+- en: 'Prior to the Storm 0.9.x series of releases, metrics were the Wild West. You
+    had topology-level metrics available in the UI, but if you wanted business-level
+    or JVM-level metrics, you needed to roll your own. The Metrics API that now ships
+    with Storm is an excellent way to get access to metrics that can be used to solve
+    our current quandary: understanding how much fidelity we’re losing in our `LookupSalesDetails`
+    bolt.'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Storm 0.9.x系列版本发布之前，度量指标就像西部荒野。你可以在UI中查看拓扑级别的度量指标，但如果你需要业务级别或JVM级别的度量指标，你需要自己实现。现在随Storm一起提供的度量API是获取可以解决我们当前困境（理解我们在`LookupSalesDetails`bolt中丢失了多少精确度）的度量指标的一个绝佳方式。
+- en: 6.5.1\. Using Storm’s built-in CountMetric
+  id: totrans-231
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.5.1\. 使用Storm的内置CountMetric
+- en: 'To follow along in the source code, run the following command:'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在源代码中跟踪，请运行以下命令：
+- en: '[PRE22]'
+  id: totrans-233
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The next listing shows the changes we’ve made to our `LookupSalesDetail` bolt.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表显示了我们对`LookupSalesDetail`bolt所做的更改。
+- en: Listing 6.7\. `LookupSalesDetails.java` with metrics
+  id: totrans-235
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.7\. 带有度量的`LookupSalesDetails.java`
+- en: '![](ch06ex07-0.jpg)'
+  id: totrans-236
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](ch06ex07-0.jpg)'
+- en: '![](ch06ex07-1.jpg)'
+  id: totrans-237
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](ch06ex07-1.jpg)'
+- en: 'We’ve created and registered two `CountMetric` instances in our `prepare()`
+    method: one to keep a running count of the number of sales for which we’ve successfully
+    looked up details and the other for tracking the number of failures.'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在`prepare()`方法中创建了并注册了两个`CountMetric`实例：一个用于跟踪成功查找详细信息的销售数量，另一个用于跟踪失败次数。
+- en: 6.5.2\. Setting up a metrics consumer
+  id: totrans-239
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.5.2\. 设置度量消费者
+- en: 'Now we have some basic raw data that we’re going to record, but to get at it,
+    we must set up a consumer. A metrics consumer implements the interface `IMetricsConsumer`,
+    which acts as a bridge between Storm and an external system such as Statsd or
+    Riemann. In this example, we’ll use the provided `LoggingMetricsConsumer`. When
+    a topology is run in local mode, `LoggingMetricsConsumer` ends up being directed
+    to standard output (stdout) along with other log output. We can set this up by
+    adding the following to our `LocalTopologyRunner`:'
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一些基本的原始数据要记录，但要获取这些数据，我们必须设置一个消费者。度量消费者实现了`IMetricsConsumer`接口，它充当Storm和外部系统（如Statsd或Riemann）之间的桥梁。在这个例子中，我们将使用提供的`LoggingMetricsConsumer`。当一个拓扑在本地模式下运行时，`LoggingMetricsConsumer`最终会被导向标准输出（stdout）以及其他日志输出。我们可以通过向我们的`LocalTopologyRunner`添加以下内容来设置它：
+- en: '[PRE23]'
+  id: totrans-241
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Let’s say we succeeded in looking up 350 sales over the time window:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们在时间窗口内成功查看了350个销售记录：
+- en: '[PRE24]'
+  id: totrans-243
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'On a remote cluster, the `LoggingMetricsConsumer` writes info-level messages
+    to a file called metrics.log in the Storm logs directory. We’ve also enabled metrics
+    logging for when we deploy to a cluster with the following addition:'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在远程集群上，`LoggingMetricsConsumer`将信息级别消息写入Storm日志目录中名为metrics.log的文件。我们还通过以下添加启用了度量日志记录，以便在将拓扑部署到集群时：
+- en: '[PRE25]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Storm’s built-in metrics are useful. But what if you need more than what’s built-in?
+    Fortunately, Storm provides the ability to implement custom metrics so you can
+    create metrics tailored to a specific need.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Storm的内置度量指标很有用。但如果你需要比内置的更多呢？幸运的是，Storm提供了实现自定义度量指标的能力，这样你可以创建针对特定需求的度量指标。
+- en: 6.5.3\. Creating a custom SuccessRateMetric
+  id: totrans-247
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.5.3\. 创建自定义SuccessRateMetric
+- en: We have the raw metrics, but we want to aggregate them and then do the math
+    ourselves to determine the success rate. We care less about the raw successes
+    and failures and more about just the success rate. Storm has no built-in metric
+    that we can use to get that, but it’s easy to create a class that will record
+    that for us. The following listing introduces the `SuccessRateMetric`.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们有原始度量数据，但我们想将它们聚合起来，然后自己进行数学计算以确定成功率。我们更关心的是成功率，而不是原始的成功和失败次数。Storm没有内置的度量指标供我们使用，但很容易创建一个类来为我们记录这些信息。下面的列表介绍了`SuccessRateMetric`。
+- en: Listing 6.8\. `SuccessRateMetric.java`
+  id: totrans-249
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.8\. `SuccessRateMetric.java`
+- en: '![](156fig01_alt.jpg)'
+  id: totrans-250
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](156fig01_alt.jpg)'
+- en: Changing the code to use this new custom metric is simple (see the next listing).
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将代码更改为使用这个新的自定义度量指标很简单（见下一个列表）。
+- en: Listing 6.9\. `LookupSalesDetails.java` using our new custom metric
+  id: totrans-252
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表6.9\. 使用我们的新自定义度量指标的`LookupSalesDetails.java`
+- en: '![](ch06ex09-0.jpg)'
+  id: totrans-253
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](ch06ex09-0.jpg)'
+- en: '![](ch06ex09-1.jpg)'
+  id: totrans-254
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](ch06ex09-1.jpg)'
+- en: 'Everything is pretty much as it was. We register a metric (just of a different
+    type) and report our successes and failures to it. The logged output is much closer
+    to what we want to know:'
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一切几乎都和以前一样。我们记录一个度量（只是类型不同）并向其报告我们的成功和失败情况。记录的输出更接近我们想要了解的内容：
+- en: '[PRE26]'
+  id: totrans-256
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'You can try it out yourself:'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以亲自尝试：
+- en: '[PRE27]'
+  id: totrans-258
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: Beware! It’s a lot of output.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告！输出会很多。
+- en: 6.5.4\. Creating a custom MultiSuccessRateMetric
+  id: totrans-260
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 6.5.4\. 创建自定义MultiSuccessRateMetric
+- en: At this point, we’ve moved to production and the business folks are happy for
+    a couple days—until they want to know the distribution of fidelity across customers.
+    In other words, we need to record success and failure on a per-customer basis.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经进入生产阶段，业务人员对连续几天的情况感到满意——直到他们想要知道客户之间保真度的分布。换句话说，我们需要按客户记录成功和失败情况。
+- en: 'Luckily, there’s a Storm metric called `MultiCountMetric` that does exactly
+    that—except it uses `CountMetrics`, not `SuccessRateMetrics`. But that’s easy
+    enough to deal with—we’ll just create a new metric of our own from it:'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，有一个名为`MultiCountMetric`的Storm度量标准，它正好做这件事——除了它使用`CountMetrics`而不是`SuccessRateMetrics`。但这很容易处理——我们只需从它创建一个新的度量标准：
+- en: '[PRE28]'
+  id: totrans-263
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'The following listing shows the new metric: `MultiSuccessRateMetric`.'
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表显示了新的度量标准：`MultiSuccessRateMetric`。
+- en: Listing 6.10\. `MultiSuccessRateMetric.java`
+  id: totrans-265
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 6.10\. `MultiSuccessRateMetric.java`
+- en: '![](158fig01_alt.jpg)'
+  id: totrans-266
+  prefs: []
+  type: TYPE_IMG
+  zh: '![158fig01_alt.jpg](158fig01_alt.jpg)'
+- en: The class is straightforward; we store individual `SuccessRateMetric`s in a
+    hash. We’ll use customer IDs as a key and be able to keep track of successes and
+    failures per customer. As you can see in the next listing, the changes we need
+    to do this are minor.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个类很简单；我们在散列表中存储单个`SuccessRateMetric`。我们将使用客户ID作为键，并能够跟踪每个客户的成功和失败情况。正如你在下一个列表中可以看到的，我们需要做的更改很小。
+- en: Listing 6.11\. `LookupSalesDetails.java` with the new `MultiSuccessRateMetric`
+  id: totrans-268
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 6.11\. `LookupSalesDetails.java` 使用新的 `MultiSuccessRateMetric`
+- en: '![](ch06ex11-0.jpg)'
+  id: totrans-269
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ch06ex11-0.jpg](ch06ex11-0.jpg)'
+- en: '![](ch06ex11-1.jpg)'
+  id: totrans-270
+  prefs: []
+  type: TYPE_IMG
+  zh: '![ch06ex11-1.jpg](ch06ex11-1.jpg)'
+- en: 'Now we’re recording metrics in a fashion useful to the business folks:'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们正在以对业务人员有用的方式记录度量标准：
+- en: '[PRE29]'
+  id: totrans-272
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'The log message provides a sample of what we may see with the new metric: a
+    list of customer IDs, each with an associated success rate. Here’s a lucky customer
+    in that list with a 100% success rate:'
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 日志消息提供了一个新度量标准的示例：一个客户ID列表，每个ID都有一个相关的成功率。以下是列表中的一位幸运客户，其成功率为100%：
+- en: '[PRE30]'
+  id: totrans-274
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: With this data, we have a much deeper insight into how many customers are receiving
+    their full set of potential flash sales.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过这些数据，我们对有多少客户收到了他们全部可能的闪购套装有了更深入的了解。
+- en: 6.6\. Summary
+  id: totrans-276
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.6\. 摘要
+- en: In this chapter, you learned that
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你了解到
+- en: All basic timing information for a topology can be found in the Storm UI.
+  id: totrans-278
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 拓扑结构的所有基本计时信息都可以在Storm UI中找到。
+- en: Establishing a baseline set of performance numbers for your topology is the
+    essential first step in the tuning process.
+  id: totrans-279
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为你的拓扑结构建立一组基线性能数字是调整过程中的基本第一步。
+- en: Bottlenecks are indicated by a high capacity for a spout/bolt and can be addressed
+    by increasing parallelism.
+  id: totrans-280
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 瓶颈由spout/bolt的高容量表示，可以通过增加并行性来解决。
+- en: Increasing parallelism is best done in small increments so that you can gain
+    a better understanding of the effects of each increase.
+  id: totrans-281
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 增加并行性最好分小步骤进行，这样你可以更好地理解每次增加的效果。
+- en: Latency that is both related to the data (intrinsic) and not related to the
+    data (extrinsic) can reduce your topology’s throughput and may need to be addressed.
+  id: totrans-282
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与数据相关（内在）以及与数据无关（外在）的延迟可能会降低你的拓扑结构的吞吐量，可能需要解决。
+- en: Metrics (both built-in and custom) are essential if you want to have a true
+    understanding of how your topology is operating.
+  id: totrans-283
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你想真正了解你的拓扑结构是如何运行的，度量标准（无论是内置的还是自定义的）都是必不可少的。

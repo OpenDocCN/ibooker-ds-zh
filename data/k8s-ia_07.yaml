@@ -1,0 +1,2941 @@
+- en: 'Chapter 6\. Volumes: attaching disk storage to containers'
+  id: totrans-0
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第6章. 卷：将磁盘存储附加到容器
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Creating multi-container pods
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建多容器Pod
+- en: Creating a volume to share disk storage between containers
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建卷以在容器之间共享磁盘存储
+- en: Using a Git repository inside a pod
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在Pod内使用Git仓库
+- en: Attaching persistent storage such as a GCE Persistent Disk to pods
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将持久存储（如GCE持久磁盘）附加到Pod
+- en: Using pre-provisioned persistent storage
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用预先配置的持久存储
+- en: Dynamic provisioning of persistent storage
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 持久存储的动态配置
+- en: In the previous three chapters, we introduced pods and other Kubernetes resources
+    that interact with them, namely ReplicationControllers, ReplicaSets, DaemonSets,
+    Jobs, and Services. Now, we’re going back inside the pod to learn how its containers
+    can access external disk storage and/or share storage between them.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前三章中，我们介绍了Pod以及其他与之交互的Kubernetes资源，例如ReplicationControllers、ReplicaSets、DaemonSets、Jobs和Services。现在，我们回到Pod内部，学习其容器如何访问外部磁盘存储以及/或它们之间共享存储。
+- en: We’ve said that pods are similar to logical hosts where processes running inside
+    them share resources such as CPU, RAM, network interfaces, and others. One would
+    expect the processes to also share disks, but that’s not the case. You’ll remember
+    that each container in a pod has its own isolated filesystem, because the file-system
+    comes from the container’s image.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们提到，Pod类似于逻辑主机，其中运行的进程共享资源，如CPU、RAM、网络接口等。人们可能会预期进程也会共享磁盘，但事实并非如此。你会记得，Pod中的每个容器都有自己的独立文件系统，因为文件系统来自容器的镜像。
+- en: Every new container starts off with the exact set of files that was added to
+    the image at build time. Combine this with the fact that containers in a pod get
+    restarted (either because the process died or because the liveness probe signaled
+    to Kubernetes that the container wasn’t healthy anymore) and you’ll realize that
+    the new container will not see anything that was written to the filesystem by
+    the previous container, even though the newly started container runs in the same
+    pod.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个新容器都以在构建时添加到镜像中的确切文件集开始。结合Pod中的容器会重启（无论是由于进程死亡还是因为存活探针向Kubernetes发出容器不再健康的信号）的事实，你就会意识到新容器将看不到之前容器写入文件系统的任何内容，即使新启动的容器在同一个Pod中运行。
+- en: In certain scenarios you want the new container to continue where the last one
+    finished, such as when restarting a process on a physical machine. You may not
+    need (or want) the whole filesystem to be persisted, but you do want to preserve
+    the directories that hold actual data.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些场景下，你希望新容器从上一个容器结束的地方继续，例如在物理机上重启进程时。你可能不需要（或不想）持久化整个文件系统，但你确实想保留包含实际数据的目录。
+- en: Kubernetes provides this by defining storage volumes. They aren’t top-level
+    resources like pods, but are instead defined as a part of a pod and share the
+    same lifecycle as the pod. This means a volume is created when the pod is started
+    and is destroyed when the pod is deleted. Because of this, a volume’s contents
+    will persist across container restarts. After a container is restarted, the new
+    container can see all the files that were written to the volume by the previous
+    container. Also, if a pod contains multiple containers, the volume can be used
+    by all of them at once.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes通过定义存储卷来实现这一点。它们不是像Pod这样的顶级资源，而是作为Pod的一部分定义，并具有与Pod相同的生命周期。这意味着当Pod启动时创建卷，当Pod被删除时销毁卷。正因为如此，卷的内容将在容器重启之间持续存在。容器重启后，新容器可以看到之前容器写入卷的所有文件。此外，如果Pod包含多个容器，卷可以同时被所有容器使用。
+- en: 6.1\. Introducing volumes
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.1. 介绍卷
+- en: Kubernetes volumes are a component of a pod and are thus defined in the pod’s
+    specification—much like containers. They aren’t a standalone Kubernetes object
+    and cannot be created or deleted on their own. A volume is available to all containers
+    in the pod, but it must be mounted in each container that needs to access it.
+    In each container, you can mount the volume in any location of its filesystem.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes卷是Pod的组成部分，因此定义在Pod的规范中——就像容器一样。它们不是独立的Kubernetes对象，不能单独创建或删除。卷对Pod中的所有容器都可用，但必须挂载在每个需要访问它的容器中。在每个容器中，你可以在其文件系统的任何位置挂载卷。
+- en: 6.1.1\. Explaining volumes in an example
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.1.1. 通过示例解释卷
+- en: Imagine you have a pod with three containers (shown in [figure 6.1](#filepos592386)).
+    One container runs a web server that serves HTML pages from the /var/htdocs directory
+    and stores the access log to /var/logs. The second container runs an agent that
+    creates HTML files and stores them in /var/html. The third container processes
+    the logs it finds in the /var/logs directory (rotates them, compresses them, analyzes
+    them, or whatever).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，你有一个包含三个容器的舱（如图6.1所示）。一个容器运行一个Web服务器，从/var/htdocs目录提供HTML页面，并将访问日志存储到/var/logs。第二个容器运行一个代理，创建HTML文件并将它们存储在/var/html。第三个容器处理它在/var/logs目录中找到的日志（旋转、压缩、分析或任何其他操作）。
+- en: Figure 6.1\. Three containers of the same pod without shared storage
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.1\. 没有共享存储的同一舱的三个容器
+- en: '![](images/00102.jpg)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片2](images/00102.jpg)'
+- en: Each container has a nicely defined single responsibility, but on its own each
+    container wouldn’t be of much use. Creating a pod with these three containers
+    without them sharing disk storage doesn’t make any sense, because the content
+    generator would write the generated HTML files inside its own container and the
+    web server couldn’t access those files, as it runs in a separate isolated container.
+    Instead, it would serve an empty directory or whatever you put in the /var/htdocs
+    directory in its container image. Similarly, the log rotator would never have
+    anything to do, because its /var/logs directory would always remain empty with
+    nothing writing logs there. A pod with these three containers and no volumes basically
+    does nothing.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个容器都有一个定义良好的单一职责，但单独来看，每个容器都不会有很大的用处。如果没有共享磁盘存储，创建一个包含这三个容器的舱就没有意义，因为内容生成器会在自己的容器内写入生成的HTML文件，而Web服务器无法访问这些文件，因为它运行在一个独立的隔离容器中。相反，它会提供一个空目录或在其容器镜像的/var/htdocs目录中放置的任何内容。同样，日志旋转器永远不会有什么事情要做，因为它的/var/logs目录总是会保持空，没有任何地方写入日志。基本上，这样一个包含这三个容器且没有卷的舱什么也不做。
+- en: But if you add two volumes to the pod and mount them at appropriate paths inside
+    the three containers, as shown in [figure 6.2](#filepos594099), you’ve created
+    a system that’s much more than the sum of its parts. Linux allows you to mount
+    a filesystem at arbitrary locations in the file tree. When you do that, the contents
+    of the mounted filesystem are accessible in the directory it’s mounted into. By
+    mounting the same volume into two containers, they can operate on the same files.
+    In your case, you’re mounting two volumes in three containers. By doing this,
+    your three containers can work together and do something useful. Let me explain
+    how.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，如果你向舱中添加两个卷并将它们挂载到三个容器中适当的路径，如图6.2所示，你就创建了一个远大于其各部分总和的系统。Linux允许你在文件树中的任意位置挂载一个文件系统。当你这样做时，挂载的文件系统的内容可以在挂载到的目录中访问。通过将相同的卷挂载到两个容器中，它们可以操作相同的文件。在你的情况下，你在三个容器中挂载了两个卷。通过这样做，你的三个容器可以协同工作并完成一些有用的事情。让我来解释一下。
+- en: Figure 6.2\. Three containers sharing two volumes mounted at various mount paths
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.2\. 三个容器共享两个在不同挂载路径挂载的卷
+- en: '![](images/00121.jpg)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片1](images/00121.jpg)'
+- en: First, the pod has a volume called `publicHtml`. This volume is mounted in the
+    `WebServer` container at /var/htdocs, because that’s the directory the web server
+    serves files from. The same volume is also mounted in the `ContentAgent` container,
+    but at /var/html, because that’s where the agent writes the files to. By mounting
+    this single volume like that, the web server will now serve the content generated
+    by the content agent.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，舱有一个名为`publicHtml`的卷。这个卷被挂载到`WebServer`容器中的/var/htdocs，因为这是Web服务器提供文件的目录。相同的卷也被挂载到`ContentAgent`容器中，但挂载到/var/html，因为这是代理写入文件的目录。通过这样挂载单个卷，Web服务器现在将提供由内容代理生成的内容。
+- en: Similarly, the pod also has a volume called `logVol` for storing logs. This
+    volume is mounted at /var/logs in both the `WebServer` and the `LogRotator` containers.
+    Note that it isn’t mounted in the `ContentAgent` container. The container cannot
+    access its files, even though the container and the volume are part of the same
+    pod. It’s not enough to define a volume in the pod; you need to define a `VolumeMount`
+    inside the container’s spec also, if you want the container to be able to access
+    it.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，舱还有一个名为`logVol`的卷用于存储日志。这个卷被挂载到`WebServer`和`LogRotator`容器的/var/logs。请注意，它没有被挂载到`ContentAgent`容器中。即使容器和卷都属于同一个舱，容器也无法访问其文件。仅定义舱中的卷是不够的；如果你想让容器能够访问它，你还需要在容器的规范中定义一个`VolumeMount`。
+- en: The two volumes in this example can both initially be empty, so you can use
+    a type of volume called `emptyDir`. Kubernetes also supports other types of volumes
+    that are either populated during initialization of the volume from an external
+    source, or an existing directory is mounted inside the volume. This process of
+    populating or mounting a volume is performed before the pod’s containers are started.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个示例中，这两个卷最初都可以为空，因此你可以使用一种称为 `emptyDir` 的卷类型。Kubernetes 还支持其他类型的卷，这些卷在从外部源初始化卷或挂载现有目录到卷中时被填充。这个过程是在
+    pod 的容器启动之前执行的。
+- en: A volume is bound to the lifecycle of a pod and will stay in existence only
+    while the pod exists, but depending on the volume type, the volume’s files may
+    remain intact even after the pod and volume disappear, and can later be mounted
+    into a new volume. Let’s see what types of volumes exist.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 卷绑定到 pod 的生命周期，并且只有在 pod 存在期间才会存在，但根据卷类型的不同，卷的文件可能在 pod 和卷消失后仍然保持完整，并且可以稍后挂载到新的卷中。让我们看看存在哪些类型的卷。
+- en: 6.1.2\. Introducing available volume types
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.1.2\. 介绍可用的卷类型
+- en: 'A wide variety of volume types is available. Several are generic, while others
+    are specific to the actual storage technologies used underneath. Don’t worry if
+    you’ve never heard of those technologies—I hadn’t heard of at least half of them.
+    You’ll probably only use volume types for the technologies you already know and
+    use. Here’s a list of several of the available volume types:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可用的卷类型多种多样。其中一些是通用的，而另一些则是针对实际使用的存储技术的特定类型。如果你从未听说过这些技术，请不要担心——至少有一半以上我都没听说过。你可能只会使用你已知并使用的技术的卷类型。以下是一些可用的卷类型列表：
+- en: '`emptyDir`—A simple empty directory used for storing transient data.'
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`emptyDir`—一个简单的空目录，用于存储临时数据。'
+- en: '`hostPath`—Used for mounting directories from the worker node’s filesystem
+    into the pod.'
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`hostPath`—用于将工作节点文件系统中的目录挂载到 pod 中。'
+- en: '`gitRepo`—A volume initialized by checking out the contents of a Git repository.'
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`gitRepo`—通过检出 Git 仓库的内容来初始化的卷。'
+- en: '`nfs`—An NFS share mounted into the pod.'
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`nfs`—挂载到 pod 中的 NFS 共享。'
+- en: '`gcePersistentDisk` (Google Compute Engine Persistent Disk), `awsElasticBlockStore`
+    (Amazon Web Services Elastic Block Store Volume), `azureDisk` (Microsoft Azure
+    Disk Volume)—Used for mounting cloud provider-specific storage.'
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`gcePersistentDisk`（Google Compute Engine 持久磁盘）, `awsElasticBlockStore`（Amazon
+    Web Services 弹性块存储卷）, `azureDisk`（Microsoft Azure 磁盘卷）—用于挂载特定云提供商的存储。'
+- en: '`cinder`, `cephfs`, `iscsi`, `flocker`, `glusterfs`, `quobyte`, `rbd`, `flexVolume`,
+    `vsphere-Volume`, `photonPersistentDisk`, `scaleIO`—Used for mounting other types
+    of network storage.'
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`cinder`，`cephfs`，`iscsi`，`flocker`，`glusterfs`，`quobyte`，`rbd`，`flexVolume`，`vsphere-Volume`，`photonPersistentDisk`，`scaleIO`—用于挂载其他类型的网络存储。'
+- en: '`configMap`, `secret`, `downwardAPI`—Special types of volumes used to expose
+    certain Kubernetes resources and cluster information to the pod.'
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`configMap`，`secret`，`downwardAPI`—用于将某些 Kubernetes 资源和集群信息暴露给 pod 的特殊类型的卷。'
+- en: '`persistentVolumeClaim`—A way to use a pre- or dynamically provisioned persistent
+    storage. (We’ll talk about them in the last section of this chapter.)'
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`persistentVolumeClaim`—一种使用预先或动态预配的持久存储的方式。（我们将在本章的最后部分讨论它们。）'
+- en: These volume types serve various purposes. You’ll learn about some of them in
+    the following sections. Special types of volumes (`secret`, `downwardAPI`, `configMap`)
+    are covered in the next two chapters, because they aren’t used for storing data,
+    but for exposing Kubernetes metadata to apps running in the pod.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些卷类型服务于各种目的。你将在以下章节中了解其中的一些。特殊类型的卷（`secret`，`downwardAPI`，`configMap`）将在下一两章中介绍，因为它们不是用于存储数据，而是用于将
+    Kubernetes 元数据暴露给在 pod 中运行的应用程序。
+- en: A single pod can use multiple volumes of different types at the same time, and,
+    as we’ve mentioned before, each of the pod’s containers can either have the volume
+    mounted or not.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单个 pod 可以同时使用多种不同类型的多个卷，并且，正如我们之前提到的，pod 的每个容器都可以选择挂载或不挂载卷。
+- en: 6.2\. Using volumes to share data between containers
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.2\. 使用卷在容器之间共享数据
+- en: Although a volume can prove useful even when used by a single container, let’s
+    first focus on how it’s used for sharing data between multiple containers in a
+    pod.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管卷在单个容器使用时也可能很有用，但让我们首先关注它是如何用于在 pod 中的多个容器之间共享数据的。
+- en: 6.2.1\. Using an emptyDir volume
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.2.1\. 使用 emptyDir 卷
+- en: The simplest volume type is the `emptyDir` volume, so let’s look at it in the
+    first example of how to define a volume in a pod. As the name suggests, the volume
+    starts out as an empty directory. The app running inside the pod can then write
+    any files it needs to it. Because the volume’s lifetime is tied to that of the
+    pod, the volume’s contents are lost when the pod is deleted.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的卷类型是 `emptyDir` 卷，所以让我们在定义 pod 中卷的第一个例子中看看它。正如其名所示，卷最初是一个空目录。pod 内运行的程序可以将其需要的任何文件写入其中。因为卷的寿命与
+    pod 相关联，所以当 pod 被删除时，卷的内容也会丢失。
+- en: An `emptyDir` volume is especially useful for sharing files between containers
+    running in the same pod. But it can also be used by a single container for when
+    a container needs to write data to disk temporarily, such as when performing a
+    sort operation on a large dataset, which can’t fit into the available memory.
+    The data could also be written to the container’s filesystem itself (remember
+    the top read-write layer in a container?), but subtle differences exist between
+    the two options. A container’s filesystem may not even be writable (we’ll talk
+    about this toward the end of the book), so writing to a mounted volume might be
+    the only option.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 `emptyDir` 卷对于在同一个 pod 中运行的容器之间共享文件特别有用。但它也可以由单个容器使用，当容器需要临时将数据写入磁盘时，例如在对大型数据集进行排序操作时，这些数据无法适应可用的内存。数据也可以写入容器的文件系统本身（记得容器中顶层的可读写层吗？），但这两个选项之间存在细微的差异。容器的文件系统可能甚至不可写（我们将在本书的末尾讨论这个问题），因此写入挂载的卷可能是唯一的选择。
+- en: Using an emptyDir volume in a pod
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 pod 中使用 emptyDir 卷
+- en: Let’s revisit the previous example where a web server, a content agent, and
+    a log rotator share two volumes, but let’s simplify a bit. You’ll build a pod
+    with only the web server container and the content agent and a single volume for
+    the HTML.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一下之前的例子，其中 Web 服务器、内容代理和日志轮转器共享两个卷，但让我们简化一下。你将构建一个只包含 Web 服务器容器和内容代理以及单个
+    HTML 卷的 pod。
+- en: You’ll use Nginx as the web server and the UNIX `fortune` command to generate
+    the HTML content. The `fortune` command prints out a random quote every time you
+    run it. You’ll create a script that invokes the `fortune` command every 10 seconds
+    and stores its output in index.html. You’ll find an existing Nginx image available
+    on Docker Hub, but you’ll need to either create the `fortune` image yourself or
+    use the one I’ve already built and pushed to Docker Hub under `luksa/fortune`.
+    If you want a refresher on how to build Docker images, refer to the sidebar.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将使用 Nginx 作为 Web 服务器和 UNIX `fortune` 命令来生成 HTML 内容。每次运行 `fortune` 命令时，它都会打印出一个随机引言。你将创建一个脚本，每
+    10 秒调用一次 `fortune` 命令，并将输出存储在 index.html 中。你可以在 Docker Hub 上找到一个现有的 Nginx 镜像，但你需要自己创建
+    `fortune` 镜像或者使用我已经构建并推送到 Docker Hub 上的 `luksa/fortune`。如果你想要复习如何构建 Docker 镜像，请参考侧边栏。
+- en: '|  |'
+  id: totrans-47
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Building the fortune container image
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建 fortune 容器镜像
+- en: 'Here’s how to build the image. Create a new directory called fortune and then
+    inside it, create a `fortuneloop.sh` shell script with the following contents:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是如何构建镜像。创建一个名为 fortune 的新目录，然后在其中创建一个名为 `fortuneloop.sh` 的 shell 脚本，内容如下：
+- en: '`#!/bin/bash trap "exit" SIGINT mkdir /var/htdocs while : do   echo $(date)
+    Writing fortune to /var/htdocs/index.html   /usr/games/fortune > /var/htdocs/index.html
+      sleep 10 done`'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`#!/bin/bash trap "exit" SIGINT mkdir /var/htdocs while : do   echo $(date)
+    Writing fortune to /var/htdocs/index.html   /usr/games/fortune > /var/htdocs/index.html   sleep
+    10 done`'
+- en: 'Then, in the same directory, create a file called Dockerfile containing the
+    following:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在同一个目录中，创建一个名为 Dockerfile 的文件，内容如下：
+- en: '`FROM ubuntu:latest RUN apt-get update ; apt-get -y install fortune ADD fortuneloop.sh
+    /bin/fortuneloop.sh ENTRYPOINT /bin/fortuneloop.sh`'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`FROM ubuntu:latest RUN apt-get update ; apt-get -y install fortune ADD fortuneloop.sh
+    /bin/fortuneloop.sh ENTRYPOINT /bin/fortuneloop.sh`'
+- en: The image is based on the `ubuntu:latest` image, which doesn’t include the `fortune`
+    binary by default. That’s why in the second line of the Dockerfile you install
+    it with `apt-get`. After that, you add the `fortuneloop.sh` script to the image’s
+    `/bin` folder. In the last line of the Dockerfile, you specify that the `fortuneloop.sh`
+    script should be executed when the image is run.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 镜像是基于 `ubuntu:latest` 镜像的，默认情况下它不包括 `fortune` 二进制文件。这就是为什么在 Dockerfile 的第二行中，你使用
+    `apt-get` 安装它。之后，你将 `fortuneloop.sh` 脚本添加到镜像的 `/bin` 文件夹中。在 Dockerfile 的最后一行中，你指定当镜像运行时应该执行
+    `fortuneloop.sh` 脚本。
+- en: 'After preparing both files, build and upload the image to Docker Hub with the
+    following two commands (replace `luksa` with your own Docker Hub user ID):'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 准备好这两个文件后，使用以下两个命令构建并上传镜像到Docker Hub（将`luksa`替换为您自己的Docker Hub用户ID）：
+- en: '`$ docker build -t luksa/fortune . $ docker push luksa/fortune`'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ docker build -t luksa/fortune . $ docker push luksa/fortune`'
+- en: '|  |'
+  id: totrans-56
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Creating the pod
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建Pod
+- en: Now that you have the two images required to run your pod, it’s time to create
+    the pod manifest. Create a file called fortune-pod.yaml with the contents shown
+    in the following listing.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经有了运行Pod所需的两个镜像，是时候创建Pod清单了。创建一个名为fortune-pod.yaml的文件，其内容如下所示。
+- en: 'Listing 6.1\. A pod with two containers sharing the same volume: fortune-pod.yaml'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.1.具有两个容器共享相同卷的Pod：fortune-pod.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: fortune spec:   containers:   -
+    image: luksa/fortune` `1` `name: html-generator` `1` `volumeMounts:` `2` `- name:
+    html` `2` `mountPath: /var/htdocs` `2` `- image: nginx:alpine` `3` `name: web-server`
+    `3` `volumeMounts:` `4` `- name: html` `4` `mountPath: /usr/share/nginx/html`
+    `4` `readOnly: true` `4` `ports:     - containerPort: 80       protocol: TCP  
+    volumes:` `5` `- name: html` `5` `emptyDir: {}` `5`'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: fortune spec:   containers:   -
+    image: luksa/fortune` `1` `name: html-generator` `1` `volumeMounts:` `2` `- name:
+    html` `2` `mountPath: /var/htdocs` `2` `- image: nginx:alpine` `3` `name: web-server`
+    `3` `volumeMounts:` `4` `- name: html` `4` `mountPath: /usr/share/nginx/html`
+    `4` `readOnly: true` `4` `ports:     - containerPort: 80       protocol: TCP  
+    volumes:` `5` `- name: html` `5` `emptyDir: {}` `5`'
+- en: 1 The first container is called html-generator and runs the luksa/fortune image.
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 第一个容器被称为html-generator，运行luksa/fortune镜像。
+- en: 2 The volume called html is mounted at /var/htdocs in the container.
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 将名为html的卷挂载在容器的/var/htdocs上。
+- en: 3 The second container is called web-server and runs the nginx:alpine image.
+  id: totrans-63
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 第二个容器被称为web-server，运行nginx:alpine镜像。
+- en: 4 The same volume as above is mounted at /usr/share/nginx/html as read-only.
+  id: totrans-64
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 与上述相同的卷挂载在/usr/share/nginx/html上，为只读。
+- en: 5 A single emptyDir volume called html that’s mounted in the two containers
+    above
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 5 一个名为html的单个emptyDir卷，在上述两个容器中挂载
+- en: The pod contains two containers and a single volume that’s mounted in both of
+    them, yet at different paths. When the `html-generator` container starts, it starts
+    writing the output of the `fortune` command to the /var/htdocs/index.html file
+    every 10 seconds. Because the volume is mounted at /var/htdocs, the index.html
+    file is written to the volume instead of the container’s top layer. As soon as
+    the `web-server` container starts, it starts serving whatever HTML files are in
+    the /usr/share/nginx/html directory (this is the default directory Nginx serves
+    files from). Because you mounted the volume in that exact location, Nginx will
+    serve the index.html file written there by the container running the fortune loop.
+    The end effect is that a client sending an HTTP request to the pod on port 80
+    will receive the current fortune message as the response.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod包含两个容器和一个名为html的单个卷，该卷在两个容器中挂载，但路径不同。当`html-generator`容器启动时，它每10秒将`fortune`命令的输出写入到/var/htdocs/index.html文件中。因为卷挂载在/var/htdocs上，所以index.html文件被写入到卷中而不是容器的顶层。一旦`web-server`容器启动，它就开始服务/usr/share/nginx/html目录中的任何HTML文件（这是Nginx默认的服务文件目录）。因为您在那个确切位置挂载了卷，所以Nginx将服务由运行幸运循环的容器写入的index.html文件。最终效果是，向Pod的80端口发送HTTP请求的客户将收到当前的幸运信息作为响应。
+- en: Seeing the pod in action
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 观察Pod运行
+- en: 'To see the fortune message, you need to enable access to the pod. You’ll do
+    that by forwarding a port from your local machine to the pod:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看幸运信息，您需要启用对Pod的访问权限。您可以通过将本地计算机上的端口转发到Pod来实现：
+- en: '`$ kubectl port-forward fortune 8080:80` `Forwarding from 127.0.0.1:8080 ->
+    80 Forwarding from [::1]:8080 -> 80`'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl port-forward fortune 8080:80` `Forwarding from 127.0.0.1:8080 ->
+    80 Forwarding from [::1]:8080 -> 80`'
+- en: '|  |'
+  id: totrans-70
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: As an exercise, you can also expose the pod through a service instead of using
+    port forwarding.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为练习，您还可以通过服务而不是使用端口转发来公开Pod。
+- en: '|  |'
+  id: totrans-73
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 'Now you can access the Nginx server through port 8080 of your local machine.
+    Use `curl` to do that:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您可以通过本地计算机的8080端口访问Nginx服务器。使用`curl`来做到这一点：
+- en: '`$ curl http://localhost:8080` `Beware of a tall blond man with one black shoe.`'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ curl http://localhost:8080` `小心一个高个子金发男子，他穿着一只黑色鞋子。`'
+- en: If you wait a few seconds and send another request, you should receive a different
+    message. By combining two containers, you created a simple app to see how a volume
+    can glue together two containers and enhance what each of them does.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你等待几秒钟后再次发送请求，你应该会收到不同的消息。通过组合两个容器，你创建了一个简单的应用程序来查看一个卷如何将两个容器粘合在一起并增强它们各自的功能。
+- en: Specifying the medium to use for the emptyDir
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指定用于emptyDir的中介
+- en: 'The `emptyDir` you used as the volume was created on the actual disk of the
+    worker node hosting your pod, so its performance depends on the type of the node’s
+    disks. But you can tell Kubernetes to create the `emptyDir` on a tmpfs filesystem
+    (in memory instead of on disk). To do this, set the `emptyDir`’s `medium` to `Memory`
+    like this:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你用作卷的`emptyDir`是在托管你的Pod的工作节点实际磁盘上创建的，因此其性能取决于节点磁盘的类型。但是，你可以告诉Kubernetes在tmpfs文件系统（内存而不是磁盘）上创建`emptyDir`。为此，将`emptyDir`的`medium`设置为`Memory`，如下所示：
+- en: '`volumes:   - name: html     emptyDir:       medium: Memory` `1`'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`volumes:    - name: html    emptyDir:      medium: Memory` `1`'
+- en: 1 This emptyDir’s files should be stored in memory.
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 这个emptyDir的文件应该存储在内存中。
+- en: An `emptyDir` volume is the simplest type of volume, but other types build upon
+    it. After the empty directory is created, they populate it with data. One such
+    volume type is the `gitRepo` volume type, which we’ll introduce next.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`emptyDir`卷是最简单的卷类型，但其他类型都是基于它构建的。在创建空目录之后，它们会填充数据。其中一种卷类型是`gitRepo`卷类型，我们将在下一节介绍。'
+- en: 6.2.2\. Using a Git repository as the starting point for a volume
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.2.2\. 将Git仓库作为卷的起点
+- en: A `gitRepo` volume is basically an `emptyDir` volume that gets populated by
+    cloning a Git repository and checking out a specific revision when the pod is
+    starting up (but before its containers are created). [Figure 6.3](#filepos610027)
+    shows how this unfolds.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个`gitRepo`卷基本上是一个`emptyDir`卷，它在Pod启动时（但在创建容器之前）通过克隆Git仓库并检出特定版本来填充。![图6.3](#filepos610027)展示了这个过程。
+- en: Figure 6.3\. A `gitRepo` volume is an `emptyDir` volume initially populated
+    with the contents of a Git repository.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.3\. 一个`gitRepo`卷最初是一个`emptyDir`卷，其中包含Git仓库的内容。
+- en: '![](images/00138.jpg)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00138.jpg)'
+- en: '|  |'
+  id: totrans-86
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: After the `gitRepo` volume is created, it isn’t kept in sync with the repo it’s
+    referencing. The files in the volume will not be updated when you push additional
+    commits to the Git repository. However, if your pod is managed by a ReplicationController,
+    deleting the pod will result in a new pod being created and this new pod’s volume
+    will then contain the latest commits.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建`gitRepo`卷之后，它不会与它引用的仓库保持同步。当你向Git仓库推送额外的提交时，卷中的文件不会更新。然而，如果你的Pod由ReplicationController管理，删除Pod将导致创建一个新的Pod，而这个新Pod的卷将包含最新的提交。
+- en: '|  |'
+  id: totrans-89
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: For example, you can use a Git repository to store static HTML files of your
+    website and create a pod containing a web server container and a `gitRepo` volume.
+    Every time the pod is created, it pulls the latest version of your website and
+    starts serving it. The only drawback to this is that you need to delete the pod
+    every time you push changes to the `gitRepo` and want to start serving the new
+    version of the website.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，你可以使用Git仓库来存储你网站的静态HTML文件，并创建一个包含Web服务器容器和`gitRepo`卷的Pod。每次创建Pod时，它都会拉取你网站的最新版本并开始提供服务。这个方法的唯一缺点是，每次你向`gitRepo`推送更改并想要开始提供网站的新版本时，都需要删除Pod。
+- en: Let’s do this right now. It’s not that different from what you did before.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们立即这样做。这并不像你之前所做的那样不同。
+- en: Running a web server pod serving files from a cloned git repository
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行一个从克隆的Git仓库提供文件的Web服务器Pod
+- en: Before you create your pod, you’ll need an actual Git repository with HTML files
+    in it. I’ve created a repo on GitHub at [https://github.com/luksa/kubia-website-example.git](https://github.com/luksa/kubia-website-example.git).
+    You’ll need to fork it (create your own copy of the repo on GitHub) so you can
+    push changes to it later.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你创建Pod之前，你需要一个包含HTML文件的实际Git仓库。我在GitHub上创建了一个仓库，网址为[https://github.com/luksa/kubia-website-example.git](https://github.com/luksa/kubia-website-example.git)。你需要将其分叉（在GitHub上创建仓库的副本），这样你就可以稍后向它推送更改。
+- en: Once you’ve created your fork, you can move on to creating the pod. This time,
+    you’ll only need a single Nginx container and a single `gitRepo` volume in the
+    pod (be sure to point the `gitRepo` volume to your own fork of my repository),
+    as shown in the following listing.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你创建了分叉，你就可以继续创建Pod。这次，你只需要Pod中的一个Nginx容器和一个`gitRepo`卷（确保将`gitRepo`卷指向你自己的分叉），如下所示。
+- en: 'Listing 6.2\. A pod using a `gitRepo` volume: gitrepo-volume-pod.yaml'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.2\. 使用 `gitRepo` 卷的 pod：gitrepo-volume-pod.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: gitrepo-volume-pod spec:   containers:
+      - image: nginx:alpine     name: web-server     volumeMounts:     - name: html
+          mountPath: /usr/share/nginx/html       readOnly: true     ports:     - containerPort:
+    80       protocol: TCP   volumes:   - name: html     gitRepo:` `1` `repository:
+    https://github.com/luksa/kubia-website-example.git` `2` `revision: master` `3`
+    `directory: .` `4`'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata: name: gitrepo-volume-pod spec: containers:
+    - image: nginx:alpine name: web-server volumeMounts: - name: html mountPath: /usr/share/nginx/html
+    readOnly: true ports: - containerPort: 80 protocol: TCP volumes: - name: html
+    gitRepo: repository: https://github.com/luksa/kubia-website-example.git revision:
+    master directory: . '
+- en: 1 You’re creating a gitRepo volume.
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 您正在创建一个 gitRepo 卷。
+- en: 2 The volume will clone this Git repository.
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 该卷将克隆此 Git 仓库。
+- en: 3 The master branch will be checked out.
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 将检出主分支。
+- en: 4 You want the repo to be cloned into the root dir of the volume.
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 您希望将仓库克隆到卷的根目录中。
+- en: When you create the pod, the volume is first initialized as an empty directory
+    and then the specified Git repository is cloned into it. If you hadn’t set the
+    directory to `.` (dot), the repository would have been cloned into the kubia-website-example
+    subdirectory, which isn’t what you want. You want the repo to be cloned into the
+    root directory of your volume. Along with the repository, you also specified you
+    want Kubernetes to check out whatever revision the master branch is pointing to
+    at the time the volume is created.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您创建 pod 时，卷首先初始化为一个空目录，然后将指定的 Git 仓库克隆到其中。如果您没有将目录设置为 `.`（点），则仓库将被克隆到 kubia-website-example
+    子目录中，这不是您想要的。您希望将仓库克隆到卷的根目录中。除了仓库外，您还指定了您希望 Kubernetes 检出在创建卷时主分支指向的任何修订版本。
+- en: With the pod running, you can try hitting it through port forwarding, a service,
+    or by executing the `curl` command from within the pod (or any other pod inside
+    the cluster).
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 pod 运行时，您可以通过端口转发、服务或从 pod 内部（或集群中的任何其他 pod）执行 `curl` 命令来尝试连接到它。
+- en: Confirming the files aren’t kept in sync with the git repo
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确认文件没有与 git 仓库保持同步
+- en: Now you’ll make changes to the index.html file in your GitHub repository. If
+    you don’t use Git locally, you can edit the file on GitHub directly—click on the
+    file in your GitHub repository to open it and then click on the pencil icon to
+    start editing it. Change the text and then commit the changes by clicking the
+    button at the bottom.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您将对 GitHub 仓库中的 index.html 文件进行更改。如果您没有在本地使用 Git，您可以直接在 GitHub 上编辑该文件——点击
+    GitHub 仓库中的文件以打开它，然后点击铅笔图标开始编辑。更改文本后，通过点击底部的按钮提交更改。
+- en: The master branch of the Git repository now includes the changes you made to
+    the HTML file. These changes will not be visible on your Nginx web server yet,
+    because the `gitRepo` volume isn’t kept in sync with the Git repository. You can
+    confirm this by hitting the pod again.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Git 仓库的主分支现在包含了您对 HTML 文件所做的更改。这些更改在您的 Nginx 网络服务器上尚不可见，因为 `gitRepo` 卷没有与 Git
+    仓库保持同步。您可以通过再次连接到 pod 来确认这一点。
+- en: To see the new version of the website, you need to delete the pod and create
+    it again. Instead of having to delete the pod every time you make changes, you
+    could run an additional process, which keeps your volume in sync with the Git
+    repository. I won’t explain in detail how to do this. Instead, try doing this
+    yourself as an exercise, but here are a few pointers.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看网站的最新版本，您需要删除 pod 并重新创建它。而不是每次更改都要删除 pod，您可以运行一个额外的进程，该进程将您的卷与 Git 仓库保持同步。我不会详细解释如何做这件事。相反，尝试自己作为练习来做这件事，但这里有一些提示。
+- en: Introducing sidecar containers
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 介绍边车容器
+- en: 'The Git sync process shouldn’t run in the same container as the Nginx web server,
+    but in a second container: a sidecar container. A sidecar container is a container
+    that augments the operation of the main container of the pod. You add a sidecar
+    to a pod so you can use an existing container image instead of cramming additional
+    logic into the main app’s code, which would make it overly complex and less reusable.'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Git 同步进程不应在运行 Nginx 网络服务器的同一容器中运行，而应在第二个容器中运行：一个边车容器。边车容器是一种增强 pod 主容器操作的容器。您向
+    pod 添加边车是为了使用现有的容器镜像，而不是将额外的逻辑塞入主应用程序的代码中，这会使它过于复杂且可重用性降低。
+- en: To find an existing container image, which keeps a local directory synchronized
+    with a Git repository, go to Docker Hub and search for “git sync.” You’ll find
+    many images that do that. Then use the image in a new container in the pod from
+    the previous example, mount the pod’s existing `gitRepo` volume in the new container,
+    and configure the Git sync container to keep the files in sync with your Git repo.
+    If you set everything up correctly, you should see that the files the web server
+    is serving are kept in sync with your GitHub repo.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要找到一个现有的容器镜像，该镜像将本地目录与Git仓库同步，请访问Docker Hub并搜索“git sync”。你会找到很多这样的镜像。然后，在先前的示例Pod中的新容器中使用该镜像，将Pod现有的`gitRepo`卷挂载到新容器中，并配置Git同步容器以保持文件与你的Git仓库同步。如果你设置正确，你应该会看到Web服务器所服务的文件与你的GitHub仓库保持同步。
+- en: '|  |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: An example in [chapter 18](index_split_130.html#filepos1642163) includes using
+    a Git sync container like the one explained here, so you can wait until you reach
+    [chapter 18](index_split_130.html#filepos1642163) and follow the step-by-step
+    instructions then instead of doing this exercise on your own now.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第18章](index_split_130.html#filepos1642163)中的一个示例包括使用这里解释的Git同步容器，所以你可以等到你到达[第18章](index_split_130.html#filepos1642163)并按照那里的逐步说明进行，而不是现在自己进行这个练习。'
+- en: '|  |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Using a gitRepo volume with private Git repositories
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用gitRepo卷与私有Git仓库
+- en: There’s one other reason for having to resort to Git sync sidecar containers.
+    We haven’t talked about whether you can use a `gitRepo` volume with a private
+    Git repo. It turns out you can’t. The current consensus among Kubernetes developers
+    is to keep the `gitRepo` volume simple and not add any support for cloning private
+    repositories through the SSH protocol, because that would require adding additional
+    config options to the `gitRepo` volume.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要使用Git同步侧边容器还有另一个原因。我们还没有讨论过你是否可以使用`gitRepo`卷与私有Git仓库一起使用。结果是，你不能。Kubernetes开发者的当前共识是保持`gitRepo`卷简单，不添加通过SSH协议克隆私有仓库的支持，因为这需要向`gitRepo`卷添加额外的配置选项。
+- en: If you want to clone a private Git repo into your container, you should use
+    a gitsync sidecar or a similar method instead of a `gitRepo` volume.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想在容器中克隆一个私有Git仓库，你应该使用gitsync侧边容器或类似的方法，而不是`gitRepo`卷。
+- en: Wrapping up the gitRepo volume
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结gitRepo卷
+- en: A `gitRepo` volume, like the `emptyDir` volume, is basically a dedicated directory
+    created specifically for, and used exclusively by, the pod that contains the volume.
+    When the pod is deleted, the volume and its contents are deleted. Other types
+    of volumes, however, don’t create a new directory, but instead mount an existing
+    external directory into the pod’s container’s filesystem. The contents of that
+    volume can survive multiple pod instantiations. We’ll learn about those types
+    of volumes next.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`gitRepo`卷，就像`emptyDir`卷一样，基本上是为包含卷的Pod专门创建的目录，并且仅由该Pod专用。当Pod被删除时，卷及其内容也会被删除。然而，其他类型的卷不会创建新的目录，而是将现有的外部目录挂载到Pod容器的文件系统中。该卷的内容可以在多个Pod实例化中存活。我们将在下一节学习这些类型的卷。'
+- en: 6.3\. Accessing files on the worker node’s filesystem
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.3\. 访问工作节点文件系统上的文件
+- en: Most pods should be oblivious of their host node, so they shouldn’t access any
+    files on the node’s filesystem. But certain system-level pods (remember, these
+    will usually be managed by a DaemonSet) do need to either read the node’s files
+    or use the node’s filesystem to access the node’s devices through the filesystem.
+    Kubernetes makes this possible through a `hostPath` volume.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数Pod应该对其宿主节点一无所知，因此它们不应该访问节点文件系统上的任何文件。但某些系统级别的Pod（记住，这些通常将由DaemonSet管理）确实需要读取节点的文件或使用节点的文件系统通过文件系统访问节点的设备。Kubernetes通过`hostPath`卷来实现这一点。
+- en: 6.3.1\. Introducing the hostPath volume
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.3.1\. 介绍hostPath卷
+- en: A `hostPath` volume points to a specific file or directory on the node’s filesystem
+    (see [figure 6.4](#filepos620396)). Pods running on the same node and using the
+    same path in their `hostPath` volume see the same files.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`hostPath`卷指向节点文件系统上的特定文件或目录（见[图6.4](#filepos620396)）。在同一个节点上运行并使用相同路径的`hostPath`卷的Pod可以看到相同的文件。'
+- en: Figure 6.4\. A `hostPath` volume mounts a file or directory on the worker node
+    into the container’s filesystem.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.4\. `hostPath`卷将工作节点上的文件或目录挂载到容器的文件系统中。
+- en: '![](images/00156.jpg)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](images/00156.jpg)'
+- en: '`hostPath` volumes are the first type of persistent storage we’re introducing,
+    because both the `gitRepo` and `emptyDir` volumes’ contents get deleted when a
+    pod is torn down, whereas a `hostPath` volume’s contents don’t. If a pod is deleted
+    and the next pod uses a `hostPath` volume pointing to the same path on the host,
+    the new pod will see whatever was left behind by the previous pod, but only if
+    it’s scheduled to the same node as the first pod.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`hostPath`卷是我们首先介绍的一种持久化存储类型，因为当Pod被销毁时，`gitRepo`和`emptyDir`卷的内容会被删除，而`hostPath`卷的内容则不会。如果一个Pod被删除，并且下一个Pod使用指向主机上相同路径的`hostPath`卷，新的Pod将看到前一个Pod留下的任何内容，但仅当它被调度到与第一个Pod相同的节点上时。'
+- en: If you’re thinking of using a `hostPath` volume as the place to store a database’s
+    data directory, think again. Because the volume’s contents are stored on a specific
+    node’s filesystem, when the database pod gets rescheduled to another node, it
+    will no longer see the data. This explains why it’s not a good idea to use a `hostPath`
+    volume for regular pods, because it makes the pod sensitive to what node it’s
+    scheduled to.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在考虑将`hostPath`卷作为存储数据库数据目录的位置，请重新考虑。因为卷的内容存储在特定节点的文件系统上，当数据库Pod被重新调度到另一个节点时，它将无法看到数据。这解释了为什么使用`hostPath`卷对于常规Pod来说不是一个好主意，因为它使得Pod对它被调度到的节点敏感。
+- en: 6.3.2\. Examining system pods that use hostPath volumes
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.3.2\. 检查使用hostPath卷的系统Pod
+- en: 'Let’s see how a `hostPath` volume can be used properly. Instead of creating
+    a new pod, let’s see if any existing system-wide pods are already using this type
+    of volume. As you may remember from one of the previous chapters, several such
+    pods are running in the `kube-system` namespace. Let’s list them again:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何正确使用`hostPath`卷。我们不是创建一个新的Pod，而是看看是否有任何现有的系统级Pod已经在使用这种类型的卷。如你可能在之前的章节中记得，有几个这样的Pod正在`kube-system`命名空间中运行。让我们再次列出它们：
+- en: '`$ kubectl get pod s --namespace kube-system` `NAME                         
+    READY     STATUS    RESTARTS   AGE fluentd-kubia-4ebc2f1e-9a3e   1/1       Running  
+    1          4d fluentd-kubia-4ebc2f1e-e2vz   1/1       Running   1          31d
+    ...`'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pod s --namespace kube-system` `NAME                         
+    READY     STATUS    RESTARTS   AGE fluentd-kubia-4ebc2f1e-9a3e   1/1       Running  
+    1          4d fluentd-kubia-4ebc2f1e-e2vz   1/1       Running   1          31d
+    ...`'
+- en: Pick the first one and see what kinds of volumes it uses (shown in the following
+    listing).
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择第一个，看看它使用了哪些类型的卷（如下面的列表所示）。
+- en: Listing 6.3\. A pod using `hostPath` volumes to access the node’s logs
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.3\. 使用`hostPath`卷访问节点日志的Pod
+- en: '`$ kubectl describe po fluentd-kubia-4ebc2f1e-9a3e --namespace kube-system`
+    `Name:           fluentd-cloud-logging-gke-kubia-default-pool-4ebc2f1e-9a3e Namespace:     
+    kube-system ... Volumes:` `varlog:``Type:       HostPath (bare host directory
+    volume)``Path:       /var/log``varlibdockercontainers:``Type:       HostPath (bare
+    host directory volume)``Path:       /var/lib/docker/containers`'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl describe po fluentd-kubia-4ebc2f1e-9a3e --namespace kube-system`
+    `Name:           fluentd-cloud-logging-gke-kubia-default-pool-4ebc2f1e-9a3e Namespace:     
+    kube-system ... Volumes:` `varlog:``Type:       HostPath (裸主机目录卷)``Path:      
+    /var/log``varlibdockercontainers:``Type:       HostPath (裸主机目录卷)``Path:      
+    /var/lib/docker/containers`'
+- en: '|  |'
+  id: totrans-133
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Tip
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: If you’re using Minikube, try the `kube-addon-manager-minikube` pod.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在使用Minikube，尝试使用`kube-addon-manager-minikube` Pod。
+- en: '|  |'
+  id: totrans-136
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Aha! The pod uses two `hostPath` volumes to gain access to the node’s /var/log
+    and the /var/lib/docker/containers directories. You’d think you were lucky to
+    find a pod using a `hostPath` volume on the first try, but not really (at least
+    not on GKE). Check the other pods, and you’ll see most use this type of volume
+    either to access the node’s log files, kubeconfig (the Kubernetes config file),
+    or the CA certificates.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 哎！这个Pod使用了两个`hostPath`卷来访问节点的`/var/log`和`/var/lib/docker/containers`目录。你可能会认为你很幸运第一次就找到了使用`hostPath`卷的Pod，但实际上并不是（至少在GKE上不是）。检查其他Pod，你会发现大多数Pod使用这种类型的卷要么是为了访问节点的日志文件，要么是为了访问kubeconfig（Kubernetes配置文件），或者是为了访问CA证书。
+- en: If you inspect the other pods, you’ll see none of them uses the `hostPath` volume
+    for storing their own data. They all use it to get access to the node’s data.
+    But as we’ll see later in the chapter, `hostPath` volumes are often used for trying
+    out persistent storage in single-node clusters, such as the one created by Minikube.
+    Read on to learn about the types of volumes you should use for storing persistent
+    data properly even in a multi-node cluster.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你检查其他Pod，你会发现它们都没有使用`hostPath`卷来存储它们自己的数据。它们都使用它来访问节点的数据。但正如我们将在本章后面看到的，`hostPath`卷通常用于在单节点集群中尝试持久化存储，例如由Minikube创建的集群。继续阅读，了解在多节点集群中正确存储持久数据应使用的卷类型。
+- en: '|  |'
+  id: totrans-139
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Tip
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 小贴士
+- en: Remember to use `hostPath` volumes only if you need to read or write system
+    files on the node. Never use them to persist data across pods.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，只有在你需要读取或写入节点上的系统文件时才使用 `hostPath` 卷。永远不要使用它们在 pod 之间持久化数据。
+- en: '|  |'
+  id: totrans-142
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 6.4\. Using persistent storage
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.4\. 使用持久存储
+- en: When an application running in a pod needs to persist data to disk and have
+    that same data available even when the pod is rescheduled to another node, you
+    can’t use any of the volume types we’ve mentioned so far. Because this data needs
+    to be accessible from any cluster node, it must be stored on some type of network-attached
+    storage (NAS).
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当在 pod 中运行的应用程序需要将数据持久化到磁盘，并且即使在 pod 被重新调度到另一个节点时也能访问相同的数据时，你不能使用我们之前提到的任何卷类型。因为此数据需要从任何集群节点访问，它必须存储在某种类型的网络附加存储
+    (NAS) 上。
+- en: To learn about volumes that allow persisting data, you’ll create a pod that
+    will run the MongoDB document-oriented NoSQL database. Running a database pod
+    without a volume or with a non-persistent volume doesn’t make sense, except for
+    testing purposes, so you’ll add an appropriate type of volume to the pod and mount
+    it in the MongoDB container.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解允许持久化数据的卷，你将创建一个运行 MongoDB 文档型 NoSQL 数据库的 pod。在没有卷或非持久卷的情况下运行数据库 pod 没有意义，除非是为了测试目的，所以你将为
+    pod 添加适当类型的卷并将其挂载到 MongoDB 容器中。
+- en: 6.4.1\. Using a GCE Persistent Disk in a pod volume
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.4.1\. 在 pod 卷中使用 GCE 持久磁盘
+- en: If you’ve been running these examples on Google Kubernetes Engine, which runs
+    your cluster nodes on Google Compute Engine (GCE), you’ll use a GCE Persistent
+    Disk as your underlying storage mechanism.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你一直在 Google Kubernetes Engine 上运行这些示例，该引擎在 Google Compute Engine (GCE) 上运行你的集群节点，你将使用
+    GCE 持久磁盘作为你的底层存储机制。
+- en: In the early versions, Kubernetes didn’t provision the underlying storage automatically—you
+    had to do that manually. Automatic provisioning is now possible, and you’ll learn
+    about it later in the chapter, but first, you’ll start by provisioning the storage
+    manually. It will give you a chance to learn exactly what’s going on underneath.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在早期版本中，Kubernetes 不会自动配置底层存储——你必须手动完成。现在可以实现自动配置，你将在本章后面了解它，但首先，你将从手动配置存储开始。这将给你一个机会了解底层到底发生了什么。
+- en: Creating a GCE Persistent Disk
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建 GCE 持久磁盘
+- en: 'You’ll start by creating the GCE persistent disk first. You need to create
+    it in the same zone as your Kubernetes cluster. If you don’t remember what zone
+    you created the cluster in, you can see it by listing your Kubernetes clusters
+    with the `gcloud` command like this:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将从首先创建 GCE 持久磁盘开始。你需要在与你的 Kubernetes 集群相同的区域中创建它。如果你不记得你在哪个区域创建了集群，你可以通过使用
+    `gcloud` 命令列出你的 Kubernetes 集群来查看它，如下所示：
+- en: '`$ gcloud container clusters list` `NAME   ZONE            MASTER_VERSION 
+    MASTER_IP       ... kubia  europe-west1-b  1.2.5           104.155.84.137  ...`'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ gcloud container clusters list` `NAME   ZONE            MASTER_VERSION 
+    MASTER_IP       ... kubia  europe-west1-b  1.2.5           104.155.84.137  ...`'
+- en: 'This shows you’ve created your cluster in zone `europe-west1-b`, so you need
+    to create the GCE persistent disk in the same zone as well. You create the disk
+    like this:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这表明你已在区域 `europe-west1-b` 中创建了你的集群，因此你需要在同一区域创建 GCE 持久磁盘。你可以这样创建磁盘：
+- en: '`$ gcloud compute disks create --size=1GiB --zone=europe-west1-b mongodb` `WARNING:
+    You have selected a disk size of under [200GB]. This may result in      poor I/O
+    performance. For more information, see:      https://developers.google.com/compute/docs/disks#pdperformance.
+    Created [https://www.googleapis.com/compute/v1/projects/rapid-pivot-      136513/zones/europe-west1-b/disks/mongodb].
+    NAME     ZONE            SIZE_GB  TYPE         STATUS mongodb  europe-west1-b 
+    1        pd-standard  READY`'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ gcloud compute disks create --size=1GiB --zone=europe-west1-b mongodb` `警告：你选择了一个小于
+    [200GB] 的磁盘大小。这可能会导致 I/O 性能不佳。更多信息，请参阅：https://developers.google.com/compute/docs/disks#pdperformance.
+    已创建 [https://www.googleapis.com/compute/v1/projects/rapid-pivot- 136513/zones/europe-west1-b/disks/mongodb].
+    NAME     ZONE            SIZE_GB  TYPE         STATUS mongodb  europe-west1-b 
+    1        pd-standard  READY`'
+- en: This command creates a 1 GiB large GCE persistent disk called `mongodb`. You
+    can ignore the warning about the disk size, because you don’t care about the disk’s
+    performance for the tests you’re about to run.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令创建了一个 1 GiB 大小的 GCE 持久磁盘，名为 `mongodb`。你可以忽略关于磁盘大小的警告，因为你对即将运行的测试中磁盘的性能并不关心。
+- en: Creating a pod using a gcePersistentDisk volume
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 gcePersistentDisk 卷创建 pod
+- en: Now that you have your physical storage properly set up, you can use it in a
+    volume inside your MongoDB pod. You’re going to prepare the YAML for the pod,
+    which is shown in the following listing.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经正确设置了物理存储，你可以在MongoDB pod的卷中使用它。你将准备pod的YAML文件，如下所示。
+- en: 'Listing 6.4\. A pod using a `gcePersistentDisk` volume: mongodb-pod-gcepd.yaml'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.4\. 使用`gcePersistentDisk`卷的pod：mongodb-pod-gcepd.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: mongodb spec:   volumes:   - name:
+    mongodb-data` `1` `gcePersistentDisk:` `2` `pdName: mongodb` `3` `fsType: ext4`
+    `4` `containers:   - image: mongo     name: mongodb     volumeMounts:     - name:
+    mongodb-data` `1` `mountPath: /data/db` `5` `ports:     - containerPort: 27017
+          protocol: TCP`'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: mongodb spec:   volumes:   - name:
+    mongodb-data` `1` `gcePersistentDisk:` `2` `pdName: mongodb` `3` `fsType: ext4`
+    `4` `containers:   - image: mongo     name: mongodb     volumeMounts:     - name:
+    mongodb-data` `1` `mountPath: /data/db` `5` `ports:     - containerPort: 27017
+          protocol: TCP`'
+- en: 1 The name of the volume (also referenced when mounting the volume)
+  id: totrans-159
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 卷的名称（在挂载卷时也会引用）
+- en: 2 The type of the volume is a GCE Persistent Disk.
+  id: totrans-160
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 卷的类型是GCE持久磁盘。
+- en: 3 The name of the persistent disk must match the actual PD you created earlier.
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 持久磁盘的名称必须与之前创建的实际PD匹配。
+- en: 4 The filesystem type is EXT4 (a type of Linux filesystem).
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 文件系统类型是EXT4（一种Linux文件系统）。
+- en: 5 The path where MongoDB stores its data
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 5 MongoDB存储数据的位置
+- en: '|  |'
+  id: totrans-164
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you’re using Minikube, you can’t use a GCE Persistent Disk, but you can deploy
+    `mongodb-pod-hostpath.yaml`, which uses a `hostPath` volume instead of a GCE PD.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你使用Minikube，你不能使用GCE持久磁盘，但你可以部署`mongodb-pod-hostpath.yaml`，它使用`hostPath`卷而不是GCE
+    PD。
+- en: '|  |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: The pod contains a single container and a single volume backed by the GCE Persistent
+    Disk you’ve created (as shown in [figure 6.5](#filepos631621)). You’re mounting
+    the volume inside the container at /data/db, because that’s where MongoDB stores
+    its data.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod包含一个容器和一个卷，该卷由你创建的GCE持久磁盘支持（如图6.5所示[figure 6.5](#filepos631621)）。你将卷挂载到容器内的/data/db，因为那是MongoDB存储数据的地方。
+- en: Figure 6.5\. A pod with a single container running MongoDB, which mounts a volume
+    referencing an external GCE Persistent Disk
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.5\. 运行MongoDB的单个容器，挂载了一个引用外部GCE持久磁盘的卷
+- en: '![](images/00174.jpg)'
+  id: totrans-170
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00174.jpg)'
+- en: Writing data to the persistent storage by adding documents to you- ur MongoDB
+    database
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过向你的MongoDB数据库添加文档来写入持久存储
+- en: Now that you’ve created the pod and the container has been started, you can
+    run the MongoDB shell inside the container and use it to write some data to the
+    data store.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经创建了pod，并且容器已经启动，你可以在容器内运行MongoDB shell并使用它来向数据存储写入一些数据。
+- en: You’ll run the shell as shown in the following listing.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将按照以下列表运行shell。
+- en: Listing 6.5\. Entering the MongoDB shell inside the `mongodb` pod
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.5\. 进入`mongodb` pod内的MongoDB shell
+- en: '`$ kubectl exec -it mongodb mongo` `MongoDB shell version: 3.2.8 connecting
+    to: mongodb://127.0.0.1:27017 Welcome to the MongoDB shell. For interactive help,
+    type "help". For more comprehensive documentation, see     http://docs.mongodb.org/
+    Questions? Try the support group     http://groups.google.com/group/mongodb-user
+    ... >`'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec -it mongodb mongo` `MongoDB shell版本：3.2.8 连接到：mongodb://127.0.0.1:27017
+    欢迎使用MongoDB shell。要获取交互式帮助，请输入"help"。要获取更全面的文档，请参阅   http://docs.mongodb.org/
+    有问题？尝试支持小组   http://groups.google.com/group/mongodb-user ... >`'
+- en: 'MongoDB allows storing JSON documents, so you’ll store one to see if it’s stored
+    persistently and can be retrieved after the pod is re-created. Insert a new JSON
+    document with the following commands:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MongoDB允许存储JSON文档，所以你会存储一个以查看它是否被持久存储，并且在pod重新创建后可以检索。使用以下命令插入一个新的JSON文档：
+- en: '`> use mystore` `switched to db mystore` `> db.foo.insert({name:''foo''})`
+    `WriteResult({ "nInserted" : 1 })`'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`> use mystore` `切换到数据库 mystore` `> db.foo.insert({name:''foo''})` `WriteResult({
+    "nInserted" : 1 })`'
+- en: 'You’ve inserted a simple JSON document with a single property (`name: ''foo'')`.
+    Now, use the `find()` command to see the document you inserted:'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '你插入了一个简单的JSON文档，包含一个属性（`name: ''foo''`）。现在，使用`find()`命令查看你插入的文档：'
+- en: '`> db.foo.find()` `{ "_id" : ObjectId("57a61eb9de0cfd512374cc75"), "name" :
+    "foo" }`'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`> db.foo.find()` `{ "_id" : ObjectId("57a61eb9de0cfd512374cc75"), "name" :
+    "foo" }`'
+- en: There it is. The document should be stored in your GCE persistent disk now.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就在这里。文档现在应该存储在你的GCE持久磁盘上了。
+- en: Re-creating the pod and verifying that it can read the data persi- isted by
+    the previous pod
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新创建pod并验证它是否可以读取前一个pod持久存储的数据
+- en: 'You can now exit the `mongodb` shell (type `exit` and press Enter), and then
+    delete the pod and recreate it:'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你可以退出 `mongodb` shell（输入 `exit` 并按 Enter），然后删除 pod 并重新创建它：
+- en: '`$ kubectl delete pod mongodb` `pod "mongodb" deleted` `$ kubectl create -f
+    mongodb-pod-gcepd.yaml` `pod "mongodb" created`'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl delete pod mongodb` `pod "mongodb" deleted` `$ kubectl create -f
+    mongodb-pod-gcepd.yaml` `pod "mongodb" created`'
+- en: The new pod uses the exact same GCE persistent disk as the previous pod, so
+    the MongoDB container running inside it should see the exact same data, even if
+    the pod is scheduled to a different node.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新的 pod 使用与上一个 pod 完全相同的 GCE 持久磁盘，因此运行在其内部的 MongoDB 容器应该看到完全相同的数据，即使 pod 被调度到不同的节点。
+- en: '|  |'
+  id: totrans-185
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Tip
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示
+- en: You can see what node a pod is scheduled to by running `kubectl get po -o wide`.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过运行 `kubectl get po -o wide` 来查看一个 pod 被调度到哪个节点。
+- en: '|  |'
+  id: totrans-188
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Once the container is up, you can again run the MongoDB shell and check to see
+    if the document you stored earlier can still be retrieved, as shown in the following
+    listing.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器启动后，你还可以再次运行 MongoDB shell 并检查你之前存储的文档是否仍然可以检索，如下所示。
+- en: Listing 6.6\. Retrieving MongoDB’s persisted data in a new pod
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.6\. 在新的 pod 中检索 MongoDB 的持久数据
+- en: '`$ kubectl exec -it mongodb mongo` `MongoDB shell version: 3.2.8 connecting
+    to: mongodb://127.0.0.1:27017 Welcome to the MongoDB shell. ...` `> use mystore`
+    `switched to db mystore` `> db.foo.find()` `{ "_id" : ObjectId("57a61eb9de0cfd512374cc75"),
+    "name" : "foo" }`'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec -it mongodb mongo` `MongoDB shell version: 3.2.8 connecting
+    to: mongodb://127.0.0.1:27017 Welcome to the MongoDB shell. ...` `> use mystore`
+    `switched to db mystore` `> db.foo.find()` `{ "_id" : ObjectId("57a61eb9de0cfd512374cc75"),
+    "name" : "foo" }`'
+- en: As expected, the data is still there, even though you deleted the pod and re-created
+    it. This confirms you can use a GCE persistent disk to persist data across multiple
+    pod instances.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如预期，数据仍然存在，即使你删除了 pod 并重新创建了它。这证实了你可以使用 GCE 持久磁盘在多个 pod 实例之间持久化数据。
+- en: You’re done playing with the MongoDB pod, so go ahead and delete it again, but
+    hold off on deleting the underlying GCE persistent disk. You’ll use it again later
+    in the chapter.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经玩够了 MongoDB pod，所以继续删除它，但不要删除底层的 GCE 持久磁盘。你将在本章的后面再次使用它。
+- en: 6.4.2\. Using other types of volumes with underlying persistent storage
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.4.2\. 使用其他类型的卷与底层持久存储
+- en: The reason you created the GCE Persistent Disk volume is because your Kubernetes
+    cluster runs on Google Kubernetes Engine. When you run your cluster elsewhere,
+    you should use other types of volumes, depending on the underlying infrastructure.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你创建 GCE 持久磁盘卷的原因是因为你的 Kubernetes 集群运行在 Google Kubernetes Engine 上。当你将你的集群运行在其他地方时，你应该使用其他类型的卷，具体取决于底层基础设施。
+- en: If your Kubernetes cluster is running on Amazon’s AWS EC2, for example, you
+    can use an `awsElasticBlockStore` volume to provide persistent storage for your
+    pods. If your cluster runs on Microsoft Azure, you can use the `azureFile` or
+    the `azureDisk` volume. We won’t go into detail on how to do that here, but it’s
+    virtually the same as in the previous example. First, you need to create the actual
+    underlying storage, and then set the appropriate properties in the volume definition.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的 Kubernetes 集群运行在亚马逊的 AWS EC2 上，例如，你可以使用 `awsElasticBlockStore` 卷为你的 pod
+    提供持久存储。如果你的集群运行在微软的 Azure 上，你可以使用 `azureFile` 或 `azureDisk` 卷。这里我们不会详细介绍如何操作，但与前面的例子几乎相同。首先，你需要创建实际的底层存储，然后在卷定义中设置适当的属性。
+- en: Using an AWS Elastic Block Store volume
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 AWS 弹性块存储卷
+- en: For example, to use an AWS elastic block store instead of the GCE Persistent
+    Disk, you’d only need to change the volume definition as shown in the following
+    listing (see those lines printed in bold).
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，要使用 AWS 弹性块存储而不是 GCE 持久磁盘，你只需更改卷定义，如下所示（查看那些用粗体打印的行）。
+- en: 'Listing 6.7\. A pod using an `awsElasticBlockStore` volume: mongodb-pod-aws.yaml'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.7\. 使用 `awsElasticBlockStore` 卷的 pod：mongodb-pod-aws.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: mongodb spec:   volumes:   - name:
+    mongodb-data` `awsElasticBlockStore:``1``volumeId: my-volume``2``fsType: ext4``3`
+    `containers:   - ...`'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: mongodb spec:   volumes:   - name:
+    mongodb-data` `awsElasticBlockStore:``1``volumeId: my-volume``2``fsType: ext4``3`
+    `containers:   - ...`'
+- en: 1 Using awsElasticBlockStore instead of gcePersistentDisk
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 使用 awsElasticBlockStore 代替 gcePersistentDisk
+- en: 2 Specify the ID of the EBS volume you created.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 指定你创建的 EBS 卷的 ID。
+- en: 3 The filesystem type is EXT4 as before.
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 文件系统类型与之前相同为 EXT4。
+- en: Using an NFS volume
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 NFS 卷
+- en: If your cluster is running on your own set of servers, you have a vast array
+    of other supported options for mounting external storage inside your volume. For
+    example, to mount a simple NFS share, you only need to specify the NFS server
+    and the path exported by the server, as shown in the following listing.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的集群运行在你自己的服务器上，你有一系列其他支持选项来在你的卷内挂载外部存储。例如，为了挂载一个简单的 NFS 共享，你只需要指定 NFS 服务器和服务器导出的路径，如下面的列表所示。
+- en: 'Listing 6.8\. A pod using an `nfs` volume: mongodb-pod-nfs.yaml'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.8. 使用 `nfs` 卷的 pod：mongodb-pod-nfs.yaml
+- en: '`volumes:   - name: mongodb-data` `nfs:``1``server: 1.2.3.4``2``path: /some/path``3`'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`volumes:   - name: mongodb-data   nfs:     server: 1.2.3.4     path: /some/path`'
+- en: 1 This volume is backed by an NFS share.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 这个卷由一个 NFS 共享支持。
+- en: 2 The IP of the NFS server
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 NFS 服务器的 IP 地址
+- en: 3 The path exported by the server
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 服务器导出的路径
+- en: Using other storage technologies
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用其他存储技术
+- en: Other supported options include `iscsi` for mounting an ISCSI disk resource,
+    `glusterfs` for a GlusterFS mount, `rbd` for a RADOS Block Device, `flexVolume`,
+    `cinder`, `cephfs`, `flocker`, `fc` (Fibre Channel), and others. You don’t need
+    to know all of them if you’re not using them. They’re mentioned here to show you
+    that Kubernetes supports a broad range of storage technologies and you can use
+    whichever you prefer and are used to.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他支持选项包括用于挂载 ISCSI 磁盘资源的 `iscsi`，用于 GlusterFS 挂载的 `glusterfs`，用于 RADOS 块设备的
+    `rbd`，`flexVolume`，`cinder`，`cephfs`，`flocker`，`fc`（光纤通道）以及其他选项。如果你没有使用它们，你不需要了解所有这些。这里提到它们是为了向你展示
+    Kubernetes 支持广泛的存储技术，你可以使用你喜欢的和熟悉的任何一种。
+- en: To see details on what properties you need to set for each of these volume types,
+    you can either turn to the Kubernetes API definitions in the Kubernetes API reference
+    or look up the information through `kubectl explain`, as shown in [chapter 3](index_split_028.html#filepos271328).
+    If you’re already familiar with a particular storage technology, using the `explain`
+    command should allow you to easily figure out how to mount a volume of the proper
+    type and use it in your pods.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看为每种卷类型需要设置的属性详情，你可以查阅 Kubernetes API 参考中的 Kubernetes API 定义，或者通过 `kubectl
+    explain` 查找信息，如[第 3 章](index_split_028.html#filepos271328)中所示。如果你已经熟悉某种特定的存储技术，使用
+    `explain` 命令应该能让你轻松地找出如何挂载正确类型的卷并在你的 pod 中使用它。
+- en: But does a developer need to know all this stuff? Should a developer, when creating
+    a pod, have to deal with infrastructure-related storage details, or should that
+    be left to the cluster administrator?
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是开发者是否需要知道所有这些信息？当创建 pod 时，开发者是否需要处理与基础设施相关的存储细节，或者这应该留给集群管理员？
+- en: Having a pod’s volumes refer to the actual underlying infrastructure isn’t what
+    Kubernetes is about, is it? For example, for a developer to have to specify the
+    hostname of the NFS server feels wrong. And that’s not even the worst thing about
+    it.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让 pod 的卷指向实际的底层基础设施并不是 Kubernetes 的核心所在，对吧？例如，要求开发者指定 NFS 服务器的主机名感觉是不对的。而且这甚至不是最糟糕的。
+- en: Including this type of infrastructure-related information into a pod definition
+    means the pod definition is pretty much tied to a specific Kubernetes cluster.
+    You can’t use the same pod definition in another one. That’s why using volumes
+    like this isn’t the best way to attach persistent storage to your pods. You’ll
+    learn how to improve on this in the next section.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将此类与基础设施相关的信息包含在 pod 定义中意味着 pod 定义几乎与特定的 Kubernetes 集群绑定。你不能在另一个集群中使用相同的 pod
+    定义。这就是为什么使用这种类型的卷不是将持久存储附加到 pod 的最佳方式。你将在下一节中了解如何改进这一点。
+- en: 6.5\. Decoupling pods from the underlying storage technology
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5. 将 pod 与底层存储技术解耦
+- en: All the persistent volume types we’ve explored so far have required the developer
+    of the pod to have knowledge of the actual network storage infrastructure available
+    in the cluster. For example, to create a NFS-backed volume, the developer has
+    to know the actual server the NFS export is located on. This is against the basic
+    idea of Kubernetes, which aims to hide the actual infrastructure from both the
+    application and its developer, leaving them free from worrying about the specifics
+    of the infrastructure and making apps portable across a wide array of cloud providers
+    and on-premises datacenters.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们迄今为止探索的所有持久卷类型都要求 pod 的开发者了解集群中可用的实际网络存储基础设施。例如，为了创建一个基于 NFS 的卷，开发者必须知道 NFS
+    导出所在的实际服务器。这与 Kubernetes 的基本理念相悖，其目标是隐藏实际基础设施，无论是对于应用程序还是其开发者，使他们免于担心基础设施的细节，并使应用程序能够在广泛的云提供商和本地数据中心之间迁移。
+- en: Ideally, a developer deploying their apps on Kubernetes should never have to
+    know what kind of storage technology is used underneath, the same way they don’t
+    have to know what type of physical servers are being used to run their pods. Infrastructure-related
+    dealings should be the sole domain of the cluster administrator.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想情况下，在 Kubernetes 上部署应用程序的开发者永远不需要知道底层使用的是哪种存储技术，就像他们不需要知道运行 pod 所使用的物理服务器类型一样。与基础设施相关的事务应该是集群管理员的专属领域。
+- en: When a developer needs a certain amount of persistent storage for their application,
+    they can request it from Kubernetes, the same way they can request CPU, memory,
+    and other resources when creating a pod. The system administrator can configure
+    the cluster so it can give the apps what they request.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当开发者为他们的应用程序需要一定量的持久存储时，他们可以从 Kubernetes 中请求它，就像他们在创建 pod 时可以请求 CPU、内存和其他资源一样。系统管理员可以配置集群，使其能够提供应用程序所需的内容。
+- en: 6.5.1\. Introducing PersistentVolumes and PersistentVolumeClaims
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5.1\. 介绍 PersistentVolumes 和 PersistentVolumeClaims
+- en: To enable apps to request storage in a Kubernetes cluster without having to
+    deal with infrastructure specifics, two new resources were introduced. They are
+    Persistent-Volumes and PersistentVolumeClaims. The names may be a bit misleading,
+    because as you’ve seen in the previous few sections, even regular Kubernetes volumes
+    can be used to store persistent data.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使应用程序能够在 Kubernetes 集群中请求存储而无需处理基础设施的特定细节，引入了两种新的资源。它们是 Persistent-Volumes
+    和 PersistentVolumeClaims。名称可能有些误导，因为正如你在前几节中看到的，即使是常规的 Kubernetes 卷也可以用来存储持久数据。
+- en: Using a PersistentVolume inside a pod is a little more complex than using a
+    regular pod volume, so let’s illustrate how pods, PersistentVolumeClaims, PersistentVolumes,
+    and the actual underlying storage relate to each other in [figure 6.6](#filepos644406).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 pod 内部使用 PersistentVolume 比使用常规 pod 卷要复杂一些，所以让我们通过 [图 6.6](#filepos644406)
+    来说明 pods、PersistentVolumeClaims、PersistentVolumes 和实际底层存储之间的关系。
+- en: Figure 6.6\. PersistentVolumes are provisioned by cluster admins and consumed
+    by pods through PersistentVolumeClaims.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.6\. PersistentVolumes 由集群管理员提供，通过 PersistentVolumeClaims 被pod消耗。
+- en: '![](images/00193.jpg)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](images/00193.jpg)'
+- en: Instead of the developer adding a technology-specific volume to their pod, it’s
+    the cluster administrator who sets up the underlying storage and then registers
+    it in Kubernetes by creating a PersistentVolume resource through the Kubernetes
+    API server. When creating the PersistentVolume, the admin specifies its size and
+    the access modes it supports.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与开发者为他们的 pod 添加特定技术的卷不同，是集群管理员设置底层存储，然后通过在 Kubernetes API 服务器上创建 PersistentVolume
+    资源来将其注册到 Kubernetes 中。在创建 PersistentVolume 时，管理员指定其大小和它支持的访问模式。
+- en: When a cluster user needs to use persistent storage in one of their pods, they
+    first create a PersistentVolumeClaim manifest, specifying the minimum size and
+    the access mode they require. The user then submits the PersistentVolumeClaim
+    manifest to the Kubernetes API server, and Kubernetes finds the appropriate PersistentVolume
+    and binds the volume to the claim.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当集群用户需要在他们的 pod 中使用持久存储时，他们首先创建一个 PersistentVolumeClaim 清单，指定所需的最低大小和访问模式。然后用户将
+    PersistentVolumeClaim 清单提交给 Kubernetes API 服务器，Kubernetes 找到合适的 PersistentVolume
+    并将卷绑定到请求上。
+- en: The PersistentVolumeClaim can then be used as one of the volumes inside a pod.
+    Other users cannot use the same PersistentVolume until it has been released by
+    deleting the bound PersistentVolumeClaim.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PersistentVolumeClaim 可以用作 pod 内部的一个卷。其他用户不能使用同一个 PersistentVolume，直到它通过删除绑定的
+    PersistentVolumeClaim 来释放。
+- en: 6.5.2\. Creating a PersistentVolume
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5.2\. 创建 PersistentVolume
+- en: Let’s revisit the MongoDB example, but unlike before, you won’t reference the
+    GCE Persistent Disk in the pod directly. Instead, you’ll first assume the role
+    of a cluster administrator and create a PersistentVolume backed by the GCE Persistent
+    Disk. Then you’ll assume the role of the application developer and first claim
+    the PersistentVolume and then use it inside your pod.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾 MongoDB 的例子，但与之前不同，你不会直接在 pod 中引用 GCE Persistent Disk。相反，你首先假设集群管理员的角色，并创建一个由
+    GCE Persistent Disk 支持的 PersistentVolume。然后你将扮演应用程序开发者的角色，首先声明 PersistentVolume，然后在你的
+    pod 中使用它。
+- en: In [section 6.4.1](index_split_059.html#filepos626289) you set up the physical
+    storage by provisioning the GCE Persistent Disk, so you don’t need to do that
+    again. All you need to do is create the Persistent-Volume resource in Kubernetes
+    by preparing the manifest shown in the following listing and posting it to the
+    API server.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第6.4.1节](index_split_059.html#filepos626289)中，你通过配置GCE Persistent Disk来设置物理存储，因此你不需要再次这样做。你所需要做的就是通过准备以下列表中显示的清单并在API服务器上发布它，在Kubernetes中创建Persistent-Volume资源。
+- en: 'Listing 6.9\. A `gcePersistentDisk` PersistentVolume: mongodb-pv-gcepd.yaml'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.9\. `gcePersistentDisk` PersistentVolume：mongodb-pv-gcepd.yaml
+- en: '`apiVersion: v1 kind: PersistentVolume metadata:   name: mongodb-pv spec:  
+    capacity:` `1` `storage: 1Gi` `1` `accessModes:` `2` `- ReadWriteOnce` `2` `-
+    ReadOnlyMany` `2` `persistentVolumeReclaimPolicy: Retain` `3` `gcePersistentDisk:`
+    `4` `pdName: mongodb` `4` `fsType: ext4` `4`'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: PersistentVolume metadata:   name: mongodb-pv spec:  
+    capacity:` `1` `storage: 1Gi` `1` `accessModes:` `2` `- ReadWriteOnce` `2` `-
+    ReadOnlyMany` `2` `persistentVolumeReclaimPolicy: Retain` `3` `gcePersistentDisk:`
+    `4` `pdName: mongodb` `4` `fsType: ext4` `4`'
+- en: 1 Defining the PersistentVolume’s size
+  id: totrans-234
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 定义PersistentVolume的大小
+- en: 2 It can either be mounted by a single client for reading and writing or by
+    multiple clients for reading only.
+  id: totrans-235
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 它可以被单个客户端用于读写，或者被多个客户端仅用于读取。
+- en: 3 After the claim is released, the PersistentVolume should be retained (not
+    erased or deleted).
+  id: totrans-236
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 在释放声明后，PersistentVolume应该保留（不删除或删除）。
+- en: 4 The PersistentVolume is backed by the GCE Persistent Disk you created earlier.
+  id: totrans-237
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 PersistentVolume由你之前创建的GCE Persistent Disk支持。
+- en: '|  |'
+  id: totrans-238
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you’re using Minikube, create the PV using the mongodb-pv-hostpath.yaml file.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你使用Minikube，请使用mongodb-pv-hostpath.yaml文件创建PV。
+- en: '|  |'
+  id: totrans-241
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: When creating a PersistentVolume, the administrator needs to tell Kubernetes
+    what its capacity is and whether it can be read from and/or written to by a single
+    node or by multiple nodes at the same time. They also need to tell Kubernetes
+    what to do with the PersistentVolume when it’s released (when the PersistentVolumeClaim
+    it’s bound to is deleted). And last, but certainly not least, they need to specify
+    the type, location, and other properties of the actual storage this PersistentVolume
+    is backed by. If you look closely, this last part is exactly the same as earlier,
+    when you referenced the GCE Persistent Disk in the pod volume directly (shown
+    again in the following listing).
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建PersistentVolume时，管理员需要告诉Kubernetes其容量是多少，以及是否可以被单个节点或多个节点同时读取和/或写入。他们还需要告诉Kubernetes在释放PersistentVolume时应该做什么（当它所绑定的PersistentVolumeClaim被删除时）。最后，但同样重要的是，他们需要指定这个PersistentVolume所支持的存储的类型、位置和其他属性。如果你仔细观察，这部分与之前直接在pod卷中引用GCE
+    Persistent Disk时完全相同（如下所示）。
+- en: Listing 6.10\. Referencing a GCE PD in a pod’s volume
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.10\. 在pod的卷中引用GCE PD
+- en: '`spec:   volumes:   - name: mongodb-data     gcePersistentDisk:       pdName:
+    mongodb       fsType: ext4   ...`'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`spec:   volumes:   - name: mongodb-data     gcePersistentDisk:       pdName:
+    mongodb       fsType: ext4   ...`'
+- en: 'After you create the PersistentVolume with the `kubectl create` command, it
+    should be ready to be claimed. See if it is by listing all PersistentVolumes:'
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`kubectl create`命令创建PersistentVolume后，它应该准备好被声明。通过列出所有PersistentVolumes来检查它是否可用：
+- en: '`$ kubectl get pv` `NAME         CAPACITY   RECLAIMPOLICY   ACCESSMODES   STATUS     
+    CLAIM mongodb-pv   1Gi        Retain          RWO,ROX       Available`'
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pv` `NAME         CAPACITY   RECLAIMPOLICY   ACCESSMODES   STATUS     
+    CLAIM mongodb-pv   1Gi        Retain          RWO,ROX       Available`'
+- en: '|  |'
+  id: totrans-247
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Several columns are omitted. Also, `pv` is used as a shorthand for `persistentvolume`.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 省略了几个列。此外，`pv`用作`persistentvolume`的简称。
+- en: '|  |'
+  id: totrans-250
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: As expected, the PersistentVolume is shown as Available, because you haven’t
+    yet created the PersistentVolumeClaim.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如预期的那样，PersistentVolume显示为可用状态，因为你还没有创建PersistentVolumeClaim。
+- en: '|  |'
+  id: totrans-252
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: PersistentVolumes don’t belong to any namespace (see [figure 6.7](#filepos651320)).
+    They’re cluster-level resources like nodes.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PersistentVolumes不属于任何命名空间（见[图6.7](#filepos651320)）。它们是类似于节点的集群级资源。
+- en: '|  |'
+  id: totrans-255
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Figure 6.7\. PersistentVolumes, like cluster Nodes, don’t belong to any namespace,
+    unlike pods and PersistentVolumeClaims.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.7\. PersistentVolumes，与集群节点一样，不属于任何命名空间，与pods和PersistentVolumeClaims不同。
+- en: '![](images/00014.jpg)'
+  id: totrans-257
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00014.jpg)'
+- en: 6.5.3\. Claiming a PersistentVolume by creating a PersistentVolumeClaim
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5.3\. 通过创建PersistentVolumeClaim来声明PersistentVolume
+- en: Now let’s lay down our admin hats and put our developer hats back on. Say you
+    need to deploy a pod that requires persistent storage. You’ll use the PersistentVolume
+    you created earlier. But you can’t use it directly in the pod. You need to claim
+    it first.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们放下管理员帽子，重新戴上开发者帽子。假设你需要部署一个需要持久存储的Pod。你将使用你之前创建的持久卷。但是你不能直接在Pod中使用它。你需要首先声明它。
+- en: Claiming a PersistentVolume is a completely separate process from creating a
+    pod, because you want the same PersistentVolumeClaim to stay available even if
+    the pod is rescheduled (remember, rescheduling means the previous pod is deleted
+    and a new one is created).
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 声明持久卷是一个完全独立于创建Pod的过程，因为即使Pod被重新调度（记住，重新调度意味着之前的Pod被删除并创建一个新的Pod），你也希望相同的PersistentVolumeClaim保持可用。
+- en: Creating a PersistentVolumeClaim
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建PersistentVolumeClaim
+- en: You’ll create the claim now. You need to prepare a PersistentVolumeClaim manifest
+    like the one shown in the following listing and post it to the Kubernetes API
+    through `kubectl create`.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你现在将创建声明。你需要准备一个像以下列表中所示的PersistentVolumeClaim清单，并通过 `kubectl create` 将其发布到Kubernetes
+    API：
+- en: 'Listing 6.11\. A `PersistentVolumeClaim`: mongodb-pvc.yaml'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '列表6.11\. 一个 `PersistentVolumeClaim`: mongodb-pvc.yaml'
+- en: '`apiVersion: v1 kind: PersistentVolumeClaim metadata:   name: mongodb-pvc`
+    `1` `spec:   resources:     requests:` `2` `storage: 1Gi` `2` `accessModes:` `3`
+    `- ReadWriteOnce` `3` `storageClassName: ""` `4`'
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: PersistentVolumeClaim metadata:   name: mongodb-pvc`
+    `1` `spec:   resources:     requests:` `2` `storage: 1Gi` `2` `accessModes:` `3`
+    `- ReadWriteOnce` `3` `storageClassName: ""` `4`'
+- en: 1 The name of your claim—you’ll need this later when using the claim as the
+    pod’s volume.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 声明的名称——你稍后在使用声明作为Pod的卷时需要这个名称。
+- en: 2 Requesting 1 GiB of storage
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 请求1 GiB的存储
+- en: 3 You want the storage to support a single client (performing both reads and
+    writes).
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 你希望存储支持单个客户端（执行读取和写入操作）。
+- en: 4 You’ll learn about this in the section about dynamic provisioning.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 4 你将在关于动态预配的部分了解这一点。
+- en: As soon as you create the claim, Kubernetes finds the appropriate PersistentVolume
+    and binds it to the claim. The PersistentVolume’s capacity must be large enough
+    to accommodate what the claim requests. Additionally, the volume’s access modes
+    must include the access modes requested by the claim. In your case, the claim
+    requests 1 GiB of storage and a `ReadWriteOnce` access mode. The PersistentVolume
+    you created earlier matches those two requirements so it is bound to your claim.
+    You can see this by inspecting the claim.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦创建声明，Kubernetes就会找到适当的持久卷并将其绑定到声明上。持久卷的容量必须足够大，以容纳声明请求的内容。此外，卷的访问模式必须包括声明请求的访问模式。在你的情况下，声明请求了1
+    GiB的存储和一个 `ReadWriteOnce` 访问模式。你之前创建的持久卷符合这两个要求，因此它被绑定到你的声明上。你可以通过检查声明来看到这一点。
+- en: Listing PersistentVolumeClaims
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列出PersistentVolumeClaims
+- en: 'List all PersistentVolumeClaims to see the state of your PVC:'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列出所有PersistentVolumeClaims以查看你的PVC状态：
+- en: '`$ kubectl get pvc` `NAME          STATUS    VOLUME       CAPACITY   ACCESSMODES  
+    AGE mongodb-pvc   Bound     mongodb-pv   1Gi        RWO,ROX       3s`'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pvc` `名称          状态    卷           容量   访问模式   年龄 mongodb-pvc  
+    已绑定    mongodb-pv   1Gi        RWO,ROX       3s`'
+- en: '|  |'
+  id: totrans-273
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We’re using `pvc` as a shorthand for `persistentvolumeclaim`.
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用 `pvc` 作为 `persistentvolumeclaim` 的简称。
+- en: '|  |'
+  id: totrans-276
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 'The claim is shown as `Bound` to PersistentVolume `mongodb-pv`. Note the abbreviations
+    used for the access modes:'
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 声明显示为 `已绑定` 到持久卷 `mongodb-pv`。注意访问模式所使用的缩写：
+- en: '`RWO`—`ReadWriteOnce`—Only a single node can mount the volume for reading and
+    writing.'
+  id: totrans-278
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RWO`—`读写一次`—只有单个节点可以挂载卷进行读写。'
+- en: '`ROX`—`ReadOnlyMany`—Multiple nodes can mount the volume for reading.'
+  id: totrans-279
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`ROX`—`只读多`—多个节点可以挂载卷进行读取。'
+- en: '`RWX`—`ReadWriteMany`—Multiple nodes can mount the volume for both reading
+    and writing.'
+  id: totrans-280
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RWX`—`读写多`—多个节点可以挂载卷进行读写。'
+- en: '|  |'
+  id: totrans-281
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '`RWO`, `ROX`, and `RWX` pertain to the number of worker nodes that can use
+    the volume at the same time, not to the number of pods!'
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RWO`, `ROX`, 和 `RWX` 指的是可以同时使用卷的工作节点数量，而不是Pod的数量！'
+- en: '|  |'
+  id: totrans-284
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Listing PersistentVolumes
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列出PersistentVolumes
+- en: 'You can also see that the PersistentVolume is now `Bound` and no longer `Available`
+    by inspecting it with `kubectl get`:'
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你也可以通过使用 `kubectl get` 检查来看到持久卷现在已经是 `已绑定` 而不再是 `可用`：
+- en: '`$ kubectl get pv` `NAME         CAPACITY   ACCESSMODES   STATUS   CLAIM                
+    AGE mongodb-pv   1Gi        RWO,ROX       Bound    default/mongodb-pvc   1m`'
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pv` `名称         CAPACITY   访问模式   状态   声明                 年龄
+    mongodb-pv   1Gi        RWO,ROX       已绑定    default/mongodb-pvc   1m`'
+- en: The PersistentVolume shows it’s bound to claim `default/mongodb-pvc`. The `default`
+    part is the namespace the claim resides in (you created the claim in the default
+    namespace). We’ve already said that PersistentVolume resources are cluster-scoped
+    and thus cannot be created in a specific namespace, but PersistentVolumeClaims
+    can only be created in a specific namespace. They can then only be used by pods
+    in the same namespace.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PersistentVolume 显示它绑定到了 `default/mongodb-pvc` 的声明。`default` 部分是声明所在的命名空间（你在默认命名空间中创建了声明）。我们之前已经说过，PersistentVolume
+    资源是集群范围的，因此不能在特定命名空间中创建，但 PersistentVolumeClaims 只能创建在特定命名空间中。它们然后只能由同一命名空间中的
+    pod 使用。
+- en: 6.5.4\. Using a PersistentVolumeClaim in a pod
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5.4\. 在 pod 中使用 PersistentVolumeClaim
+- en: The PersistentVolume is now yours to use. Nobody else can claim the same volume
+    until you release it. To use it inside a pod, you need to reference the PersistentVolumeClaim
+    by name inside the pod’s volume (yes, the PersistentVolumeClaim, not the PersistentVolume
+    directly!), as shown in the following listing.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PersistentVolume 现在由你使用。在你释放它之前，其他人无法声明相同的卷。要在 pod 内部使用它，你需要通过 pod 的卷名称引用 PersistentVolumeClaim（是的，是
+    PersistentVolumeClaim，而不是 PersistentVolume 直接！），如下面的列表所示。
+- en: 'Listing 6.12\. A pod using a PersistentVolumeClaim volume: mongodb-pod-pvc.yaml'
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.12\. 使用 PersistentVolumeClaim 卷的 pod：mongodb-pod-pvc.yaml
+- en: '`apiVersion: v1 kind: Pod metadata:   name: mongodb spec:   containers:   -
+    image: mongo     name: mongodb     volumeMounts:     - name: mongodb-data      
+    mountPath: /data/db     ports:     - containerPort: 27017       protocol: TCP
+      volumes:   - name: mongodb-data     persistentVolumeClaim:` `1` `claimName:
+    mongodb-pvc` `1`'
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: Pod metadata:   name: mongodb spec:   containers:   -
+    image: mongo     name: mongodb     volumeMounts:     - name: mongodb-data      
+    mountPath: /data/db     ports:     - containerPort: 27017       protocol: TCP
+      volumes:     - name: mongodb-data     persistentVolumeClaim:` `1` `claimName:
+    mongodb-pvc` `1`'
+- en: 1 Referencing the PersistentVolumeClaim by name in the pod volume
+  id: totrans-293
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 在 pod 卷中按名称引用 PersistentVolumeClaim
+- en: Go ahead and create the pod. Now, check to see if the pod is indeed using the
+    same PersistentVolume and its underlying GCE PD. You should see the data you stored
+    earlier by running the MongoDB shell again, as shown in the following listing.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 继续创建 pod。现在，检查 pod 是否确实使用了相同的 PersistentVolume 和其底层的 GCE PD。你可以通过再次运行 MongoDB
+    shell 来查看之前存储的数据，如下面的列表所示。
+- en: Listing 6.13\. Retrieving MongoDB’s persisted data in the pod using the PVC
+    and PV
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.13\. 使用 PVC 和 PV 在 pod 中检索 MongoDB 的持久化数据
+- en: '`$ kubectl exec -it mongodb mongo MongoDB shell version: 3.2.8 connecting to:
+    mongodb://127.0.0.1:27017 Welcome to the MongoDB shell. ...` `> use mystore` `switched
+    to db mystore` `> db.foo.find()` `{ "_id" : ObjectId("57a61eb9de0cfd512374cc75"),
+    "name" : "foo" }`'
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl exec -it mongodb mongo MongoDB shell version: 3.2.8 connecting to:
+    mongodb://127.0.0.1:27017 Welcome to the MongoDB shell. ...` `> use mystore` `switched
+    to db mystore` `> db.foo.find()` `{ "_id" : ObjectId("57a61eb9de0cfd512374cc75"),
+    "name" : "foo" }`'
+- en: And there it is. You‘re able to retrieve the document you stored into MongoDB
+    previously.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就这样。你能够检索之前存储到 MongoDB 中的文档。
+- en: 6.5.5\. Understanding the benefits of using PersistentVolumes and claims
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5.5\. 理解使用 PersistentVolumes 和 claims 的好处
+- en: Examine [figure 6.8](#filepos660191), which shows both ways a pod can use a
+    GCE Persistent Disk—directly or through a PersistentVolume and claim.
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查 [图 6.8](#filepos660191)，它显示了 pod 可以使用 GCE Persistent Disk 的两种方式——直接或通过 PersistentVolume
+    和 claim。
+- en: Figure 6.8\. Using the GCE Persistent Disk directly or through a PVC and PV
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.8\. 直接使用 GCE Persistent Disk 或通过 PVC 和 PV 使用
+- en: '![](images/00031.jpg)'
+  id: totrans-301
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](images/00031.jpg)'
+- en: Consider how using this indirect method of obtaining storage from the infrastructure
+    is much simpler for the application developer (or cluster user). Yes, it does
+    require the additional steps of creating the PersistentVolume and the Persistent-VolumeClaim,
+    but the developer doesn’t have to know anything about the actual storage technology
+    used underneath.
+  id: totrans-302
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑一下使用这种从基础设施中获取存储的间接方法对于应用程序开发者（或集群用户）来说要简单得多。是的，它确实需要创建 PersistentVolume 和
+    Persistent-VolumeClaim 的额外步骤，但开发者不需要了解底层使用的实际存储技术。
+- en: Additionally, the same pod and claim manifests can now be used on many different
+    Kubernetes clusters, because they don’t refer to anything infrastructure-specific.
+    The claim states, “I need x amount of storage and I need to be able to read and
+    write to it by a single client at once,” and then the pod references the claim
+    by name in one of its volumes.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，相同的 pod 和 claim 清单现在可以用于许多不同的 Kubernetes 集群，因为它们不涉及任何特定于基础设施的内容。声明指出，“我需要
+    x 量的存储，并且我需要能够由单个客户端一次性读写它”，然后 pod 通过其卷之一按名称引用该声明。
+- en: 6.5.6\. Recycling PersistentVolumes
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.5.6\. 回收 PersistentVolumes
+- en: 'Before you wrap up this section on PersistentVolumes, let’s do one last quick
+    experiment. Delete the pod and the PersistentVolumeClaim:'
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你结束关于 PersistentVolumes 的这一节之前，让我们做一个最后的快速实验。删除 pod 和 PersistentVolumeClaim：
+- en: '`$ kubectl delete pod mongodb` `pod "mongodb" deleted` `$ kubectl delete pvc
+    mongodb-pvc` `persistentvolumeclaim "mongodb-pvc" deleted`'
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl delete pod mongodb` `pod "mongodb" deleted` `$ kubectl delete pvc
+    mongodb-pvc` `persistentvolumeclaim "mongodb-pvc" deleted`'
+- en: What if you create the PersistentVolumeClaim again? Will it be bound to the
+    Persistent-Volume or not? After you create the claim, what does `kubectl get pvc`
+    show?
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你再次创建 PersistentVolumeClaim 会怎样？它会被绑定到 Persistent-Volume 吗？在你创建声明后，`kubectl
+    get pvc` 会显示什么？
+- en: '`$ kubectl get pvc` `NAME           STATUS    VOLUME       CAPACITY   ACCESSMODES  
+    AGE mongodb-pvc    Pending                                         13s`'
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pvc` `NAME           STATUS    VOLUME       CAPACITY   ACCESSMODES  
+    AGE mongodb-pvc    Pending                                         13s`'
+- en: 'The claim’s status is shown as `Pending`. Interesting. When you created the
+    claim earlier, it was immediately bound to the PersistentVolume, so why wasn’t
+    it bound now? Maybe listing the PersistentVolumes can shed more light on this:'
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该声明的状态显示为 `Pending`。有趣。当你之前创建声明时，它立即绑定到了 PersistentVolume 上，那么为什么现在没有绑定呢？也许列出
+    PersistentVolumes 可以提供更多线索：
+- en: '`$ kubectl get pv` `NAME        CAPACITY  ACCESSMODES  STATUS    CLAIM              
+    REASON AGE mongodb-pv  1Gi       RWO,ROX      Released  default/mongodb-pvc       
+    5m`'
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pv` `NAME        CAPACITY  ACCESSMODES  STATUS    CLAIM              
+    REASON AGE mongodb-pv  1Gi       RWO,ROX      Released  default/mongodb-pvc       
+    5m`'
+- en: The `STATUS` column shows the PersistentVolume as `Released`, not `Available`
+    like before. Because you’ve already used the volume, it may contain data and shouldn’t
+    be bound to a completely new claim without giving the cluster admin a chance to
+    clean it up. Without this, a new pod using the same PersistentVolume could read
+    the data stored there by the previous pod, even if the claim and pod were created
+    in a different namespace (and thus likely belong to a different cluster tenant).
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`STATUS` 列显示 PersistentVolume 为 `Released`，而不是之前的 `Available`。因为你已经使用了该卷，它可能包含数据，并且不应该在没有给集群管理员清理机会的情况下绑定到全新的声明。如果没有这样做，使用相同
+    PersistentVolume 的新 pod 可能会读取之前 pod 存储在那里的数据，即使声明和 pod 是在不同的命名空间中创建的（因此很可能属于不同的集群租户）。'
+- en: Reclaiming PersistentVolumes manually
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 手动回收 PersistentVolumes
+- en: 'You told Kubernetes you wanted your PersistentVolume to behave like this when
+    you created it—by setting its `persistentVolumeReclaimPolicy` to `Retain`. You
+    wanted Kubernetes to retain the volume and its contents after it’s released from
+    its claim. As far as I’m aware, the only way to manually recycle the PersistentVolume
+    to make it available again is to delete and recreate the PersistentVolume resource.
+    As you do that, it’s your decision what to do with the files on the underlying
+    storage: you can either delete them or leave them alone so they can be reused
+    by the next pod.'
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你创建 PersistentVolume 时，你告诉 Kubernetes 它应该这样表现——通过将其 `persistentVolumeReclaimPolicy`
+    设置为 `Retain`。你希望 Kubernetes 在释放其声明后保留卷及其内容。据我所知，手动回收 PersistentVolume 以使其再次可用的唯一方法是删除并重新创建
+    PersistentVolume 资源。当你这样做时，你决定如何处理底层存储上的文件：你可以删除它们，或者让它们保持原样，以便它们可以被下一个 pod 重新使用。
+- en: Reclaiming PersistentVolumes automatically
+  id: totrans-314
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动回收 PersistentVolumes
+- en: 'Two other possible reclaim policies exist: `Recycle` and `Delete`. The first
+    one deletes the volume’s contents and makes the volume available to be claimed
+    again. This way, the PersistentVolume can be reused multiple times by different
+    PersistentVolumeClaims and different pods, as you can see in [figure 6.9](#filepos664534).'
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在两种其他可能的回收策略：`Recycle` 和 `Delete`。第一种会删除卷的内容，并使卷可再次被声明。这样，PersistentVolume
+    可以被不同的 PersistentVolumeClaims 和不同的 pods 多次重用，正如你在 [图 6.9](#filepos664534) 中看到的。
+- en: Figure 6.9\. The lifespan of a PersistentVolume, PersistentVolumeClaims, and
+    pods using them
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.9\. PersistentVolume、PersistentVolumeClaims 及其使用的 pods 的生命周期
+- en: '![](images/00054.jpg)'
+  id: totrans-317
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](images/00054.jpg)'
+- en: The `Delete` policy, on the other hand, deletes the underlying storage. Note
+    that the `Recycle` option is currently not available for GCE Persistent Disks.
+    This type of A PersistentVolume only supports the `Retain` or `Delete` policies.
+    Other Persistent-Volume types may or may not support each of these options, so
+    before creating your own PersistentVolume, be sure to check what reclaim policies
+    are supported for the specific underlying storage you’ll use in the volume.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，`Delete` 策略会删除底层存储。请注意，`Recycle` 选项目前对于 GCE Persistent Disks 不可用。这种类型的
+    PersistentVolume 只支持 `Retain` 或 `Delete` 策略。其他 Persistent-Volume 类型可能或可能不支持这些选项中的每一个，因此在创建自己的
+    PersistentVolume 之前，请务必检查您将在卷中使用的特定底层存储支持的回收策略。
+- en: '|  |'
+  id: totrans-319
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Tip
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示
+- en: You can change the PersistentVolume reclaim policy on an existing PersistentVolume.
+    For example, if it’s initially set to `Delete`, you can easily change it to `Retain`
+    to prevent losing valuable data.
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在现有的 PersistentVolume 上更改其 PersistentVolume 回收策略。例如，如果它最初设置为 `Delete`，您可以轻松地将其更改为
+    `Retain` 以防止丢失有价值的数据。
+- en: '|  |'
+  id: totrans-322
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 6.6\. Dynamic provisioning of PersistentVolumes
+  id: totrans-323
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.6. 动态 PersistentVolumes 的配置
+- en: You’ve seen how using PersistentVolumes and PersistentVolumeClaims makes it
+    easy to obtain persistent storage without the developer having to deal with the
+    actual storage technology used underneath. But this still requires a cluster administrator
+    to provision the actual storage up front. Luckily, Kubernetes can also perform
+    this job automatically through dynamic provisioning of PersistentVolumes.
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您已经看到，使用 PersistentVolumes 和 PersistentVolumeClaims 如何使开发者能够轻松地获得持久存储，而无需处理底层使用的实际存储技术。但这仍然需要集群管理员预先配置实际的存储。幸运的是，Kubernetes
+    可以通过 PersistentVolumes 的动态配置自动执行此任务。
+- en: The cluster admin, instead of creating PersistentVolumes, can deploy a PersistentVolume
+    provisioner and define one or more StorageClass objects to let users choose what
+    type of PersistentVolume they want. The users can refer to the `StorageClass`
+    in their PersistentVolumeClaims and the provisioner will take that into account
+    when provisioning the persistent storage.
+  id: totrans-325
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群管理员，而不是创建 PersistentVolumes，可以部署 PersistentVolume provisioner 并定义一个或多个 StorageClass
+    对象，让用户选择他们想要的 PersistentVolume 类型。用户可以在他们的 PersistentVolumeClaims 中引用 `StorageClass`，provisioner
+    将在配置持久存储时考虑这一点。
+- en: '|  |'
+  id: totrans-326
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Similar to PersistentVolumes, StorageClass resources aren’t namespaced.
+  id: totrans-328
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 PersistentVolumes 类似，StorageClass 资源不是命名空间化的。
+- en: '|  |'
+  id: totrans-329
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Kubernetes includes provisioners for the most popular cloud providers, so the
+    administrator doesn’t always need to deploy a provisioner. But if Kubernetes is
+    deployed on-premises, a custom provisioner needs to be deployed.
+  id: totrans-330
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 包含了大多数流行云提供商的 provisioner，因此管理员并不总是需要部署 provisioner。但如果 Kubernetes
+    部署在本地，则需要部署一个自定义 provisioner。
+- en: Instead of the administrator pre-provisioning a bunch of PersistentVolumes,
+    they need to define one or two (or more) StorageClasses and let the system create
+    a new PersistentVolume each time one is requested through a PersistentVolumeClaim.
+    The great thing about this is that it’s impossible to run out of PersistentVolumes
+    (obviously, you can run out of storage space).
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是管理员预先配置大量 PersistentVolumes，他们需要定义一个或两个（或更多）StorageClasses，并让系统在每次通过 PersistentVolumeClaim
+    请求时创建一个新的 PersistentVolume。这一点的好处是，不可能耗尽 PersistentVolumes（显然，您可能会耗尽存储空间）。
+- en: 6.6.1\. Defining the available storage types through StorageClass resources
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.6.1. 通过 StorageClass 资源定义可用的存储类型
+- en: Before a user can create a PersistentVolumeClaim, which will result in a new
+    Persistent-Volume being provisioned, an admin needs to create one or more StorageClass
+    resources. Let’s look at an example of one in the following listing.
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户可以创建 PersistentVolumeClaim（这将导致新的 Persistent-Volume 被配置）之前，管理员需要创建一个或多个 StorageClass
+    资源。以下是一个示例。
+- en: 'Listing 6.14\. A StorageClass definition: storageclass-fast-gcepd.yaml'
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.14. StorageClass 定义：storageclass-fast-gcepd.yaml
+- en: '`apiVersion: storage.k8s.io/v1 kind: StorageClass metadata:   name: fast provisioner:
+    kubernetes.io/gce-pd` `1` `parameters:   type: pd-ssd` `2` `zone: europe-west1-b`
+    `2`'
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: storage.k8s.io/v1 kind: StorageClass metadata: name: fast provisioner:
+    kubernetes.io/gce-pd` `1` `parameters:` `1` `type: pd-ssd` `2` `zone: europe-west1-b`
+    `2`'
+- en: 1 The volume plugin to use for provisioning the PersistentVolume
+  id: totrans-336
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 用于配置 PersistentVolume 的卷插件
+- en: 2 The parameters passed to the provisioner
+  id: totrans-337
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 传递给 provisioner 的参数
+- en: '|  |'
+  id: totrans-338
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Note
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If using Minikube, deploy the file storageclass-fast-hostpath.yaml.
+  id: totrans-340
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果使用 Minikube，请部署文件 storageclass-fast-hostpath.yaml。
+- en: '|  |'
+  id: totrans-341
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: The StorageClass resource specifies which provisioner should be used for provisioning
+    the PersistentVolume when a PersistentVolumeClaim requests this StorageClass.
+    The parameters defined in the StorageClass definition are passed to the provisioner
+    and are specific to each provisioner plugin.
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储类资源指定在 PersistentVolumeClaim 请求此存储类时用于预配 PersistentVolume 的提供者。存储类定义中定义的参数传递给提供者，并且对每个提供者插件都是特定的。
+- en: The StorageClass uses the Google Compute Engine (GCE) Persistent Disk (PD) provisioner,
+    which means it can be used when Kubernetes is running in GCE. For other cloud
+    providers, other provisioners need to be used.
+  id: totrans-343
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储类使用 Google Compute Engine (GCE) 持久磁盘 (PD) 提供者，这意味着当 Kubernetes 在 GCE 上运行时可以使用它。对于其他云提供商，需要使用其他提供者。
+- en: 6.6.2\. Requesting the storage class in a PersistentVolumeClaim
+  id: totrans-344
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.6.2\. 在 PersistentVolumeClaim 中请求存储类
+- en: After the StorageClass resource is created, users can refer to the storage class
+    by name in their PersistentVolumeClaims.
+  id: totrans-345
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建存储类资源后，用户可以在他们的 PersistentVolumeClaims 中通过名称引用存储类。
+- en: Creating a PVC definition requesting a specific storage class
+  id: totrans-346
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 PersistentVolumeClaim 中请求特定存储类
+- en: You can modify your `mongodb-pvc` to use dynamic provisioning. The following
+    listing shows the updated YAML definition of the PVC.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将您的 `mongodb-pvc` 修改为使用动态预配。以下列表显示了 PVC 的更新 YAML 定义。
+- en: 'Listing 6.15\. A PVC with dynamic provisioning: mongodb-pvc-dp.yaml'
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.15\. 具有动态预配的 PVC：mongodb-pvc-dp.yaml
+- en: '`apiVersion: v1 kind: PersistentVolumeClaim metadata:   name: mongodb-pvc spec:
+      storageClassName: fast` `1` `resources:     requests:       storage: 100Mi  
+    accessModes:     - ReadWriteOnce`'
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: PersistentVolumeClaim metadata:   name: mongodb-pvc spec:
+      storageClassName: fast` `1` `resources:     requests:       storage: 100Mi  
+    accessModes:     - ReadWriteOnce`'
+- en: 1 This PVC requests the custom storage class.
+  id: totrans-350
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 此 PVC 请求自定义存储类。
+- en: Apart from specifying the size and access modes, your PersistentVolumeClaim
+    now also specifies the class of storage you want to use. When you create the claim,
+    the PersistentVolume is created by the provisioner referenced in the `fast` StorageClass
+    resource. The provisioner is used even if an existing manually provisioned PersistentVolume
+    matches the PersistentVolumeClaim.
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了指定大小和访问模式外，您的 PersistentVolumeClaim 现在还指定了您想要使用的存储类别。当您创建请求时，PersistentVolume
+    由 `fast` 存储类资源中引用的提供者创建。即使存在与 PersistentVolumeClaim 匹配的现有手动预配的 PersistentVolume，也会使用提供者。
+- en: '|  |'
+  id: totrans-352
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-353
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: If you reference a non-existing storage class in a PVC, the provisioning of
+    the PV will fail (you’ll see a `ProvisioningFailed` event when you use `kubectl
+    describe` on the PVC).
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在 PVC 中引用了一个不存在的存储类，PV 的预配将失败（当您在 PVC 上使用 `kubectl describe` 时，您将看到 `ProvisioningFailed`
+    事件）。
+- en: '|  |'
+  id: totrans-355
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Examining the created PVC and the dynamically provisioned PV
+  id: totrans-356
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查创建的 PVC 和动态预配的 PV
+- en: 'Next you’ll create the PVC and then use `kubectl get` to see it:'
+  id: totrans-357
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，您将创建 PVC，然后使用 `kubectl get` 来查看它：
+- en: '`$ kubectl get pvc mongodb-pvc` `NAME          STATUS   VOLUME         CAPACITY  
+    ACCESSMODES   STORAGECLASS mongodb-pvc   Bound    pvc-1e6bc048   1Gi        RWO          
+    fast`'
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pvc mongodb-pvc` `名称          状态   卷         容量   访问模式   存储类
+    mongodb-pvc   已绑定    pvc-1e6bc048   1Gi        RWO           fast`'
+- en: 'The `VOLUME` column shows the PersistentVolume that’s bound to this claim (the
+    actual name is longer than what’s shown above). You can try listing PersistentVolumes
+    now to see that a new PV has indeed been created automatically:'
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`VOLUME` 列显示绑定到此请求的 PersistentVolume（实际名称比上面显示的更长）。您现在可以尝试列出 PersistentVolumes，以查看是否已自动创建新的
+    PV：'
+- en: '`$ kubectl get pv` `NAME           CAPACITY  ACCESSMODES  RECLAIMPOLICY  STATUS   
+    STORAGECLASS mongodb-pv     1Gi       RWO,ROX      Retain         Released pvc-1e6bc048  
+    1Gi       RWO          Delete         Bound     fast`'
+  id: totrans-360
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pv` `名称           容量  访问模式  回收策略  状态    存储类 mongodb-pv     1Gi      
+    RWO,ROX      保留         已释放 pvc-1e6bc048   1Gi       RWO          删除         已绑定    
+    fast`'
+- en: '|  |'
+  id: totrans-361
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Only pertinent columns are shown.
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 仅显示相关列。
+- en: '|  |'
+  id: totrans-364
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 'You can see the dynamically provisioned PersistentVolume. Its capacity and
+    access modes are what you requested in the PVC. Its reclaim policy is `Delete`,
+    which means the PersistentVolume will be deleted when the PVC is deleted. Beside
+    the PV, the provisioner also provisioned the actual storage. Your `fast` StorageClass
+    is configured to use the `kubernetes.io/gce-pd` provisioner, which provisions
+    GCE Persistent Disks. You can see the disk with the following command:'
+  id: totrans-365
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到动态配置的PersistentVolume。其容量和访问模式是您在PVC中请求的。其回收策略是`Delete`，这意味着当PVC被删除时，PersistentVolume也将被删除。除了PV之外，提供者还配置了实际的存储。您的`fast`
+    StorageClass配置为使用`kubernetes.io/gce-pd`提供者，该提供者配置GCE持久磁盘。您可以使用以下命令查看磁盘：
+- en: '`$ gcloud compute disks list` `NAME                          ZONE           
+    SIZE_GB  TYPE         STATUS gke-kubia-dyn-pvc-1e6bc048    europe-west1-d  1       
+    pd-ssd       READY gke-kubia-default-pool-71df   europe-west1-d  100      pd-standard 
+    READY gke-kubia-default-pool-79cd   europe-west1-d  100      pd-standard  READY
+    gke-kubia-default-pool-blc4   europe-west1-d  100      pd-standard  READY mongodb                      
+    europe-west1-d  1        pd-standard  READY`'
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ gcloud compute disks list` `NAME                          ZONE           
+    SIZE_GB  TYPE         STATUS gke-kubia-dyn-pvc-1e6bc048    europe-west1-d  1       
+    pd-ssd       READY gke-kubia-default-pool-71df   europe-west1-d  100      pd-standard 
+    READY gke-kubia-default-pool-79cd   europe-west1-d  100      pd-standard  READY
+    gke-kubia-default-pool-blc4   europe-west1-d  100      pd-standard  READY mongodb                      
+    europe-west1-d  1        pd-standard  READY`'
+- en: As you can see, the first persistent disk’s name suggests it was provisioned
+    dynamically and its type shows it’s an SSD, as specified in the storage class
+    you created earlier.
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，第一个持久磁盘的名称表明它是动态配置的，其类型显示它是一个SSD，正如您在之前创建的存储类中指定的那样。
+- en: Understanding how to use storage classes
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解如何使用存储类
+- en: The cluster admin can create multiple storage classes with different performance
+    or other characteristics. The developer then decides which one is most appropriate
+    for each claim they create.
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群管理员可以创建具有不同性能或其他特性的多个存储类。然后，开发者决定他们创建的每个声明最适合哪一个。
+- en: The nice thing about StorageClasses is the fact that claims refer to them by
+    name. The PVC definitions are therefore portable across different clusters, as
+    long as the StorageClass names are the same across all of them. To see this portability
+    yourself, you can try running the same example on Minikube, if you’ve been using
+    GKE up to this point. As a cluster admin, you’ll have to create a different storage
+    class (but with the same name). The storage class defined in the storageclass-fast-hostpath.yaml
+    file is tailor-made for use in Minikube. Then, once you deploy the storage class,
+    you as a cluster user can deploy the exact same PVC manifest and the exact same
+    pod manifest as before. This shows how the pods and PVCs are portable across different
+    clusters.
+  id: totrans-370
+  prefs: []
+  type: TYPE_NORMAL
+  zh: StorageClasses的好处是声明通过名称引用它们。因此，PVC定义可以在不同的集群之间移植，只要所有集群中的StorageClass名称都相同。为了亲自体验这种可移植性，如果您之前一直在使用GKE，您可以尝试在Minikube上运行相同的示例。作为集群管理员，您将不得不创建一个不同的存储类（但名称相同）。在storageclass-fast-hostpath.yaml文件中定义的存储类是为Minikube量身定制的。然后，一旦您部署了存储类，作为集群用户，您可以部署与之前完全相同的PVC清单和Pod清单。这显示了Pod和PVC如何在不同的集群之间移植。
+- en: 6.6.3\. Dynamic provisioning without specifying a storage class
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.6.3\. 不指定存储类进行动态配置
+- en: As we’ve progressed through this chapter, attaching persistent storage to pods
+    has become ever simpler. The sections in this chapter reflect how provisioning
+    of storage has evolved from early Kubernetes versions to now. In this final section,
+    we’ll look at the latest and simplest way of attaching a PersistentVolume to a
+    pod.
+  id: totrans-372
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着我们进入本章，将持久化存储附加到Pod的过程变得越来越简单。本章各节反映了存储配置从早期Kubernetes版本到现在的演变过程。在本章的最后部分，我们将探讨将PersistentVolume附加到Pod的最新和最简单方法。
+- en: Listing storage classes
+  id: totrans-373
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列出存储类
+- en: 'When you created your custom storage class called `fast`, you didn’t check
+    if any existing storage classes were already defined in your cluster. Why don’t
+    you do that now? Here are the storage classes available in GKE:'
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您创建名为`fast`的自定义存储类时，您没有检查集群中是否已经定义了任何现有的存储类。为什么现在不这样做呢？以下是GKE中可用的存储类：
+- en: '`$ kubectl get sc` `NAME                 TYPE fast                 kubernetes.io/gce-pd
+    standard (default)   kubernetes.io/gce-pd`'
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get sc` `NAME                 TYPE fast                 kubernetes.io/gce-pd
+    standard (default)   kubernetes.io/gce-pd`'
+- en: '|  |'
+  id: totrans-376
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We’re using `sc` as shorthand for `storageclass`.
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用`sc`作为`storageclass`的简称。
+- en: '|  |'
+  id: totrans-379
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 'Beside the `fast` storage class, which you created yourself, a `standard` storage
+    class exists and is marked as default. You’ll learn what that means in a moment.
+    Let’s list the storage classes available in Minikube, so we can compare:'
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了您自己创建的`fast`存储类之外，还存在一个`standard`存储类，并标记为默认。您将在稍后了解这意味着什么。让我们列出Minikube中可用的存储类，以便进行比较：
+- en: '`$ kubectl get sc` `NAME                 TYPE fast                 k8s.io/minikube-hostpath
+    standard (default)   k8s.io/minikube-hostpath`'
+  id: totrans-381
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get sc` `NAME                 TYPE fast                 k8s.io/minikube-hostpath
+    standard (default)   k8s.io/minikube-hostpath`'
+- en: Again, the `fast` storage class was created by you and a default `standard`
+    storage class exists here as well. Comparing the `TYPE` columns in the two listings,
+    you see GKE is using the `kubernetes.io/gce-pd` provisioner, whereas Minikube
+    is using `k8s.io/ minikube-hostpath`.
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次，`fast`存储类是由您创建的，这里也存在一个默认的`standard`存储类。比较两个列表中的`TYPE`列，您可以看到GKE使用的是`kubernetes.io/gce-pd`提供者，而Minikube使用的是`k8s.io/minikube-hostpath`。
+- en: Examining the default storage class
+  id: totrans-383
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查默认存储类
+- en: You’re going to use `kubectl get` to see more info about the standard storage
+    class in a GKE cluster, as shown in the following listing.
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您将使用`kubectl get`来查看GKE集群中标准存储类的更多信息，如下所示列表。
+- en: Listing 6.16\. The definition of the standard storage class on GKE
+  id: totrans-385
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.16\. GKE上标准存储类的定义
+- en: '`$ kubectl get sc standard -o yaml` `apiVersion: storage.k8s.io/v1 kind: StorageClass
+    metadata:   annotations:     storageclass.beta.kubernetes.io/is-default-class:
+    "true"` `1` `creationTimestamp: 2017-05-16T15:24:11Z   labels:     addonmanager.kubernetes.io/mode:
+    EnsureExists     kubernetes.io/cluster-service: "true"   name: standard   resourceVersion:
+    "180"   selfLink: /apis/storage.k8s.io/v1/storageclassesstandard   uid: b6498511-3a4b-11e7-ba2c-42010a840014
+    parameters:` `2` `type: pd-standard` `2` `provisioner: kubernetes.io/gce-pd` `3`'
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get sc standard -o yaml` `apiVersion: storage.k8s.io/v1 kind: StorageClass
+    metadata:   annotations:     storageclass.beta.kubernetes.io/is-default-class:
+    "true"` `1` `creationTimestamp: 2017-05-16T15:24:11Z   labels:     addonmanager.kubernetes.io/mode:
+    EnsureExists     kubernetes.io/cluster-service: "true"   name: standard   resourceVersion:
+    "180"   selfLink: /apis/storage.k8s.io/v1/storageclassesstandard   uid: b6498511-3a4b-11e7-ba2c-42010a840014
+    parameters:` `2` `type: pd-standard` `2` `provisioner: kubernetes.io/gce-pd` `3`'
+- en: 1 This annotation marks the storage class as default.
+  id: totrans-387
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 这个注释将存储类标记为默认。
+- en: 2 The type parameter is used by the provisioner to know what type of GCE PD
+    to create.
+  id: totrans-388
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 2 类型参数由提供者用于知道要创建哪种类型的GCE PD。
+- en: 3 The GCE Persistent Disk provisioner is used to provision PVs of this class.
+  id: totrans-389
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 3 GCE持久磁盘提供者用于配置此类的PV。
+- en: If you look closely toward the top of the listing, the storage class definition
+    includes an annotation, which makes this the default storage class. The default
+    storage class is what’s used to dynamically provision a PersistentVolume if the
+    PersistentVolumeClaim doesn’t explicitly say which storage class to use.
+  id: totrans-390
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您仔细查看列表的顶部，存储类定义中包含一个注释，这使得它成为默认存储类。默认存储类是在PersistentVolumeClaim没有明确指定要使用哪个存储类时动态配置PersistentVolume所使用的。
+- en: Creating a PersistentVolumeClaim without specifying a storage class
+  id: totrans-391
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个未指定存储类的PersistentVolumeClaim
+- en: You can create a PVC without specifying the `storageClassName` attribute and
+    (on Google Kubernetes Engine) a GCE Persistent Disk of type `pd-standard` will
+    be provisioned for you. Try this by creating a claim from the YAML in the following
+    listing.
+  id: totrans-392
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以创建一个不指定`storageClassName`属性的PVC，并且在（在Google Kubernetes Engine上）将为您自动配置一个类型为`pd-standard`的GCE持久磁盘。通过以下列表中的YAML创建一个声明来尝试一下。
+- en: 'Listing 6.17\. PVC with no storage class defined: mongodb-pvc-dp-nostorageclass.yaml'
+  id: totrans-393
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.17\. 未定义存储类的PVC：mongodb-pvc-dp-nostorageclass.yaml
+- en: '`apiVersion: v1 kind: PersistentVolumeClaim metadata:   name: mongodb-pvc2
+    spec:` `1` `resources:` `1` `requests:` `1` `storage: 100Mi` `1` `accessModes:`
+    `1` `- ReadWriteOnce` `1`'
+  id: totrans-394
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`apiVersion: v1 kind: PersistentVolumeClaim metadata:   name: mongodb-pvc2
+    spec:` `1` `resources:` `1` `requests:` `1` `storage: 100Mi` `1` `accessModes:`
+    `1` `- ReadWriteOnce` `1`'
+- en: 1 You’re not specifying the storageClassName attribute (unlike earlier examples).
+  id: totrans-395
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 您没有指定`storageClassName`属性（与前面的示例不同）。
+- en: 'This PVC definition includes only the storage size request and the desired
+    access modes, but no storage class. When you create the PVC, whatever storage
+    class is marked as default will be used. You can confirm that’s the case:'
+  id: totrans-396
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个PVC定义仅包括存储大小请求和所需的访问模式，但没有存储类。当您创建PVC时，将使用标记为默认的任何存储类。您可以确认这一点：
+- en: '`$ kubectl get pvc mongodb-pvc2` `NAME          STATUS   VOLUME         CAPACITY  
+    ACCESSMODES   STORAGECLASS mongodb-pvc2  Bound    pvc-95a5ec12   1Gi        RWO          
+    standard` `$ kubectl get pv pvc-95a5ec12` `NAME           CAPACITY  ACCESSMODES 
+    RECLAIMPOLICY  STATUS    STORAGECLASS pvc-95a5ec12   1Gi       RWO          Delete        
+    Bound     standard` `$ gcloud compute disks list` `NAME                         
+    ZONE            SIZE_GB  TYPE         STATUS gke-kubia-dyn-pvc-95a5ec12    europe-west1-d 
+    1        pd-standard  READY ...`'
+  id: totrans-397
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`$ kubectl get pvc mongodb-pvc2` `NAME          STATUS   VOLUME         CAPACITY  
+    ACCESSMODES   STORAGECLASS mongodb-pvc2  Bound    pvc-95a5ec12   1Gi        RWO          
+    standard` `$ kubectl get pv pvc-95a5ec12` `NAME           CAPACITY  ACCESSMODES 
+    RECLAIMPOLICY  STATUS    STORAGECLASS pvc-95a5ec12   1Gi       RWO          Delete        
+    Bound     standard` `$ gcloud compute disks list` `NAME                         
+    ZONE            SIZE_GB  TYPE         STATUS gke-kubia-dyn-pvc-95a5ec12    europe-west1-d 
+    1        pd-standard  READY ...`'
+- en: Forcing a PersistentVolumeClaim to be bound to one of the pre-pro- ovisioned
+    PersistentVolumes
+  id: totrans-398
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 强制 PersistentVolumeClaim 绑定到预配置的 PersistentVolume 之一
+- en: 'This finally brings us to why you set `storageClassName` to an empty string
+    in [listing 6.11](index_split_060.html#filepos652642) (when you wanted the PVC
+    to bind to the PV you’d provisioned manually). Let me repeat the relevant lines
+    of that PVC definition here:'
+  id: totrans-399
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这最终带我们来到了为什么在[列表 6.11](index_split_060.html#filepos652642)（当您想使 PVC 绑定到您手动配置的
+    PV 时）中将 `storageClassName` 设置为空字符串的原因。让我在这里重复该 PVC 定义的相关行：
+- en: '`kind: PersistentVolumeClaim spec:   storageClassName: ""` `1`'
+  id: totrans-400
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`kind: PersistentVolumeClaim spec:   storageClassName: ""` `1`'
+- en: 1 Specifying an empty string as the storage class name ensures the PVC binds
+    to a pre-provisioned PV instead of dynamically provisioning a new one.
+  id: totrans-401
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 1 将存储类名称指定为空字符串确保 PVC 绑定到预配置的 PV 而不是动态配置一个新的。
+- en: If you hadn’t set the `storageClassName` attribute to an empty string, the dynamic
+    volume provisioner would have provisioned a new PersistentVolume, despite there
+    being an appropriate pre-provisioned PersistentVolume. At that point, I wanted
+    to demonstrate how a claim gets bound to a manually pre-provisioned PersistentVolume.
+    I didn’t want the dynamic provisioner to interfere.
+  id: totrans-402
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您没有将 `storageClassName` 属性设置为空字符串，动态卷提供程序会配置一个新的 PersistentVolume，尽管已经存在合适的预配置
+    PersistentVolume。在那个时刻，我想展示一个请求是如何绑定到一个手动预配置的 PersistentVolume 的。我不想让动态提供程序干扰。
+- en: '|  |'
+  id: totrans-403
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Tip
+  id: totrans-404
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Explicitly set `storageClassName` to `""` if you want the PVC to use a pre-provisioned
+    PersistentVolume.
+  id: totrans-405
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想使 PVC 使用预配置的 PersistentVolume，请显式设置 `storageClassName` 为 `""`。
+- en: '|  |'
+  id: totrans-406
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: Understanding the complete picture of dynamic PersistentVolume provisioning
+  id: totrans-407
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解动态 PersistentVolume 配置的完整情况
+- en: This brings us to the end of this chapter. To summarize, the best way to attach
+    persistent storage to a pod is to only create the PVC (with an explicitly specified
+    `storageClassName` if necessary) and the pod (which refers to the PVC by name).
+    Everything else is taken care of by the dynamic PersistentVolume provisioner.
+  id: totrans-408
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就带我们结束了这一章。总结来说，将持久化存储附加到 Pod 的最佳方式是仅创建 PVC（如果需要，可以显式指定 `storageClassName`）和
+    Pod（通过名称引用 PVC）。其他所有事情都由动态 PersistentVolume 提供程序处理。
+- en: To get a complete picture of the steps involved in getting a dynamically provisioned
+    PersistentVolume, examine [figure 6.10](#filepos685592).
+  id: totrans-409
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解动态配置 PersistentVolume 所涉及的所有步骤的完整情况，请检查[图 6.10](#filepos685592)。
+- en: Figure 6.10\. The complete picture of dynamic provisioning of PersistentVolumes
+  id: totrans-410
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.10. PersistentVolumes 动态配置的完整情况
+- en: '![](images/00073.jpg)'
+  id: totrans-411
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](images/00073.jpg)'
+- en: 6.7\. Summary
+  id: totrans-412
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 6.7. 概述
+- en: This chapter has shown you how volumes are used to provide either temporary
+    or persistent storage to a pod’s containers. You’ve learned how to
+  id: totrans-413
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章向您展示了如何使用卷为 Pod 的容器提供临时或持久存储。您已经学习了如何
+- en: Create a multi-container pod and have the pod’s containers operate on the same
+    files by adding a volume to the pod and mounting it in each container
+  id: totrans-414
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建一个多容器 Pod，并通过向 Pod 添加卷并在每个容器中挂载它，使 Pod 的容器操作相同的文件
+- en: Use the `emptyDir` volume to store temporary, non-persistent data
+  id: totrans-415
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `emptyDir` 卷来存储临时、非持久数据
+- en: Use the `gitRepo` volume to easily populate a directory with the contents of
+    a Git repository at pod startup
+  id: totrans-416
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `gitRepo` 卷在 Pod 启动时轻松填充目录，以包含 Git 仓库的内容
+- en: Use the `hostPath` volume to access files from the host node
+  id: totrans-417
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `hostPath` 卷从主机节点访问文件
+- en: Mount external storage in a volume to persist pod data across pod restarts
+  id: totrans-418
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在卷中挂载外部存储，以在 Pod 重启之间持久化 Pod 数据
+- en: Decouple the pod from the storage infrastructure by using PersistentVolumes
+    and PersistentVolumeClaims
+  id: totrans-419
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过使用 PersistentVolumes 和 PersistentVolumeClaims 解耦 Pod 与存储基础设施
+- en: Have PersistentVolumes of the desired (or the default) storage class dynamically
+    provisioned for each PersistentVolumeClaim
+  id: totrans-420
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为每个PersistentVolumeClaim动态配置所需（或默认）的PersistentVolumes
+- en: Prevent the dynamic provisioner from interfering when you want the PersistentVolumeClaim
+    to be bound to a pre-provisioned PersistentVolume
+  id: totrans-421
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当你希望PersistentVolumeClaim绑定到预先配置的PersistentVolume时，防止动态配置器干扰
+- en: In the next chapter, you’ll see what mechanisms Kubernetes provides to deliver
+    configuration data, secret information, and metadata about the pod and container
+    to the processes running inside a pod. This is done with the special types of
+    volumes we’ve mentioned in this chapter, but not yet explored.
+  id: totrans-422
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一章中，你将看到Kubernetes提供了哪些机制来提供配置数据、秘密信息和关于pod和容器的元数据给pod内部运行的过程。这是通过我们在本章中提到的特殊类型的卷来完成的，但尚未进行探索。

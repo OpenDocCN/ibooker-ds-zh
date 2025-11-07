@@ -1,0 +1,1095 @@
+- en: 6 Beyond the event bus
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 6 超越事件总线
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: How to expose services on top of the event bus
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何在事件总线之上暴露服务
+- en: Asynchronous testing of both verticles and event-bus services
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对verticles和事件总线服务的异步测试
+- en: The event bus is a fundamental tool for articulating event processing in Vert.x,
+    but there is more to it! Event-bus services are useful for exposing typed interfaces
+    rather than plain messaging, especially when multiple message types are expected
+    at an event-bus destination. Testing is also an important concept, and we’ll look
+    at what is different in testing asynchronous Vert.x code compared to traditional
+    testing.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件总线是Vert.x中表达事件处理的基本工具，但还有更多！事件总线服务对于暴露类型化接口而不是普通消息很有用，尤其是在预期事件总线目的地有多个消息类型时。测试也是一个重要的概念，我们将探讨与传统的测试相比，异步Vert.x代码测试的不同之处。
+- en: In this chapter we will revisit an earlier example, refactor it into an event-bus
+    service, and test it.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将回顾一个早期的示例，将其重构为事件总线服务，并进行测试。
+- en: 6.1 Revisiting heat sensors with a service API
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.1 使用服务API回顾热传感器
+- en: In chapter 3 we used heat sensors as an example. We had a `SensorData` verticle
+    that kept the last observed values for each sensor and compute their average using
+    request/reply communication on the event bus. The following listing shows the
+    code we used to compute the temperature average.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第3章中，我们使用热传感器作为示例。我们有一个`SensorData` verticle，它保存每个传感器的最后观察值，并使用事件总线上的请求/回复通信计算平均值。以下列表显示了用于计算温度平均值的代码。
+- en: Listing 6.1 Event-bus-based average computation API
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.1 基于事件总线的事件平均计算API
+- en: '[PRE0]'
+  id: totrans-9
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ We receive an event from the event bus.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们从事件总线接收事件。
+- en: ❷ We reply to the event.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 我们回复事件。
+- en: This code is tightly coupled with the Vert.x event-bus APIs, as it needs to
+    receive a message and reply to it. Any software component willing to call `average`
+    has to send a message over the event bus and expect a response.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码与Vert.x事件总线API紧密耦合，因为它需要接收消息并回复它。任何愿意调用`average`的软件组件都必须通过事件总线发送消息并期待响应。
+- en: But what if we could have a regular Java interface with methods to call, rather
+    than having to send and receive messages over the event bus? The interface proposed
+    in the next listing would be completely agnostic of the event bus.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但如果我们能够有一个带有可调用方法的常规Java接口，而不是必须通过事件总线发送和接收消息呢？下一条列表中提出的接口将完全与事件总线无关。
+- en: Listing 6.2 Heat sensor API as a Java interface
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.2 热传感器API作为Java接口
+- en: '[PRE1]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Asynchronously ask for a sensor value.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 异步请求传感器值。
+- en: ❷ Asynchronously ask for the average.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 异步请求平均值。
+- en: The proposed interface has methods with trailing callback parameters so the
+    caller will be notified asynchronously of responses and errors. The `Handler<AsyncResult<T>>`
+    type is commonly used for callbacks in Vert.x APIs, where `T` can be anything
+    but is typically a JSON type.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提出的接口具有带有尾随回调参数的方法，因此调用者将异步地收到响应和错误的通知。`Handler<AsyncResult<T>>`类型在Vert.x API中常用于回调，其中`T`可以是任何类型，但通常是JSON类型。
+- en: The interface of listing 6.2 is what we are aiming for with event-bus services.
+    Let’s revise the heat sensor example, replacing event-bus interactions with a
+    `SensorDataService` typed Java interface.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.2的界面是我们通过事件总线服务所追求的目标。让我们修改热传感器示例，将事件总线交互替换为`SensorDataService`类型的Java接口。
+- en: 6.2 Return of the RPCs (remote procedure calls)
+  id: totrans-20
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.2 RPCs（远程过程调用）的回归
+- en: You may already be familiar with *remote procedure calls*, a popular abstraction
+    in distributed computing.[1](#pgfId-1022950) RPCs were introduced to hide network
+    communications when you’re *calling* functions running on another machine (the
+    server). The idea is that a local function acts as a proxy, sending a message
+    with the call arguments over the network to the server, and the server then calls
+    the *real* function. The response is then sent back to the proxy, and the client
+    has the illusion of having called a regular, local function.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能已经熟悉*远程过程调用*，这是分布式计算中的一种流行抽象。[1](#pgfId-1022950) RPCs是在调用运行在另一台机器（服务器）上的函数时引入的，以隐藏网络通信。想法是本地函数充当代理，通过网络将带有调用参数的消息发送到服务器，然后服务器调用*真实*函数。然后，响应被发送回代理，客户端有一种调用常规、本地函数的错觉。
+- en: 'Vert.x event-bus services are a form of *asynchronous RPC*:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vert.x事件总线服务是一种*异步RPC*形式：
+- en: A service encapsulates a set of operations, like `SensorDataService` in listing
+    6.2.
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务封装了一组操作，如列表6.2中的`SensorDataService`。
+- en: A service is described by a regular Java API with methods for exposed operations.
+  id: totrans-24
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务通过常规 Java API 描述，其中包含公开操作的方法。
+- en: Neither the requester nor the implementation need to directly deal with event-bus
+    messages.
+  id: totrans-25
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 请求者或实现者都不需要直接处理事件总线消息。
+- en: Figure 6.1 illustrates the various components at stake when invoking the `average`
+    method of the `SensorDataService` interface. The client code invokes the `average`
+    method on a service proxy. This is an object that implements the `SensorDataService`
+    interface and then sends a message on the event bus to the `sensor.data-service`
+    destination (this can be configured). The message body contains the method call
+    parameter values, so because `average` only takes a callback, the body is empty.
+    The message also has an `action` header that indicates which method is being called.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.1 展示了调用 `SensorDataService` 接口 `average` 方法时涉及的各个组件。客户端代码在服务代理上调用 `average`
+    方法。这是一个实现了 `SensorDataService` 接口的对象，然后向事件总线上的 `sensor.data-service` 目标（这可以配置）发送消息。消息正文包含方法调用参数值，因为
+    `average` 只接受回调，所以正文为空。消息还有一个 `action` 头，指示正在调用哪个方法。
+- en: '![](../Images/CH06_F01_Ponge.png)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH06_F01_Ponge.png)'
+- en: Figure 6.1 How service proxies work
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.1 服务代理的工作方式
+- en: A proxy handler listens to the `sensor.data-service` destination and dispatches
+    method calls based on the message’s action header and body. The actual `SensorDataService`
+    implementation is used here, and the `average` method is called. The proxy handler
+    then replies to the event-bus message with a value passed through the `average`
+    method callback. In turn, the client receives the reply through the service proxy,
+    which passes the reply to the callback from the call on the client side.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代理处理器监听 `sensor.data-service` 目标，并根据消息的动作头和正文分发方法调用。这里使用实际的 `SensorDataService`
+    实现并调用 `average` 方法。然后，代理处理器通过 `average` 方法回调传递的值回复事件总线消息。反过来，客户端通过服务代理接收回复，该代理将回复传递给客户端调用上的回调。
+- en: This model can simplify dealing with the event bus, especially when many operations
+    need to be exposed. It thus makes sense to define a Java interface as an API rather
+    than manually dealing with messages.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种模型可以简化处理事件总线，尤其是在需要公开许多操作时。因此，将 Java 接口定义为 API 而不是手动处理消息是有意义的。
+- en: 6.3 Defining a service interface
+  id: totrans-31
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.3 定义服务接口
+- en: Listing 6.2 has the interface that we want for `SensorDataService`, but there
+    is a little more code to add. To develop an event-bus service, you need to
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.2 包含了我们想要的 `SensorDataService` 接口，但还需要添加一些代码。为了开发事件总线服务，你需要
+- en: Write a Java interface that respects a few conventions
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编写一个遵守一些约定的 Java 接口
+- en: Write an implementation
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编写实现
+- en: Vert.x does not rely on magic through bytecode engineering or reflection at
+    runtime, so service proxies and handlers need to be written and compiled. Fortunately,
+    Vert.x comes with code generators, so you will generate both the service proxies
+    and handlers at compilation time rather than write them yourself.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vert.x 不依赖于运行时的字节码工程或反射进行魔法操作，因此需要编写和编译服务代理和处理器。幸运的是，Vert.x 提供了代码生成器，因此你将在编译时生成服务代理和处理器，而不是自己编写。
+- en: The complete `SensorDataService` interface is detailed in the following listing.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整的 `SensorDataService` 接口在以下列表中详细说明。
+- en: Listing 6.3 Sensor data service
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.3 传感器数据服务
+- en: '[PRE2]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ This annotation is used to generate an event-bus proxy.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 此注解用于生成事件总线代理。
+- en: ❷ Factory method for creating a service instance
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建服务实例的工厂方法
+- en: ❸ Factory method for creating a proxy
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建代理的工厂方法
+- en: ❹ Operation that takes a parameter and a callback
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 带参数和回调的操作
+- en: ❺ Operation that takes no parameter and a callback
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 不带参数和回调的操作
+- en: The `@ProxyGen` annotation is used to mark an event-bus service interface so
+    as to generate the proxy code.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `@ProxyGen` 注解标记事件总线服务接口，以便生成代理代码。
+- en: You will also need to define a `package-info.java` file and annotate the package
+    definition with `@ModuleGen` to enable the annotation processor, as shown in the
+    next listing.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还需要定义一个 `package-info.java` 文件，并使用 `@ModuleGen` 注解来标记包定义以启用注解处理器，如以下列表所示。
+- en: Listing 6.4 Package info file and enabling code generation
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.4 包信息文件和启用代码生成
+- en: '[PRE3]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Enable a module with code generation.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 启用具有代码生成的模块。
+- en: The methods in a service interface need to adhere to a few conventions, notably
+    that of having a callback as the last parameter. You will be tempted to use return
+    values rather than callbacks, but remember that we are dealing with asynchronous
+    operations, so we need callbacks! It is idiomatic for service interfaces to have
+    factory methods for both the service implementations (`create`) and proxies (`createProxy`).
+    These methods greatly simplify the code for either getting a proxy or publishing
+    a service.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务接口中的方法需要遵循一些约定，特别是最后一个参数必须是回调。你可能会倾向于使用返回值而不是回调，但请记住，我们正在处理异步操作，所以我们需要回调！对于服务接口来说，既有服务实现（`create`）又有代理（`createProxy`）的工厂方法是惯用的。这些方法大大简化了获取代理或发布服务的代码。
+- en: The `SensorDataServiceVertxEBProxy` class is generated by the Vert.x code generator,
+    and if you peek into it, you will see event-bus operations. There is also a `SensorDataServiceVertxProxyHandler`
+    class that’s generated, but only Vert.x will use it, not your code.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SensorDataServiceVertxEBProxy`类是由Vert.x代码生成器生成的，如果你查看它，你会看到事件总线操作。还有一个名为`SensorDataServiceVertxProxyHandler`的类也被生成，但只有Vert.x会使用它，而不是你的代码。'
+- en: Let’s now look at the actual service implementation in the `SensorDataServiceImpl`
+    class.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们现在看看`SensorDataServiceImpl`类中的实际服务实现。
+- en: 6.4 Service implementation
+  id: totrans-52
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.4 服务实现
+- en: The following service implementation is a direct adaptation of the code from
+    chapter 3.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下服务实现是第3章代码的直接改编。
+- en: Listing 6.5 Implementation of `SensorDataService`
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.5 `SensorDataService`的实现
+- en: '[PRE4]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ We pass the Vert.x context.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们传递Vert.x上下文。
+- en: ❷ To get notified of sensor updates, we still need to subscribe to the event
+    bus.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 要接收传感器更新的通知，我们仍然需要订阅事件总线。
+- en: ❸ Instead of passing messages for replies, we use asynchronous results.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 我们不传递回复的消息，而是使用异步结果。
+- en: Compared to the code of chapter 3, we have mostly replaced the event-bus code
+    with passing asynchronous results via completed future objects. This code is also
+    free from references to the service proxy handler code, which is being generated.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与第3章的代码相比，我们主要用通过完成的未来对象传递异步结果来替换了事件总线代码。这段代码也不包含对服务代理处理程序代码的引用，该代码正在生成中。
+- en: Tip The code in listing 6.5 is free of asynchronous operations. In more elaborated
+    services, you will quickly stumble upon cases where you issue asynchronous calls
+    to some other component like a database, an HTTP service, a message broker, or
+    even another service over the event bus. Once you have a response ready, you will
+    pass the result or an error to the method callback, just like we did in `SensorDataServiceImpl`.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示 列表6.5中的代码没有异步操作。在更复杂的服务中，你很快就会遇到向数据库、HTTP服务、消息代理或甚至通过事件总线到另一个服务的异步调用。一旦你有一个响应准备好，你将结果或错误传递给方法回调，就像我们在`SensorDataServiceImpl`中做的那样。
+- en: 6.5 Enabling proxy code generation
+  id: totrans-61
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.5 启用代理代码生成
+- en: 'Service proxy generation is done using `javac` and `apt` annotation processing
+    at compilation time. Two Vert.x modules are required: `vertx-service-proxy` and
+    `vertx-codegen`.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务代理生成是在编译时使用`javac`和`apt`注解处理完成的。需要两个Vert.x模块：`vertx-service-proxy`和`vertx-codegen`。
+- en: To make the Vert.x code generation work with annotation processing in Gradle,
+    you will need a configuration similar to the following.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使Vert.x代码生成与Gradle中的注解处理一起工作，你需要一个类似于以下配置的配置。
+- en: Listing 6.6 Gradle configuration for code generation
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.6 代码生成的Gradle配置
+- en: '[PRE5]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ This is the scope for annotation processing.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这是注解处理的范围。
+- en: ❷ This allows you to customize where the files are being generated.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 这允许你自定义文件生成的位置。
+- en: Now whenever the Java classes are being compiled, the proxy classes are generated.
+    You can see the files in the src/main/generated folder of your project.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在每当Java类被编译时，都会生成代理类。你可以在项目的src/main/generated文件夹中看到这些文件。
+- en: If you look into the code of `SensorDataServiceVertxProxyHandler`, you’ll see
+    a `switch` block in the `handle` method, where the `action` header is being used
+    to dispatch the method call to the service implementation methods. Similarly,
+    in the `average` method of `SensorDataServiceVertxEBProxy` you will see the code
+    that sends a message over the event bus to invoke that method. The code of both
+    `SensorDataServiceVertxProxyHandler` and `SensorDataServiceVertxEBProxy` is really
+    what you would write if you had to implement your own event-bus service system.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你查看 `SensorDataServiceVertxProxyHandler` 的代码，你会在 `handle` 方法中看到一个 `switch`
+    块，其中使用 `action` 报头将方法调用调度到服务实现方法。同样，在 `SensorDataServiceVertxEBProxy` 的 `average`
+    方法中，你会看到发送消息通过事件总线调用该方法的代码。`SensorDataServiceVertxProxyHandler` 和 `SensorDataServiceVertxEBProxy`
+    的代码实际上是你必须编写的，如果你必须实现自己的事件总线服务系统。
+- en: 6.6 Deploying event-bus services
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.6 部署事件总线服务
+- en: Event-bus services need to be deployed to verticles, and event-bus addresses
+    need to be defined. The following listing shows how to deploy a service.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件总线服务需要部署到 verticles，并且需要定义事件总线地址。以下列表显示了如何部署服务。
+- en: Listing 6.7 Deploying a service
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.7 部署服务
+- en: '[PRE6]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Binds a service to an address
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将服务绑定到地址
+- en: ❷ The event-bus address for the service
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 服务的事件总线地址
+- en: ❸ We expose a service implementation.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 我们公开了一个服务实现。
+- en: Deploying is as simple as binding to an address and passing a service implementation.
+    We can use the factory `create` methods from the `SensorDataService` interface
+    to do this.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署就像绑定到地址并传递服务实现一样简单。我们可以使用 `SensorDataService` 接口的 `create` 工厂方法来做这件事。
+- en: You can deploy multiple services on a verticle. It makes sense to deploy event-bus
+    services that are functionally related together, so a verticle remains a coherent
+    event-processing unit.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在一个 verticle 上部署多个服务。部署功能相关的事件总线服务是有意义的，这样 verticle 就是一个连贯的事件处理单元。
+- en: Obtaining a service proxy to issue method calls is done by calling the corresponding
+    factory method and passing the correct event-bus destination, as in the following
+    listing.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过调用相应的工厂方法并传递正确的事件总线目标，可以获取服务代理以发出方法调用，如下所示。
+- en: Listing 6.8 Obtaining a service proxy
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.8 获取服务代理
+- en: '[PRE7]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: The service interface follows the callbacks model, as this is the canonical
+    definition for (asynchronous) service interfaces.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务接口遵循回调模型，因为这是对（异步）服务接口的规范定义。
+- en: 6.7 Service proxies beyond callbacks
+  id: totrans-83
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.7 超越回调的服务代理
+- en: We explored asynchronous programming models other than callbacks in the previous
+    chapter, but we designed event-bus services with callbacks. The good news is that
+    you can leverage code generation to get, say, RxJava or Kotlin coroutine variants
+    for your service proxies. Even better, you do not need much extra work!
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们探讨了除了回调之外的其他异步编程模型，但我们设计了具有回调的事件总线服务。好消息是，你可以利用代码生成来获取，比如说，RxJava 或
+    Kotlin 协程版本的服务代理。甚至更好的是，你不需要做很多额外的工作！
+- en: To make this work, you need to add the `@VertxGen` annotation to your service
+    interface, as follows.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使这生效，你需要将 `@VertxGen` 注解添加到你的服务接口中，如下所示。
+- en: Listing 6.9 Adding `@VertxGen` to a service interface
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.9 将 `@VertxGen` 添加到服务接口
+- en: '[PRE8]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ To generate service proxies
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 生成服务代理
+- en: ❷ To allow code generation
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 允许代码生成
+- en: When this annotation is present, code generation by a Vert.x Java annotation
+    processor is enabled with all suitable code generators available at build time.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当这个注解存在时，Vert.x Java 注解处理器将启用代码生成，所有合适的代码生成器在构建时都可用。
+- en: To generate RxJava bindings, we need to add the dependencies in the following
+    listing.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要生成 RxJava 绑定，我们需要添加以下列表中的依赖项。
+- en: Listing 6.10 Dependencies for RxJava code generation
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.10 RxJava 代码生成的依赖项
+- en: '[PRE9]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Vert.x RxJava 2 module
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ Vert.x RxJava 2 模块
+- en: ❷ RxJava 2 Vert.x code generator
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ RxJava 2 Vert.x 代码生成器
+- en: When we compile the project, a `chapter6.reactivex.SensorDataService` class
+    is generated. This is a small shim that bridges the original callbacks API to
+    RxJava. The class has all the methods from the original `SensorDataService` API
+    (including `create` factory methods), plus `rx`-prefixed methods.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们编译项目时，会生成一个 `chapter6.reactivex.SensorDataService` 类。这是一个小的适配器，它将原始的回调API桥接到RxJava。该类包含来自原始
+    `SensorDataService` API 的所有方法（包括 `create` 工厂方法），以及以 `rx` 前缀的方法。
+- en: Given the `average` method that takes a callback, the RxJava code generator
+    creates an `rxAverage` method with no parameter that returns a `Single` object.
+    Similarly, `valueFor` gets translated to `rxValueFor`, a method that takes a `String`
+    argument (the sensor identifier) and returns a `Single` object.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定接受回调的`average`方法，RxJava代码生成器创建了一个没有参数的`rxAverage`方法，它返回一个`Single`对象。同样，`valueFor`被翻译为`rxValueFor`，这是一个接受`String`参数（传感器标识符）并返回`Single`对象的方法。
+- en: The next listing shows a sample use of the generated RxJava API.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了生成RxJava API的示例用法。
+- en: Listing 6.11 Using the RxJava variant of `SensorDataService`
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.11 使用`SensorDataService`的RxJava变体
+- en: '[PRE10]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ An instance of chapter6.reactivex.SensorDataService
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ chapter6.reactivex.SensorDataService的一个实例
+- en: ❷ rxAverage() gives a Single<JsonObject>.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ `rxAverage()` 返回一个 `Single<JsonObject>`。
+- en: The RxJava pipeline created here makes a new subscription every three seconds
+    and extracts the average into a string that is then displayed on the standard
+    output.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里创建的RxJava管道每三秒创建一个新的订阅，并将平均值提取为字符串，然后显示在标准输出上。
+- en: Note You must always develop your event-bus services with the callbacks API
+    for the interface and implementation. Code generators then turn it into other
+    models.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：你必须始终使用回调API为接口和实现开发事件总线服务。然后代码生成器将其转换为其他模型。
+- en: Now that you know how to develop event-bus services, let’s switch to the topic
+    of testing verticles and services.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经知道了如何开发事件总线服务，让我们转向测试verticle和服务的主题。
+- en: 6.8 Testing and Vert.x
+  id: totrans-106
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.8 测试与Vert.x
+- en: 'Automated testing is critical in designing software, and Vert.x applications
+    also need to be tested. The main difficulty when testing Vert.x code is the asynchronous
+    nature of operations. Other than that, tests are classical: they have a setup
+    phase and a test execution and verification phase, followed by a tear-down phase.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动化测试在设计软件时至关重要，Vert.x应用程序也需要进行测试。在测试Vert.x代码时，主要困难在于操作的异步性。除此之外，测试是经典的：它们有一个设置阶段和一个测试执行及验证阶段，随后是清理阶段。
+- en: 'A verticle is relatively well isolated from the rest of the system, thanks
+    to the event bus. This is very useful in a test environment:'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于事件总线，verticle与其他系统部分相对隔离，这在测试环境中非常有用：
+- en: The event bus allows you to send events to a verticle to put it in a desired
+    state and to observe what events it produces.
+  id: totrans-109
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件总线允许你向verticle发送事件，使其处于所需状态，并观察它产生的事件。
+- en: The configuration passed to a verticle when it is deployed allows you to tune
+    some parameters for a test-centric environment (e.g., using an in-memory database).
+  id: totrans-110
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当verticle部署时传递给它的配置允许你为以测试为中心的环境调整一些参数（例如，使用内存数据库）。
+- en: It is possible to deploy *mock* verticles with controlled behaviors to substitute
+    for verticles with lots of dependencies (e.g., databases, connecting to other
+    verticles, etc.).
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以部署具有可控行为的*mock* verticle来替代具有许多依赖关系的verticle（例如，数据库、连接到其他verticle等）。
+- en: As such, testing verticles is more *integration testing* than *unit testing*,
+    regardless of whether the verticles under test are being deployed within the same
+    JVM or in cluster mode. We need to see verticles as opaque boxes that we communicate
+    with via the event bus, and possibly by connecting to network protocols that verticles
+    expose. For instance, when a verticle exposes an HTTP service, we are likely going
+    to issue HTTP requests in tests to check its behavior.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，无论测试的verticle是在同一JVM内部署还是在集群模式下，测试verticle更多的是*集成测试*而不是*单元测试*。我们需要将verticle视为不透明的盒子，通过事件总线与之通信，并可能通过连接到verticle公开的网络协议。例如，当一个verticle公开HTTP服务时，我们可能会在测试中发出HTTP请求来检查其行为。
+- en: In this book, we will only focus on the Vert.x-specific aspects of testing.
+    If you lack experience with the broader topic of testing, I recommend reading
+    a book like *Effective Unit Testing* by Lasse Koskela (Manning, 2013).
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这本书中，我们将只关注测试的Vert.x特定方面。如果你在更广泛的测试主题方面缺乏经验，我建议阅读Lasse Koskela（Manning，2013年）所著的《Effective
+    Unit Testing》一书。
+- en: 6.8.1 Using JUnit 5 with Vert.x
+  id: totrans-114
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.8.1 使用JUnit 5与Vert.x结合
+- en: Vert.x supports both the classic JUnit 4 test framework as well as the more
+    recent one for JUnit 5\. Vert.x provides a module called `vertx-junit5` with support
+    for version 5 of the JUnit framework ([https://junit.org/junit5/](https://junit.org/junit5/)).
+    To use it in a Vert.x project, you need to add the `io.vertx:vertx-junit5` dependency,
+    and possibly some JUnit 5 libraries.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Vert.x 支持经典的 JUnit 4 测试框架以及更近期的 JUnit 5。Vert.x 提供了一个名为 `vertx-junit5` 的模块，支持
+    JUnit 框架的 5 版本（[https://junit.org/junit5/](https://junit.org/junit5/)）。要在 Vert.x
+    项目中使用它，你需要添加 `io.vertx:vertx-junit5` 依赖项，以及可能的一些 JUnit 5 库。
+- en: In a Gradle project, the `dependencies` section needs to be updated as in the
+    following listing.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Gradle 项目中，需要更新 `dependencies` 部分，如下所示。
+- en: Listing 6.12 Using JUnit 5 with Vert.x for a Gradle build
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.12 使用 JUnit 5 和 Vert.x 进行 Gradle 构建
+- en: '[PRE11]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ The JUnit 5 APIs replace $junit5Version with a current JUnit 5 version.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ JUnit 5 API 将 $junit5Version 替换为当前的 JUnit 5 版本。
+- en: ❷ The Vert.x JUnit 5 support library
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ Vert.x JUnit 5 支持库
+- en: ❸ This is used by Gradle for running tests.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 这被 Gradle 用于运行测试。
+- en: ❹ This enables JUnit 5 support in Gradle.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 这使得 JUnit 5 在 Gradle 中得到支持。
+- en: The `vertx-junit5` library already has a dependency on `junit-jupiter-api`,
+    but it is a good practice to fix the version in the build. The `junit-jupiter-engine`
+    module needs to be present in the `testRuntime` scope for Gradle. Finally, JUnit
+    5 can be used with any assertion API, including its built-in one, and *AssertJ*
+    is a popular one.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`vertx-junit5` 库已经依赖了 `junit-jupiter-api`，但在构建中固定版本是一个好的实践。`junit-jupiter-engine`
+    模块需要在 Gradle 的 `testRuntime` 范围内。最后，JUnit 5 可以与任何断言 API 一起使用，包括其内置的 API，*AssertJ*
+    是其中之一。'
+- en: 6.8.2 Testing DataVerticle
+  id: totrans-124
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.8.2 测试 DataVerticle
+- en: 'We need two test cases to check the behavior of `DataVerticle`, and by extension
+    that of `SensorDataService`:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要两个测试用例来检查 `DataVerticle` 的行为，以及由此扩展的 `SensorDataService` 的行为：
+- en: When no sensor is present, the average should be 0, and requesting a value for
+    any sensor identifier must raise an error.
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当没有传感器时，平均值应该是 0，并且请求任何传感器标识符的值必须引发错误。
+- en: When there are sensors, we need to check the average value and individual sensor
+    values.
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当有传感器时，我们需要检查平均值和单个传感器的值。
+- en: Figure 6.2 shows the interactions for the test environment. The test case has
+    a proxy reference to make calls to `SensorDataService`. The actual `DataVerticle`
+    verticle is deployed at the `sensor.data-service` destination. It can issue `valueFor`
+    and `average` method calls from tests. Since `DataVerticle` receives messages
+    from sensors on the event bus, we can send arbitrary messages rather than deploying
+    actual `HeatSensor` verticles over which we have no control. Mocking a verticle
+    is often as simple as sending the type of messages it would send.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.2 显示了测试环境的交互。测试用例有一个代理引用来调用 `SensorDataService`。实际的 `DataVerticle` verticle
+    在 `sensor.data-service` 目的地部署。它可以从测试中发出 `valueFor` 和 `average` 方法调用。由于 `DataVerticle`
+    在事件总线接收来自传感器的消息，我们可以发送任意消息，而不是部署我们无法控制的实际 `HeatSensor` verticle。模拟 verticle 通常就像发送它可能会发送的消息类型一样简单。
+- en: '![](../Images/CH06_F02_Ponge.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH06_F02_Ponge.png)'
+- en: Figure 6.2 Isolating `SensorDataService`
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.2 隔离 `SensorDataService`
+- en: The following listing shows the test class preamble.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表显示了测试类的前言。
+- en: Listing 6.13 Preamble of `SensorDataServiceTest`
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.13 `SensorDataServiceTest` 的前言
+- en: '[PRE12]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ JUnit 5 extension for Vert.x
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ Vert.x 的 JUnit 5 扩展
+- en: ❷ Our service proxy reference
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 我们的代理引用
+- en: ❸ Setup method, executed before each test
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 设置方法，在每个测试之前执行
+- en: ❹ We deploy the verticle that internally exposes a service, and we expect a
+    successful deployment (succeeding).
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 我们部署了一个内部公开服务的 verticle，并期望部署成功（成功）。
+- en: ❺ We get a proxy reference.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 我们获得一个代理引用。
+- en: ❻ We notify that the setup has completed.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 我们通知设置已完成。
+- en: 'JUnit 5 supports extensions to give additional functionality. In particular,
+    extensions can inject parameters into test methods, and they can intercept life-cycle
+    events such as before and after a test method is called. The `VertxExtension`
+    class simplifies writing test cases by doing the following:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: JUnit 5 支持扩展以提供额外的功能。特别是，扩展可以将参数注入测试方法中，并且它们可以拦截生命周期事件，如测试方法调用之前和之后。`VertxExtension`
+    类通过以下方式简化了测试用例的编写：
+- en: Injecting ready-to-use instances of `Vertx` with default configuration
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 注入带有默认配置的 `Vertx` 的可使用实例
+- en: Injecting a `VertxTestContext` object to deal with the asynchronous nature of
+    Vert.x code
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 注入 `VertxTestContext` 对象以处理 Vert.x 代码的异步特性
+- en: Ensuring awaiting for the `VertxTestContext` to either succeed or fail
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保等待 `VertxTestContext` 成功或失败
+- en: The `prepare` method is executed before each test case, to prepare the test
+    environment. We use it here to deploy the `DataVerticle` verticle and then fetch
+    the service proxy and store it in the `dataService` field. Since deploying a verticle
+    is an asynchronous operation, the `prepare` method is injected with a `Vertx`
+    context and a `VertxTestContext` object to notify when it has completed.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`prepare`方法在每次测试用例之前执行，以准备测试环境。我们在这里用它来部署`DataVerticle`垂直组件，然后获取服务代理并将其存储在`dataService`字段中。由于部署垂直组件是一个异步操作，`prepare`方法注入了一个`Vertx`上下文和一个`VertxTestContext`对象来通知其完成。为了避免测试永远等待，有一个超时（默认为30秒）。'
+- en: Tip Users of JUnit before version 5 may be surprised that the class and test
+    methods are package-private; this is idiomatic with JUnit 5.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示JUnit 5之前版本的用户可能会对类和测试方法是包私有感到惊讶；这与JUnit 5的惯例相符。
+- en: You can see the first test case, when no sensors are deployed, in the following
+    listing.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在以下列表中看到当没有部署传感器时的第一个测试用例。
+- en: Listing 6.14 Test case without sensors
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.14 无传感器的测试用例
+- en: '[PRE13]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ VertxTestContext allows you to deal with asynchronous operations in tests
+    to report success and failures.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ VertxTestContext允许你在测试中处理异步操作，以报告成功和失败。
+- en: ❷ A checkpoint is mainly used to ensure that an asynchronous operation passed
+    at a certain line.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 检查点主要用于确保异步操作在特定行通过。
+- en: ❸ failing is a helper for Handler<AsyncResult>, and verify wraps assertions.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 失败是Handler<AsyncResult>的帮助者，verify封装了断言。
+- en: This test case assumes that no sensor has been deployed, so trying to get any
+    sensor value must fail. We check this behavior by looking for the temperature
+    value of sensor `abc`, which doesn’t exist. We then check that the average value
+    is 0.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个测试用例假设没有部署任何传感器，因此尝试获取任何传感器值都必须失败。我们通过查找不存在于传感器`abc`的温度值来检查这种行为。然后我们检查平均值是否为0。
+- en: Checkpoints are flagged to mark that the test execution reached certain lines.
+    When all declared checkpoints have been flagged, the test completes successfully.
+    The test fails when an assertion fails, when an unexpected exception is thrown,
+    or when a (configurable) delay elapses and not all checkpoints have been flagged.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点被标记以标记测试执行达到了某些行。当所有声明的检查点都已标记时，测试成功完成。当断言失败、抛出意外异常或（可配置的）延迟过期且未标记所有检查点时，测试失败。
+- en: Why asynchronous testing is different
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么异步测试是不同的
+- en: Testing asynchronous operations is slightly different from the regular testing
+    you may be familiar with. The default contract in test executions is that a test
+    runner thread calls test methods, and they fail when exceptions are thrown. Assertion
+    methods throw exceptions to report errors.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 测试异步操作与你可能熟悉的常规测试略有不同。测试执行中的默认契约是测试运行器线程调用测试方法，当抛出异常时它们会失败。断言方法抛出异常来报告错误。
+- en: Since operations like `deployVerticle` and `send` are asynchronous, the test
+    runner thread exits the method before they have any chance to complete. The `VertxExtension`
+    class takes care of that by waiting for `VertxTestContext` to report either a
+    success or a failure. To avoid having tests wait forever, there is a timeout (30
+    seconds by default).
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于`deployVerticle`和`send`等操作是异步的，测试运行器线程在它们有机会完成之前就退出了方法。`VertxExtension`类通过等待`VertxTestContext`报告成功或失败来处理这个问题。为了避免测试永远等待，有一个超时（默认为30秒）。
+- en: Finally, we have a test case for when there are sensors.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们有一个当有传感器时的测试用例。
+- en: Listing 6.15 Test case with sensors
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.15 有传感器的测试用例
+- en: '[PRE14]'
+  id: totrans-159
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ Messages to mock sensors
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 模拟传感器的消息
+- en: ❷ We send the messages.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 我们发送消息。
+- en: ❸ AssertJ has assertions for floating-point values with error margins.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ AssertJ为具有误差范围的浮点值提供了断言。
+- en: This test simulates two sensors with identifiers `abc` and `def` by sending
+    *fake* sensor data updates over the event bus, just like a sensor would do. We
+    then have determinism in our assertions, and we can check the behavior for both
+    `valueFor` and `average` methods.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个测试通过在事件总线发送*伪造*的传感器数据更新来模拟具有标识符`abc`和`def`的两个传感器，就像传感器会做的那样。然后我们在断言中有了确定性，可以检查`valueFor`和`average`方法的行为。
+- en: 6.8.3 Running the tests
+  id: totrans-164
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.8.3 运行测试
+- en: 'The tests can be run from your IDE. You can also run them using Gradle: `gradlew
+    test`.'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以从你的IDE运行测试。你也可以使用Gradle运行它们：`gradlew test`。
+- en: Gradle generates a human-readable test report in build/reports/tests/test/ index.html.
+    When you open the file in a web browser, you can check that all tests passed,
+    as shown in figure 6.3.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Gradle在build/reports/tests/test/index.html生成一个可读的测试报告。当你用网页浏览器打开文件时，你可以检查所有测试是否通过，如图6.3所示。
+- en: '![](../Images/CH06_F03_Ponge.png)'
+  id: totrans-167
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH06_F03_Ponge.png)'
+- en: Figure 6.3 Test report
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.3 测试报告
+- en: Note that the Gradle `test` task is a dependency of `build`, so the tests are
+    always executed when the project is fully built.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，Gradle的`test`任务是`build`任务的依赖，因此当项目完全构建时，测试总是会被执行。
+- en: Summary
+  id: totrans-170
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Event-bus services and proxies abstract from event-bus communications by providing
+    an asynchronous service interface.
+  id: totrans-171
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件总线服务和代理通过提供异步服务接口来抽象事件总线通信。
+- en: 'It is possible to generate bindings other than callbacks for event-bus services:
+    RxJava, Kotlin coroutines, etc.'
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于事件总线服务，除了回调之外，还可以生成其他类型的绑定：RxJava、Kotlin协程等。
+- en: Testing asynchronous code and services is more challenging than in the traditional
+    imperative cases, and Vert.x comes with dedicated support for JUnit 5.
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 测试异步代码和服务比传统的命令式情况更具挑战性，Vert.x为JUnit 5提供了专门的支持。
+- en: '* * *'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '* * *'
+- en: 1.Bruce Jay Nelson, “Remote Procedure Call,” PhD dissertation, Carnegie Mellon
+    Univ., Pittsburgh, PA, USA. AAI8204168.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 1. 布鲁斯·杰伊·尼尔森，“远程过程调用”，博士论文，卡内基梅隆大学，宾夕法尼亚州匹兹堡，美国。AAI8204168。

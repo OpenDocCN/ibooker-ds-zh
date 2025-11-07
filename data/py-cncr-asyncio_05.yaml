@@ -1,0 +1,1405 @@
+- en: 5 Non-blocking database drivers
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 5 非阻塞数据库驱动程序
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Running asyncio friendly database queries with asyncpg
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 asyncpg 运行与 asyncio 兼容的数据库查询
+- en: Creating database connection pools running multiple SQL queries concurrently
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建数据库连接池以并发运行多个 SQL 查询
+- en: Managing asynchronous database transactions
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管理异步数据库事务
+- en: Using asynchronous generators to stream query results
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用异步生成器来流式传输查询结果
+- en: Chapter 4 explored making non-blocking web requests with the aiohttp library,
+    and it also addressed using several different asyncio API methods for running
+    these requests concurrently. With the combination of the asyncio APIs and the
+    aiohttp library, we can run multiple long-running web requests concurrently, leading
+    to an improvement in our application’s runtime. The concepts we learned in chapter
+    4 do not apply only to web requests; they also apply to running SQL queries and
+    can improve the performance of database-intensive applications.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第 4 章探讨了使用 aiohttp 库进行非阻塞网络请求，并讨论了使用多个不同的 asyncio API 方法来并发运行这些请求。结合 asyncio
+    API 和 aiohttp 库，我们可以并发运行多个长时间运行的网络请求，从而提高我们应用程序的运行时间。我们在第 4 章中学到的概念不仅适用于网络请求，也适用于运行
+    SQL 查询，并且可以提高数据库密集型应用程序的性能。
+- en: Much like web requests, we’ll need to use an asyncio-friendly library since
+    typical SQL libraries block the main thread, and therefore the event loop, until
+    a result is retrieved. In this chapter, we’ll learn more about asynchronous database
+    access with the asyncpg library. We’ll first create a simple schema to keep track
+    of products for an e-commerce storefront that we’ll then use to run queries against
+    asynchronously. We’ll then look at how to manage transactions and rollbacks within
+    our database, as well as setting up connection pooling.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与网络请求类似，我们需要使用一个与 asyncio 兼容的库，因为典型的 SQL 库会在检索到结果之前阻塞主线程，从而阻塞事件循环。在本章中，我们将学习如何使用
+    asyncpg 库进行异步数据库访问。我们首先创建一个简单的模式来跟踪电子商务店面中的产品，然后我们将使用它来异步地运行查询。然后，我们将探讨如何在数据库中管理事务和回滚，以及设置连接池。
+- en: 5.1 Introducing asyncpg
+  id: totrans-8
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.1 介绍 asyncpg
+- en: As we’ve mentioned earlier, our existing blocking libraries won’t work seamlessly
+    with coroutines. To run queries concurrently against a database, we’ll need to
+    use an asyncio-friendly library that uses non-blocking sockets. To do this, we’ll
+    use a library called *asyncpg*, which will let us asynchronously connect to Postgres
+    databases and run queries against them.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前提到的，我们现有的阻塞库不能与协程无缝工作。为了并发地对数据库运行查询，我们需要使用一个使用非阻塞套接字的与 asyncio 兼容的库。为此，我们将使用一个名为
+    *asyncpg* 的库，它将允许我们异步地连接到 Postgres 数据库并对它们运行查询。
+- en: In this chapter we’ll focus on Postgres databases, but what we learn here will
+    also be applicable to MySQL and other databases as well. The creators of aiohttp
+    have also created the *aiomysql* library, which can connect and run queries against
+    a MySQL database. While there are some differences, the APIs are similar, and
+    the knowledge is transferable. It is worth noting that the asyncpg library did
+    not implement the Python database API specification defined in PEP-249 (available
+    at [https://www.python.org/ dev/peps/pep-0249](https://www.python.org/dev/peps/pep-0249)).
+    This was a conscious choice on the part of the library implementors, since a concurrent
+    implementation is inherently different from a synchronous one. The creators of
+    aiomysql, however, took a different route and do implement PEP-249, so this library’s
+    API will feel familiar to those who have used synchronous database drivers in
+    Python.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将专注于 Postgres 数据库，但我们在这里学到的知识也适用于 MySQL 和其他数据库。aiohttp 的创建者也创建了 *aiomysql*
+    库，该库可以连接并针对 MySQL 数据库运行查询。虽然有一些差异，但 API 非常相似，知识可以迁移。值得注意的是，asyncpg 库没有实现 PEP-249
+    中定义的 Python 数据库 API 规范（可在 [https://www.python.org/dev/peps/pep-0249](https://www.python.org/dev/peps/pep-0249)
+    查找）。这是库实现者做出的一个有意识的选择，因为并发实现与同步实现本质上是不同的。然而，aiomysql 的创建者采取了不同的路线，并实现了 PEP-249，因此这个库的
+    API 对于那些使用过 Python 同步数据库驱动程序的人来说会感觉熟悉。
+- en: The current documentation for asynpg is available at [https://magicstack.github
+    .io/asyncpg/current/](https://magicstack.github.io/asyncpg/current/). Now that
+    we’ve learned a little about the driver we’ll be using, let’s connect to our first
+    database.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当前 asynpg 的文档可在 [https://magicstack.github.io/asyncpg/current/](https://magicstack.github.io/asyncpg/current/)
+    查找。既然我们已经对将要使用的驱动程序有了一些了解，让我们连接到我们的第一个数据库。
+- en: 5.2 Connecting to a Postgres database
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.2 连接到 Postgres 数据库
+- en: To get started with asyncpg, we’ll use a real-world scenario of creating a product
+    database for an e-commerce storefront. We’ll use this example database throughout
+    the chapter to demonstrate database problems in this domain that we might need
+    to solve.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始使用 asyncpg，我们将使用创建电子商务店面产品数据库的真实场景。我们将在这个章节中使用这个示例数据库来演示我们可能需要解决的该领域数据库问题。
+- en: The first thing for getting started creating our product database and running
+    queries is establishing a database connection. For this section and the rest of
+    the chapter, we’ll assume that you have a Postgres database running on your local
+    machine on the default port of 5432, and we’ll assume the default user `postgres`
+    has a password of `'password'`.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开始创建我们的产品数据库并运行查询的第一步是建立数据库连接。在本节和本章的其余部分，我们假设您在本地机器上以默认端口 5432 运行了一个 Postgres
+    数据库，并且我们假设默认用户 `postgres` 的密码是 `'password'`。
+- en: Warning We’ll be hardcoding the password in these code examples for transparency
+    and learning purposes; but note you should *never* hardcode a password in your
+    code as this violates security principles. Always store passwords in environment
+    variables or some other configuration mechanism.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告 我们将在这些代码示例中硬编码密码以实现透明度和学习目的；但请注意，您绝对不应该在代码中硬编码密码，因为这违反了安全原则。始终将密码存储在环境变量或某种其他配置机制中。
+- en: You can download and install a copy of Postgres from [https://www.postgresql.org/download/](https://www.postgresql.org/download/);
+    just choose the appropriate operating system you’re working on. You may also consider
+    using the Docker Postgres image; more information can be found at [https://hub.docker.com/_/postgres/](https://hub.docker.com/_/postgres/).
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以从 [https://www.postgresql.org/download/](https://www.postgresql.org/download/)
+    下载并安装 Postgres 的一个副本；只需选择您正在工作的适当操作系统即可。您还可以考虑使用 Docker Postgres 镜像；更多信息可以在 [https://hub.docker.com/_/postgres/](https://hub.docker.com/_/postgres/)
+    找到。
+- en: 'Once we have our database set up, we’ll install the asyncpg library. We’ll
+    use `pip3` to do this, and we’ll install the latest version at the time of writing,
+    `0.0.23`:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们设置了数据库，我们将安装 asyncpg 库。我们将使用 `pip3` 来完成这个任务，并且我们将安装写作时的最新版本，`0.0.23`：
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Once installed, we can now import the library and establish a connection to
+    our database. asyncpg provides this with the `asyncpg.connect` function. Let’s
+    use this to connect and print out the database version number.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装完成后，我们现在可以导入库并建立与数据库的连接。asyncpg 通过 `asyncpg.connect` 函数提供这个功能。让我们使用这个功能来连接并打印数据库版本号。
+- en: Listing 5.1 Connecting to a Postgres database as the default user
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.1 以默认用户连接到 Postgres 数据库
+- en: '[PRE1]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: In the preceding listing, we create a connection to our Postres instance as
+    the default `postgres` user and the default `postgres` database. Assuming our
+    Postgres instance is up and running, we should see something like `"Connected!`
+    `Postgres` `version` `is` `ServerVersion(major=12,` `minor=0,` `micro=3,` `releaselevel='final'`
+    `serial=0)"` displayed on our console, indicating we’ve successfully connected
+    to our database. Finally, we close the connection to the database with `await`
+    `connection.close()`.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们以默认的 `postgres` 用户和默认的 `postgres` 数据库创建了一个连接到我们的 Postres 实例。假设我们的
+    Postgres 实例正在运行，我们应该在我们的控制台上看到类似 `"Connected!` `Postgres` `version` `is` `ServerVersion(major=12,`
+    `minor=0,` `micro=3,` `releaselevel='final'` `serial=0)"` 的输出，这表明我们已经成功连接到我们的数据库。最后，我们使用
+    `await` `connection.close()` 关闭数据库连接。
+- en: Now we’ve connected, but nothing is currently stored in our database. The next
+    step is to create a product schema that we can interact with. In creating this
+    schema, we’ll learn how to execute basic queries with asyncpg.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经连接上了，但我们的数据库中目前还没有存储任何内容。下一步是创建一个我们可以与之交互的产品模式。在创建此模式时，我们将学习如何使用 asyncpg
+    执行基本查询。
+- en: 5.3 Defining a database schema
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.3 定义数据库模式
+- en: To begin running queries against our database, we’ll need to create a database
+    schema. We’re going to select a simple schema that we’ll call `products`, modeling
+    real-world products that an online storefront might have in stock. Let’s define
+    a few different entities that we can then turn into tables in our database.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始对数据库运行查询，我们需要创建一个数据库模式。我们将选择一个简单的模式，我们将其称为 `products`，模拟在线店面可能拥有的真实产品。让我们定义几个不同的实体，然后我们可以将它们转换为数据库中的表。
+- en: Brand
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 品牌
+- en: A *brand* is a manufacturer of many distinct products. For instance, Ford is
+    a brand that produces many different models of cars (e.g., Ford F150, Ford Fiesta,
+    etc.).
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 *品牌* 是许多不同产品的制造商。例如，福特是一个生产许多不同车型（例如，福特 F150、福特 Fiesta 等）的品牌。
+- en: Product
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 产品
+- en: A *product* is associated with one brand and there is a one-to-many relationship
+    between brands and products. For simplicity, in our product database, a product
+    will just have a product name. In the Ford example, a product is a compact car
+    called the *Fiesta*; the brand is *Ford*. In addition, each product in our database
+    will come in multiple sizes and colors. We’ll define the available sizes and colors
+    as SKUs.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 *产品* 与一个品牌相关联，品牌和产品之间存在一对一和多对一的关系。为了简化，在我们的产品数据库中，一个产品将只有一个产品名称。在福特示例中，一个产品是名为
+    *Fiesta* 的小型汽车；品牌是 *Ford*。此外，我们数据库中的每个产品将提供多种尺寸和颜色。我们将可用的尺寸和颜色定义为 SKU。
+- en: SKU
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SKU
+- en: '*SKU* stands for *stock keeping unit*. A SKU represents a distinct item that
+    a storefront has for sale. For instance, *jeans* may be a product for sale and
+    a SKU might be *Jeans, size: medium, color: blue;* or *jeans, size: small, color:
+    black*. There is a one-to-many relationship between a product and a SKU.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*SKU* 代表 *库存单位*。SKU 代表店面有售的独立项目。例如，*牛仔裤*可能是一个产品，SKU 可能是 *Jeans, size: medium,
+    color: blue;* 或 *jeans, size: small, color: black*。产品与 SKU 之间存在一对一和多对一的关系。'
+- en: Product size
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 产品尺寸
+- en: 'A product can come in multiple sizes. For this example, we’ll consider that
+    there are only three sizes available: small, medium, and large. Each SKU has one
+    product size associated with it, so there is a one-to-many relationship between
+    product sizes and SKUs.'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个产品可以有多种尺寸。在这个例子中，我们将考虑只有三种尺寸可供选择：小号、中号和大号。每个 SKU 都有一个与之关联的产品尺寸，因此产品尺寸和 SKU
+    之间存在一对一和多对一的关系。
+- en: Product color
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 产品颜色
+- en: 'A product can come in multiple colors. For this example, we’ll say our inventory
+    consists of only two colors: black and blue. There is a one-to-many relationship
+    between product color and SKUs.'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个产品可以有多种颜色。在这个例子中，我们将说我们的库存只有两种颜色：黑色和蓝色。产品颜色和 SKU 之间存在一对一和多对一的关系。
+- en: '![05-01](Images/05-01.png)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-01](Images/05-01.png)'
+- en: Figure 5.1 The entity diagram for the products database
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.1 产品数据库的实体图
+- en: Putting this all together, we’ll be modeling a database schema, as shown in
+    figure 5.1.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将所有这些放在一起，我们将模拟一个数据库模式，如图 5.1 所示。
+- en: Now, let’s define some variables with the SQL we’ll need to create this schema.
+    Using asyncpg, we’ll execute these statements to create our product database.
+    Since our sizes and colors are known ahead of time, we’ll also insert a few records
+    into the `product_size` and `product_color` tables. We’ll reference these variables
+    in the upcoming code listings, so we don’t need to repeat lengthy SQL create statements.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们使用 SQL 定义一些变量来创建此模式。使用 asyncpg，我们将执行这些语句来创建我们的产品数据库。由于我们的尺寸和颜色是提前知道的，我们还将插入一些记录到
+    `product_size` 和 `product_color` 表中。我们将在接下来的代码列表中引用这些变量，因此我们不需要重复冗长的 SQL 创建语句。
+- en: Listing 5.2 Product schema table create statements
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.2 产品模式表创建语句
+- en: '[PRE2]'
+  id: totrans-41
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Now that we have the statements to create our tables and insert our sizes and
+    colors, we need a way to run queries against them.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了创建我们的表和插入我们的尺寸和颜色的语句，我们需要一种方法来对这些语句进行查询。
+- en: 5.4 Executing queries with asyncpg
+  id: totrans-43
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.4 使用 asyncpg 执行查询
+- en: 'To run queries against our database, we’ll first need to connect to our Postgres
+    instance and create the database directly outside of Python. We can create the
+    database by executing the following statement once connected to the database as
+    the default Postgres user:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要对我们的数据库运行查询，我们首先需要连接到我们的 Postgres 实例并在 Python 之外直接创建数据库。我们可以通过以下语句创建数据库，一旦连接到数据库作为默认的
+    Postgres 用户：
+- en: '[PRE3]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: You can execute this via the command line by running `sudo` `-u` `postgres`
+    `psql` `-c` `"CREATE` `TABLE` `products;"`. In the next examples, we’ll assume
+    you have executed this statement, as we’ll connect to the products database directly.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过在命令行中运行 `sudo` `-u` `postgres` `psql` `-c` `"CREATE` `TABLE` `products;"`
+    来执行此操作。在接下来的示例中，我们假设您已经执行了此语句，因为我们将会直接连接到产品数据库。
+- en: Now that we’ve created our products database, we’ll connect to it and execute
+    our `create` statements. The connection class has a coroutine called `execute`
+    that we can use to run our create statements one by one. This coroutine returns
+    a string representing the status of the query that Postgres returned. Let’s take
+    the statements we created in the last section and execute them.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经创建了我们的产品数据库，我们将连接到它并执行我们的 `create` 语句。连接类有一个名为 `execute` 的协程，我们可以用它逐个运行我们的创建语句。这个协程返回一个字符串，表示
+    Postgres 返回的查询状态。让我们执行上一节中创建的语句。
+- en: Listing 5.3 Using an execute coroutine to run create statements
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.3 使用 execute 协程运行创建语句
+- en: '[PRE4]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: We first create a connection to our products database similarly to what we did
+    in our first example, the difference being that here we connect to the products
+    database. Once we have this connection, we then start to execute our `CREATE`
+    `TABLE` statements one at a time with `connection.execute()`. Note that `execute()`
+    is a coroutine, so to run our SQL we need to `await` the call. Assuming everything
+    worked properly, the status of each `execute` statement should be `CREATE` `TABLE`,
+    and each `insert` statement should be `INSERT` `0` `1`. Finally, we close the
+    connection to the product database. Note that in this example we await each SQL
+    statement in a `for` loop, which ensures that we run the `INSERT` statements synchronously.
+    Since some tables depend on others, we can’t run them concurrently.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先以与我们的第一个例子类似的方式创建到产品数据库的连接，不同之处在于这里我们连接到产品数据库。一旦我们有了这个连接，我们就开始逐个使用`connection.execute()`执行我们的`CREATE`
+    `TABLE`语句。请注意，`execute()`是一个协程，所以为了运行我们的SQL，我们需要`await`调用。假设一切正常，每个`execute`语句的状态应该是`CREATE`
+    `TABLE`，每个`insert`语句应该是`INSERT` `0` `1`。最后，我们关闭产品数据库的连接。请注意，在这个例子中，我们在`for`循环中等待每个SQL语句，这确保了`INSERT`语句是同步运行的。由于某些表依赖于其他表，我们不能并发运行它们。
+- en: These statements don’t have any results associated with them, so let’s insert
+    a few pieces of data and run some simple select queries. We’ll first insert a
+    few brands and then query them to ensure we’ve inserted them properly. We can
+    insert data with the `execute` coroutine, as before, and we can run a query with
+    the `fetch` coroutine.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些语句没有与之关联的结果，所以让我们插入一些数据并运行一些简单的选择查询。我们首先插入一些品牌，然后查询它们以确保我们已经正确插入。我们可以使用`execute`协程来插入数据，就像之前一样，我们也可以使用`fetch`协程来运行查询。
+- en: Listing 5.4 Inserting and selecting brands
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.4 插入和选择品牌
+- en: '[PRE5]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'We first insert two brands into the `brand` table. Once we’ve done this, we
+    use `connection .fetch` to get all brands from our brand table. Once this query
+    has finished, we will have all results in memory in the `results` variable. Each
+    result will be an `asyncpg` `Record` object. These objects act similarly to dictionaries;
+    they allow us to access data by passing in a column name with subscript syntax.
+    Executing this will give us the following output:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先将两个品牌插入到`brand`表中。一旦完成，我们使用`connection.fetch`从我们的品牌表中获取所有品牌。一旦这个查询完成，我们将在`results`变量中拥有所有结果。每个结果都将是一个`asyncpg`
+    `Record`对象。这些对象的行为类似于字典；它们允许我们通过传递一个列名和下标语法来访问数据。执行此操作将给出以下输出：
+- en: '[PRE6]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: In this example, we fetch all data for our query into a list. If we wanted to
+    fetch a single result, we could call `connection.fetchrow()`, which will return
+    a single record from the query. The default asyncpg connection will pull all results
+    from our query into memory, so for the time being there is no performance difference
+    between `fetchrow` and `fetch`. Later in this chapter, we’ll see how to use streaming
+    result sets with cursors. These will only pull a few results into memory at a
+    time, which is a useful technique for times when queries may return large amounts
+    of data.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，我们将查询的所有数据都提取到一个列表中。如果我们只想获取单个结果，我们可以调用`connection.fetchrow()`，这将返回查询的单个记录。默认的asyncpg连接将把查询的所有结果拉入内存，所以目前`fetchrow`和`fetch`之间没有性能差异。在本章的后面，我们将看到如何使用游标与流式结果集一起使用。这些只会一次拉取少量结果到内存中，这对于查询可能返回大量数据的情况来说是一种有用的技术。
+- en: These examples run queries one after another, and we could have had similar
+    performance by using a non-asyncio database driver. However, since we’re now returning
+    coroutines, we can use the asyncio API methods we learned in chapter 4 to execute
+    queries concurrently.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些示例是依次运行查询的，我们本可以使用非asyncio数据库驱动程序来获得类似性能。然而，由于我们现在返回的是协程，我们可以使用我们在第4章中学到的asyncio
+    API方法来并发执行查询。
+- en: 5.5 Executing queries concurrently with connection pools
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.5 使用连接池并发执行查询
+- en: The true benefit of asyncio for I/O-bound operations is the ability to run multiple
+    tasks concurrently. Queries independent from one another that we need to make
+    repeatedly are good examples of where we can apply concurrency to make our application
+    perform better. To demonstrate this, let’s pretend that we’re a successful e-commerce
+    storefront. Our company carries 100,000 SKUs for 1,000 distinct brands.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncio对于I/O密集型操作的真实好处是能够并发运行多个任务。我们需要重复执行且相互独立的查询是我们可以应用并发来提高应用程序性能的好例子。为了演示这一点，让我们假装我们是一个成功的电子商务店面。我们的公司为1000个不同的品牌提供10万个SKU。
+- en: We’ll also pretend that we sell our items through partners. These partners make
+    requests for thousands of products at a given time through a batch process we
+    have built. Running all these queries sequentially could be slow, so we’d like
+    to create an application that executes these queries concurrently to ensure a
+    speedy experience.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还将假装我们通过合作伙伴销售我们的商品。这些合作伙伴通过我们构建的批量处理过程在给定时间内为成千上万的产品发出请求。连续运行所有这些查询可能会很慢，因此我们希望创建一个应用程序，以并发方式执行这些查询，以确保快速体验。
+- en: Since this is an example, and we don’t have 100,000 SKUs on hand, we’ll start
+    by creating a fake product and SKU records in our database. We’ll randomly generate
+    100,000 SKUs for random brands and products, and we’ll use this data set as a
+    basis for running our queries.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是一个示例，我们没有 10 万个 SKU，因此我们将首先在我们的数据库中创建一个假的产品和 SKU 记录。我们将为随机品牌和产品随机生成 10 万个
+    SKU，并将这个数据集作为运行查询的基础。
+- en: 5.5.1 Inserting random SKUs into the product database
+  id: totrans-62
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.5.1 将随机 SKU 插入产品数据库
+- en: Since we don’t want to list brands, products, and SKUs ourselves, we’ll randomly
+    generate them. We’ll pick random names from a list of the 1,000 most frequently
+    occurring English words. For the sake of this example, we’ll assume we have a
+    text file that contains these words, called `common_words.txt`. You can download
+    a copy of this file from the book’s GitHub data repository at [https://github.com/concurrency-in-python-with-asyncio/data](https://github.com/concurrency-in-python-with-asyncio/data).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们不希望我们自己列出品牌、产品和 SKU，我们将随机生成它们。我们将从 1,000 个最常出现的英语单词列表中随机选择名称。为了这个示例，我们假设我们有一个包含这些单词的文本文件，称为
+    `common_words.txt`。您可以从本书的 GitHub 数据存储库中下载此文件的副本，网址为 [https://github.com/concurrency-in-python-with-asyncio/data](https://github.com/concurrency-in-python-with-asyncio/data)。
+- en: The first thing we’ll want to do is insert our brands, since our product table
+    depends on `brand_id` as a foreign key. We’ll use the `connection.executemany`
+    coroutine to write parameterized SQL to insert these brands. This will allow us
+    to write one SQL query and pass in a list of parameters we want to insert instead
+    of having to create one `INSERT` statement for each brand.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先想要做的是插入我们的品牌，因为我们的产品表依赖于 `brand_id` 作为外键。我们将使用 `connection.executemany`
+    协程来编写参数化 SQL 以插入这些品牌。这将允许我们编写一个 SQL 查询并传递我们想要插入的参数列表，而不是为每个品牌创建一个 `INSERT` 语句。
+- en: 'The `executemany` coroutine takes in one SQL statement and a list of tuples
+    with values we’d like to insert. We can parameterize the SQL statement by using
+    `$1,` `$2` `...` `$N` syntax. Each number after the dollar sign represents the
+    index of the tuple we’d like to use in the SQL statement. For instance, if we
+    have a query we write as `"INSERT` `INTO` `table` `VALUES($1,` `$2)"` and a list
+    of tuples `[(''a'',` `''b''),` `(''c'',` `''d'')]` this would execute two inserts
+    for us:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`executemany` 协程接受一个 SQL 语句和一个包含我们想要插入的值的元组列表。我们可以通过使用 `$1,` `$2` `...` `$N`
+    语法来参数化 SQL 语句。每个美元符号后面的数字代表我们想要在 SQL 语句中使用的元组的索引。例如，如果我们编写了一个查询 `"INSERT` `INTO`
+    `table` `VALUES($1,` `$2)"` 并且有一个元组列表 `[(''a'',` `''b''),` `(''c'',` `''d'')]`，这将为我们执行两个插入操作：'
+- en: '[PRE7]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: We’ll first generate a list of 100 random brand names from our list of common
+    words. We’ll return this as a list of tuples each with one value inside of it,
+    so we can use this in the `executemany` coroutine. Once we’ve created this list,
+    it’s a matter of passing a parameterized `INSERT` statement alongside this list
+    of tuples.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先将从常见单词列表中生成 100 个随机品牌名称。我们将这个列表作为包含一个值的元组列表返回，这样我们就可以在 `executemany` 协程中使用它。一旦我们创建了此列表，我们只需将参数化的
+    `INSERT` 语句与这个元组列表一起传递即可。
+- en: Listing 5.5 Inserting random brands
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.5 插入随机品牌
+- en: '[PRE8]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Internally, `executemany` will loop through our brands list and generate one
+    `INSERT` statement per each brand. Then it will execute all those `insert` statements
+    at once. This method of parameterization will also prevent us from SQL injection
+    attacks, as the input data is sanitized. Once we run this, we should have 100
+    brands in our system with random names.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 内部，`executemany` 将遍历我们的品牌列表并为每个品牌生成一个 `INSERT` 语句。然后它将一次性执行所有这些 `insert` 语句。这种参数化方法还可以防止我们遭受
+    SQL 注入攻击，因为输入数据已经被清理。一旦我们运行这个程序，我们的系统中应该会有 100 个带有随机名称的品牌。
+- en: Now that we’ve seen how to insert random brands, let’s use the same technique
+    to insert products and SKUs. For products, we’ll create a description of 10 random
+    words and a random brand ID. For SKUs, we’ll pick a random size, color, and product.
+    We’ll assume that our brand ID starts at 1 and ends at 100.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到了如何插入随机品牌，让我们使用同样的技术来插入产品和SKU。对于产品，我们将创建一个由10个随机单词和一个随机品牌ID组成的描述。对于SKU，我们将随机选择一个尺寸、颜色和产品。我们假设我们的品牌ID从1开始，到100结束。
+- en: Listing 5.6 Inserting random products and SKUs
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.6 插入随机产品和SKU
+- en: '[PRE9]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'When we run this listing, we should have a database with 1,000 products and
+    100,000 SKUs. Depending on your machine, this may take several seconds to run.
+    With a few joins, we can now query all available SKUs for a particular product.
+    Let’s see what this query would look like for `product` `id` `100`:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个列表时，我们应该有一个包含1,000个产品和100,000个SKU的数据库。根据你的机器，这可能需要几秒钟的时间来运行。通过一些连接，我们现在可以查询特定产品的所有可用SKU。让我们看看对于`product`
+    `id` `100`这个查询会是什么样子：
+- en: '[PRE10]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'When we execute this query, we’ll get one row for each SKU for a product, and
+    we’ll also get the proper English name for size and color instead of an ID. Assuming
+    we have a lot of product IDs we’d like to query at a given time, this provides
+    us a good opportunity to apply concurrency. We may naively try to apply `asyncio.gather`
+    with our existing connection like so:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们执行这个查询时，我们将为每个产品的SKU得到一行，我们还将得到尺寸和颜色的正确英文名称，而不是ID。假设我们一次想要查询很多产品ID，这为我们提供了一个应用并发的良好机会。我们可能会天真地尝试使用现有的连接和`asyncio.gather`来这样做：
+- en: '[PRE11]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'However, if we run this we’ll be greeted with an error:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，如果我们运行这个，我们会遇到一个错误：
+- en: '[PRE12]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Why is this? In the SQL world, one connection means one socket connection to
+    our database. Since we have only one connection and we’re trying to read the results
+    of multiple queries concurrently, we experience an error. We can resolve this
+    by creating multiple connections to our database and executing one query per connection.
+    Since creating connections is resource expensive, caching them so we can access
+    them when needed makes sense. This is commonly known as a *connection* *pool*.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么会这样？在SQL世界中，一个连接意味着一个套接字连接到我们的数据库。由于我们只有一个连接，并且我们试图并发地读取多个查询的结果，所以我们遇到了错误。我们可以通过创建多个连接到我们的数据库并每个连接执行一个查询来解决这个问题。由于创建连接是资源密集型的，因此当需要时缓存它们以便访问是有意义的。这通常被称为*连接*
+    *池*。
+- en: 5.5.2 Creating a connection pool to run queries concurrently
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.5.2 创建连接池以并发运行查询
+- en: Since we can only run one query per connection at a time, we need a mechanism
+    for creating and managing multiple connections. A connection pool does just that.
+    You can think of a connection pool as a cache of existing connections to a database
+    instance. They contain a finite number of connections that we can access when
+    we need to run a query.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们每次只能在一个连接上运行一个查询，因此我们需要一个机制来创建和管理多个连接。连接池正是为此而设计的。你可以将连接池视为对数据库实例现有连接的缓存。它们包含有限数量的连接，当我们需要运行查询时可以访问这些连接。
+- en: Using connection pools, we *acquire* connections when we need to run a query.
+    Acquiring a connection means we ask the pool, “Does the pool currently have any
+    connections available? If so, give me one so I can run my queries.” Connection
+    pools facilitate the reuse of these connections to execute queries. In other words,
+    once a connection is acquired from the pool to run a query and that query finishes,
+    we return or “release” it to the pool for others to use. This is important because
+    establishing a connection with a database is time-expensive. If we had to create
+    a new connection for every query we wanted to run, our application’s performance
+    would quickly degrade.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用连接池，我们在需要运行查询时*获取*连接。获取一个连接意味着我们向池询问：“池目前是否有可用的连接？如果有，给我一个，这样我就可以运行我的查询了。”连接池促进了这些连接的复用以执行查询。换句话说，一旦从池中获取连接来运行查询并且该查询完成，我们就将其“返回”或“释放”回池，供其他人使用。这很重要，因为与数据库建立连接是耗时的。如果我们必须为每个想要运行的查询创建一个新的连接，那么我们应用程序的性能会迅速下降。
+- en: Since the connection pool has a finite number of connections, we could be waiting
+    for some time for one to become available, as other connections may be in use.
+    This means connection acquisition is an operation that may take time to complete.
+    If we only have 10 connections in the pool, each of which is in use, and we ask
+    for another, we’ll need to wait until 1 of the 10 connections becomes available
+    for our query to execute.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于连接池中连接数量有限，我们可能需要等待一段时间才能有一个连接变得可用，因为其他连接可能正在使用中。这意味着连接获取是一个可能需要时间才能完成的操作。如果我们池中有10个连接，每个都在使用中，而我们请求另一个，我们需要等待直到这10个连接中的1个变得可用以执行我们的查询。
+- en: To illustrate how this works in terms of asyncio, let’s imagine we have a connection
+    pool with two connections. Let’s also imagine we have three coroutines and each
+    runs a query. We’ll run these three coroutines concurrently as tasks. With a connection
+    pool set up this way, the first two coroutines that attempt to run their queries
+    will acquire the two available connections and start running their queries. While
+    this is happening, the third coroutine will be waiting for a connection to become
+    available. When either one of the first two coroutines finishes running its query,
+    it will release its connection and return it to the pool. This lets the third
+    coroutine acquire it and start using it to run its query (figure 5.2).
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这在asyncio中的工作方式，让我们想象我们有一个包含两个连接的连接池。让我们再想象我们有三个协程，每个都运行一个查询。我们将这些三个协程作为任务并发运行。以这种方式设置连接池，尝试运行查询的前两个协程将获取两个可用的连接并开始运行它们的查询。在这个过程中，第三个协程将等待一个连接变得可用。当第一个两个协程中的任何一个完成其查询的运行时，它将释放其连接并将其返回到池中。这使得第三个协程能够获取它并开始使用它来运行其查询（图5.2）。
+- en: '![05-02](Images/05-02.png)'
+  id: totrans-86
+  prefs: []
+  type: TYPE_IMG
+  zh: '![05-02](Images/05-02.png)'
+- en: Figure 5.2 Coroutines 1 and 2 acquire connections to run their queries while
+    Coroutine 3 waits for a connection. Once either Coroutine 1 or 2 finishes, Coroutine
+    3 will be able to use the newly released connection and will be able to execute
+    its query.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.2 协程1和2在协程3等待连接时获取连接以运行它们的查询。一旦协程1或2完成，协程3将能够使用新释放的连接并执行其查询。
+- en: In this model, we can have at most two queries running concurrently. Normally,
+    the connection pool will be a bit bigger to enable more concurrency. For our examples,
+    we’ll use a connection pool of six, but the actual number you want to use is dependent
+    on the hardware your database and your application run on. In this case, you’ll
+    need to benchmark which connection pool size works best. Keep in mind, bigger
+    is not always better, but that’s a much larger topic.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个模型中，我们最多可以同时运行两个查询。通常，连接池会更大一些，以允许更多的并发。在我们的示例中，我们将使用一个包含六个连接的连接池，但您想要使用的实际数量取决于您的数据库和应用程序运行的硬件。在这种情况下，您需要基准测试哪种连接池大小最适合。请记住，更大的不一定更好，但这是一个更大的话题。
+- en: Now that we understand how connection pools work, how do we create one with
+    asyncpg? asyncpg exposes a coroutine named `create_pool` to accomplish this. We
+    use this instead of the `connect` function we used earlier to establish a connection
+    to our database. When we call `create_pool`, we’ll specify the number of connections
+    we wish to create in the pool. We’ll do this with the `min_size` and `max_size`
+    parameters. The `min_size` parameter specifies the minimum number of connections
+    in our connection pool. This means that once we set up our pool, we are guaranteed
+    to have this number of connections inside of it already established. The `max_size`
+    parameter specifies the maximum number of connections we want in our pool, determining
+    the maximum number of connections we can have. If we don’t have enough connections
+    available, the pool will create a new one for us if the new connection won’t cause
+    the pool size to be above the value set in `max_size`. For our first example,
+    we’ll set both these values to six. This guarantees we always have six connections
+    available.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了连接池的工作原理，我们如何使用asyncpg创建一个？asyncpg公开了一个名为`create_pool`的协程来完成这个任务。我们使用这个而不是我们之前用来建立数据库连接的`connect`函数。当我们调用`create_pool`时，我们将指定我们希望在池中创建的连接数量。我们将使用`min_size`和`max_size`参数来完成这个操作。`min_size`参数指定了我们连接池中的最小连接数。这意味着一旦我们设置了池，我们就保证池中已经建立了这个数量的连接。`max_size`参数指定了我们希望在池中的最大连接数，这决定了我们可以拥有的最大连接数。如果我们没有足够的连接可用，当新连接不会使池大小超过`max_size`中设置的值时，池将为我们创建一个新的连接。在我们的第一个示例中，我们将这两个值都设置为六。这保证了我们始终有六个可用的连接。
+- en: asyncpg pools are *asynchronous context managers*, meaning that we must use
+    `async` `with` syntax to create a pool. Once we’ve established a pool, we can
+    acquire connections using the `acquire` coroutine. This coroutine will suspend
+    execution until we have a connection available. Once we do, we can then use that
+    connection to execute whatever SQL query we’d like. Acquiring a connection is
+    also an async context manager that returns the connection to the pool when we
+    are done with it, so we’ll need to use `async` `with` syntax just like we did
+    when we created the pool. Using this, we can rewrite our code to run several queries
+    concurrently.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncpg连接池是*异步上下文管理器*，这意味着我们必须使用`async` `with`语法来创建一个池。一旦我们建立了一个池，我们可以使用`acquire`协程来获取连接。这个协程将暂停执行，直到我们有可用的连接。一旦我们有了连接，我们就可以使用它来执行我们想要的任何SQL查询。获取连接也是一个异步上下文管理器，当我们在完成后将连接返回到池中，所以我们需要像创建池时那样使用`async`
+    `with`语法。使用这种方法，我们可以重写我们的代码以并发运行多个查询。
+- en: Listing 5.7 Establishing a connection pool and running queries concurrently
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.7 建立连接池并并发运行查询
+- en: '[PRE13]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Create a connection pool with six connections.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个包含六个连接的连接池。
+- en: ❷ Execute two product queries concurrently.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 并发执行两个产品查询。
+- en: In the preceding listing, we first create a connection pool with six connections.
+    We then create two query coroutine objects and schedule them to run concurrently
+    with `asyncio.gather`. In our `query_product` coroutine, we first acquire a connection
+    from the pool with `pool.acquire()`. This coroutine will then suspend running
+    until a connection is available from the connection pool. We do this in an `async`
+    `with` block; this will ensure that once we leave the block, the connection will
+    be returned to the pool. This is important because if we don’t do this we can
+    run out of connections, and we’ll end up with an application that hangs forever,
+    waiting for a connection that will never become available. Once we’ve acquired
+    a connection, we can then run our query as we did in previous examples.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们首先创建了一个包含六个连接的连接池。然后我们创建了两个查询协程对象，并使用`asyncio.gather`将它们安排为并发运行。在我们的`query_product`协程中，我们首先使用`pool.acquire()`从池中获取一个连接。这个协程将暂停运行，直到从连接池中可用一个连接。我们使用`async`
+    `with`块来做这件事；这将确保一旦我们离开该块，连接将被返回到池中。这是很重要的，因为我们如果不这样做，可能会耗尽连接，最终导致应用程序永远挂起，等待永远不会出现的连接。一旦我们获取了一个连接，我们就可以像之前示例中那样运行我们的查询。
+- en: We can expand this example to run 10,000 queries by creating 10,000 different
+    query coroutine objects. To make this interesting, we’ll write a version that
+    runs the queries synchronously and compare how long things take.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将这个例子扩展到运行10,000个查询，通过创建10,000个不同的查询协程对象。为了使这个例子更有趣，我们将编写一个同步运行查询的版本，并比较它们所需的时间。
+- en: Listing 5.8 Synchronous queries vs. concurrent
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.8 同步查询与并发
+- en: '[PRE14]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'In `query_products_synchronously`, we put an `await` in a list comprehension,
+    which will force each call to `query_product` to run sequentially. Then, in `query_products_
+    concurrently` we create a list of coroutines we want to run and then run them
+    concurrently with `gather`. In the main coroutine, we then run our synchronous
+    and concurrent version with 10,000 queries each. While the exact results can vary
+    substantially based on your hardware, the concurrent version is nearly five times
+    as fast as the serial version:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`query_products_synchronously`中，我们在列表推导式中放入了一个`await`，这将强制每个`query_product`调用按顺序运行。然后，在`query_products_concurrently`中，我们创建了一个我们想要运行的协程列表，并使用`gather`并发运行它们。在主协程中，我们使用10,000个查询分别运行我们的同步和并发版本。虽然具体结果可能会根据你的硬件有很大差异，但并发版本的速度几乎是串行版本的五倍：
+- en: '[PRE15]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: An improvement like this is significant, but there are still more improvements
+    we can make if we need more throughput. Since our query is relatively fast, this
+    code is a mixture of CPU-bound in addition to I/O-bound. In chapter 6, we’ll see
+    how to squeeze even more performance out of this setup.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样的改进意义重大，但如果我们需要更高的吞吐量，我们还可以进行更多改进。由于我们的查询相对较快，这段代码是CPU密集型与I/O密集型的混合。在第6章中，我们将看到如何从这个设置中挤出更多的性能。
+- en: So far, we’ve seen how to insert data into our database assuming we don’t have
+    any failures. But what happens if we are in the middle of inserting products,
+    and we get a failure? We don’t want an inconsistent state in our database, so
+    this is where database transactions come into play. Next, we’ll see how to use
+    asynchronous context managers to acquire and manage transactions.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经看到了在没有失败的情况下如何将数据插入到我们的数据库中。但是，如果我们正在插入产品过程中遇到失败，会发生什么？我们不希望数据库中出现不一致的状态，因此这就是数据库事务发挥作用的地方。接下来，我们将看到如何使用异步上下文管理器来获取和管理事务。
+- en: 5.6 Managing transactions with asyncpg
+  id: totrans-103
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.6 使用 asyncpg 管理事务
+- en: Transactions are a core concept in many databases that satisfy the ACID (atomic,
+    consistent, isolated, durable) properties. A *transaction* consists of one or
+    more SQL statements that are executed as one atomic unit. If no errors occur when
+    we execute the statements within a transaction, we *commit* the statements to
+    the database, making any changes a permanent part of the database. If there are
+    any errors, we *roll back* the statements, and it is as if none of them ever happened.
+    In the context of our product database, we may need to roll back a set of updates
+    if we attempt to insert a duplicate brand, or if we have violated a database constraint
+    we’ve set.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事务是许多数据库中的一个核心概念，它满足 ACID（原子性、一致性、隔离性、持久性）属性。一个 *事务* 由一个或多个作为单个原子单元执行的 SQL 语句组成。如果我们执行事务内的语句时没有发生错误，我们将
+    *提交* 语句到数据库，使任何更改成为数据库的永久部分。如果有任何错误，我们将 *回滚* 语句，就好像它们从未发生过一样。在我们的产品数据库的上下文中，如果我们尝试插入一个重复的品牌，或者如果我们违反了我们设置的数据库约束，我们可能需要回滚一组更新。
+- en: In asyncpg, the easiest way to deal with transactions is to use the `connection
+    .transaction` asynchronous context manager to start them. Then, if there is an
+    exception in the `async` `with` block, the transaction will automatically be rolled
+    back. If everything executes successfully, it will be automatically committed.
+    Let’s look at how to create a transaction and execute two simple `insert` statements
+    to add a couple of brands.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 asyncpg 中，处理事务的最简单方法是通过使用 `connection .transaction` 异步上下文管理器来启动它们。然后，如果在 `async`
+    `with` 块中发生异常，事务将自动回滚。如果一切执行成功，它将自动提交。让我们看看如何创建一个事务并执行两个简单的 `insert` 语句来添加几个品牌。
+- en: Listing 5.9 Creating a transaction
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.9 创建事务
+- en: '[PRE16]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Start a database transaction.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 开始数据库事务。
+- en: ❷ Select brands to ensure that our transaction was committed.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 选择品牌以确保我们的事务已提交。
+- en: Assuming our transaction committed successfully, we should see `[<Record` `brand_
+    name='brand_1'>,` `<Record` `brand_name='brand_2'>]` printed out to the console.
+    This example assumes zero errors running the two `insert` statements, and everything
+    was committed successfully. To demonstrate what happens when a rollback occurs,
+    let’s force a SQL error. To test this out, we’ll try and insert two brands with
+    the same primary `key` `id`. Our first insert will work successfully, but our
+    second insert will raise a duplicate key error.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们的事务成功提交，我们应该看到 `[<Record brand_name='brand_1'>, <Record brand_name='brand_2'>]`
+    打印到控制台。这个例子假设运行两个 `insert` 语句时没有错误，并且一切都被成功提交。为了演示回滚发生时会发生什么，让我们强制一个 SQL 错误。为了测试这一点，我们将尝试插入两个具有相同主
+    `key` `id` 的品牌。我们的第一个插入将成功，但我们的第二个插入将引发重复键错误。
+- en: Listing 5.10 Handling an error in a transaction
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.10 处理事务中的错误
+- en: '[PRE17]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ This insert statement will error because of a duplicate primary key.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这个插入语句会因为重复的主键而出错。
+- en: ❷ If we had an exception, log the error.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果发生异常，记录错误。
+- en: ❸ Select the brands to ensure we didn’t insert anything.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 选择品牌以确保我们没有插入任何内容。
+- en: 'In the following code, our second insert statement throws an error. This leads
+    to the following output:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下代码中，我们的第二个 `insert` 语句抛出了一个错误。这导致以下输出：
+- en: '[PRE18]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: We first retrieved an exception because we attempted to insert a duplicate key
+    and then see that the result of our `select` statement was empty, indicating that
+    we successfully rolled back the transaction.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先检索了一个异常，因为我们尝试插入一个重复的键，然后看到我们的 `select` 语句的结果为空，这表明我们成功回滚了事务。
+- en: 5.6.1 Nested transactions
+  id: totrans-119
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.6.1 嵌套事务
+- en: asyncpg also supports the concept of a *nested transaction* through a Postgres
+    feature called *savepoints*. Savepoints are defined in Postgres with the `SAVEPOINT`
+    command. When we define a savepoint, we can roll back to that savepoint and any
+    queries executed after the savepoint will roll back, but any queries successfully
+    executed before it will not roll back.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncpg还通过Postgres的一个名为*保存点*的功能支持*嵌套事务*的概念。保存点是通过Postgres中的`SAVEPOINT`命令定义的。当我们定义一个保存点时，我们可以回滚到那个保存点，并且在此保存点之后执行的任何查询都将回滚，但在此保存点之前成功执行的任何查询则不会回滚。
+- en: In asyncpg, we can create a savepoint by calling the `connection.transaction`
+    context manager within an existing transaction. Then, if there is any error within
+    this inner transaction it is rolled back, but the outer transaction is not affected.
+    Let’s try this out by inserting a brand in a transaction and then within a nested
+    transaction attempting to insert a color that already exists in our database.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在asyncpg中，我们可以在现有事务中调用`connection.transaction`上下文管理器来创建一个保存点。然后，如果这个内部事务中发生任何错误，它将被回滚，但外部事务不受影响。让我们通过在一个事务中插入一个品牌，然后在嵌套事务中尝试插入一个已经存在于我们数据库中的颜色来尝试这个方法。
+- en: Listing 5.11 A nested transaction
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.11 一个嵌套事务
+- en: '[PRE19]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: When we run this code, our first `INSERT` statement runs successfully, since
+    we don’t have this brand in our database yet. Our second `INSERT` statement fails
+    with a duplicate key error. Since this second insert statement is within a transaction
+    and we catch and log the exception, despite the error our outer transaction is
+    not rolled back, and the brand is properly inserted. If we did not have the nested
+    transaction, the second insert statement would have also rolled back our brand
+    insert.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这段代码时，我们的第一个`INSERT`语句成功执行，因为我们数据库中还没有这个品牌。我们的第二个`INSERT`语句因为重复键错误而失败。由于这个第二个插入语句在一个事务中，我们捕获并记录了异常，尽管有错误，但我们的外部事务没有被回滚，品牌被正确插入。如果我们没有嵌套事务，第二个插入语句也会回滚我们的品牌插入。
+- en: 5.6.2 Manually managing transactions
+  id: totrans-125
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.6.2 手动管理事务
+- en: So far, we have used asynchronous context managers to handle committing and
+    rolling back our transactions. Since this is less verbose than managing things
+    ourselves, it is usually the best approach. That said, we may find ourselves in
+    situations where we need to manually manage a transaction. For example, we may
+    want to have custom code execute on rollback, or we may want to roll back on a
+    condition other than an exception.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直使用异步上下文管理器来处理提交和回滚我们的事务。由于这比我们自己管理事物更简洁，所以通常是最好的方法。然而，我们可能会发现自己处于需要手动管理事务的情况。例如，我们可能希望在回滚时执行自定义代码，或者我们可能希望在除异常之外的条件回滚。
+- en: To manually manage a transaction, we can use the transaction manager returned
+    by `connection.transaction` outside of a context manager. When we do this, we’ll
+    manually need to call its `start` method to start a transaction and then `commit`
+    on success and `rollback` on failure. Let’s look at how to do this by rewriting
+    our first example.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要手动管理一个事务，我们可以在上下文管理器之外使用由`connection.transaction`返回的事务管理器。当我们这样做时，我们需要手动调用它的`start`方法来启动一个事务，然后在成功时调用`commit`，在失败时调用`rollback`。让我们通过重写我们的第一个示例来看看如何做。
+- en: Listing 5.12 Manually managing a transaction
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.12 手动管理事务
+- en: '[PRE20]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Create a transaction instance.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个事务实例。
+- en: ❷ Start the transaction.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动事务。
+- en: ❸ If there was an exception, roll back.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果有异常，回滚。
+- en: ❹ If there was no exception, commit.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果没有异常，提交。
+- en: We first start by creating a transaction with the same method call we used with
+    async context manager syntax, but instead, we store the `Transaction` instance
+    that this call returns. Think of this class as a manager for our transaction,
+    since with this we’ll be able to perform any commits and rollbacks we need. Once
+    we have a transaction instance, we can then call the `start` coroutine. This will
+    execute a query to start the transaction in Postgres. Then, within a `try` block
+    we can execute any queries we’d like. In this case we insert two brands. If there
+    were errors with any of those INSERT statements, we’ll experience the `except`
+    block and roll back the transaction by calling the `rollback` coroutine. If there
+    were no errors, we call the `commit` coroutine, which will end the transaction
+    and make any changes in our transaction permanent in the database.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先使用与 async 上下文管理器语法相同的调用方法创建一个事务，但这次我们存储这个调用返回的 `Transaction` 实例。将这个类视为我们事务的管理器，因为有了这个，我们将能够执行所需的任何提交和回滚。一旦我们有了事务实例，我们就可以调用
+    `start` 协程。这将执行一个查询以在 Postgres 中启动事务。然后，在 `try` 块中，我们可以执行任何我们想要的查询。在这种情况下，我们插入两个品牌。如果有任何
+    INSERT 语句出错，我们将遇到 `except` 块，并通过调用 `rollback` 协程回滚事务。如果没有错误，我们调用 `commit` 协程，这将结束事务，并将事务中的任何更改永久保存在数据库中。
+- en: Up until now we have been running our queries in a way that pulls all query
+    results into memory at once. This makes sense for many applications, since many
+    queries will return small result sets. However, we may have a situation where
+    we are dealing with a large result set that may not fit in memory all at once.
+    In these cases, we may want to stream results to avoid taxing our system’s random
+    access memory (RAM). Next, we’ll explore how to do this with asyncpg and, along
+    the way, introduce asynchronous generators.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直在一次性将所有查询结果拉入内存的方式运行我们的查询。这对于许多应用来说是合理的，因为许多查询会返回小的结果集。然而，我们可能遇到的情况是处理一个可能不会一次性放入内存的大结果集。在这些情况下，我们可能希望流式传输结果以避免对系统的随机访问内存（RAM）造成压力。接下来，我们将探讨如何使用
+    asyncpg 来实现这一点，并在过程中介绍异步生成器。
+- en: 5.7 Asynchronous generators and streaming result sets
+  id: totrans-136
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.7 异步生成器和流式结果集
+- en: One drawback of the default `fetch` implementation asynpg provides is that it
+    pulls all data from any query we execute into memory. This means that if we have
+    a query that returns millions of rows, we’d attempt to transfer that entire set
+    from the database to the requesting machine. Going back to our product database
+    example, imagine we’re even more successful and have billions of products available.
+    It is highly likely that we’ll have some queries that will return very large result
+    sets, potentially hurting performance.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncpg 默认 `fetch` 实现的一个缺点是它会将我们从任何查询中获取的所有数据拉入内存。这意味着如果我们有一个返回数百万行的查询，我们将尝试将整个集合从数据库传输到请求的机器。回到我们的产品数据库示例，假设我们更加成功，有数十亿个产品可用。我们很可能会有一些查询会返回非常大的结果集，这可能会损害性能。
+- en: Of course, we could apply `LIMIT` statements to our query and paginate things,
+    and this makes sense for many, if not most, applications. That said, there is
+    overhead with this approach in that we are sending the same query multiple times,
+    potentially creating extra stress on the database. If we find ourselves hampered
+    by these issues, it can make sense to stream results for a particular query only
+    as we need them. This will save on memory consumption at our application layer
+    as well as save load on the database. However, it does come at the expense of
+    making more round trips over the network to the database.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，我们可以在查询中应用 `LIMIT` 语句并分页，这对于许多应用来说是有意义的，如果不是大多数应用。然而，这种方法存在开销，因为我们可能需要多次发送相同的查询，这可能会给数据库带来额外的压力。如果我们发现自己受到这些问题的阻碍，那么在需要时仅对特定查询进行流式处理可能是有意义的。这将减少我们应用层的内存消耗，同时减轻数据库的负载。然而，这也意味着需要通过网络到数据库进行更多的往返。
+- en: Postgres supports streaming query results through the concept of *cursors*.
+    Consider a cursor as a pointer to where we currently are in iterating through
+    a result set. When we get a single result from a streamed query, we advance the
+    cursor to the next element, and so on, until we have no more results.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Postgres 支持通过 *游标* 概念进行流式查询结果。将游标视为我们在迭代结果集时当前所在位置的指针。当我们从流式查询中获取单个结果时，我们将游标向前推进到下一个元素，依此类推，直到没有更多结果为止。
+- en: Using asyncpg, we can get a cursor directly from a connection which we can then
+    use to execute a streaming query. Cursors in asyncpg use an asyncio feature we
+    have not used yet called *asynchronous generators*. Asynchronous generators generate
+    results asynchronously one by one, similarly to regular Python generators. They
+    also allow us to use a special `for` loop style syntax to iterate over any results
+    we get. To fully understand how this works, we’ll first introduce asynchronous
+    generators as well as `async` `for` syntax to loop these generators.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用asyncpg，我们可以直接从连接中获取游标，然后我们可以使用它来执行流式查询。asyncpg中的游标使用了一个我们尚未使用的异步特性，称为*异步生成器*。异步生成器异步地逐个生成结果，类似于常规Python生成器。它们还允许我们使用特殊的`for`循环语法来遍历我们得到的结果。为了完全理解这是如何工作的，我们将首先介绍异步生成器以及`async`
+    `for`语法来循环这些生成器。
+- en: 5.7.1 Introducing asynchronous generators
+  id: totrans-141
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.7.1 异步生成器的介绍
+- en: 'Many developers will be familiar with generators from the synchronous Python
+    world. Generators are an implementation of the iterator design pattern made famous
+    in the book *Design Patterns: Elements of Reusable Object-Oriented Software* by
+    the “gang of four” (Addison-Wesley Professional, 1994). This pattern allows us
+    to define sequences of data “lazily” and iterate through them one element at a
+    time. This is useful for potentially large sequences of data, where we don’t need
+    to store everything in memory all at once.'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多开发者对同步Python世界中的生成器很熟悉。生成器是“四人帮”在1994年出版的《设计模式：可复用面向对象软件元素》一书中使迭代器设计模式闻名的一种实现。这种模式允许我们“懒加载”地定义数据序列，并逐个元素遍历它们。这对于可能非常大的数据序列很有用，我们不需要一次性将所有内容存储在内存中。
+- en: A simple synchronous generator is a normal Python function which contains a
+    `yield` statement instead of a `return` statement. For example, let’s see how
+    creating and using a generator returns positive integers, starting from zero until
+    a specified end.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个简单的同步生成器是一个包含`yield`语句而不是`return`语句的正常Python函数。例如，让我们看看如何创建和使用生成器来返回正整数，从零开始直到指定的结束。
+- en: Listing 5.13 A synchronous generator
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.13 一个同步生成器
+- en: '[PRE21]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: In the preceding listing, we create a function which takes an integer that we
+    want to count to. We then start a loop until our specified end integer. Then,
+    at each iteration of the loop, we `yield` the next integer in the sequence. When
+    we call `positive_ integers(2)`, we don’t return an entire list or even run the
+    loop in our method. In fact, if we check the type of `positive_iterator`, we’ll
+    get `<class` `'generator'>.`
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个函数，该函数接受一个整数，我们希望对其进行计数。然后我们启动一个循环，直到达到指定的结束整数。然后，在循环的每次迭代中，我们`yield`序列中的下一个整数。当我们调用`positive_integers(2)`时，我们不会返回整个列表，甚至不会在我们的方法中运行循环。实际上，如果我们检查`positive_iterator`的类型，我们会得到`<class
+    `'generator'>`。
+- en: We then use the `next` utility function to iterate over our generator. Each
+    time we call `next`, this will trigger one iteration of the `for` loop in `positive_integers`,
+    giving us the result of the `yield` statement per each iteration. Thus, the code
+    in listing 5.13 will print `0` and `1` to the console. Instead of using `next,`
+    we could have used a `for` loop with our generator to loop through all values
+    in our generator.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们使用`next`实用函数遍历我们的生成器。每次我们调用`next`，这将在`positive_integers`中触发一次`for`循环的迭代，给我们每个迭代的`yield`语句的结果。因此，列表5.13中的代码将打印`0`和`1`到控制台。我们也可以使用带有生成器的`for`循环来遍历生成器中的所有值，而不是使用`next`。
+- en: This works for synchronous methods, but what if we wanted to use coroutines
+    to generate a sequence of values asynchronously? Using our database example, what
+    if we wanted to generate a sequence of rows that we “lazily” get from our database?
+    We can do this with Python’s asynchronous generators and special `async` `for`
+    syntax. To demonstrate a simple asynchronous generator, let’s start with our positive
+    integer example but introduce a call to a coroutine that takes a few seconds to
+    complete. We’ll use the `delay` function from chapter 2 for this.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这适用于同步方法，但如果我们想使用协程异步地生成一系列值怎么办？使用我们的数据库示例，如果我们想生成从数据库“懒加载”的一系列行，怎么办？我们可以使用Python的异步生成器和特殊的`async`
+    `for`语法来做这件事。为了演示一个简单的异步生成器，让我们从我们的正整数示例开始，但引入一个需要几秒钟才能完成的协程调用。我们将使用第2章中的`delay`函数来做这个示例。
+- en: Listing 5.14 A simple asynchronous generator
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.14 一个简单的异步生成器
+- en: '[PRE22]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Running the preceding listing, we’ll see the type is no longer a plain generator
+    but `<class` `'async_generator'`>, an asynchronous generator. An asynchronous
+    generator differs from a regular generator in that, instead of generating plain
+    Python objects as elements, it generates coroutines that we can then await until
+    we get a result. Because of this, our normal for loops and `next` functions won’t
+    work with these types of generators. Instead, we have a special syntax, `async`
+    `for`, to deal with these types of generators. In this example, we use this syntax
+    to iterate over `positive_integers_async`.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行上述列表，我们将看到类型不再是普通的生成器，而是`<class `'async_generator'`>`，一个异步生成器。异步生成器与普通生成器的不同之处在于，它不是生成普通Python对象作为元素，而是生成我们可以等待直到获取结果的协程。正因为如此，我们的普通for循环和`next`函数不能与这些类型的生成器一起使用。相反，我们有特殊的语法`async`
+    `for`来处理这些类型的生成器。在这个例子中，我们使用这种语法来遍历`positive_integers_async`。
+- en: This code will print the numbers 1 and 2, waiting 1 second before returning
+    the first number and 2 seconds before returning the second. Note that this is
+    not running the coroutines generated concurrently; instead, it is generating and
+    awaiting them one at a time in a series.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码将打印数字1和2，在返回第一个数字前等待1秒，在返回第二个数字前等待2秒。请注意，这并不是在并发运行生成的协程；相反，它是在一系列中逐个生成和等待这些协程。
+- en: 5.7.2 Using asynchronous generators with a streaming cursor
+  id: totrans-153
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.7.2 使用流式光标与异步生成器
+- en: The concept of asynchronous generators pairs nicely with the concept of a `streaming`
+    `database` `cursor`. Using these generators, we’ll be able to fetch one row at
+    a time with a simple `for` loop-like syntax. To perform streaming with asyncpg,
+    we’ll first need to start a transaction, as Postgres requires this to use cursors.
+    Once we’ve started a transaction, we can then call the `cursor` method on the
+    `Connection` class to obtain a cursor. When we call the `cursor` method, we’ll
+    pass in the query we’d like to stream. This method will return an asynchronous
+    generator that we can use to stream results one at a time.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异步生成器的概念与流式数据库光标的概念很好地结合在一起。使用这些生成器，我们将能够使用简单的`for`循环语法逐行获取数据。要使用asyncpg进行流式处理，我们首先需要开始一个事务，因为Postgres要求使用光标时必须这样做。一旦我们开始了一个事务，我们就可以在`Connection`类上调用`cursor`方法来获取一个光标。当我们调用`cursor`方法时，我们将传递我们想要流式传输的查询。此方法将返回一个异步生成器，我们可以使用它一次流式传输一个结果。
+- en: To get familiar with how to do this, let’s run a query to get all products from
+    our database with a cursor. We’ll then use `async` `for` syntax to fetch elements
+    one at a time from our result set.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了熟悉如何进行此操作，让我们运行一个查询以从我们的数据库中获取所有产品，并使用光标。然后我们将使用`async` `for`语法逐个从结果集中获取元素。
+- en: Listing 5.15 Streaming results one by one
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.15 逐个流式传输结果
+- en: '[PRE23]'
+  id: totrans-157
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: The preceding listing will print all our products out one at a time. Despite
+    having put 1,000 products in this table, we’ll only pull a few into memory at
+    a time. At the time of writing, to cut down on network traffic the cursor defaults
+    to prefetching 50 records at a time. We can change this behavior by setting the
+    `prefetch` parameter with however many elements we’d like to prefetch.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述列表将逐个打印出我们的所有产品。尽管我们在这个表中放入了1,000个产品，但我们一次只会将几个拉入内存。在撰写本文时，为了减少网络流量，光标默认一次预取50条记录。我们可以通过设置`prefetch`参数来更改此行为，以预取我们想要的任何数量的元素。
+- en: We can also use these cursors to skip around our result set and fetch an arbitrary
+    number of rows at a time. Let’s see how to do this by getting a few records from
+    the middle of the query we just used.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以使用这些光标在结果集中跳转，并一次获取任意数量的行。让我们通过从我们刚才使用的查询中间获取一些记录来查看如何做到这一点。
+- en: Listing 5.16 Moving the cursor and fetching records
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.16 移动光标并获取记录
+- en: '[PRE24]'
+  id: totrans-161
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Create a cursor for the query.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为查询创建一个光标。
+- en: ❷ Move the cursor forward 500 records.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将光标向前移动500条记录。
+- en: ❸ Get the next 100 records.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 获取下100条记录。
+- en: The code in the preceding listing will first create a cursor for our query.
+    Note that we use this in an `await` statement like a coroutine instead of an asynchronous
+    generator; this is because in asyncpg a cursor is both an asynchronous generator
+    *and* an awaitable. For the most part, this is similar to using an async generator,
+    but there is a difference in prefetch behavior when creating a cursor this way.
+    Using this method, we cannot set a prefetch value. Doing so would raise an `InterfaceError`.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面的代码列表将首先为我们的查询创建一个游标。请注意，我们像协程一样在 `await` 语句中使用它，而不是异步生成器；这是因为在一个异步生成器中，游标既是异步生成器也是可等待的。在大多数情况下，这类似于使用异步生成器，但在以这种方式创建游标时，预取行为会有所不同。使用这种方法，我们无法设置预取值。这样做会引发一个
+    `InterfaceError`。
+- en: Once we have the cursor, we use its `forward` coroutine method to move forward
+    in the result set. This will effectively skip the first 500 records in our product
+    table. Once we’ve moved our cursor forward, we then fetch the next 100 products
+    and print them each out to the console.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们有了游标，我们就使用它的 `forward` 协程方法在结果集中前进。这将有效地跳过我们产品表中的前500条记录。一旦我们移动了游标，我们就获取下一个100个产品并将它们逐个打印到控制台。
+- en: These types of cursors are non-scrollable by default, meaning we can only advance
+    forward in the result set. If you want to use scrollable cursors that can move
+    both forwards and backwards, you’ll need to execute the SQL to do so manually
+    using `DECLARE` `...` `SCROLL` `CURSOR` (you can read more on how to do this in
+    the Postgres documentation at [https://www.postgresql.org/docs/current/plpgsql-cursors.html](https://www.postgresql.org/docs/current/plpgsql-cursors.html)).
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些类型的游标默认情况下是不可滚动的，这意味着我们只能向前移动结果集。如果您想使用可以向前和向后移动的可滚动游标，您需要手动执行 `DECLARE` `...`
+    `SCROLL` `CURSOR` SQL语句来实现（您可以在 Postgres 文档中了解更多关于如何做到这一点的信息，请参阅[https://www.postgresql.org/docs/current/plpgsql-cursors.html](https://www.postgresql.org/docs/current/plpgsql-cursors.html)）。
+- en: Both techniques are useful if we have a really large result set and don’t want
+    to have the entire set residing in memory. The `async` `for` loops we saw in listing
+    5.16 are useful for looping over the entire set, while creating a cursor and using
+    the `fetch` coroutine method is useful for fetching a chunk of records or skipping
+    a set of records.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一个非常大的结果集，并且不想让整个集合驻留在内存中，这两种技术都是有用的。我们在列表 5.16 中看到的 `async` `for` 循环对于遍历整个集合是有用的，而创建一个游标并使用
+    `fetch` 协程方法对于获取一批记录或跳过一组记录是有用的。
+- en: However, what if we only want to retrieve a fixed set of elements at a time
+    with prefetching and still use an `async` `for` loop? We could add a counter in
+    our `async` `for` loop and break out after we’ve seen a certain number of elements,
+    but that isn’t particularly reusable if we need to do this often in our code.
+    What we can do to make this easier is build our own async generator. We’ll call
+    this generator `take`. This generator will take an async generator and the number
+    of elements we wish to extract. Let’s investigate creating this and grabbing the
+    first five elements from a result set.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，如果我们只想在预取的同时检索固定数量的元素，并且仍然使用 `async` `for` 循环，那该怎么办呢？我们可以在我们的 `async` `for`
+    循环中添加一个计数器，在看到一定数量的元素后退出，但如果我们需要在代码中经常这样做，这并不是特别可重用的。为了使这个过程更容易，我们可以构建自己的异步生成器。我们将这个生成器称为
+    `take`。这个生成器将接受一个异步生成器和我们要提取的元素数量。让我们来研究一下如何创建这个生成器，并从结果集中获取前五个元素。
+- en: Listing 5.17 Getting a specific number of elements with an asynchronous generator
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.17 使用异步生成器获取特定数量的元素
+- en: '[PRE25]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'Our `take` async generator keeps track of how many items we’ve seen so far
+    with `item_count`. We then enter an `async_for` loop and `yield` each record that
+    we see. Once we `yield`, we check `item_count` to see if we have yielded the number
+    of items the caller requested. If we have, we `return`, which ends the async generator.
+    In our main coroutine, we can then use `take` within a normal async for loop.
+    In this example, we use it to ask for the first five elements from the cursor,
+    giving us the following output:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的 `take` 异步生成器使用 `item_count` 跟踪到目前为止我们已经看到了多少项。然后我们进入一个 `async_for` 循环并 `yield`
+    我们看到的每个记录。一旦我们 `yield`，我们就检查 `item_count` 来看我们是否已经 `yield` 了调用者请求的项数。如果我们已经 `yield`
+    了，我们就 `return`，这会结束异步生成器。在我们的主协程中，我们可以在正常的异步 `for` 循环中使用 `take`。在这个例子中，我们使用它来请求游标的前五个元素，得到以下输出：
+- en: '[PRE26]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: While we’ve defined this in code ourselves, an open source library, *aiostream*,
+    has this functionality and more for processing asynchronous generators. You can
+    view the documentation for this library at [aiostream.readthedocs.io](http://aiostream.readthedocs.io).
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们已经在代码中自行定义了这一点，但一个开源库*aiostream*提供了处理异步生成器的这个功能以及更多。你可以在[aiostream.readthedocs.io](http://aiostream.readthedocs.io)查看这个库的文档。
+- en: Summary
+  id: totrans-175
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: In this chapter, we’ve learned the basics around creating and selecting records
+    in Postgres using an asynchronous database connection. You should now be able
+    to take this knowledge and create concurrent database clients.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们学习了使用异步数据库连接在Postgres中创建和选择记录的基础知识。现在你应该能够运用这些知识来创建并发数据库客户端。
+- en: We’ve learned how to use asyncpg to connect to a Postgres database.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们学习了如何使用asyncpg连接到Postgres数据库。
+- en: We’ve learned how to use various asyncpg coroutines to create tables, insert
+    records, and execute single queries.
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们学习了如何使用各种asyncpg协程来创建表、插入记录和执行单个查询。
+- en: We’ve learned how to create a connection pool with asyncpg. This allows us to
+    run multiple queries concurrently with asyncio’s API methods such as `gather`.
+    Using this we can potentially speed up our applications by running our queries
+    in tandem.
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们学习了如何使用asyncpg创建连接池。这允许我们使用asyncio的API方法，如`gather`，同时运行多个查询。通过这种方式，我们可以通过并行运行查询来潜在地加快我们的应用程序的速度。
+- en: We’ve learned how to manage transactions with asyncpg. Transactions allow us
+    to roll back any changes we make to a database as the result of a failure, keeping
+    our database in a consistent state even when something unexpected happens.
+  id: totrans-180
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们学习了如何使用asyncpg管理事务。事务允许我们在失败的结果下回滚对数据库所做的任何更改，即使在发生意外情况时也能保持数据库的一致状态。
+- en: We’ve learned how to create asynchronous generators and how to use them for
+    streaming database connections. We can use these two concepts together to work
+    with large data sets that can’t fit in memory all at once.
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们学习了如何创建异步生成器以及如何使用它们进行流式数据库连接。我们可以将这两个概念结合起来处理无法一次性全部放入内存的大数据集。

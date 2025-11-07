@@ -1,0 +1,2055 @@
+- en: Chapter 4\. Creating robust topologies
+  id: totrans-0
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第4章\. 创建健壮的拓扑
+- en: '*This chapter covers*'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*本章涵盖*'
+- en: Guaranteed message processing
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 保证消息处理
+- en: Fault tolerance
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 容错性
+- en: Replay semantics
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 重放语义
+- en: So far, we’ve defined many of Storm’s core concepts. Along the way, we’ve implemented
+    two separate topologies, each of which runs in a local cluster. This chapter is
+    no different in that we’ll be designing and implementing another topology for
+    a new scenario. But the problem we’re solving has stricter requirements for guaranteeing
+    tuples are processed and fault tolerance is maintained. To help us meet these
+    requirements, we’ll introduce some new concepts related to reliability and failure.
+    You’ll learn about the tools Storm gives us to handle failure, and we’ll also
+    dive into the various types of guarantees we can make about processing data. Armed
+    with this knowledge, we’ll be ready to venture out into the world and create production-quality
+    topologies.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经定义了许多Storm的核心概念。在这个过程中，我们实现了两个独立的拓扑，每个都在本地集群中运行。本章也不例外，我们将为一个新的场景设计和实现另一个拓扑。但我们要解决的问题对保证元组被处理和保持容错性有更严格的要求。为了帮助我们满足这些要求，我们将介绍一些与可靠性和故障相关的新概念。您将了解Storm为我们提供的处理故障的工具，我们还将深入了解我们可以对数据处理做出的各种保证。掌握了这些知识，我们将准备好进入世界并创建生产质量的拓扑。
+- en: 4.1\. Requirements for reliability
+  id: totrans-6
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.1\. 可靠性的要求
+- en: 'In the previous chapter, our heat map application needed to quickly process
+    a large amount of time-sensitive data. Further, merely sampling a portion of that
+    data could provide us with what we needed: an approximation of the popularity
+    of establishments within a given geographic area *right now*. If we failed to
+    process a given tuple within a short time window, it lost its value. The heat
+    map was all about right now. We didn’t need to guarantee that each message was
+    processed—*most* was good enough.'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们的热图应用需要快速处理大量时间敏感的数据。此外，仅仅采样其中一部分数据就能为我们提供所需的信息：在特定地理区域内当前机构的流行度近似值
+    *现在*。如果我们未能在一个短暂的时间窗口内处理一个特定的元组，它就失去了其价值。热图就是关于 *现在* 的。我们不需要保证每条消息都被处理——*大多数*
+    就足够了。
+- en: But there are domains where this is strictly unacceptable; each tuple is sacred.
+    In these scenarios, we need to guarantee that each and every one is processed.
+    Reliability is more important than timeliness here. If we have to keep retrying
+    a tuple for 30 seconds or 10 minutes or an hour (or up to some threshold that
+    makes sense), it has just as much value in our system as it did when we first
+    tried. There’s a need for reliability.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但有些领域对此是严格不可接受的；每个元组都是神圣的。在这些场景中，我们需要保证每个元组都被处理。在这里，可靠性比及时性更重要。如果我们必须为30秒、10分钟或一个小时（或达到某个合理的阈值）重试一个元组，它在我们第一次尝试时和在重试时在我们的系统中具有相同的价值。我们需要可靠性。
+- en: Storm provides the ability to guarantee that each tuple is processed. This serves
+    as a reliability measure we can count on to ensure accurate implementation of
+    functionality. On a high level, Storm provides reliability by keeping track of
+    which tuples are successfully processed and which ones aren’t and then replaying
+    the ones that have failed until they succeed.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Storm提供了保证每个元组被处理的能力。这作为我们可以信赖的可靠性度量，以确保功能的准确实现。在较高层次上，Storm通过跟踪哪些元组被成功处理以及哪些没有，然后重放失败的元组直到它们成功，来提供可靠性。
+- en: 4.1.1\. Pieces of the puzzle for supporting reliability
+  id: totrans-10
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.1.1\. 支持可靠性的拼图碎片
+- en: 'Storm has many moving parts that need to come together in order to deliver
+    reliability:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Storm有许多组成部分需要协同工作才能提供可靠性：
+- en: A reliable data source with a correspondingly reliable spout
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个可靠的数据源，以及相应的可靠spout
+- en: An anchored tuple stream
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个锚定的元组流
+- en: A topology that acknowledges each tuple as it’s processed or notifies you of
+    the failure
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个拓扑结构，在处理每个元组时会识别它，或者在出现故障时通知你
+- en: A fault-tolerant Storm cluster infrastructure
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有容错性的Storm集群基础设施
+- en: In this chapter, we’ll look at how the first three of these components fall
+    into place to enable reliability. Then [chapter 5](kindle_split_013.html#ch05)
+    introduces you to the Storm cluster and talks about how it provides fault tolerance.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将探讨这三个组件如何组合起来以实现可靠性。然后[第5章](kindle_split_013.html#ch05)将向您介绍Storm集群，并讨论它如何提供容错性。
+- en: '4.2\. Problem definition: a credit card authorization system'
+  id: totrans-17
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2\. 问题定义：信用卡授权系统
+- en: When you think about using Storm to solve a problem within your domain, take
+    time to think about what guarantees you need to have around processing; it’s an
+    important part of “thinking in Storm.” Let’s dive into a problem that has a reliability
+    requirement.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你考虑使用Storm来解决你领域内的问题时，花时间思考你需要的处理保证；这是“在Storm中思考”的重要部分。让我们深入一个具有可靠性要求的问题。
+- en: Imagine that we run a large e-commerce site that deals with shipping physical
+    goods to people. We know that the vast majority of orders placed on our site are
+    authorized for payment successfully and only a small percentage are declined.
+    Traditionally in e-commerce, the more steps our user needs to take to place an
+    order, the higher the risk of losing the sale. When we’re billing at the time
+    an order is placed, we’re losing business. Handling billing as a separate, “offline”
+    operation improves conversions and directly affects our bottom line. We also need
+    this offline billing process to scale well to support peak seasons such as the
+    holidays (think Amazon) or even flash sales (think Gilt).
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，我们运营着一个大型电子商务网站，负责向人们运送实物商品。我们知道，在我们网站上提交的订单中，绝大多数都成功授权支付，只有一小部分被拒绝。在传统的电子商务中，用户需要完成的订单步骤越多，失去销售的风险就越高。当我们订单提交时立即进行账单处理，我们就会失去生意。将账单处理作为一个独立的、“离线”操作来处理，可以提高转化率并直接影响我们的底线。我们还需要这个离线账单流程能够很好地扩展，以支持像假日（想想亚马逊）或闪购（想想Gilt）这样的高峰期。
+- en: This is a scenario that requires reliability. Each order has to be authorized
+    before it’s shipped. If we encounter a problem during our attempts to authorize,
+    we should retry. In short, we need guaranteed message processing. Let’s take a
+    look at what such a system may look like, keeping in mind how we can incorporate
+    retry characteristics.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个需要可靠性的场景。每个订单在发货前都必须被授权。如果在尝试授权的过程中遇到问题，我们应该重试。简而言之，我们需要保证消息处理。让我们看看这样一个系统可能的样子，同时考虑到我们如何结合重试特性。
+- en: 4.2.1\. A conceptual solution with retry characteristics
+  id: totrans-21
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.2.1\. 具有重试特性的概念解决方案
+- en: This system deals solely with authorizing credit cards related to orders that
+    have already been placed. Our system doesn’t deal with customers placing orders;
+    that happens earlier in the pipeline.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该系统仅处理与已提交订单相关的信用卡授权。我们的系统不处理客户提交订单；这发生在管道的早期。
+- en: Assumptions on upstream and downstream systems
+  id: totrans-23
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 上游和下游系统的假设
+- en: 'Distributed systems are defined by the interactions amongst different systems.
+    For our use case we can assume the following:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式系统由不同系统之间的交互定义。对于我们的用例，我们可以假设以下情况：
+- en: The same order will never be sent to our system more than once. This is guaranteed
+    by an upstream system that handles the placing of customer orders.
+  id: totrans-25
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 同一个订单永远不会被发送到我们的系统超过一次。这是由处理客户订单的上游系统保证的。
+- en: The upstream system that places orders will put the order on a queue and our
+    system will pull the order off the queue so it can be authorized.
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提交订单的上游系统会将订单放入队列，我们的系统将从队列中取出订单以便进行授权。
+- en: A separate downstream system will handle a processed order, either fulfilling
+    the order if the credit card was authorized or notifying the customer of a denied
+    credit card.
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个独立的下游系统将处理已处理的订单，如果信用卡被授权，则履行订单，或者通知客户信用卡被拒绝。
+- en: With these assumptions in hand, we can move forward with a design that’s limited
+    in scope but maps well to the Storm concepts we want to cover.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拥有这些假设，我们可以继续进行一个范围有限但很好地映射到我们想要涵盖的Storm概念的设计。
+- en: Formation of a conceptual solution
+  id: totrans-29
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 概念解决方案的形成
+- en: 'Let’s begin with how orders flow through our system. The following steps are
+    taken when the credit card for an order must be authorized:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从订单如何通过我们的系统开始。当需要授权订单的信用卡时，采取以下步骤：
+- en: Pull the order off the message queue.
+  id: totrans-31
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从消息队列中取出订单。
+- en: Attempt to authorize the credit card by calling an external credit card authorization
+    service.
+  id: totrans-32
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过调用外部信用卡授权服务尝试授权信用卡。
+- en: If the service call succeeds, update the order status in the database.
+  id: totrans-33
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果服务调用成功，更新数据库中的订单状态。
+- en: If it fails, we can try again later.
+  id: totrans-34
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果它失败了，我们可以稍后再尝试。
+- en: Notify a separate downstream system that the order has been processed.
+  id: totrans-35
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通知一个独立的下游系统订单已被处理。
+- en: These steps are illustrated in [figure 4.1](#ch04fig01).
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些步骤在[图4.1](#ch04fig01)中得到了说明。
+- en: Figure 4.1\. Conceptual solution of the e-commerce credit card authorization
+    flow
+  id: totrans-37
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.1\. 电子商务信用卡授权流程的概念解决方案
+- en: '![](04fig01.jpg)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](04fig01.jpg)'
+- en: We have our basic flow. The next step in defining our problem is to look at
+    the data points being worked with in our topology; with this knowledge, we can
+    determine what’s being passed along in our tuples.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经有了基本流程。定义我们问题的下一步是查看我们的拓扑中正在处理的数据点；有了这些知识，我们可以确定元组中传递的内容。
+- en: 4.2.2\. Defining the data points
+  id: totrans-40
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.2.2\. 定义数据点
+- en: With the flow of transactions defined, we can take a look at the data involved.
+    The flow of data starts with incoming orders being pulled off a queue as JSON
+    (see the following listing).
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在定义了事务流程后，我们可以查看涉及的数据。数据流从从队列中拉取的 JSON 格式的传入订单开始（见以下列表）。
+- en: Listing 4.1\. Order JSON
+  id: totrans-42
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.1\. 订单 JSON
+- en: '[PRE0]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This JSON will be converted into Java objects and our system will deal internally
+    with these serialized Java objects. The next listing defines the class for this.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此 JSON 将被转换为 Java 对象，我们的系统将内部处理这些序列化的 Java 对象。下一个列表定义了此类。
+- en: Listing 4.2\. `Order.java`
+  id: totrans-45
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.2\. `Order.java`
+- en: '[PRE1]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: This approach of defining a problem in terms of data points and components that
+    act on them should be familiar to you; it’s exactly how we broke down the problems
+    in [chapters 2](kindle_split_010.html#ch02) and [3](kindle_split_011.html#ch03)
+    when creating our topologies. We now need to map this solution to components Storm
+    can use to build our topology.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种以数据点和对其执行操作的组件来定义问题的方法应该很熟悉；这正是我们在创建拓扑时在 [第 2 章](kindle_split_010.html#ch02)
+    和 [第 3 章](kindle_split_011.html#ch03) 中分解问题的方法。我们现在需要将此解决方案映射到 Storm 可以使用的组件，以构建我们的拓扑。
+- en: 4.2.3\. Mapping the solution to Storm with retry characteristics
+  id: totrans-48
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.2.3\. 将解决方案映射到 Storm 并具有重试特性
+- en: 'Now that we have a basic design and have identified the data that will flow
+    through our system, we can map both our data and our components to Storm concepts.
+    Our topology will have three main components, one spout, and two bolts:'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经有一个基本的设计，并且已经确定了将通过我们的系统流动的数据，我们可以将我们的数据和组件映射到 Storm 概念。我们的拓扑将包含三个主要组件，一个
+    spout 和两个 bolt：
+- en: '**`RabbitMQSpout`—** Our spout will consume messages from the queue, where
+    each message is JSON representing an order, and emit a tuple containing a serialized
+    `Order` object. We’ll use RabbitMQ for our queue implementation—hence the name.
+    We’ll delve into the details of this spout when we discuss guaranteed message
+    processing later in this chapter.'
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`RabbitMQSpout`—** 我们的数据源将从队列中消费消息，其中每个消息都是表示订单的 JSON，并发射包含序列化 `Order` 对象的元组。我们将使用
+    RabbitMQ 作为我们的队列实现——因此得名。我们将在本章后面讨论保证消息处理时深入了解此 spout 的细节。'
+- en: '**`AuthorizeCreditCard`—** If the credit card was authorized, this bolt will
+    update the status of the order to “ready-to-ship.” If the credit card was denied,
+    this bolt will update the status of the order to “denied.” Regardless of the status,
+    this bolt will emit a tuple containing the `Order` to the next bolt in the stream.'
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`AuthorizeCreditCard`—** 如果信用卡被授权，此 bolt 将将订单状态更新为“准备发货”。如果信用卡被拒绝，此 bolt
+    将将订单状态更新为“拒绝”。无论状态如何，此 bolt 都将向流中的下一个 bolt 发射包含 `Order` 的元组。'
+- en: '**`ProcessedOrderNotification`—** A bolt that notifies a separate system that
+    an order has been processed.'
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**`ProcessedOrderNotification`—** 一个通知单独系统订单已处理的 bolt。'
+- en: 'In addition to the spout, bolts, and tuples, we must define stream groupings
+    for how tuples are emitted between each of the components. The following stream
+    groupings will be used:'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了 spout、bolt 和元组外，我们还需要定义元组在各个组件之间发射时的流分组。以下将使用以下流分组：
+- en: Shuffle grouping between the `RabbitMQSpout` and `AuthorizeCreditCard` bolt
+  id: totrans-54
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 `RabbitMQSpout` 和 `AuthorizeCreditCard` bolt 之间进行洗牌分组
+- en: Shuffle grouping between `AuthorizeCreditCard` bolt and the `ProcessedOrder-Notification`
+    bolt
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 `AuthorizeCreditCard` bolt 和 `ProcessedOrder-Notification` bolt 之间进行洗牌分组
+- en: In [chapter 2](kindle_split_010.html#ch02) we used a fields grouping to ensure
+    the same GitHub committer email was routed to the same bolt instance. In [chapter
+    3](kindle_split_011.html#ch03) we used a fields grouping to ensure the same grouping
+    of geocoordinates by time interval was routed to the same bolt instance. We don’t
+    need the same assurances; any given bolt instance can process any given tuple,
+    so a shuffle grouping will suffice.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [第 2 章](kindle_split_010.html#ch02) 中，我们使用字段分组确保相同的 GitHub 提交者电子邮件被路由到相同的
+    bolt 实例。在 [第 3 章](kindle_split_011.html#ch03) 中，我们使用字段分组确保按时间间隔相同的地理坐标分组被路由到相同的
+    bolt 实例。我们不需要相同的保证；任何给定的 bolt 实例都可以处理任何给定的元组，因此洗牌分组就足够了。
+- en: All of the Storm concepts we just discussed are shown in [figure 4.2](#ch04fig02).
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们刚才讨论的所有 Storm 概念都在 [图 4.2](#ch04fig02) 中展示。
+- en: Figure 4.2\. E-commerce credit card authorization mapped to Storm concepts
+  id: totrans-58
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.2. 电子商务信用卡授权映射到Storm概念
+- en: '![](04fig02_alt.jpg)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](04fig02_alt.jpg)'
+- en: With an idea of what our topology looks like, we’ll next cover the code for
+    our two bolts before getting into guaranteed message processing and what’s required
+    to achieve it. We’ll discuss the code for the spout a bit later.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在了解我们的拓扑结构后，我们将先介绍我们两个螺栓的代码，然后再讨论保证消息处理及其实现所需的条件。稍后我们将讨论spout的代码。
+- en: 4.3\. Basic implementation of the bolts
+  id: totrans-61
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.3. 基本螺栓实现
+- en: 'This section will cover the code for our two bolts: `AuthorizeCreditCard` and
+    `ProcessedOrderNotification`. Understanding what’s happening within each of the
+    bolts will provide some context when we discuss guaranteed message processing
+    in [section 4.4](#ch04lev1sec4).'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节将涵盖我们两个螺栓的代码：`AuthorizeCreditCard`和`ProcessedOrderNotification`。了解每个螺栓内部发生的事情将在我们讨论[第4.4节](#ch04lev1sec4)中的保证消息处理时提供一些背景。
+- en: We’re leaving the implementation of the `RabbitMQSpout` for the end of the guaranteed
+    message processing section because much of the code in the spout is geared toward
+    retrying failed tuples. A complete understanding of guaranteed message processing
+    will help you focus on the relevant parts of the spout code.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将`RabbitMQSpout`的实现留到保证消息处理部分的末尾，因为spout中的大部分代码都是针对重试失败的元组。对保证消息处理的完整理解将帮助您专注于spout代码的相关部分。
+- en: 'Let’s begin with a look at the first bolt in our topology: `AuthorizeCreditCard`.'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从查看我们的拓扑中的第一个螺栓`AuthorizeCreditCard`开始。
+- en: 4.3.1\. The AuthorizeCreditCard implementation
+  id: totrans-65
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.3.1. `AuthorizeCreditCard`实现
+- en: The `AuthorizeCreditCard` bolt accepts an `Order` object from the `RabbitMQSpout`.
+    This bolt then attempts to authorize the credit card by talking to an external
+    service. The status of the order will be updated in our database based on the
+    results of the authorization attempt. After that, this bolt will emit a tuple
+    containing the `Order` object it received. [Figure 4.3](#ch04fig03) illustrates
+    where we are in the topology.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`AuthorizeCreditCard`螺栓从`RabbitMQSpout`接受一个`Order`对象。然后，这个螺栓尝试通过调用外部服务来授权信用卡。根据授权尝试的结果，我们的数据库中的订单状态将被更新。之后，这个螺栓将发出包含它接收到的`Order`对象的元组。[图4.3](#ch04fig03)说明了我们在拓扑中的位置。'
+- en: Figure 4.3\. The `AuthorizeCreditCard` bolt accepts an incoming tuple from the
+    `RabbitMQSpout` and emits a tuple regardless of whether or not the credit card
+    was authorized.
+  id: totrans-67
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.3. `AuthorizeCreditCard`螺栓接受来自`RabbitMQSpout`的输入元组，无论信用卡是否被授权都会发出元组。
+- en: '![](04fig03.jpg)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](04fig03.jpg)'
+- en: The code for this bolt is presented in the next listing.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表展示了此螺栓的代码。
+- en: Listing 4.3\. `AuthorizeCreditCard.java`
+  id: totrans-70
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表4.3. `AuthorizeCreditCard.java`
+- en: '![](082fig01_alt.jpg)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](082fig01_alt.jpg)'
+- en: Once the billing has been approved or denied, we’re ready to notify the downstream
+    system of the processed order; the code for this is seen next in `ProcessedOrder-Notification`.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦账单被批准或拒绝，我们就准备好通知下游系统已处理的订单；这个代码将在接下来的`ProcessedOrder-Notification`中展示。
+- en: 4.3.2\. The ProcessedOrderNotification implementation
+  id: totrans-73
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.3.2. `ProcessedOrderNotification`实现
+- en: The second and final bolt in our stream, `ProcessedOrderNotification`, accepts
+    an `Order` from the `AuthorizeCreditCard` bolt and notifies an external system
+    the order has been processed. This bolt doesn’t emit any tuples. [Figure 4.4](#ch04fig04)
+    shows this final bolt in the topology.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们流中的第二个也是最后一个螺栓`ProcessedOrderNotification`接受来自`AuthorizeCreditCard`螺栓的`Order`，并通知外部系统订单已被处理。这个螺栓不会发出任何元组。[图4.4](#ch04fig04)显示了这个最终的螺栓在拓扑中的位置。
+- en: Figure 4.4\. The `ProcessedOrderNotification` bolt accepts an incoming tuple
+    from the `AuthorizeCreditCard` bolt and notifies an external system without emitting
+    a tuple.
+  id: totrans-75
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.4. `ProcessedOrderNotification`螺栓接受来自`AuthorizeCreditCard`螺栓的输入元组，并在不发出元组的情况下通知外部系统。
+- en: '![](04fig04.jpg)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](04fig04.jpg)'
+- en: The following listing shows the code for this bolt.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表显示了此螺栓的代码。
+- en: Listing 4.4\. `ProcessedOrderNotification.java`
+  id: totrans-78
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表4.4. `ProcessedOrderNotification.java`
+- en: '![](083fig01_alt.jpg)'
+  id: totrans-79
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](083fig01_alt.jpg)'
+- en: After the downstream system has been notified of the processed order, there’s
+    nothing left for our topology to do, so this is where the implementation of our
+    bolts comes to an end. We have a well-defined solution at this point (minus the
+    spout, which we’ll discuss next). The steps we took to come up with a design/implementation
+    in this chapter match the same steps we took in [chapters 2](kindle_split_010.html#ch02)
+    and [3](kindle_split_011.html#ch03).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下游系统被通知处理顺序之后，我们的拓扑结构就没有其他事情可做了，因此这就是我们bolt实现结束的地方。目前我们有一个明确的解决方案（除了spout，我们将在下一节讨论）。我们在这个章节中提出的设计/实现步骤与我们在[第2章](kindle_split_010.html#ch02)和[第3章](kindle_split_011.html#ch03)中采取的步骤是一致的。
+- en: Where this implementation will differ from those chapters is the requirement
+    to ensure all tuples are processed by all the bolts in the topology. Dealing with
+    financial transactions is much different than GitHub commit counts or heat maps
+    for social media check-ins. Remember the pieces of the puzzle needed for supporting
+    reliability mentioned earlier in [section 4.1.1](#ch04lev2sec1)?
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与那些章节相比，这个实现的不同之处在于确保所有元组都被拓扑结构中的所有bolt处理的要求。处理金融交易与GitHub提交计数或社交媒体签到热图有很大的不同。还记得在[4.1.1节](#ch04lev2sec1)中提到的支持可靠性的拼图碎片吗？
+- en: A reliable data source with a corresponding reliable spout
+  id: totrans-82
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个对应可靠spout的可靠数据源
+- en: An anchored tuple stream
+  id: totrans-83
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个锚定的元组流
+- en: A topology that acknowledges each tuple as it’s processed or notifies us of
+    the failure
+  id: totrans-84
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个拓扑结构在处理每个元组时会承认它，或者在出现故障时通知我们
+- en: A fault-tolerant Storm cluster infrastructure
+  id: totrans-85
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有容错能力的Storm集群基础设施
+- en: We are at a point where we can start addressing the first three pieces. So how
+    will our implementation change in order to provide these pieces? Surprisingly,
+    it won’t! The code for our bolts is already set up to support guaranteed message
+    processing in Storm. Let’s examine in detail how Storm is doing this as well as
+    take a look at our reliable `RabbitMQSpout` next.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经到了可以开始处理前三部分内容的时候了。那么，我们的实现将如何改变以提供这些部分呢？令人惊讶的是，它不会改变！我们bolt的代码已经设置好了以支持Storm中的保证消息处理。让我们详细看看Storm是如何做到这一点的，以及接下来看一下我们的可靠`RabbitMQSpout`。
+- en: 4.4\. Guaranteed message processing
+  id: totrans-87
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.4\. 保证消息处理
+- en: What’s a message and how does Storm guarantee it gets processed? A message is
+    synonymous with a tuple, and Storm has the ability to ensure a tuple being emitted
+    from a spout gets fully processed by the topology. So if a tuple fails at some
+    point in the stream, Storm knows a failure occurred and can replay the tuple,
+    thus making sure it gets processed. The Storm documentation commonly uses the
+    phrase *guaranteed message processing*, as will we throughout the book.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 什么是消息，Storm又是如何保证消息被处理的？消息与元组同义，Storm有确保从spout发出的元组被拓扑结构完全处理的能力。所以如果元组在流中某个点失败，Storm知道发生了故障，并且可以重新播放该元组，从而确保它被处理。Storm文档通常使用“保证消息处理”这个短语，本书中我们也将使用这个短语。
+- en: Understanding guaranteed message processing is essential if you want to develop
+    reliable topologies. The first step in gaining this understanding is to know what
+    it means for a tuple to be either fully processed or failed.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想开发可靠的拓扑结构，理解保证消息处理是至关重要的。获得这种理解的第一步是知道元组完全处理或失败的含义。
+- en: '4.4.1\. Tuple states: fully processed vs. failed'
+  id: totrans-90
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.4.1\. 元组状态：完全处理与失败
+- en: 'A tuple that’s emitted from a spout can result in many additional tuples being
+    emitted by the downstream bolts. This creates a *tuple tree*, with the tuple emitted
+    by the spout acting as the root. Storm creates and tracks a tuple tree for every
+    tuple emitted by the spout. Storm will consider a tuple emitted by a spout to
+    be fully processed when all the leaves in the tree for that tuple have been marked
+    as processed. Here are two things you need to do with the Storm API to make sure
+    Storm can create and track the tuple tree:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从spout发出的元组可能导致下游bolt发出许多额外的元组。这创建了一个*元组树*，其中spout发出的元组作为根。Storm为spout发出的每个元组创建和跟踪一个元组树。当该元组的树中的所有叶子都被标记为已处理时，Storm将认为从spout发出的元组已经完全处理。为了确保Storm可以创建和跟踪元组树，你需要使用Storm
+    API完成以下两项操作：
+- en: Make sure you anchor to input tuples when emitting new tuples from a bolt. It’s
+    a bolt’s way of saying, “Okay, I’m emitting a new tuple and here’s the initial
+    input tuple as well so you can make a connection between the two.”
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保在从bolt发出新元组时锚定输入元组。这是bolt表示“好的，我正在发出一个新元组，同时这里也有初始输入元组，这样你可以在这两个元组之间建立联系”的方式。
+- en: Make sure your bolts tell Storm when they’ve finished processing an input tuple.
+    This is called *acking* and it’s a bolt’s way of saying, “Hey Storm, I’m done
+    processing this tuple so feel free to mark it as processed in the tuple tree.”
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保你的螺栓在完成处理一个输入元组时通知Storm。这被称为*确认*，这是螺栓告诉Storm的方式，“嘿，Storm，我已经处理完这个元组了，所以请随意在元组树中将其标记为已处理。”
+- en: Storm will then have all it needs to create and track a tuple tree.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Storm将拥有创建和跟踪元组树所需的一切。
+- en: '|  |'
+  id: totrans-95
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: '**Directed acyclic graph and tuple trees**'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**有向无环图和元组树**'
+- en: Though we call it a tuple tree, it’s actually a directed acyclic graph (DAG).
+    A directed graph is a set of nodes connected by edges, where the edges have a
+    direction to them. A DAG is a directed graph such that you can’t start at one
+    node and follow a sequence of edges to eventually get back to that same node.
+    Early versions of Storm only worked with trees; even though Storm now supports
+    DAGs, the term “tuple tree” has stuck.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们称之为元组树，但实际上它是一个有向无环图（DAG）。有向图是一组由边连接的节点集，其中边有方向。DAG是有向图，你不能从一个节点开始，通过一系列边最终回到同一个节点。Storm的早期版本只与树一起工作；尽管Storm现在支持DAG，但术语“元组树”仍然存在。
+- en: '|  |'
+  id: totrans-98
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 'In an ideal world, you could stop here and tuples emitted by the spout would
+    always be fully processed without any problems. Unfortunately, the world of software
+    isn’t always ideal; you should expect failures. Our tuples are no different and
+    will be considered failed in one of two scenarios:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个理想的世界里，你可以在这里停止，由喷发器发出的元组将始终被完全处理，没有任何问题。不幸的是，软件的世界并不总是理想的；你应该预料到失败。我们的元组也不例外，将在以下两种情况下被视为失败：
+- en: 'All of the leaves in a tuple tree aren’t marked as processed (acked) within
+    a certain time frame. This time frame is configurable at the topology level via
+    the `TOPOLOGY`_`MESSAGE`_`TIMEOUT`_`SECS` setting, which defaults to 30 seconds.
+    Here’s how you’d override this default when building your topology:'
+  id: totrans-100
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 元组树中的所有叶子节点在特定时间内都没有被标记为已处理（已确认）。这个时间框架可以在拓扑级别通过`TOPOLOGY`_`MESSAGE`_`TIMEOUT`_`SECS`设置进行配置，默认为30秒。以下是如何在构建你的拓扑时覆盖此默认值：
+- en: '[PRE2]'
+  id: totrans-101
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: A tuple is manually failed in a bolt, which triggers an immediate failure of
+    the tuple tree.
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在螺栓中手动失败一个元组，这会触发元组树的立即失败。
+- en: We keep mentioning the phrase *tuple tree*, so let’s walk through the life of
+    a tuple tree in our topology to show you how this works.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不断提到“元组树”这个词，所以让我们在我们的拓扑中遍历元组树的生命周期，以展示它是如何工作的。
+- en: Going down the rabbit hole with Alice...or a tuple
+  id: totrans-104
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 与爱丽丝一起进入兔子洞...或者一个元组
+- en: '[Figure 4.5](#ch04fig05) starts things off by showing the initial state of
+    the tuple tree after our spout emits a tuple. We have a tree with a single root
+    node.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图4.5](#ch04fig05) 从展示我们的喷发器发出一个元组后元组树的初始状态开始。我们有一个只有一个根节点的树。'
+- en: Figure 4.5\. Initial state of the tuple tree
+  id: totrans-106
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.5\. 元组树的初始状态
+- en: '![](04fig05.jpg)'
+  id: totrans-107
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图4.5](04fig05.jpg)'
+- en: The first bolt in the stream is the `AuthorizeCreditCard` bolt. This bolt will
+    perform the authorization and then emit a new tuple. [Figure 4.6](#ch04fig06)
+    shows the tuple tree after emitting.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流中的第一个螺栓是`AuthorizeCreditCard`螺栓。这个螺栓将执行授权并发出一个新的元组。[图4.6](#ch04fig06)显示了发出后的元组树。
+- en: Figure 4.6\. Tuple tree after the `AuthorizeCreditCard` bolt emits a tuple
+  id: totrans-109
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.6\. 在`AuthorizeCreditCard`螺栓发出一个元组后，元组树
+- en: '![](04fig06.jpg)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图4.6](04fig06.jpg)'
+- en: We’ll need to ack the input tuple in the `AuthorizeCreditCard` bolt so Storm
+    can mark that tuple as processed. [Figure 4.7](#ch04fig07) shows the tuple tree
+    after this ack has been performed.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要在`AuthorizeCreditCard`螺栓中确认输入元组，这样Storm才能将该元组标记为已处理。[图4.7](#ch04fig07)显示了执行此确认后的元组树。
+- en: Figure 4.7\. Tuple tree after the `AuthorizeCreditCard` bolt acks its input
+    tuple
+  id: totrans-112
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.7\. 在`AuthorizeCreditCard`螺栓确认其输入元组后，元组树
+- en: '![](04fig07.jpg)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图4.7](04fig07.jpg)'
+- en: Once a tuple has been emitted by the `AuthorizeCreditCard` bolt, it makes its
+    way to the `ProcessedOrderNotification` bolt. This bolt doesn’t emit a tuple,
+    so no tuples will be added to the tuple tree. But we do need to ack the input
+    tuple and thus tell Storm this bolt has completed processing. [Figure 4.8](#ch04fig08)
+    shows the tuple tree after this ack has been performed. At this point the tuple
+    is considered fully processed.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦`AuthorizeCreditCard`螺栓发出一个元组，它就会到达`ProcessedOrderNotification`螺栓。这个螺栓不会发出元组，因此不会将元组添加到元组树中。但我们需要确认输入元组，因此告诉Storm这个螺栓已经完成了处理。[图4.8](#ch04fig08)显示了执行此确认后的元组树。此时，元组被认为是完全处理的。
+- en: Figure 4.8\. Tuple tree after the `ProcessedOrderNotification` bolt acks its
+    input tuple
+  id: totrans-115
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图4.8\. 在`ProcessedOrderNotification`螺栓确认其输入元组后，元组树
+- en: '![](04fig08.jpg)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](04fig08.jpg)'
+- en: With a clear definition of a tuple tree in mind, let’s move on to the code that’s
+    needed in our bolts for anchoring and acking. We’ll also discuss failing tuples
+    and the various types of errors we need to watch out for.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在心中有一个清晰的元组树定义后，让我们继续讨论我们bolt中需要的锚定和确认的代码。我们还将讨论失败的元组和我们需要注意的各种错误类型。
+- en: 4.4.2\. Anchoring, acking, and failing tuples in our bolts
+  id: totrans-118
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.4.2. 在我们的bolt中锚定、确认和失败元组
+- en: 'There are two ways to implement anchoring, acking, and failing of tuples in
+    our bolts: *implicit* and *explicit*. We mentioned earlier that our bolt implementations
+    are already set up for guaranteed message processing. This is done via implicit
+    anchoring, acking, and failing, which we’ll discuss next.'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的bolt中实现元组的锚定、确认和失败有两种方式：*隐式*和*显式*。我们之前提到，我们的bolt实现已经为保证消息处理而设置好了。这是通过隐式锚定、确认和失败来完成的，我们将在下面讨论。
+- en: Implicit anchoring, acking, and failing
+  id: totrans-120
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 隐式锚定、确认和失败
+- en: 'In our implementation, all of our bolts extended the `BaseBasicBolt` abstract
+    class. The beauty of using `BaseBasicBolt` as our base class is that it automatically
+    provides anchoring and acking for us. The following list examines how Storm does
+    this:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的实现中，所有的bolt都扩展了`BaseBasicBolt`抽象类。使用`BaseBasicBolt`作为我们的基类的美妙之处在于，它自动为我们提供了锚定和确认。以下列表检查了Storm是如何做到这一点的：
+- en: '***Anchoring*—** Within the `execute()` method of the `BaseBasicBolt` implementation,
+    we’ll be emitting a tuple to be passed on to the next bolt. At this point of emitting,
+    the provided `BasicOutputCollector` will take on the responsibility of anchoring
+    the output tuple to the input tuple. In the `AuthorizeCreditCard` bolt, we emit
+    the order. This outgoing order tuple will be automatically anchored to the incoming
+    order tuple:'
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***锚定（Anchoring）***—**在`BaseBasicBolt`实现的`execute()`方法中，我们将发射一个元组传递给下一个bolt。在发射的这个点上，提供的`BasicOutputCollector`将承担将输出元组锚定到输入元组的责任。在`AuthorizeCreditCard`bolt中，我们发射订单。这个发出的订单元组将自动锚定到进入的订单元组：'
+- en: '[PRE3]'
+  id: totrans-123
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: '***Acking*—** When the `execute()` method of the `BaseBasicBolt` implementation
+    completes, the tuple that was sent to it will be automatically acked.'
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***确认（Acking）***—**当`BaseBasicBolt`实现的`execute()`方法完成时，发送给它的元组将被自动确认。'
+- en: '***Failing*—** If there’s a failure within the `execute()` method, the way
+    to handle that is to notify `BaseBasicBolt` by throwing a `FailedException` or
+    `ReportedFailed-Exception`. Then `BaseBasicBolt` will take care of marking that
+    tuple as failed.'
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***失败（Failing）***—**如果在`execute()`方法中发生失败，处理方式是通过抛出`FailedException`或`ReportedFailed-Exception`来通知`BaseBasicBolt`。然后`BaseBasicBolt`将负责将该元组标记为失败。'
+- en: Using `BaseBasicBolt` to keep track of tuple states through implicit anchoring,
+    acking, and failing is easy. But `BaseBasicBolt` isn’t suitable for every use
+    case. It’s generally helpful only in use cases where a single tuple enters the
+    bolt and a single corresponding tuple is emitted from that bolt immediately. That
+    is the case with our credit card authorization topology, so it works here. But
+    for more complex examples, it’s not sufficient. This is where explicit anchoring,
+    acking, and failing come into play.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`BaseBasicBolt`通过隐式锚定、确认和失败来跟踪元组状态很容易。但`BaseBasicBolt`并不适合每个用例。它通常只在单个元组进入bolt并且立即从这个bolt发出单个对应元组的用例中才有帮助。这就是我们的信用卡授权拓扑的情况，所以它在这里工作。但对于更复杂的例子，这还不够。这就是显式锚定、确认和失败发挥作用的地方。
+- en: Explicit anchoring, acking, and failing
+  id: totrans-127
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 显式锚定、确认和失败
+- en: When we have bolts that perform more complex tasks such as these
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们有一些bolt执行更复杂的任务时
+- en: Aggregating on multiple input tuples (collapsing)
+  id: totrans-129
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在多个输入元组上聚合（折叠）
+- en: Joining multiple incoming streams (we won’t cover multiple streams in this chapter,
+    but we did have two streams going through a bolt in the heat map chapter, [chapter
+    3](kindle_split_011.html#ch03), when we had a tick tuple stream in addition to
+    the default stream)
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 联合多个进入的流（我们不会在本章中介绍多个流，但在热图章节中，[第3章](kindle_split_011.html#ch03)，当我们除了默认流外还有一个tick元组流时，我们确实有两个流通过一个bolt）
+- en: 'then we’ll have to move beyond the functionality provided by `BaseBasicBolt`.
+    `BaseBasicBolt` is suitable when behavior is predictable. When you need to programmatically
+    decide when a tuple batch is complete (when aggregating, for example) or at runtime
+    decide when two or more streams should be joined, then you need to programmatically
+    decide when to anchor, ack, or fail. In these cases, you need to use `BaseRichBolt`
+    as a base class instead of `BaseBasicBolt`. The following list shows what needs
+    to be done inside an implementation of a bolt extending `BaseRichBolt`:'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们将不得不超越 `BaseBasicBolt` 提供的功能。当行为可预测时，`BaseBasicBolt` 是合适的。当你需要程序性地决定一个元组批次何时完成（例如在聚合时）或在运行时决定何时将两个或多个流连接起来时，你需要程序性地决定何时锚定、确认或失败。在这些情况下，你需要使用
+    `BaseRichBolt` 作为基类而不是 `BaseBasicBolt`。以下列表显示了在扩展 `BaseRichBolt` 的 bolt 的实现中需要做什么：
+- en: '***Anchoring*—** To explicitly anchor, we need to pass the input tuple into
+    the `emit()` method on the `outputCollector` within the bolt’s `execute` method:
+    `outputCollector.emit(new Values(order))` becomes `outputCollector.emit(tuple,
+    new Values(order))`.'
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***锚定***—**要显式锚定，我们需要在 bolt 的 `execute` 方法中将输入元组传递到 `outputCollector` 的 `emit()`
+    方法：`outputCollector.emit(new Values(order))` 变为 `outputCollector.emit(tuple, new
+    Values(order))`。'
+- en: '***Acking*—** To explicitly ack, we need to call the `ack` method on the `outputCollector`
+    within the bolt’s `execute` method: `outputCollector.ack(tuple)`.'
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***确认***—**要显式确认，我们需要在 bolt 的 `execute` 方法中调用 `outputCollector` 的 `ack` 方法：`outputCollector.ack(tuple)`。'
+- en: '***Failing*—** This is achieved by calling the `fail` method on the `outputCollector`
+    within the bolt’s `execute` method: `throw new FailedException()` becomes `outputCollector.fail(tuple);`'
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***失败***—**这是通过在 bolt 的 `execute` 方法中调用 `outputCollector` 的 `fail` 方法来实现的：`throw
+    new FailedException()` 变为 `outputCollector.fail(tuple);`'
+- en: Although we can’t use `BaseBasicBolt` for all use cases, we can use `BaseRichBolt`
+    for everything that the former can do and more because it provides more fine-grained
+    control over when and how you anchor, ack, or fail. Our credit card authorization
+    topology can be expressed in terms of `BaseBasicBolt` with desired reliability,
+    but it can be written with `BaseRichBolt` just as easily. The following listing
+    rewrites one of the bolts from our credit card authorization topology using `BaseRichBolt`.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们不能为所有用例使用 `BaseBasicBolt`，但我们可以使用 `BaseRichBolt` 来完成 `BaseBasicBolt` 可以做的所有事情，并且更多，因为它提供了更精细的控制，以确定何时以及如何锚定、确认或失败。我们的信用卡授权拓扑可以用
+    `BaseBasicBolt` 来表达，以实现所需的可靠性，但也可以用 `BaseRichBolt` 轻松编写。以下列表重写了我们的信用卡授权拓扑中的一个
+    bolt：
+- en: Listing 4.5\. Explicit anchoring and acking in `AuthorizeCreditCard.java`
+  id: totrans-136
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.5\. 在 `AuthorizeCreditCard.java` 中的显式锚定和确认
+- en: '![](ch04ex05-0.jpg)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](ch04ex05-0.jpg)'
+- en: '![](ch04ex05-1.jpg)'
+  id: totrans-138
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](ch04ex05-1.jpg)'
+- en: One thing to note is that with `BaseBasicBolt`, we were given a `BasicOutputCollector`
+    with each call of the `execute()` method. But with `BaseRichBolt`, we are responsible
+    for maintaining tuple state by using an `OutputCollector` that will be provided
+    via the `prepare()` method at the time of bolt initialization. `BasicOutputCollector`
+    is a stripped-down version of `OutputCollector`; it encapsulates an `OutputCollector`
+    but hides the more fine-grained functionality with a simpler interface.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一个需要注意的事项是，使用 `BaseBasicBolt` 时，我们会在每次调用 `execute()` 方法时获得一个 `BasicOutputCollector`。但使用
+    `BaseRichBolt` 时，我们需要通过在 bolt 初始化时通过 `prepare()` 方法提供的 `OutputCollector` 来维护元组状态。`BasicOutputCollector`
+    是 `OutputCollector` 的简化版本；它封装了一个 `OutputCollector`，但通过一个更简单的接口隐藏了更精细的功能。
+- en: 'Another thing to be mindful of is that when using `BaseRichBolt`, if we don’t
+    anchor our outgoing tuple(s) to the incoming tuple, we’ll no longer have any reliability
+    downstream from that point on. `BaseBasicBolt` did the anchoring on your behalf:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一点需要注意的事项是，当使用 `BaseRichBolt` 时，如果我们没有将输出的元组锚定到输入的元组上，那么从那个点开始将不再有任何可靠性。`BaseBasicBolt`
+    代表你进行了锚定：
+- en: '*Anchored*—`outputCollector.emit(tuple, new Values(order));`'
+  id: totrans-141
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*已锚定*—`outputCollector.emit(tuple, new Values(order));`'
+- en: '*Unanchored*—`outputCollector.emit(new Values(order));`'
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*未锚定*—`outputCollector.emit(new Values(order));`'
+- en: 'Having covered anchoring and acking, let’s move on to something that isn’t
+    as straightforward: handling errors. The act of failing a tuple itself is easy;
+    it’s knowing when an error can be retried that requires some thought.'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在讨论了锚定和确认之后，让我们继续讨论不那么直接的事情：处理错误。本身失败一个元组是容易的；知道何时可以重试错误则需要一些思考。
+- en: Handling failures and knowing when to retry
+  id: totrans-144
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 处理失败和知道何时重试
+- en: We’ve covered a lot of concepts related to guaranteed message processing. We
+    have anchoring and acking down pat. But we have yet to address how we want to
+    handle failures. We know that we can fail a tuple by either throwing a `FailedException/ReportedFailedException`
+    (when using `BaseBasicBolt`) or calling `fail` on the `OutputCollector` (when
+    using `BaseRichBolt`). Let’s look at this in the context of our `AuthorizeCreditCard`
+    bolt, shown in the next listing. We’re showing only the changes to the `execute()`
+    method that incorporate explicit failing.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经涵盖了与保证消息处理相关的许多概念。我们已经很好地掌握了锚定和确认。但我们还没有解决我们想要如何处理失败的问题。我们知道我们可以通过抛出`FailedException/ReportedFailedException`（当使用`BaseBasicBolt`时）或在`OutputCollector`上调用`fail`（当使用`BaseRichBolt`时）来使元组失败。让我们在`AuthorizeCreditCard`bolt的上下文中看看这个问题，如下所示。我们只显示了`execute()`方法中包含显式失败的更改。
+- en: Listing 4.6\. Anchoring, acking, and failing in `AuthorizeCreditCard.execute()`
+  id: totrans-146
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表4.6\. 在`AuthorizeCreditCard.execute()`中锚定、确认和失败
+- en: '![](089fig01_alt.jpg)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](089fig01_alt.jpg)'
+- en: 'Failing a tuple in this way will cause the entire tuple tree to be replayed
+    starting at the spout. This is the key to guaranteed message processing, because
+    this is the main trigger for the retry mechanism. It’s important to know when
+    a tuple should be failed. This seems obvious, but tuples should be failed when
+    they’re *retriable* (can be retried). The question then becomes what can/should
+    be retried. The following list discusses the various types of errors:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以这种方式使元组失败将导致整个元组树从spout开始重放。这是保证消息处理的关键，因为这是重试机制的主要触发器。了解何时应该使元组失败很重要。这看起来很明显，但元组应该在它们是*可重试的*（可以重试）时失败。那么问题就变成了什么可以/应该重试。以下列表讨论了各种类型的错误：
+- en: '***Known errors*—** These can be broken down into two groups:'
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***已知错误*—** 这些可以分为两组：'
+- en: '***Retriable*—** For known specific, retriable errors (say, a socket timeout
+    exception while connecting to a service), we’ll want to fail the tuple so it gets
+    replayed and retried.'
+  id: totrans-150
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***可重试*—** 对于已知的特定可重试错误（例如，在连接到服务时发生的套接字超时异常），我们希望使元组失败，以便它被重放和重试。'
+- en: '***Nonretriable*—** For known errors that can’t be safely retried (like a POST
+    to REST API) or when it doesn’t make sense for something to be retried (like a
+    `ParseException` while handling JSON or XML), you shouldn’t fail the tuple. When
+    you have one of these nonretriable errors, instead of failing the tuple you’ll
+    need to ack the tuple (without emitting a new one), because you don’t want to
+    engage the replay mechanism for it. We recommend some sort of logging or reporting
+    here so you’ll know there was an error in your topology.'
+  id: totrans-151
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***不可重试*—** 对于已知无法安全重试的错误（如对REST API的POST请求）或者当重试没有意义时（如处理JSON或XML时的`ParseException`），你不应该使元组失败。当你遇到这些不可重试的错误时，你不需要使元组失败，而是需要确认该元组（不发射新的元组），因为你不想触发它的重放机制。我们建议在这里进行某种形式的记录或报告，这样你将知道你的拓扑中出现了错误。'
+- en: '***Unknown errors*—** Generally, unknown or unexpected errors will be a small
+    percentage of errors observed, so it’s customary to fail them and retry them.
+    After you’ve seen them once, they become a known error (assuming logging is in
+    place), and you can take action on them as either a retriable or nonretriable
+    known error.'
+  id: totrans-152
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***未知错误*—** 通常，未知或意外的错误将占观察到的错误的一小部分，因此通常会将它们失败并重试。在你看到它们一次之后，它们就变成了已知错误（假设有记录），你可以对它们采取行动，无论是作为可重试的还是不可重试的已知错误。'
+- en: '|  |'
+  id: totrans-153
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-154
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Having data on errors within a Storm topology can be useful, as you’ll see in
+    [chapter 6](kindle_split_014.html#ch06) when we discuss metrics.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Storm拓扑中记录错误数据可能很有用，正如你在[第6章](kindle_split_014.html#ch06)中看到的，当我们讨论度量时。
+- en: '|  |'
+  id: totrans-156
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: This brings our discussion of anchoring, acking, and failing in our bolts to
+    a close. Now it’s time to shift gears and move to the spout. We mentioned that
+    when the replay mechanism gets engaged, the replaying starts at the spout and
+    works its way down. Let’s see how that works.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使得我们在bolt中关于锚定、确认和失败的讨论告一段落。现在，是时候转换方向，转向spout。我们提到，当重放机制被激活时，重放从spout开始，并逐步进行。让我们看看它是如何工作的。
+- en: 4.4.3\. A spout’s role in guaranteed message processing
+  id: totrans-158
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.4.3\. Spout在保证消息处理中的作用
+- en: So far our focus has been centered on what we need to do in our bolts to achieve
+    guaranteed message processing. This section will complete the sequence and discuss
+    the role a spout plays in guaranteeing a tuple it emits gets fully processed or
+    replayed on failure. The next listing shows the spout interface from [chapter
+    2](kindle_split_010.html#ch02).
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们的焦点一直集中在我们在 bolts 中需要做什么来实现保证消息处理。本节将完成序列，并讨论 spout 在保证它发射的元组被完全处理或失败时重放所起的作用。下一个列表显示了来自
+    [第 2 章](kindle_split_010.html#ch02) 的 spout 接口。
+- en: Listing 4.7\. `ISpout.java` interface
+  id: totrans-160
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.7\. `ISpout.java` 接口
+- en: '![](090fig01.jpg)'
+  id: totrans-161
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](090fig01.jpg)'
+- en: 'How does a spout tie into guaranteeing messages are processed? Here’s a hint:
+    The `ack` ![](2.jpg) and `fail` ![](3.jpg) methods have something to do with it.
+    The following steps give a more complete picture in terms of what happens before
+    a spout emits a tuple and after that tuple is either fully processed or failed:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 怎样让 spout 保证消息被处理？这里有一个提示：`ack` ![](2.jpg) 和 `fail` ![](3.jpg) 方法与此有关。以下步骤给出了一个更完整的图景，说明了在
+    spout 发射元组之前和该元组被完全处理或失败之后会发生什么：
+- en: Storm requests a tuple by calling `nextTuple` ![](1.jpg) on the spout.
+  id: totrans-163
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Storm 通过在 spout 上调用 `nextTuple` ![](1.jpg) 来请求元组。
+- en: The spout uses the `SpoutOutputCollector` to emit a tuple to one of its streams.
+  id: totrans-164
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: spout 使用 `SpoutOutputCollector` 将元组发射到其流中的一个。
+- en: 'When emitting the tuple, the spout provides a `messageId` that’s used to identify
+    that particular tuple. This may look something like this:'
+  id: totrans-165
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当发射元组时，Spout 提供一个 `messageId`，用于识别该特定的元组。这看起来可能像这样：
+- en: '[PRE4]'
+  id: totrans-166
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: The tuple gets sent to the bolts downstream and Storm tracks the tuple tree
+    of messages that are created. Remember, this is done via anchoring and acking
+    within the bolts so Storm can build up the tree and mark leaves as processed.
+  id: totrans-167
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 元组被发送到下游的 bolts，Storm 跟踪由这些消息创建的元组树。记住，这是通过 bolts 中的锚定和确认来完成的，以便 Storm 可以构建树并标记已处理的叶子。
+- en: If Storm detects that a tuple is fully processed, it will call the `ack` ![](2.jpg)
+    method on the originating spout task with the message ID the spout provided to
+    Storm.
+  id: totrans-168
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果 Storm 检测到元组已被完全处理，它将在原始 spout 任务上调用 `ack` ![](2.jpg) 方法，并带有 spout 提供给 Storm
+    的消息 ID。
+- en: If the tuple timed out or one of the consuming bolts explicitly failed the tuple
+    (such as in our `AuthorizeCreditCard` bolt), Storm will call the `fail` ![](3.jpg)
+    method on the originating spout task with the message ID the spout provided to
+    Storm.
+  id: totrans-169
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果元组超时或消费 bolts 之一明确地失败了元组（例如在我们的 `AuthorizeCreditCard` bolt 中），Storm 将在原始 spout
+    任务上调用 `fail` ![](3.jpg) 方法，并带有 spout 提供给 Storm 的消息 ID。
+- en: Steps 3, 5, and 6 are the keys to guaranteed message processing from a spout’s
+    perspective. Everything starts with providing a `messageId` when emitting a tuple.
+    Not doing this means Storm can’t track the tuple tree. You should add code to
+    the `ack` method to perform any required cleanup for a fully processed tuple,
+    if necessary. You should also add code to the `fail` method to replay the tuple.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 步骤 3、5 和 6 是从 spout 视角保证消息处理的关键。一切始于发射元组时提供 `messageId`。不这样做意味着 Storm 无法跟踪元组树。如果需要，您应该在
+    `ack` 方法中添加代码以执行对完全处理元组所需的任何清理。您还应该在 `fail` 方法中添加代码以重放元组。
+- en: '|  |'
+  id: totrans-171
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '**Storm acker tasks**'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**Storm 确认任务**'
+- en: Storm uses special “acker” tasks to keep track of tuple trees in order to determine
+    whether a spout tuple has been fully processed. If an acker task sees a tuple
+    tree is complete, it’ll send a message to the spout that originally emitted the
+    tuple, resulting in that spout’s `ack` method being called.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Storm 使用特殊的“确认”任务来跟踪元组树，以确定 spout 元组是否已被完全处理。如果一个确认任务看到元组树是完整的，它将向最初发射元组的 spout
+    发送消息，导致该 spout 的 `ack` 方法被调用。
+- en: '|  |'
+  id: totrans-174
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: It looks like we need to write an implementation of a spout that supports all
+    these criteria. In the previous chapter, we introduced the concept of an unreliable
+    data source. An unreliable data source won’t be able to support acking or failing.
+    Once that data source hands your spout a message, it assumes you’ve taken responsibility
+    for that message. A reliable data source, on the other hand, will pass messages
+    to the spout but won’t assume you’ve taken responsibility for them until you’ve
+    provided an acknowledgment of some sort. In addition, a reliable data source will
+    allow you to fail any given tuple with the guarantee that it will later be able
+    to replay it. In short, a reliable data source will support steps 3, 5, and 6.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看起来我们需要编写一个支持所有这些标准的spout实现。在前一章中，我们介绍了不可靠数据源的概念。不可靠数据源将无法支持确认或失败。一旦该数据源将消息交给你的spout，它就假设你已经承担了该消息的责任。另一方面，可靠数据源会将消息传递给spout，但直到你提供了某种形式的确认，它才不会假设你已经承担了这些消息的责任。此外，可靠数据源将允许你失败任何给定的元组，并保证你以后能够重放它。简而言之，可靠数据源将支持步骤3、5和6。
+- en: The best way to demonstrate how a reliable data source’s capabilities tie into
+    a spout API is to implement a solution with a commonly used data source. Kafka,
+    RabbitMQ, and Kestrel are all commonly used with Storm. Kafka is a valuable tool
+    in your arsenal of infrastructure that works great with Storm, which we’ll cover
+    in detail in [chapter 9](kindle_split_017.html#ch09). For now we’re going with
+    RabbitMQ, which is an excellent match for our use case.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要展示可靠数据源的能力如何与spout API结合，最好的方式是使用一个常用的数据源来实现解决方案。Kafka、RabbitMQ和Kestrel都是与Storm一起广泛使用的。Kafka是基础设施工具箱中的一个宝贵工具，它与Storm配合得很好，我们将在第9章中详细介绍。现在我们选择使用RabbitMQ，它非常适合我们的用例。
+- en: A reliable spout implementation
+  id: totrans-177
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 一个可靠的spout实现
+- en: Let’s go over a RabbitMQ-based spout implementation that’ll provide all the
+    reliability we need for this use case.^([[1](#ch04fn01)]) Keep in mind our main
+    point of interest isn’t RabbitMQ, but rather how a well-implemented spout together
+    with a reliable data source provide guaranteed message processing. If you don’t
+    follow the underpinnings of the RabbitMQ client API, don’t worry; we’ve emphasized
+    the important parts that you need to follow in the next listing.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一个基于RabbitMQ的spout实现，它将为我们提供这个用例所需的全部可靠性。[^1] 请记住，我们的主要兴趣不是RabbitMQ，而是如何通过一个良好实现的spout和可靠数据源提供确保消息处理。如果你不熟悉RabbitMQ客户端API的底层，不要担心；我们在下一个列表中强调了你需要关注的重要部分。
+- en: ¹ You can find a more robust, configurable, and performant implementation of
+    the spout implementation for RabbitMQ on GitHub at [https://github.com/ppat/storm-rabbitmq](https://github.com/ppat/storm-rabbitmq).
+  id: totrans-179
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: ¹ 你可以在GitHub上找到RabbitMQ spout实现的更健壮、可配置和性能更好的版本，网址为[https://github.com/ppat/storm-rabbitmq](https://github.com/ppat/storm-rabbitmq)。
+- en: Listing 4.8\. `RabbitMQSpout.java`
+  id: totrans-180
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表4.8\. `RabbitMQSpout.java`
+- en: '![](ch04ex08-0.jpg)'
+  id: totrans-181
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](ch04ex08-0.jpg)'
+- en: '![](ch04ex08-1.jpg)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](ch04ex08-1.jpg)'
+- en: Storm gives you the tools to guarantee the tuples being emitted by your spout
+    are fully processed while they’re in transit within the Storm infrastructure.
+    But for guaranteed message processing to take effect, you must use a reliable
+    data source that has the capability of replaying a tuple. Additionally, the spout
+    implementation has to make use of the replay mechanism provided by its data source.
+    Understanding this is essential if you want to be successful with guaranteed message
+    processing in your topologies.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Storm为你提供了工具，确保你的spout发出的元组在Storm基础设施中传输过程中得到完全处理。但为了确保消息处理生效，你必须使用一个可靠的数据源，该数据源具有重放元组的能力。此外，spout实现必须利用其数据源提供的重放机制。如果你想在拓扑中成功实现确保消息处理，理解这一点是至关重要的。
+- en: '|  |'
+  id: totrans-184
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: '**Emitting anchored vs. unanchored tuples from a spout**'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**从spout发出锚定与非锚定元组**'
+- en: The topologies we created in earlier chapters didn’t take advantage of guaranteed
+    message processing or fault tolerance. We may have used `BaseBasicBolt` in those
+    chapters and that may have bought us implicit anchoring and acking, but our tuples
+    in those chapters didn’t originate from a reliable spout. Because of the unreliable
+    nature of those data sources, when we emitted tuples at the spout, they were sent
+    “unanchored” via `outputCollector.emit(new Values(order))`. When you don’t anchor
+    to the input tuple starting from the spout, it can’t guarantee that they’ll be
+    fully processed. This is because replaying always starts at the spout. So the
+    decision to emit tuples unanchored should always be a conscious one, as we made
+    in the heat map example.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在前面章节中创建的拓扑没有充分利用保证消息处理或容错。我们可能在那章中使用了`BaseBasicBolt`，这可能会给我们带来隐式的锚定和确认，但那些章节中的元组并非来自可靠的数据源。由于这些数据源的不可靠性，当我们从spout发射元组时，它们是通过`outputCollector.emit(new
+    Values(order))`发送的“未锚定”。如果你从spout开始不锚定输入元组，那么你不能保证它们会被完全处理。这是因为回放总是从spout开始的。因此，决定不锚定发射元组应该始终是一个有意识的决策，就像我们在热图示例中所做的那样。
+- en: '|  |'
+  id: totrans-187
+  prefs: []
+  type: TYPE_TB
+  zh: '|'
+- en: 'We’re now ready to write a robust topology and introduce it to the world. We’ve
+    covered three pieces of the puzzle needed for supporting reliability:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在准备编写一个健壮的拓扑并将其介绍给世界。我们已经涵盖了支持可靠性的三个拼图碎片：
+- en: A data source with a corresponding reliable spout
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个具有相应可靠spout的数据源
+- en: An anchored tuple stream
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个锚定的元组流
+- en: A topology that acknowledges each tuple as it gets processed or notifies of
+    failure
+  id: totrans-191
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个在处理每个元组时确认或通知失败的情况的拓扑
+- en: But before moving on to [chapter 5](kindle_split_013.html#ch05) to discuss the
+    last piece of the puzzle—the Storm cluster—let’s talk about replay semantics and
+    whether our current topology implementation is good enough for what we want.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在继续讨论第5章（[chapter 5](kindle_split_013.html#ch05)）以讨论拼图的最后一部分——Storm集群——之前，让我们谈谈回放语义以及我们当前的拓扑实现是否足够满足我们的需求。
+- en: 4.5\. Replay semantics
+  id: totrans-193
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.5\. 回放语义
+- en: Each of the four pieces of the puzzle to reliability plays a key role and is
+    necessary if we want to build a robust topology. But when you consider the replay
+    characteristics of streams as they flow through your topology, you’ll begin to
+    recognize that Storm provides varying guarantees of reliability when it comes
+    to event processing. We can assign different semantics to reliability when we
+    become aware of different requirements being met by our streams. Let’s take a
+    look at these varying degrees of reliability.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拼图中支持可靠性的每一个碎片都扮演着关键角色，如果我们想要构建一个健壮的拓扑，它们都是必要的。但是，当你考虑流在通过你的拓扑时的回放特性时，你将开始认识到，在事件处理方面，Storm提供了不同级别的可靠性保证。当我们意识到我们的流满足不同的需求时，我们可以为可靠性分配不同的语义。让我们来看看这些不同级别的可靠性。
+- en: 4.5.1\. Degrees of reliability in Storm
+  id: totrans-195
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.5.1\. Storm中的可靠性级别
+- en: 'Much like we saw different kinds of scaling problems when we carefully examined
+    data streams in [chapter 3](kindle_split_011.html#ch03), we see varying degrees
+    of reliability when we carefully examine our topology design. We identify three
+    degrees of reliability here:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与我们在第3章（[chapter 3](kindle_split_011.html#ch03)）中仔细检查数据流时看到的不同类型的扩展问题类似，当我们仔细检查我们的拓扑设计时，我们看到了不同级别的可靠性。在这里，我们确定了三个可靠性的级别：
+- en: At-most-once processing
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 至多一次处理
+- en: At-least-once processing
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 至少一次处理
+- en: Exactly-once processing
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 精确一次处理
+- en: Let’s elaborate a little further what we mean by each of these.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们进一步阐述我们所说的每个这些概念。
+- en: At-most-once processing
+  id: totrans-201
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 至多一次处理
+- en: You’d use *at-most-once processing* when you want to guarantee that no single
+    tuple ever gets processed more than once. In this case, no replaying will ever
+    happen. If it succeeds, great, but if it fails the tuple will be discarded. Regardless,
+    this semantic provides no reliability that all operations will be processed, and
+    it’s the simplest semantic you can choose. We used at-most-once processing in
+    the preceding chapters, because those use cases didn’t dictate a need for reliability.
+    We may have used `BaseBasicBolt` (with its automated anchoring and acking) in
+    previous chapters, but we didn’t anchor the tuples when we first emitted them
+    from the spout.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你想要保证没有任何单个元组被处理超过一次时，你会使用*至多一次处理*。在这种情况下，永远不会发生回放。如果它成功了，那很好，但如果它失败了，元组将被丢弃。无论如何，这种语义不提供所有操作都将被处理的可靠性保证，这是你可以选择的简单语义。我们在前面的章节中使用了至多一次处理，因为那些用例没有规定需要可靠性。我们可能在之前的章节中使用了`BaseBasicBolt`（具有自动锚定和确认），但我们没有在从spout首次发射元组时锚定元组。
+- en: You don’t need to do anything special to achieve this type of reliability in
+    Storm, which isn’t true for our next degree of reliability.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Storm中实现这种可靠性不需要做任何特殊的事情，但这并不是我们下一个可靠性级别的真实情况。
+- en: At-least-once processing
+  id: totrans-204
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 至少一次处理
+- en: At-least-once processing can be used when you want to guarantee that every single
+    tuple must be processed successfully at least once. If a single tuple is replayed
+    several times, and for some reason it succeeds more than once, that’s okay under
+    this replay semantic. Your primary concern is that it must succeed, even if that
+    means doing redundant work.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你想确保每个元组至少被成功处理一次时，可以使用至少一次处理。如果一个元组被重放多次，并且由于某种原因它成功超过一次，在这个重放语义下这是可以接受的。你主要关心的是它必须成功，即使这意味着要做重复的工作。
+- en: To achieve at-least-once processing in Storm, you need a reliable spout with
+    a reliable data source and an anchored stream with acked or failed tuples. This
+    leads us to the strictest degree of reliability.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在Storm中实现至少一次处理，你需要一个可靠的spout和一个可靠的数据源，以及一个带有已确认或失败元组的锚定流。这使我们达到了最严格的可靠性级别。
+- en: Exactly-once processing
+  id: totrans-207
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 一次且仅一次处理
+- en: Exactly-once processing is similar to at-least-once processing in that it can
+    guarantee that every tuple is processed successfully. But exactly-once processing
+    takes care to ensure that once a tuple is processed, it can’t be processed ever
+    again.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一次且仅一次处理与至少一次处理相似，因为它可以保证每个元组都成功处理。但一次且仅一次处理特别注意确保一旦元组被处理，它就再也不能被处理。
+- en: As with at-least-once processing, you need a reliable spout with a reliable
+    data source and an anchored stream with acked or failed tuples. But what sets
+    this degree apart from at-least-once processing is that you also need logic in
+    your bolt(s) to guarantee tuples are processed only once.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与至少一次处理一样，你需要一个可靠的spout和一个可靠的数据源，以及一个带有已确认或失败元组的锚定流。但使这个级别与至少一次处理区分开来的是，你还需要在bolt(s)中添加逻辑来确保元组只被处理一次。
+- en: 'To understand what each type of processing requires of your system, it’s important
+    to understand the subtleties and problems that arise from our most stringent of
+    options: exactly once.'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解每种类型处理对系统提出的要求，重要的是要了解从我们最严格的选项中产生的微妙之处和问题：即一次且仅一次。
+- en: 4.5.2\. Examining exactly once processing in a Storm topology
+  id: totrans-211
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.5.2. 检查Storm拓扑中的一次且仅一次处理
+- en: 'There’s a lot of complexity hiding behind that simple phrase *exactly once*.
+    This means that you have to be able to know whether you’ve already done a unit
+    of work, which in turn means that you have to do the following:'
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在那个简单的短语*一次且仅一次*背后隐藏着很多复杂性。这意味着你必须能够知道你是否已经完成了一个工作单元，这反过来意味着你必须做以下事情：
+- en: Do the unit of work.
+  id: totrans-213
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 做这个工作单元。
+- en: Record that you’ve done the unit of work.
+  id: totrans-214
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 记录你已经完成了这个工作单元。
+- en: Further, these two steps must be performed as an atomic operation—you can’t
+    do the work and then fail to record the result. You need to be able to do the
+    work and record that it was done in one step. If you can do the work but have
+    a failure before recording that the work was done, then you don’t actually have
+    *exactly once*—you have *usually once*. The vast majority of the time, the work
+    will be done one time, but from time to time, it’ll be done more often. That’s
+    an exceedingly rigorous qualification to meet.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，这两个步骤必须作为一个原子操作执行——你不能先做工作然后未能记录结果。你需要能够在一步中完成工作并记录已经完成。如果你可以完成工作但在记录工作已完成之前出现故障，那么你实际上并没有*一次且仅一次*——你只有*通常一次*。绝大多数时候，工作只会做一次，但偶尔，它会被做多次。这是一个极其严格的资格要求。
+- en: 'At-least-once processing shares the same two steps, except that these operations
+    aren’t required to occur atomically. If for some reason a failure occurs during
+    or immediately after performing your unit of work, it is okay to redo the work
+    and reat-tempt to record the result. If it isn’t okay to redo the work, then you
+    need to add an important requirement: the end result of your unit of work must
+    be idempotent. An action is *idempotent* when performed more than once, it has
+    no additional effect on its subject after the first time it’s performed. For example:'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 至少一次处理与这两个步骤相同，但这些操作不需要原子性地发生。如果在执行工作单元期间或之后立即发生故障，可以重新做工作并重新尝试记录结果。如果重新做工作是不允许的，那么你需要添加一个重要要求：工作单元的最终结果必须是幂等的。一个动作如果是幂等的，那么在执行多次后，它对主题的第一次执行之后就没有额外的效果。例如：
+- en: “Set x to 2” is an idempotent operation.
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: “将x设置为2”是一个幂等操作。
+- en: “Add 2 to variable x” isn’t an idempotent operation.
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: “将变量x加2”不是一个幂等操作。
+- en: Operations with external side effects such as sending an email are decidedly
+    non-idempotent. Repeating that unit of work would send more than one email and
+    is assuredly not what you want to do.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有外部副作用（如发送电子邮件）的操作显然是非幂等的。重复该工作单元会发送多于一个的电子邮件，这肯定不是你想要做的。
+- en: If your unit of work is non-idempotent, then you must fall back to at-most-once
+    processing. You want to do the unit of work, but it’s more important that the
+    result of this work not be duplicated than doing the actual work.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的工作单元是非幂等的，那么你必须回退到至多一次处理。你想要完成这个工作单元，但这个工作结果不被重复比实际完成工作更重要。
+- en: 4.5.3\. Examining the reliability guarantees in our topology
+  id: totrans-221
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 4.5.3\. 检查我们的拓扑中的可靠性保证
+- en: How can we provide a stricter degree of reliability in our topology? Do we even
+    need to, or are we already in a good enough state? To answer these questions,
+    it makes sense to identify what level of reliability our topology is currently
+    at.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何在拓扑中提供更严格的可靠性程度？我们甚至需要这样做吗，或者我们已经处于足够好的状态？为了回答这些问题，识别我们的拓扑当前处于何种可靠性水平是有意义的。
+- en: Identifying the current level of reliability
+  id: totrans-223
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 确定当前的可靠性水平
+- en: Which type of processing do we have with our topology? We have guaranteed message
+    processing so that if we have a failure, we’ll retry the tuple. This rules out
+    at-most-once as our semantics. That’s good. We certainly want to charge people
+    for the goods we’re shipping them.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们拓扑中有哪种处理类型？我们有保证的消息处理，这样如果发生故障，我们会重试元组。这排除了至多一次作为我们的语义。这是好的。我们当然希望向人们收取我们为他们运输的货物的费用。
+- en: Do we have exactly-once semantics or at-least-once semantics? Let’s break this
+    down. Our “unit of work” is charging a customer’s credit card along with updating
+    the status of the order. This is seen in the following listing.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们是具有精确一次语义还是至少一次语义？让我们来分析一下。我们的“工作单元”是向客户的信用卡收费并更新订单状态。这可以在以下列表中看到。
+- en: Listing 4.9\. Examining the `execute()` method of `AuthorizeCreditCard.java`
+  id: totrans-226
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.9\. 检查 `AuthorizeCreditCard.java` 的 `execute()` 方法
+- en: '![](096fig01_alt.jpg)'
+  id: totrans-227
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](096fig01_alt.jpg)'
+- en: 'The question is this: are the two steps a single atomic operation? The answer
+    is no. It’s possible for us to charge a user’s credit card and then not update
+    the order status. Between charging the credit card ![](1.jpg) and changing the
+    order status (![](2.jpg), ![](3.jpg)), a couple of things could happen:'
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 问题是这样的：这两个步骤是一个原子操作吗？答案是：不是。我们有可能向用户的信用卡收费，但不更新订单状态。在收费信用卡(![](1.jpg))和更改订单状态(![](2.jpg),
+    ![](3.jpg))之间，可能会发生一些事情：
+- en: Our process could crash.
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的过程可能会崩溃。
+- en: The database might be unavailable to record the result.
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据库可能无法记录结果。
+- en: This means we don’t have exactly-once semantics; we have at-least-once. Looking
+    at our topology as it currently stands, that’s problematic. Retrying a tuple can
+    result in multiple charges to a customer’s card. What can we do to lessen this
+    danger? We know that exactly-once is impossible for us, but we should be able
+    to make at-least-once safer.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着我们没有精确一次语义；我们有至少一次。从我们目前的状态来看，这是有问题的。重试一个元组可能导致向客户的卡重复收费。我们能做些什么来减少这种危险？我们知道精确一次对我们来说是不可能的，但我们应该能够使至少一次更安全。
+- en: Providing better at-least-once processing when authorizing an order
+  id: totrans-232
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 在授权订单时提供更好的至少一次处理
+- en: The first question we want to ask ourselves in making our at-least-once processing
+    safer is whether our operation can be made idempotent. The answer is probably
+    not. We’d need the external credit card service’s assistance with that. If we
+    could provide the order ID as a unique transaction identifier and the service
+    would throw an error such as `DuplicateTransactionException`, then we could update
+    our records to indicate the order is ready to ship and continue processing. Handling
+    such an error is seen in the following listing.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使我们的至少一次处理更安全时，我们想要问的第一个问题是我们的操作是否可以做成幂等的。答案可能是：不可以。我们需要外部信用卡服务的帮助。如果我们能提供订单ID作为唯一的交易标识符，并且服务会抛出一个错误，例如
+    `DuplicateTransactionException`，那么我们可以更新我们的记录以表明订单已准备好发货并继续处理。处理此类错误可以在以下列表中看到。
+- en: Listing 4.10\. Updating `AuthorizeCreditCard.java` to handle a `DuplicateTransactionException`
+  id: totrans-234
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.10\. 更新 `AuthorizeCreditCard.java` 以处理 `DuplicateTransactionException`
+- en: '![](097fig01_alt.jpg)'
+  id: totrans-235
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](097fig01_alt.jpg)'
+- en: Without that external cooperation, what’s the best we can do? If our process
+    crashes between charging a customer and recording that we charged, there isn’t
+    anything we can do but accept that it’ll happen from time to time and be prepared
+    to address it in a nontechnical fashion (such as customer service responding to
+    a refund request). Realistically, if our system is stable, this should be a relatively
+    rare occurrence.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有外部合作，我们能做得最好的是什么？如果我们的进程在向客户扣款和记录扣款之间崩溃，我们除了接受它有时会发生并准备以非技术方式（如客户服务响应退款请求）应对它之外，别无他法。从现实的角度来看，如果我们的系统稳定，这应该是一个相对罕见的事件。
+- en: For the “system of record being unavailable” scenario, we can add a partially
+    preventive measure. We can verify the database for storing the updated order status
+    is available before attempting to charge the credit card. This approach reduces
+    the chance of a situation arising where we charge the credit card and then fail
+    to update the order status because the database is down.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于“记录系统不可用”的情况，我们可以采取一种部分预防措施。在尝试扣款之前，我们可以验证存储更新订单状态的数据库是否可用。这种方法可以减少出现以下情况的可能性：我们扣款后，由于数据库故障而未能更新订单状态。
+- en: In general, this is good practice. If you’re computing a non-idempotent result
+    within a topology and will then store “doneness,” verify at the time you begin
+    your unit of work that you’ll be able record it. This check can be seen in the
+    next listing.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，这是一个好的做法。如果你在拓扑中计算非幂等结果，并将“完成”存储起来，那么在开始你的工作单元时，确保你将能够记录它。这个检查可以在下一个列表中看到。
+- en: Listing 4.11\. Updating `AuthorizeCreditCard.java` to check for database availability
+    before processing
+  id: totrans-239
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表4.11\. 更新`AuthorizeCreditCard.java`以在处理前检查数据库可用性
+- en: '![](097fig02_alt.jpg)'
+  id: totrans-240
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](097fig02_alt.jpg)'
+- en: 'So we’ve improved our reliability, but we have a feeling we can do better.
+    Looking back at our steps, we have the following:'
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们已经提高了可靠性，但我们感觉我们还能做得更好。回顾我们的步骤，我们有以下内容：
+- en: Authorize the credit card.
+  id: totrans-242
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 授权信用卡。
+- en: Update the order status.
+  id: totrans-243
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 更新订单状态。
+- en: Notify an external system of the change.
+  id: totrans-244
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通知外部系统变化。
+- en: Looks like there’s more work to do to address step 3.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看起来我们还需要做更多工作来解决步骤3。
+- en: Providing better at-least-once processing across all steps
+  id: totrans-246
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 在所有步骤中提供至少一次处理。
+- en: What happens if we manage to do the first two steps but we experience a failure
+    while doing the third? Perhaps our process crashes; perhaps our tuple times out
+    before notifying the external system. However it happens, it has happened, and
+    Storm is going to replay the tuple. So what can we do to address this scenario?
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们成功完成了前两个步骤，但在执行第三个步骤时遇到故障怎么办？可能我们的进程崩溃了；可能我们的元组在通知外部系统之前超时了。无论如何，它已经发生了，Storm
+    将会重新播放该元组。那么我们如何应对这种场景呢？
+- en: Before processing the credit card, we should assure that the system of record
+    is available (as we did previously) and verify that the order status isn’t already
+    “ready to ship.” If the order isn’t ready to ship, then we proceed as normal.
+    It’s probably the first time we’re trying this order and the database is up and
+    running. If the order is ready to ship, then we probably had a failure between
+    our “update order status” and “notify external system” steps. In that case, we
+    would want to skip charging the card again and move directly to notifying the
+    external system of the change.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理信用卡之前，我们应该确保记录系统可用（就像我们之前做的那样）并验证订单状态尚未“准备发货”。如果订单未准备发货，则按正常流程进行。这可能是我们第一次尝试此订单，数据库正在运行。如果订单已准备发货，那么我们可能在“更新订单状态”和“通知外部系统”步骤之间遇到了故障。在这种情况下，我们希望跳过再次扣款并直接通知外部系统变化。
+- en: If we control this external system, then we can make a request to ship the same
+    order more than once an idempotent operation where subsequent attempts are dropped.
+    If not, the caveats we encountered earlier around lack of idempotence of credit
+    card processing applies as well.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们控制这个外部系统，那么我们可以请求发送相同的订单多次，这是一个幂等操作，后续尝试将被丢弃。如果不这样做，我们之前遇到的关于信用卡处理缺乏幂等性的问题也适用。
+- en: 'The steps in our conceptual framework have changed somewhat; step 2 is new:'
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的概念框架中的步骤有所改变；步骤2是新的：
+- en: Pull the order off the message queue.
+  id: totrans-251
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从消息队列中取出订单。
+- en: 'Determine whether the order has been marked as “ready to ship” and do one of
+    two things:'
+  id: totrans-252
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 确定订单是否已标记为“准备发货”，并执行以下两项操作之一：
+- en: If the order has been marked as “ready to ship,” skip to step 6.
+  id: totrans-253
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果订单已被标记为“准备发货”，则跳到步骤6。
+- en: If the order hasn’t been marked as “ready to ship,” continue to step 3.
+  id: totrans-254
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果订单尚未标记为“准备好发货”，继续到步骤 3。
+- en: Attempt to authorize the credit card by calling an external credit card authorization
+    service.
+  id: totrans-255
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过调用外部信用卡授权服务尝试授权信用卡。
+- en: If the service call succeeded, update the order status.
+  id: totrans-256
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果服务调用成功，更新订单状态。
+- en: If it fails, we can try again later.
+  id: totrans-257
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果失败，我们可以在稍后重试。
+- en: Notify a separate downstream system that the order has been processed.
+  id: totrans-258
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通知一个单独的下游系统订单已被处理。
+- en: These updated steps are illustrated in [figure 4.9](#ch04fig09), with the new
+    steps highlighted.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些更新步骤在 [图 4.9](#ch04fig09) 中得到说明，新步骤被突出显示。
+- en: Figure 4.9\. Conceptual solution of the e-commerce credit card authorization
+    flow with an extra step for providing better at-least-once processing
+  id: totrans-260
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 4.9\. 电子商务信用卡授权流程的概念解决方案，增加了一步以提供更好的至少一次处理
+- en: '![](04fig09_alt.jpg)'
+  id: totrans-261
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](04fig09_alt.jpg)'
+- en: 'We could map this conceptual solution onto our topology in a couple ways:'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将这个概念解决方案以几种方式映射到我们的拓扑中：
+- en: Add a new bolt that performs the status verification step. We could call this
+    something like `VerifyOrderStatus`.
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 添加一个新的 bolt 来执行状态验证步骤。我们可以将其命名为 `VerifyOrderStatus`。
+- en: Perform the status verification step in the `AuthorizeCreditCard` bolt.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 `AuthorizeCreditCard` bolt 中执行状态验证步骤。
+- en: We’ll choose option number two and update the `AuthorizeCreditCard` bolt to
+    perform the verification step. We’ll leave adding a new `VerifyOrderStatus` bolt
+    as an exercise for you. The following listing shows the updated code for `AuthorizeCreditCard`.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将选择第二个选项并更新 `AuthorizeCreditCard` bolt 以执行验证步骤。我们将把添加新的 `VerifyOrderStatus`
+    bolt 作为你的练习。以下列表显示了 `AuthorizeCreditCard` 的更新代码。
+- en: Listing 4.12\. Updating `AuthorizeCreditCard.java` to check the order status
+    before processing
+  id: totrans-266
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.12\. 更新 `AuthorizeCreditCard.java` 以在处理前检查订单状态
+- en: '![](099fig01_alt.jpg)'
+  id: totrans-267
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](099fig01_alt.jpg)'
+- en: And just like that, we’re done. Or are we? We missed something here. We still
+    need to always notify the external system when we are done processing the order
+    even if “done” just means that we checked that the order was ready to ship and
+    did nothing. The updated code for this can be seen in the next code listing; we
+    just need to emit a tuple with the order whenever we “process” it.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就这样，我们完成了。或者，我们真的完成了吗？我们在这里遗漏了一些东西。即使“完成”只是意味着我们检查了订单是否准备好发货并且没有做任何事情，我们仍然需要在处理完订单后始终通知外部系统。这个更新的代码可以在下一个代码列表中看到；我们只需要在“处理”订单时发出一个元组。
+- en: Listing 4.13\. Updating `AuthorizeCreditCard.java` to emit a tuple whenever
+    an order is “processed”
+  id: totrans-269
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 4.13\. 更新 `AuthorizeCreditCard.java` 以在订单“处理”时发出元组
+- en: '![](100fig01_alt.jpg)'
+  id: totrans-270
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](100fig01_alt.jpg)'
+- en: This brings us to a solution we feel comfortable with. And although we haven’t
+    been able to achieve exactly-once processing, we have been able to achieve a better
+    at-least-once processing by including some additional logic in our `AuthorizeCreditCard`
+    bolt. Follow this process whenever you’re designing a topology with reliability
+    requirements. You need to map out your basic conceptual problem and then figure
+    out what your semantics are, at least once or at most once. If it’s at least once,
+    start looking at all the ways it can fail and make sure you address them.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这使我们达到了一个我们感到舒适的解决方案。尽管我们还没有能够实现精确一次处理，但我们通过在 `AuthorizeCreditCard` bolt 中包含一些额外的逻辑，已经能够实现更好的至少一次处理。在设计具有可靠性要求的拓扑时，你应遵循此过程。你需要绘制出你的基本概念问题，然后确定你的语义，至少一次或最多一次。如果是至少一次，开始考虑所有可能失败的方式，并确保你解决了这些问题。
+- en: 4.6\. Summary
+  id: totrans-272
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6\. 摘要
+- en: In this chapter, you learned that
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你学习了
+- en: The varying degrees of reliability you can achieve in Storm are
+  id: totrans-274
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Storm 中你可以达到的不同可靠程度
+- en: At-most-once processing
+  id: totrans-275
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最多一次处理
+- en: At-least-once processing
+  id: totrans-276
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 至少一次处理
+- en: Exactly-once processing
+  id: totrans-277
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一次精确处理
+- en: Different problems require varying levels of reliability, and it’s your job
+    as a developer to understand the reliability requirements of your problem domain.
+  id: totrans-278
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 不同的问题需要不同级别的可靠性，作为开发者，了解你的问题域的可靠性要求是你的工作。
+- en: 'Storm supports reliability with four main parts:'
+  id: totrans-279
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Storm 通过四个主要部分支持可靠性：
+- en: A reliable data source with a corresponding reliable spout
+  id: totrans-280
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个对应可靠源头的可靠数据源
+- en: An anchored tuple stream
+  id: totrans-281
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个锚定的元组流
+- en: A topology that acknowledges each tuple as it gets processed or notifies of
+    failure
+  id: totrans-282
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个在处理每个元组时承认它或通知失败的网络拓扑
+- en: A fault-tolerant Storm cluster infrastructure (to be addressed next)
+  id: totrans-283
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有容错能力的 Storm 集群基础设施（将在下一章中讨论）
+- en: Storm is able to tell if a tuple emitted by a spout is fully processed by tracking
+    a tuple tree for that tuple.
+  id: totrans-284
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Storm能够通过跟踪该元组的元组树来确定由spout发出的元组是否已完全处理。
+- en: In order for Storm to be able to track a tuple tree, you must anchor input tuples
+    to output tuples and ack any input tuples.
+  id: totrans-285
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了使Storm能够跟踪元组树，你必须将输入元组锚定到输出元组，并确认任何输入元组。
+- en: Failing a tuple either via a timeout or manually will trigger the retry mechanism
+    in Storm.
+  id: totrans-286
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过超时或手动方式使元组失败将触发Storm的重试机制。
+- en: Tuples should be failed for known/retriable errors and unknown errors. Tuples
+    should not be failed for known/non-retriable errors.
+  id: totrans-287
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 元组应该因为已知/可重试的错误和未知错误而失败。元组不应该因为已知/不可重试的错误而失败。
+- en: A spout must be implemented to explicitly handle and retry failures while being
+    hooked up to a reliable data source in order to truly achieve guaranteed message
+    processing.
+  id: totrans-288
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了真正实现保证消息处理，spout必须在连接到可靠数据源时显式处理和重试失败。

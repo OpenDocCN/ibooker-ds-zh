@@ -1,0 +1,1061 @@
+- en: 12 Asynchronous queues
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 12 异步队列
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Asynchronous queues
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 异步队列
+- en: Using queues for producer-consumer workflows
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用队列进行生产者-消费者工作流程
+- en: Using queues with web applications
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Web 应用中使用队列
+- en: Asynchronous priority queues
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 异步优先队列
+- en: Asynchronous LIFO queues
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 异步 LIFO 队列
+- en: When designing applications to process events or other types of data, we often
+    need a mechanism to store these events and distribute them to a set of workers.
+    These workers can then do whatever we need to do based on these events concurrently,
+    yielding time savings as opposed to processing events sequentially. asyncio provides
+    an asynchronous queue implementation that lets us do this. We can add pieces of
+    data into a queue and have several workers running concurrently, pulling data
+    from the queue and processing it as it becomes available.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当设计用于处理事件或其他类型数据的应用程序时，我们通常需要一个机制来存储这些事件并将它们分配给一组工作者。这些工作者可以基于这些事件并发地执行我们需要的任何操作，从而节省时间，而不是按顺序处理事件。asyncio
+    提供了一个异步队列实现，使我们能够做到这一点。我们可以将数据块添加到队列中，并让多个工作者并发运行，从队列中提取数据并处理它，当数据可用时。
+- en: These are commonly referred to as *producer-consumer workflows*. Something produces
+    data or events that we need to handle; processing these work items could take
+    a long time. Queues can also help us transmit long-running tasks while keeping
+    a responsive user interface. We put an item on the queue for later processing
+    and inform the user that we’ve started this work in the background. Asynchronous
+    queues also have an added benefit of providing a mechanism to limit concurrency,
+    as each queue generally permits a finite amount of worker tasks. This can be used
+    in cases in which we need to limit concurrency in a similar way to what we saw
+    with semaphores in chapter 11.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些通常被称为 *生产者-消费者工作流程*。某物产生我们需要处理的数据或事件；处理这些工作项可能需要很长时间。队列还可以帮助我们传输长时间运行的任务，同时保持响应的用户界面。我们将项目放入队列以供以后处理，并通知用户我们在后台开始这项工作。异步队列还有一个额外的优点，即提供了一种限制并发的机制，因为每个队列通常允许有限数量的工作者任务。这可以用于我们需要以类似于第
+    11 章中看到的信号量方式限制并发的情况。
+- en: In this chapter, we’ll learn how to use asyncio queues to handle producer-consumer
+    workflows. We’ll master the basics first by building an example grocery store
+    queue with cashiers as our consumers. We’ll then apply this to an order management
+    web API, demonstrating how to respond quickly to users while letting the queue
+    process work in the background. We’ll also learn how to process tasks in priority
+    order, which is useful when one task is more important to process first, despite
+    being put in the queue later. Finally, we’ll look at LIFO (last in, first out)
+    queues and understand the drawbacks of asynchronous queues.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将学习如何使用 asyncio 队列来处理生产者-消费者工作流程。我们将首先通过构建一个以收银员作为消费者的示例杂货店队列来掌握基础知识。然后，我们将将其应用于订单管理
+    Web API，展示如何快速响应用户，同时让队列在后台处理工作。我们还将学习如何按优先级顺序处理任务，这在需要首先处理某个任务（尽管它是在队列中较晚放入的）时非常有用。最后，我们将探讨
+    LIFO（后进先出）队列，并了解异步队列的缺点。
+- en: 12.1 Asynchronous queue basics
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.1 异步队列基础
+- en: Queues are a type of FIFO data structure. In other words, the first element
+    in a queue is the first element to leave the queue when we ask for the next element.
+    They’re not much different from the queue you’re a part of when checking out in
+    a grocery store. You join the line at the end and wait for the cashier to check
+    out anyone in front of you. Once they’ve checked someone out, you move up in the
+    queue while someone who joins after you waits behind you. Then, when you’re first
+    in the queue you check out and leave the queue entirely.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 队列是一种 FIFO 数据结构。换句话说，当我们请求下一个元素时，队列中的第一个元素是第一个离开队列的元素。它们与你在杂货店结账时参与的队列没有太大区别。你在队伍的最后加入，等待收银员为你前面的人结账。一旦他们为某人结账，你就向上移动到队列中，而后来加入的人则在你后面等待。然后，当你成为队列中的第一个时，你结账并完全离开队列。
+- en: The checkout queue as we have described it is a synchronous workflow. One cashier
+    checks out one customer at a time. What if we reimagined the queue to better take
+    advantage of concurrency and perform more like a supermarket checkout? Instead
+    of one cashier, there would be multiple cashiers and a single queue. Whenever
+    a cashier is available, they can flag down the next person to the checkout counter.
+    This means there are multiple cashiers directing customers from the queue concurrently
+    in addition to multiple cashiers concurrently checking out customers.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们所描述的结账队列是一个同步工作流程。一次只有一个收银员为一位顾客结账。如果我们重新构想队列以更好地利用并发性，使其更像超市结账流程会怎样？不再是只有一个收银员，而是会有多个收银员和单个队列。每当有收银员空闲时，他们就可以示意下一位顾客到结账柜台。这意味着除了多个收银员同时结账顾客外，还有多个收银员同时引导顾客从队列中。
+- en: This is the core of what asynchronous queues let us do. We add multiple work
+    items waiting to be processed into the queue. We then have multiple workers pull
+    items from the queue when they are available to perform a task.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是异步队列让我们能够做到的核心。我们将多个等待处理的工作项添加到队列中。然后，当多个工作人员有空闲时间执行任务时，他们会从队列中拉取项目。
+- en: Let’s explore this by building our supermarket example. We’ll think of our worker
+    tasks as cashiers, and our “work items” will be customers to check out. We’ll
+    implement customers with individual lists of products that the cashier needs to
+    scan. Some items take longer than others to scan; for instance, bananas must be
+    weighed and have their SKU code entered. Alcoholic beverages require a manager
+    to check the customer’s ID.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过构建我们的超市示例来探索这一点。我们将把工作人员任务视为收银员，而“工作项”将是需要结账的顾客。我们将实现具有收银员需要扫描的个别产品列表的顾客。一些项目扫描时间较长；例如，香蕉需要称重并输入其
+    SKU 代码。酒精饮料需要经理检查顾客的身份证。
+- en: For our supermarket checkout scenario, we’ll implement a few data classes to
+    represent products with integers used to represent the time (in seconds) they
+    take for a cashier to check out. We’ll also build a customer class that has a
+    random set of products they’d like to buy. Then, we’ll put these customers in
+    an asyncio queue to represent our checkout line. We’ll also create several worker
+    tasks to represent our cashiers. These tasks will pull customers from the queue,
+    looping through all their products and sleeping for the time needed to check out
+    their items to simulate the checkout process.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的超市结账场景，我们将实现几个数据类来表示产品，使用整数表示收银员结账所需的时间（以秒为单位）。我们还将构建一个顾客类，其中包含他们想要购买的随机产品集合。然后，我们将这些顾客放入
+    asyncio 队列中以表示我们的结账队列。我们还将创建几个工作人员任务来表示我们的收银员。这些任务将从队列中拉取顾客，遍历他们的所有产品，并暂停所需时间以模拟结账过程。
+- en: Listing 12.1 A supermarket checkout queue
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.1 超市结账队列
+- en: '[PRE0]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Keep checking out customers if there are any in the queue.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果队列中有顾客，则持续检查顾客结账。
+- en: ❷ Check out each customer’s product.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 检查每位顾客的产品。
+- en: ❸ Create 10 customers with random products.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建 10 个具有随机产品的顾客。
+- en: ❹ Create three “cashiers” or worker tasks to check out customers.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 创建三个“收银员”或工作人员任务以检查顾客结账。
+- en: 'In the preceding listing, we create two data classes: one for a product and
+    one for a supermarket customer. A product consists of a product name and the amount
+    of time (in seconds) it takes for a cashier to enter that item in the register.
+    A customer has a number of products they are bringing to the cashier to buy. We
+    also define a `checkout_` `customer` coroutine function, which does the work of
+    checking out a customer. While our queue has customers in it, it pulls a customer
+    from the front of the queue with `queue.get_nowait()` and simulates the time to
+    scan a product with `asyncio.sleep`. Once a customer is checked out, we call `queue.task_done`.
+    This signals to the queue that our worker has finished its current work item.
+    Internally within the `Queue` class, when we get an item from the queue a counter
+    is incremented by one to track the number of unfinished tasks remain. When we
+    call `task_done`, we tell the queue that we’ve finished, and it decrements this
+    count by one (why we need to do this will make sense shortly, when we talk about
+    `join`).'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了两个数据类：一个用于产品，另一个用于超市顾客。一个产品由产品名称和收银员将该商品输入收银机所需的时间（以秒为单位）组成。顾客有一些产品要带给收银员购买。我们还定义了一个`checkout_`
+    `customer` 协程函数，该函数负责处理顾客结账的工作。当我们的队列中有顾客时，它使用`queue.get_nowait()`从队列前端拉取一个顾客，并使用`asyncio.sleep`模拟扫描商品所需的时间。一旦顾客结账完成，我们调用`queue.task_done`。这向队列发出信号，表示我们的工作线程已经完成了当前的工作项。在`Queue`类内部，当我们从队列中获取一个项目时，计数器会增加一个，以跟踪剩余未完成的任务数量。当我们调用`task_done`时，我们告诉队列我们已经完成，它会将这个计数器减一（为什么我们需要这样做将在我们讨论`join`时变得有意义）。
+- en: In our main coroutine function, we create a list of available products and generate
+    10 customers, each with random products. We also create three worker tasks for
+    the `checkout_customer` coroutine that are stored in a list called `cashiers`,
+    which is analogous to three human cashiers working at our imaginary supermarket.
+    Finally, we wait for the cashier `checkout_customer` tasks to finish alongside
+    the `customer_queue.join()` coroutine using `gather`. We use `gather` so that
+    any exceptions from our cashier tasks will rise up to our main coroutine function.
+    The `join` coroutine blocks until the queue is empty and all customers have been
+    checked out. The queue is considered empty when the internal counter of pending
+    work items reaches zero. Therefore, it is important to call `task_done` in your
+    workers. If you don’t do this, the `join` coroutine may receive an incorrect view
+    of the queue and may never terminate.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的主协程函数中，我们创建了一个可用产品的列表，并生成了10位顾客，每位顾客都有随机生成的产品。我们还创建了三个用于`checkout_customer`协程的工作线程任务，这些任务存储在一个名为`cashiers`的列表中，这相当于我们想象中的超市中的三位收银员。最后，我们使用`gather`等待收银员`checkout_customer`任务完成，同时使用`customer_queue.join()`协程。我们使用`gather`是为了让收银员任务中的任何异常都能上升到我们的主协程函数。`join`协程会阻塞，直到队列为空且所有顾客都已结账。当内部待处理工作项的计数器达到零时，队列被认为是空的。因此，在您的工人中调用`task_done`非常重要。如果您不这样做，`join`协程可能会收到队列的错误视图，并且可能永远不会终止。
+- en: 'While the customer’s items are randomly generated, you should see output similar
+    to the following, showing that each worker task (cashier) is concurrently checking
+    out customers from the queue:'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然顾客的商品是随机生成的，但你应该看到类似以下输出的结果，显示每个工作任务（收银员）正在并行地从队列中结账顾客：
+- en: '[PRE1]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Our three cashiers start checking out customers from the queue concurrently.
+    Once they’ve finished checking out one customer, they pull another from the queue
+    until the queue is empty.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的三位收银员开始并行地从队列中结账顾客。一旦他们完成了一个顾客的结账，他们就会从队列中拉取另一个顾客，直到队列为空。
+- en: 'You may notice that our methods for putting items into the queue and retrieving
+    them are oddly named: `get_nowait` and `put_nowait`. Why is there a `nowait` at
+    the end of each of these methods? There are two ways of getting and retrieving
+    an item from a queue: one that is a coroutine and blocks, and one that is nonblocking
+    and is a regular method. The `get_nowait` and `put_nowait` variants instantly
+    perform the non-blocking method calls and return. Why would we need a blocking
+    queue insertion or retrieval?'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会注意到，我们将项目放入队列和检索它们的函数名称很奇怪：`get_nowait`和`put_nowait`。为什么每个方法的末尾都有`nowait`？从队列中获取和检索项目有两种方式：一种是协程，它会阻塞，另一种是非阻塞的，是常规方法。`get_nowait`和`put_nowait`变体立即执行非阻塞方法调用并返回。为什么我们需要阻塞队列的插入或检索？
+- en: The answer lies in how we want to handle the upper and lower bounds of our queue.
+    This describes happens when there are too many items in the queue (the upper bound)
+    and what happens when there are no items in the queue (the lower bound).
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 答案在于我们如何处理队列的上限和下限。这描述了当队列中有太多项目（上限）时会发生什么，以及当队列中没有项目（下限）时会发生什么。
+- en: Going back to our supermarket queue example, let’s address two things that aren’t
+    quite real-world about it, using the coroutine versions of `get` and `put`.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回到我们的超市队列示例，让我们用`get`和`put`的协程版本来解决两个不太符合现实的问题。
+- en: It is unlikely we’ll just have one line of 10 customers who all show up at the
+    same time, and once the line is empty the cashiers stop working altogether.
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 很可能不会只有一条由10名顾客组成的队伍同时出现，一旦队伍空了，收银员就会完全停止工作。
+- en: Our customer queue probably shouldn’t be unbounded; say, the latest desirable
+    gaming console just came out, and you’re the only store in town to carry it. Naturally,
+    mass hysteria has ensued, and your store is flooded with customers. We probably
+    couldn’t fit 5,000 customers in the store, so we need a way to turn them away
+    or make them wait outside.
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的客户队列可能不应该无限制扩展；比如说，最新款的理想游戏机刚刚上市，而你又是镇上唯一一家有售的商店。自然，大规模的恐慌随之而来，你的商店被顾客挤满了。我们可能无法在商店里容纳5,000名顾客，因此我们需要一种方法来拒绝他们或者让他们在外面等待。
+- en: 'For the first issue, let’s say we wanted to refactor our application so that
+    we randomly generate some customers every few seconds to simulate a realistic
+    supermarket queue. In our current implementation of `checkout_customer`, we loop
+    while the queue is not empty and grab a customer with `get_nowait`. Since our
+    queue could be empty, we can’t loop on `not` `queue.empty`, since our cashiers
+    will be available even if no one is in line, so we’ll need a `while` `True` in
+    our worker coroutine. So what happens in this case when we call `get_nowait` and
+    the queue is empty? This is easy to test out in a few lines of code; we just create
+    an empty queue and call the method in question:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于第一个问题，假设我们想要重构我们的应用程序，以便每隔几秒钟随机生成一些顾客来模拟一个真实的超市队列。在我们的当前实现中，`checkout_customer`会循环直到队列不为空，并使用`get_nowait`获取一个顾客。由于我们的队列可能为空，我们不能在`not
+    queue.empty`上循环，因为即使没有人排队，收银员也是可用的，所以我们需要在工作者协程中使用`while True`。那么当我们在队列空的时候调用`get_nowait`会发生什么呢？这可以通过几行代码轻松测试出来；我们只需创建一个空队列并调用相关的方法：
+- en: '[PRE2]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Our method will throw an `asyncio.queues.QueueEmpty` exception. While we could
+    wrap this in a `try` `catch` and ignore this exception, this wouldn’t quite work,
+    as whenever the queue is empty, we’ve made our worker task CPU-bound, spinning
+    and catching exceptions. In this case, we can use the `get` coroutine method.
+    This will block (in a non-CPU-bound fashion) until an item is in the queue to
+    process and won’t throw an exception. This is the equivalent of the worker tasks
+    idling, standing by for some customer to come into the queue giving them work
+    to do at the checkout counter.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的方法将抛出`asyncio.queues.QueueEmpty`异常。虽然我们可以用`try` `catch`来包装这个异常并忽略它，但这不会完全奏效，因为每次队列空的时候，我们都使工作者任务成为CPU密集型，不断旋转并捕获异常。在这种情况下，我们可以使用`get`协程方法。这将阻塞（以一种非CPU密集型的方式）直到队列中有项目可以处理，并且不会抛出异常。这相当于工作者任务空闲，等待某个顾客进入队列，在收银台处给他们分配工作。
+- en: 'To address our second issue of thousands of customers trying to get in line
+    concurrently, we need to think about the bounds of our queue. By default, queues
+    are unbounded, and they can grow to store an infinite amount of work items. In
+    theory this is acceptable, but in the real world, systems have memory constraints,
+    so placing an upper bound on our queue to prevent running out of memory is a good
+    idea. In this case, we need to think through what we want our behavior to be when
+    our queue is full. Let’s see what happens when we create a queue that can only
+    hold one item and try to add a second with `put_nowait`:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决成千上万的顾客试图同时排队的问题，我们需要考虑我们队列的界限。默认情况下，队列是无界的，它们可以增长以存储无限量的工作项。从理论上讲，这是可以接受的，但在现实世界中，系统有内存限制，因此给我们的队列设置一个上限以防止内存耗尽是一个好主意。在这种情况下，我们需要思考当我们的队列满了时我们希望的行为是什么。让我们看看当我们创建一个只能容纳一个项目并且尝试用`put_nowait`添加第二个项目时会发生什么：
+- en: '[PRE3]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: In this case, much like `get_nowait`, `put_nowait` throws an exception of the
+    type `asyncio.queues.QueueFull`. Like `get`, there is also a coroutine method
+    called `put`. This method will block until there is room in the queue. With this
+    in mind, let’s refactor our customer example to use the coroutine variants of
+    `get` and `put`.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，与`get_nowait`类似，`put_nowait`会抛出一个类型为`asyncio.queues.QueueFull`的异常。与`get`一样，还有一个名为`put`的协程方法。此方法将阻塞，直到队列中有空间。考虑到这一点，让我们重构我们的顾客示例，使用`get`和`put`的协程变体。
+- en: Listing 12.2 Using coroutine queue methods
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.2 使用协程队列方法
+- en: '[PRE4]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Generate a random customer.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 生成一个随机顾客。
+- en: ❷ Generate several random customers every second.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 每秒生成几个随机顾客。
+- en: In the preceding listing, we create a `generate_customer` coroutine that creates
+    a customer with a random list of products. Alongside this we create a `customer_generator`
+    coroutine function that generates between one and five random customers every
+    second and adds them to the queue with `put`. Because we use the coroutine `put`,
+    if our queue is full, `customer_generator` will block until the queue has free
+    spaces. Specifically, this means that if there are five customers in the queue
+    and the *producer* tries to add a sixth, the queue will block, allowing that customer
+    into the queue until there is a space freed up by a cashier checking someone out.
+    We can think of `customer_` `generator` as our *producer*, as it produces customers
+    for our cashiers to check out.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个`generate_customer`协程，它使用随机产品列表创建一个顾客。与此同时，我们创建了一个`customer_generator`协程函数，它每秒生成一到五个随机顾客，并使用`put`将它们添加到队列中。因为我们使用了协程`put`，如果我们的队列已满，`customer_generator`将阻塞，直到队列中有空闲空间。具体来说，这意味着如果队列中有五个顾客，而*生产者*试图添加第六个顾客，队列将阻塞，直到有空间被收银员结账释放出来。我们可以将`customer_generator`视为我们的*生产者*，因为它为收银员生成顾客。
+- en: We also refactor `checkout_customer` to run forever, since our cashiers remain
+    on call when the queue is empty. We then refactor `checkout_customer` to use the
+    queue `get` coroutine, and the coroutine will block if the queue has no customers
+    in it. Then, in our main coroutine we create a queue that allows five customers
+    in line at a time and create three `checkout_customer` tasks running concurrently.
+    We can think of the cashiers as our *consumers*; they consume customers to check
+    out from the queue.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还将`checkout_customer`重构为无限运行，因为当队列空时，我们的收银员仍然处于待命状态。然后，我们将`checkout_customer`重构为使用队列`get`协程，如果队列中没有顾客，协程将阻塞。然后，在我们的主协程中，我们创建一个队列，一次允许五个顾客排队，并创建三个并发运行的`checkout_customer`任务。我们可以将收银员视为我们的*消费者*；他们从队列中消费顾客进行结账。
+- en: 'This code randomly generates customers, but at some point, the queue should
+    fill up such that the cashiers aren’t processing customers as fast as the producer
+    is creating them. Thus, we’ll see output similar to the following where the producer
+    waits to add a customer into the line until a customer has finished checking out:'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码随机生成顾客，但最终，队列应该填满到收银员处理顾客的速度赶不上生产者创建顾客的速度。因此，我们将看到类似以下输出的情况，其中生产者等待将顾客添加到队列中，直到有顾客完成结账：
+- en: '[PRE5]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: We now understand the basics of how asynchronous queues work, but since we’re
+    usually not building supermarket simulations in our day jobs, let’s look at a
+    few real-world scenarios to see how we would apply this in applications we really
+    might build.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经了解了异步队列的基本工作原理，但由于我们在日常工作中通常不会构建超市模拟，让我们看看一些现实世界的场景，以了解我们如何在真正可能构建的应用程序中应用这些原理。
+- en: 12.1.1 Queues in web applications
+  id: totrans-47
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.1 网络应用中的队列
+- en: Queues can be useful in web applications when we have a potentially time-consuming
+    operation that we can run in the background. If we ran this operation in the main
+    coroutine of the web request, we would block the response to the user until the
+    operation finished, potentially leaving the end user with a slow, unresponsive
+    page.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们有一个可能耗时的操作可以在后台运行时，队列在Web应用中非常有用。如果我们在这个Web请求的主协程中运行这个操作，我们将阻塞对用户的响应，直到操作完成，这可能会导致最终用户得到一个缓慢、无响应的页面。
+- en: Imagine we’re part of an e-commerce organization, and we’re operating with a
+    slow order management system. Processing an order can take several seconds, but
+    we don’t want to keep the user waiting for a response that their order has been
+    placed. Furthermore, the order management system does not handle load well, so
+    we’d like to limit how many requests we make to it concurrently. In this circumstance
+    a queue can solve both problems. As we saw before, a queue can have a maximum
+    number of elements we allow before adding more either blocks or throws an exception.
+    This means if we have a queue with an upper limit, we’ll at most have however
+    many consumer tasks we create that are running concurrently. This provides a natural
+    limit to concurrency.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们是电子商务组织的一部分，并且我们正在使用一个慢速订单管理系统进行操作。处理一个订单可能需要几秒钟，但我们不希望用户等待响应来确认他们的订单已被放置。此外，订单管理系统处理负载的能力不佳，因此我们希望限制并发请求的数量。在这种情况下，队列可以解决这两个问题。正如我们之前看到的，队列可以在添加更多元素之前有一个最大元素数，这意味着如果我们有一个上限的队列，我们最多会有我们创建的并发消费者任务的数量。这为并发提供了一个自然的限制。
+- en: A queue also solves the issue of the user waiting too long for a response. Putting
+    an element on the queue happens instantly, meaning we can notify the user that
+    their order has been placed right away, providing a fast user experience. In the
+    real world, of course, this opens up the potential for the background task to
+    fail without the user being notified, so you’ll need some form of data persistence
+    and logic to combat this.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 队列还解决了用户等待响应时间过长的问题。将元素放入队列是瞬时的，这意味着我们可以立即通知用户他们的订单已被放置，从而提供快速的用户体验。当然，在现实世界中，这可能会打开后台任务失败而用户未得到通知的潜在可能性，因此你需要某种形式的数据持久性和逻辑来对抗这种情况。
+- en: To try this out, let’s create a simple web application with aiohttp that employs
+    a queue to run background tasks. We’ll simulate interacting with a slow order
+    management system by using `asyncio.sleep`. In a real world microservice architecture
+    you’d likely be communicating over REST with aiohttp or a similar library, but
+    we’ll use `sleep` for simplicity.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了尝试这个功能，让我们创建一个简单的使用aiohttp的Web应用程序，该程序使用队列来运行后台任务。我们将通过使用`asyncio.sleep`来模拟与慢速订单管理系统交互。在现实世界的微服务架构中，你可能会使用aiohttp或类似的库通过REST进行通信，但为了简单起见，我们将使用`sleep`。
+- en: We’ll create an aiohttp startup hook to create our queue as well as a set of
+    worker tasks that will interact with the slow service. We’ll also create a `HTTP`
+    `POST` endpoint/ order that will place an order on the queue (here, we’ll just
+    generate a random number for our worker task to `sleep` to simulate the slow service).
+    Once the order is put on the queue, we’ll return a `HTTP` `200` and a message
+    indicating the order has been placed.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将创建一个aiohttp启动钩子来创建我们的队列以及一组将与慢速服务交互的工作任务。我们还将创建一个`HTTP` `POST`端点/订单，该端点将订单放入队列（在这里，我们将为我们的工作任务生成一个随机数来`sleep`以模拟慢速服务）。一旦订单被放入队列，我们将返回`HTTP`
+    `200`和一个消息，表明订单已被放置。
+- en: We’ll also add some graceful shutdown logic in an aiohttp shutdown hook, since
+    if our application shuts down, we might still have some orders being processed.
+    In the shutdown hook, we’ll wait until any workers that are busy have finished.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还会在aiohttp的关闭钩子中添加一些优雅的关闭逻辑，因为如果我们的应用程序关闭，我们可能仍然有一些订单正在处理。在关闭钩子中，我们将等待直到任何忙碌的工作者完成。
+- en: Listing 12.3 Queues with a web application
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.3 使用Web应用程序的队列
+- en: '[PRE6]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Grab an order from the queue, and process it.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从队列中获取一个订单，并处理它。
+- en: ❷ Put the order on the queue, and respond to the user immediately.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将订单放入队列，并立即响应用户。
+- en: ❸ Create a queue with a maximum of 10 elements, and create 5 worker tasks.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建一个最大容量为10个元素的队列，并创建5个工作任务。
+- en: ❹ Wait for any busy tasks to finish.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待任何忙碌的任务完成。
+- en: In the preceding listing, we first create a `process_order_worker` coroutine.
+    This pulls an item from the queue, in this case an integer, and sleeps for that
+    amount of time to simulate working with a slow order management system. This coroutine
+    loops forever, continually pulling items from the queue and processing them.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们首先创建了一个`process_order_worker`协程。这个协程从队列中拉取一个项目，在这个例子中是一个整数，并为此时间量暂停以模拟与慢速订单管理系统的交互。这个协程将永远循环，不断地从队列中拉取项目并处理它们。
+- en: We then create the coroutines to set up and tear down the queue, `create_order_`
+    `queue` and `destroy_order_queue`, respectively. Creating the queue is straightforward,
+    as we create an asyncio queue with a maximum of 10 elements and we create five
+    worker tasks, storing them in our `Application` instance.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们创建协程来设置和拆除队列，分别是 `create_order_queue` 和 `destroy_order_queue`。创建队列很简单，因为我们创建了一个最多包含
+    10 个元素的 asyncio 队列，并创建了五个工作任务，将它们存储在我们的 `Application` 实例中。
+- en: Destroying the queue is a bit more involved. We first wait for the queue to
+    finish processing all its elements with `Queue.join`. Since our application is
+    shutting down, it won’t be serving any more HTTP requests, so no other orders
+    can go into our queue. This means that anything already in the queue will be processed
+    by a worker, and anything a worker is currently processing will finish as well.
+    We also wrap `join` in a `wait_` `for` with a timeout of 10 seconds as well. This
+    is a good idea because we don’t want a runaway task taking a long time preventing
+    our application from shutting down.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拆除队列稍微复杂一些。我们首先使用 `Queue.join` 等待队列完成所有元素的处理。由于我们的应用程序正在关闭，它将不再处理任何 HTTP 请求，因此不会有其他订单进入我们的队列。这意味着队列中已经存在的任何内容都将由工作进程处理，而工作进程当前正在处理的内容也将完成。我们还用超时为
+    10 秒的 `wait_for` 包装了 `join`。这是一个好主意，因为我们不希望一个失控的任务花费很长时间阻止我们的应用程序关闭。
+- en: Finally, we define our application `route`. We create a POST endpoint at `/order`.
+    This endpoint creates a random delay and adds it to the queue. Once we’ve added
+    the order to the queue, we respond to the user with a HTTP 200 status code and
+    a short message. Note that we used the coroutine variant of `put`, which means
+    that if our queue is full the request will block until the message is on the queue,
+    which could take time. You may want to use the `put_nowait` variant and then respond
+    with a HTTP 500 error or other error code asking the caller to try again later.
+    Here, we’ve made a tradeoff of a request potentially taking some time so that
+    our order always goes on the queue. Your application may require “fail fast” behavior,
+    so responding with an error when the queue is full may the correct behavior for
+    your use case.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们定义我们的应用程序 `route`。我们在 `/order` 路径创建了一个 POST 端点。此端点创建一个随机延迟并将其添加到队列中。一旦我们将订单添加到队列中，我们就向用户响应
+    HTTP 200 状态码和一条简短的消息。请注意，我们使用了 `put` 协程变体，这意味着如果我们的队列已满，请求将阻塞，直到消息进入队列，这可能需要一些时间。您可能想使用
+    `put_nowait` 变体，然后响应 HTTP 500 错误或其他错误代码，要求调用者稍后再试。在这里，我们权衡了请求可能需要一些时间，以便我们的订单始终进入队列。您的应用程序可能需要“快速失败”行为，因此在队列满时响应错误可能是您用例的正确行为。
+- en: Using this queue, our order endpoint will respond nearly instantly when our
+    order was placed so long as the queue isn’t full. This provides the end user with
+    a quick and smooth ordering experience—one that hopefully keeps them coming back
+    to buy more.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这个队列，只要队列不满，我们的订单端点在订单提交后几乎会立即响应。这为最终用户提供了快速而流畅的订购体验——希望这能让他们回来购买更多商品。
+- en: One thing to keep in mind when using asyncio queues in web applications is the
+    failure modes of queues. What if one of our API instances crashed for some reason,
+    such as running out of memory, or if we needed to restart the server for a redeploy
+    of our application? In this case, we would lose any unprocessed orders that are
+    in the queue, as they are only stored in memory. Sometimes, losing an item in
+    a queue isn’t a big deal, but in the case of a customer order, it probably is.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用 asyncio 队列的 Web 应用程序时，需要记住队列的故障模式。如果我们的 API 实例由于某种原因崩溃，例如内存不足，或者我们需要重新启动服务器以重新部署我们的应用程序，那会怎样？在这种情况下，我们会在队列中丢失任何未处理的订单，因为它们只存储在内存中。有时，队列中丢失一个项目并不是什么大问题，但如果是客户订单，可能就不是这样了。
+- en: asyncio queues provide no out-of-the-box concept of task persistence or queue
+    durability. If we want tasks in our queue to be robust against these types of
+    failures, we need to introduce somewhere a method to save our tasks, such as a
+    database. More correctly, however, is using a separate queue outside of asyncio
+    that supports task persistence. Celery and RabbitMQ are two examples of task queues
+    that can persist to disk.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncio 队列不提供现成的任务持久性或队列持久性的概念。如果我们希望队列中的任务能够抵御这些类型的故障，我们需要在某个地方引入一个保存我们任务的方法，例如数据库。然而，更正确的方法是使用
+    asyncio 之外的单独队列，该队列支持任务持久性。Celery 和 RabbitMQ 是两个可以将任务持久化到磁盘的任务队列示例。
+- en: Of course, using a separate architectural queue comes with added complexity.
+    In the case of durable queues with persistent tasks, it also comes with a performance
+    challenge of needing to persist to disk. To determine the best architecture for
+    your application, you’ll need to carefully weigh the tradeoffs of an in-memory-only
+    asyncio queue versus a separate architectural component.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，使用独立的架构队列会带来额外的复杂性。在持久队列和持续任务的情况下，这也带来了性能挑战，需要将数据持久化到磁盘。为了确定最适合您应用程序的架构，您需要仔细权衡仅内存中的
+    asyncio 队列与独立架构组件之间的权衡。
+- en: 12.1.2 A web crawler queue
+  id: totrans-68
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.2 网页爬虫队列
+- en: Consumer tasks can also be producers if our consumer generates more work to
+    put in the queue. Take for instance a web crawler that visits all links on a particular
+    page. You can imagine one worker downloading and scanning a page for links. Once
+    the worker has found links it can add them to a queue. This lets other available
+    workers pull links onto the queue and visit them concurrently, adding any links
+    they encounter back to the queue.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消费者任务也可以是生产者，如果我们的消费者生成更多工作以放入队列中。以一个访问特定页面所有链接的网页爬虫为例。你可以想象一个工作员下载并扫描页面以查找链接。一旦工作员找到链接，它可以将它们添加到队列中。这使得其他可用的工作员可以将链接拉入队列并并发访问它们，将它们遇到的任何链接重新添加到队列中。
+- en: Let’s build a crawler that does this. We’ll create an unbounded queue (you may
+    want to bound it if you’re concerned about memory overruns) that will hold URLs
+    to download. Then, our workers will pull URLs off the queue and use aiohttp to
+    download them. Once we’ve downloaded them, we’ll use a popular HTML parser, Beautiful
+    Soup, to extract links to put back into the queue.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们构建一个执行此操作的爬虫。我们将创建一个无界队列（如果您担心内存溢出，您可能希望将其限制），它将包含要下载的 URL。然后，我们的工作员将从队列中拉取
+    URL 并使用 aiohttp 下载它们。一旦我们下载了它们，我们将使用一个流行的 HTML 解析器 Beautiful Soup，以提取链接并将其放回队列中。
+- en: At least with this application, we don’t want to scan the entire internet, so
+    we’ll only scan a set number of pages away from the root page. We’ll call this
+    our “maximum depth”; if our maximum depth is set to three, it means we’ll only
+    follow links three pages away from the root.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 至少在这个应用程序中，我们不想扫描整个互联网，所以我们只会扫描从根页面出发的一定数量的页面。我们将称之为“最大深度”；如果我们的最大深度设置为三，这意味着我们只会跟随距离根页面三页的链接。
+- en: 'To get started, let’s install Beautiful Soup version 4.9.3 with the following
+    command:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始，让我们使用以下命令安装 Beautiful Soup 版本 4.9.3：
+- en: '[PRE7]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: We’ll assume some knowledge of Beautiful Soup. You can read more in the documentation
+    at [https://www.crummy.com/software/BeautifulSoup/bs4/doc](https://www.crummy.com/software/BeautifulSoup/bs4/doc).
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们假设您对 Beautiful Soup 有一定的了解。您可以在[https://www.crummy.com/software/BeautifulSoup/bs4/doc](https://www.crummy.com/software/BeautifulSoup/bs4/doc)的文档中了解更多信息。
+- en: Our plan will be to create a worker coroutine that will pull a page from the
+    queue and download it with aiohttp. Once we’ve done this, we’ll use Beautiful
+    Soup to get all the links of the form `<a` `href="url">` from the page, adding
+    them back to the queue.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的计划是创建一个工作协程，它会从队列中拉取一页并使用 aiohttp 下载它。一旦我们完成这个操作，我们将使用 Beautiful Soup 从页面中获取所有形式为
+    `<a href="url">` 的链接，并将它们重新添加到队列中。
+- en: Listing 12.4 A queue-based crawler
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.4 基于队列的爬虫
+- en: '[PRE8]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ Grab a URL from the queue to process and then begin to download it.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从队列中抓取一个 URL 以进行处理，然后开始下载它。
+- en: ❷ Download the URL contents, and parse all links from the page, putting them
+    back on the queue.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 下载 URL 内容，并解析页面上的所有链接，将它们放回队列。
+- en: ❸ Create a queue and 100 worker tasks to process URLs.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建一个队列和 100 个工作任务来处理 URL。
+- en: In the preceding listing, we first define a `WorkItem` class. This is a simple
+    data class to hold a URL and the depth of that URL. We then define our worker,
+    which pulls a `WorkItem` from the queue and calls `process_page`. The `process_page`
+    coroutine function downloads the contents of the URL if it can do so (a timeout
+    or exception could occur, which we just log and ignore). It then uses Beautiful
+    Soup to get all the links and adds them back to the queue for other workers to
+    process.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们首先定义了一个 `WorkItem` 类。这是一个简单的数据类，用于存储 URL 和该 URL 的深度。然后我们定义了我们的工作员，它会从队列中拉取一个
+    `WorkItem` 并调用 `process_page`。`process_page` 协程函数如果可以这样做（可能会发生超时或异常，我们只是记录并忽略）会下载
+    URL 的内容。然后它使用 Beautiful Soup 获取所有链接并将它们重新添加到队列中供其他工作员处理。
+- en: 'In our main coroutine, we create the queue and bootstrap it with our first
+    `WorkItem`. In this example we hardcode example.com, and since it is our root
+    page, its depth is 0\. We then create an aiohttp session and create 100 workers,
+    meaning we can download 100 URLs concurrently, and we set its max depth to 3\.
+    We then wait for the queue to empty and all workers to finish with `Queue.join`.
+    Once the queue is finished processing, we cancel all our worker tasks. When you
+    run this code, you should see 100 worker tasks fire up and start looking for links
+    from each URL it downloads, giving you output like the following:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的主协程中，我们创建队列并用第一个`WorkItem`启动它。在这个例子中，我们硬编码了example.com，由于它是我们的根页面，其深度为0。然后我们创建一个aiohttp会话并创建100个工作者，这意味着我们可以同时下载100个URL，并将它的最大深度设置为3。然后我们等待队列变空以及所有工作者通过`Queue.join`完成工作。一旦队列处理完毕，我们取消所有工作者任务。当你运行这段代码时，你应该会看到100个工作任务启动并开始从下载的每个URL中寻找链接，输出如下：
+- en: '[PRE9]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: The workers will continue to download pages and process links, adding them to
+    the queue until we reach the maximum depth we’ve specified.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作者将继续下载页面并处理链接，将它们添加到队列中，直到达到我们指定的最大深度。
+- en: We’ve now seen the basics of asynchronous queues by building a fake supermarket
+    checkout line as well as by building an order management API and a web crawler.
+    So far, our workers have given equal weight to each element in the queue, and
+    they just pull whoever is at the front of the line out to work on. What if we
+    wanted some tasks to happen sooner even if they’re toward the back of the queue?
+    Let’s take a look at priority queues to see how to do this.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过构建一个假超市结账队列以及构建一个订单管理API和一个网络爬虫，我们已经看到了异步队列的基本原理。到目前为止，我们的工作者对队列中的每个元素都给予相同的权重，并且只是从队伍的前端取出一个来工作。如果我们希望某些任务即使排在队列的后面也能尽快执行，该怎么办呢？让我们看看优先队列，看看如何实现这一点。
+- en: 12.2 Priority queues
+  id: totrans-86
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.2 优先队列
+- en: Our previous examples of queues processed items in FIFO, or first-in, first-out,
+    ordering. Whoever was first in line gets processed first. This works well in many
+    cases, both in software engineering and in life.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前的队列示例按照FIFO（先进先出）的顺序处理项目。排在队伍前面的人首先被处理。这在许多情况下都适用，无论是软件工程还是生活中。
+- en: In certain applications, however, having all tasks be considered equal is not
+    always desirable. Imagine we’re building a data processing pipeline where each
+    task is a long-running query that can take several minutes. Let’s say two tasks
+    come in at roughly the same time. The first task is a low priority data query,
+    but the second is a mission-critical data update that should be processed as soon
+    as possible. With simple queues, the first task will be processed, leaving the
+    second, more important task waiting for the first one to finish. Imagine the first
+    task takes hours, or if all our workers are busy, our second task could be waiting
+    for a long time.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在某些应用中，所有任务都被视为平等的情况并不总是理想的。想象一下，我们正在构建一个数据处理管道，其中每个任务都是一个可能持续几分钟的长运行查询。假设两个任务几乎同时到达。第一个任务是一个低优先级的数据查询，但第二个是一个至关重要的数据更新，应该尽快处理。使用简单的队列，第一个任务将被处理，而更重要的第二个任务将等待第一个任务完成。想象一下，第一个任务可能需要数小时，或者如果所有工作者都很忙，第二个任务可能需要等待很长时间。
+- en: We can use a priority queue to solve this problem and make our workers work
+    on our most important tasks first. Internally, priority queues are backed by *heaps*
+    (using the `heapq` module) instead of Python lists like simple queues. To create
+    an asyncio priority queue, we create an instance of `asyncio.PriorityQueue`.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用优先队列来解决这个问题，并让工作者首先处理最重要的任务。内部，优先队列由*堆*（使用`heapq`模块）支持，而不是像简单队列那样使用Python列表。要创建一个asyncio优先队列，我们创建一个`asyncio.PriorityQueue`的实例。
+- en: We won’t get too much into data structure specifics here, but a heap is a binary
+    tree with the property that every parent node has a value less than all its children
+    (see figure 12.1). This is unlike binary search trees typically used in sorting
+    and searching problems where the only property is that a node’s left-hand child
+    is smaller than its parent and the node’s right-hand child is larger. The property
+    of heaps we take advantage of is that the topmost node is always the smallest
+    element in the tree. If we always make the smallest node our highest priority
+    one, then the high priority node will always be the first in the queue.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会深入探讨数据结构的具体细节，但堆是一种具有每个父节点值都小于其所有子节点的属性的二叉树（参见图12.1）。这与通常用于排序和搜索问题的二叉搜索树不同，二叉搜索树的唯一属性是节点的左子节点小于其父节点，而节点的右子节点大于其父节点。我们利用的堆属性是树中最顶端的节点总是树中最小元素。如果我们总是将最小节点作为最高优先级，那么高优先级节点将始终在队列中排在第一位。
+- en: '![12-01](Images/12-01.png)'
+  id: totrans-91
+  prefs: []
+  type: TYPE_IMG
+  zh: '![12-01](Images/12-01.png)'
+- en: Figure 12.1 On the left, a binary tree that satisfies the heap property; on
+    the right, a binary search tree that does not satisfy the heap property
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.1 在左侧，一个满足堆属性的二叉树；在右侧，一个不满足堆属性的二叉搜索树
+- en: It is unlikely the work items we put in our queue will be plain integers, so
+    we’ll need some way to construct a work item with a sensible priority rule. One
+    way to do this is with a tuple, where the first element is an integer representing
+    the priority and the second is any task data. The default queue implementation
+    looks to the first value of the tuple to decide priority with the lowest numbers
+    having the highest priority. Let’s look at an example with tuples as work items
+    to see the basics of how a priority queue works.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们放入队列中的工作项不太可能是普通的整数，因此我们需要某种方式来构建具有合理优先级规则的工作项。一种方法是将元组用作工作项，其中第一个元素是一个表示优先级的整数，第二个是任何任务数据。默认队列实现会查看元组的第一个值来决定优先级，最低的数字具有最高的优先级。让我们通过一个使用元组作为工作项的例子来看看优先队列的基本工作原理。
+- en: Listing 12.5 Priority queues with tuples
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.5 使用元组的优先队列
+- en: '[PRE10]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'In the preceding listing, we create three work items: one with high priority,
+    one with medium priority, and one with low priority. We then add them in the priority
+    queue in reverse priority order, meaning we insert the lowest priority item first
+    and the highest last. In a normal queue, this would mean we’d process the lowest
+    priority item first, but if we run this code, we’ll see the following output:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了三个工作项：一个高优先级，一个中等优先级，一个低优先级。然后我们按照逆优先级顺序将它们添加到优先队列中，这意味着我们首先插入优先级最低的项，最后插入优先级最高的项。在一个普通队列中，这意味着我们会首先处理优先级最低的项，但如果我们运行这段代码，我们会看到以下输出：
+- en: '[PRE11]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: This indicates that we processed the work items in the order of their priority,
+    not how they were inserted into the queue. Tuples work for simple cases, but if
+    we have a lot of data in our work items, a tuple could get messy and confusing.
+    Is there a way for us to create a class of some sort that will work the way we
+    want with heaps? We can, in fact, and the tersest way to do this is by using a
+    data class (we could also implement the proper *dunder* methods `__lt__`, `__le__`,
+    `__gt__`, and `__ge__` if data classes aren’t an option).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这表明我们按照工作项的优先级顺序处理了工作项，而不是它们被插入队列的方式。元组适用于简单情况，但如果我们的工作项中有大量数据，元组可能会变得混乱且难以理解。我们是否有办法创建一种某种类型的类，使其以我们想要的方式与堆一起工作？实际上我们可以这样做，最简洁的方式是使用数据类（如果数据类不可用，我们也可以实现适当的*dunder*方法
+    `__lt__`, `__le__`, `__gt__`, 和 `__ge__`）。
+- en: Listing 12.6 Priority queues with data classes
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.6 使用数据类的优先队列
+- en: '[PRE12]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'In the preceding listing, we create a `dataclass` with `ordered` set to `True`.
+    We then add a priority integer and a string data field, excluding this from the
+    comparison. This means that when we add these work items to the queue, they’ll
+    only be sorted by the priority field. Running the code above, we can see that
+    this is processed in the proper order:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个将 `ordered` 设置为 `True` 的 `dataclass`。然后我们添加了一个优先级整数和一个字符串数据字段，将其排除在比较之外。这意味着当我们将这些工作项添加到队列中时，它们将只按优先级字段排序。运行上面的代码，我们可以看到这是按正确的顺序处理的：
+- en: '[PRE13]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Now that we know the basics of priority queues, let’s translate this back into
+    the earlier example of our order management API. Imagine we have some “power user”
+    customers who spend a lot of money on our e-commerce site. We want to ensure that
+    their orders always get processed first to ensure the best experience for them.
+    Let’s adapt our earlier example to use a priority queue for these users.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了优先队列的基本知识，让我们将其转换回我们之前示例中的订单管理API。想象一下，我们有一些“高级用户”客户在我们的电子商务网站上花费了很多钱。我们想确保他们的订单总是首先被处理，以确保他们获得最佳体验。让我们调整我们之前的例子，为这些用户使用优先队列。
+- en: Listing 12.7 A priority queue in a web application
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.7：Web应用程序中的优先队列
+- en: '[PRE14]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ An order class to represent our work item with a priority based on user type.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 一个表示我们的工作项的顺序类，其优先级基于用户类型。
+- en: ❷ Parse the request into an order.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将请求解析为订单。
+- en: The preceding listing looks very similar to our initial API to interact with
+    a slow order management system with the difference being that we use a priority
+    queue and create an `Order` class to represent an incoming order. When we get
+    an incoming order, we now expect it to have a payload with a “power user” flag
+    set to `True` for VIP users and `False` for other users. We can hit this endpoint
+    with cURL like so
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面的列表看起来与我们最初的API非常相似，区别在于我们使用了优先队列并创建了一个`Order`类来表示一个传入的订单。当我们收到一个订单时，我们现在期望它有一个带有“power
+    user”标志的负载，对于VIP用户设置为`True`，对于其他用户设置为`False`。我们可以使用cURL像这样访问这个端点
+- en: '[PRE15]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: passing in the desired power user value. If a user is a power user, their orders
+    will always be processed by any available workers ahead of regular users.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 传入期望的高级用户值。如果用户是高级用户，他们的订单将总是由任何可用的工人优先于普通用户处理。
+- en: One interesting corner case that can come up with priority queues is what happens
+    when you add two work items with the same priority right after one another. Do
+    they get processed by workers in the order they were inserted? Let’s make a simple
+    example to test this out.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优先队列中可能出现的一个有趣的特殊情况是，当你连续添加两个具有相同优先级的工作项时会发生什么。它们是否按照它们被插入的顺序被工人处理？让我们做一个简单的例子来测试这一点。
+- en: Listing 12.8 A work item priority tie
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.8：工作项优先级平局
+- en: '[PRE16]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'In the preceding listing, we put three low-priority tasks in the queue first.
+    We might expect these to be processed in order of insertion, but we don’t exactly
+    get that behavior when we run this:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们首先将三个低优先级任务放入队列中。我们可能期望这些任务按照插入顺序进行处理，但当我们运行这个程序时，我们并没有得到预期的行为：
+- en: '[PRE17]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: It turns out that we process the low-priority items in the reverse order we
+    inserted them. This is happening because the underlying `heapsort` algorithm is
+    not a stable sort algorithm, as equal items are not guaranteed to be in the same
+    order of insertion. Order when there are ties in priority may not be an issue,
+    but if you care about it, you’ll need to add a tie-breaker key that gives you
+    the ordering you want. One simple way to do this and preserve insertion order
+    is to add an item count to the work item, though there are many ways you could
+    do this.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果表明，我们以相反的顺序处理低优先级项，这是因为在底层`heapsort`算法不是一个稳定的排序算法，因为相等的项不保证在相同的插入顺序中。当优先级相同时，顺序可能不是问题，但如果你关心它，你需要添加一个平局解决键，以给你想要的排序。一种简单的方法是在工作项中添加一个项目计数，尽管你可以用很多种方法来做这件事。
+- en: Listing 12.9 Breaking ties in a priority queue
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.9：在优先队列中打破平局
+- en: '[PRE18]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'In the previous listing, we add an `order` field to our `WorkItem` class. Then,
+    when we insert work items, we add an integer representing the order we insert
+    it into the queue. When there is a tie in priority, this will be the field that
+    we order on. In our case, this gives us the desired ordering of insertion for
+    the low priority items:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们向我们的`WorkItem`类添加了一个`order`字段。然后，当我们插入工作项时，我们添加一个整数来表示我们将它插入队列中的顺序。当优先级相同时，这将是我们排序的字段。在我们的例子中，这为我们提供了低优先级项所需的插入顺序：
+- en: '[PRE19]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: We’ve now seen how to process work items in a FIFO queue order and in a priority
+    queue order. What if we want to process the most recently added work items first?
+    Next, let’s see how to do this with a LIFO queue.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到了如何按照FIFO队列顺序和优先队列顺序处理工作项。如果我们想首先处理最近添加的工作项呢？接下来，让我们看看如何使用LIFO队列来实现这一点。
+- en: 12.3 LIFO queues
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.3 LIFO队列
+- en: 'LIFO queues are more commonly referred to *stacks* in the computer science
+    world. We can imagine these like a stack of poker chips: As you place bets, you
+    take chips from the top of your stack (or “pop” them), and as you hopefully win
+    hands, you put chips back on the top of the stack (or “push” them). These are
+    useful for when we want our workers to process the most recently added items first.'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在计算机科学领域，LIFO队列通常被称为*栈*。我们可以想象这些就像一副扑克筹码：当你下注时，你会从你的筹码堆顶部（或“弹出”）筹码，当你希望赢得牌时，你会将筹码放回筹码堆的顶部（或“推”上去）。这些在我们要让工作者首先处理最近添加的项目时非常有用。
+- en: We won’t build much more than a simple example to demonstrate the order that
+    workers process elements. As for when to use a LIFO queue, it depends on the order
+    your application needs to process items in the queue. Do you need to process the
+    most recently inserted item in the queue first? In this case, you’ll want to use
+    a LIFO queue.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不会构建比简单示例更多的内容来演示工作者处理元素顺序。至于何时使用LIFO队列，这取决于应用程序需要按什么顺序处理队列中的项目。你是否需要首先处理队列中最最近插入的项目？在这种情况下，你将想要使用LIFO队列。
+- en: Listing 12.10 A LIFO queue
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.10 一个LIFO队列
+- en: '[PRE20]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Get an item from the queue, or “pop” it, from the stack.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从队列中获取一个项目，或者说是“弹出”它，从栈上。
+- en: ❷ Put an item into the queue, or “push” it, onto the stack.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将一个项目放入队列中，或者说是“推”到栈上。
+- en: 'In the preceding listing, we create a LIFO queue and a set of work items. We
+    then insert them one after another into the queue, pulling them out and processing
+    them. Running this, you’ll see the following output:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个LIFO队列和一组工作项。然后我们依次将它们插入队列中，取出并处理它们。运行这个程序，你会看到以下输出：
+- en: '[PRE21]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Notice that we process items in the queue in the reverse order that we inserted
+    them into the queue. As this is a stack, this makes sense, since we’re processing
+    the most recently added work item to our queue first.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们在队列中处理项目的顺序与我们将它们插入队列的顺序相反。由于这是一个栈，这很有意义，因为我们首先处理队列中最最近添加的工作项。
+- en: We’ve now seen all the flavors of queue that the asyncio queue library has to
+    offer. Are there any pitfalls to using these queues? Can we just use them whenever
+    we need a queue in our application? We’ll address this in chapter 13.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到了asyncio队列库所能提供的所有队列类型。使用这些队列有什么潜在的问题吗？我们是否可以在需要队列的应用程序中随时使用它们？我们将在第13章中解决这个问题。
+- en: Summary
+  id: totrans-133
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: asyncio queues are task queues that are useful in workflows in which we have
+    coroutines that produce data and coroutines responsible for processing that data.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: asyncio队列是任务队列，在具有生成数据的协程和负责处理这些数据的协程的工作流程中非常有用。
+- en: Queues decouple data generation from data processing, as we can have a producer
+    put items into a queue that multiple workers can then process independently and
+    concurrently.
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 队列解耦了数据生成和数据处理，因为我们可以让生产者将项目放入队列，然后多个工作者可以独立和并发地处理这些项目。
+- en: We can use priority queues to give certain tasks priority over one another.
+    This is useful for instances in which certain work is of higher importance than
+    others and should always be handled first.
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用优先级队列来给某些任务赋予比其他任务更高的优先级。这在某些工作比其他工作更重要，并且应该首先处理的情况下非常有用。
+- en: asyncio queues are not distributed, not persistent, and not durable. If you
+    need any of these qualities, you’ll need to look towards a separate architectural
+    component, such as Celery or RabbitMQ.
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: asyncio队列不是分布式的，不是持久的，也不是耐用的。如果你需要这些特性中的任何一个，你需要寻找一个单独的架构组件，比如Celery或RabbitMQ。

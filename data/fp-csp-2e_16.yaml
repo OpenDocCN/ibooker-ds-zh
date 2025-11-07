@@ -1,0 +1,1809 @@
+- en: '13 Event sourcing: A functional approach to persistence'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 13 事件溯源：持久化的函数式方法
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Thinking functionally about persisted data
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 关于持久化数据的函数式思考
+- en: Event sourcing concepts and implementation
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件溯源的概念和实现
+- en: Architecture of event-sourced systems
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件溯源系统的架构
+- en: In chapter 11, you saw that in FP we avoid mutating state, especially global
+    state. Did I mention that the database is also state, so it too should be immutable?
+    What? Yes, didn’t you see this one coming? A database is, conceptually, just a
+    data structure. Whether it’s stored in memory or on disk is ultimately just an
+    implementation detail.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第11章中，您看到在函数式编程中，我们避免修改状态，特别是全局状态。我提到过数据库也是一种状态，因此它也应该是不变的吗？什么？是的，你没有看到这一点吗？从概念上讲，数据库只是一个数据结构。它存储在内存中还是磁盘上，最终只是实现细节。
+- en: 'You saw in chapter 12 how functional data structures, although immutable, can
+    evolve: you can create new states or new views of any given structure that are
+    built on but don’t alter the original structure. This idea (which we explored
+    with respect to objects, lists, and trees) naturally applies to in-memory data,
+    as well as to stored data, and this is how our applications represent change without
+    mutation, even at the database level.'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第12章中，您看到了函数式数据结构，尽管不可变，但可以进化：您可以创建任何给定结构的新状态或新视图，这些新状态或新视图基于原始结构，但不会改变原始结构。这个想法（我们通过对象、列表和树来探讨）自然适用于内存数据，也适用于存储数据，这就是我们的应用程序如何在不进行变异的情况下表示变化，甚至在数据库级别也是如此。
+- en: 'There are currently two approaches to this idea of “append-only” data storage:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前有两种实现“追加”数据存储的方法：
+- en: '*Assertion-based*—Treats the DB as an ever-growing collection of facts that
+    are true at a given point in time'
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*基于断言的*——将数据库视为一个在给定时间点始终增长的、包含真实事实的集合'
+- en: '*Event-based*—Treats the DB as an ever-growing collection of events that occur
+    at given points in time'
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*基于事件的*——将数据库视为一个在给定时间点始终增长的、包含事件的集合'
+- en: In both cases, data is never updated or deleted, only appended.[¹](#pgfId-1116382)
+    I’ll compare these two approaches in more detail in section 13.4, but we’ll spend
+    most of this chapter discussing the event-based approach, usually referred to
+    as *event sourcing* (ES). This is because it’s easier to understand and to implement
+    using various kinds of backing storage, and its adoption in the .NET community
+    has been much wider.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这两种情况下，数据永远不会更新或删除，只有追加。[¹](#pgfId-1116382) 我将在第13.4节中更详细地比较这两种方法，但我们将在本章的大部分内容中讨论基于事件的途径，通常称为*事件溯源*（ES）。这是因为它更容易理解和实现，使用各种类型的后端存储，并且在.NET社区中的采用范围更广。
+- en: 13.1 Thinking functionally about data storage
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.1 关于数据存储的函数式思考
+- en: 'A significant majority of server applications today are *stateless*: when they
+    receive a request, they retrieve the required data from the database, do some
+    processing, and persist the relevant changes (see figure 13.1).[²](#pgfId-1116390)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 今天的大多数服务器应用程序都是*无状态的*：当它们收到请求时，它们从数据库中检索所需的数据，进行一些处理，并持久化相关的更改（见图13.1）。[²](#pgfId-1116390)
+- en: '![](Images/CH13_F01_Buonanno2.png)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F01_Buonanno2.png)'
+- en: Figure 13.1 So-called stateless servers usually rely on a big blob of mutable
+    data called the database.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.1 所说的无状态服务器通常依赖于一个称为数据库的大块可变数据。
+- en: Indeed, the stateless server approach has proven effective precisely because
+    state is such a major source of complexity. If you can get the data out of thin
+    air (as it were) when you need it, then a lot of difficult problems go away. This
+    is, in essence, what stateless servers do.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实上，无状态服务器方法之所以有效，正是因为状态是如此复杂的一个来源。如果您需要数据时可以从空中（如此说）获取数据，那么许多困难的问题就会消失。本质上，这就是无状态服务器所做的事情。
+- en: 'This also means that it’s relatively easy to avoid state mutation in a stateless
+    server: simply create new, updated versions of the data and persist those to the
+    database. But we’re fooling ourselves if we think that we’re developing functionally
+    if values in the DB are being updated or deleted in the process. When we develop
+    an application with a CRUD approach (updating stored data in place), we’re essentially
+    using the DB as a big blob of global mutable state.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这也意味着在无状态服务器中相对容易避免状态变异：只需创建新的、更新的数据版本，并将这些版本持久化到数据库中。但如果我们认为在数据库中的值在过程中被更新或删除时我们在开发函数式程序，那我们就自欺欺人。当我们使用CRUD方法（就地更新存储的数据）开发应用程序时，我们本质上是在使用数据库作为一个大块的全球可变状态。
+- en: 13.1.1 Why data storage should be append-only
+  id: totrans-17
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.1.1 为什么数据存储应该是追加的
+- en: Relational databases have been in use for some 40 years. They were conceived
+    in a time when disk space was scarce, so using those efficiently was paramount.
+    Typically, only the current state was stored. When a customer changed address,
+    the old address was overwritten with the new one—a mindset we still have today,
+    even though it’s now become completely obsolete.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关系型数据库已经使用了大约 40 年。它们是在磁盘空间稀缺的时代被构思的，因此高效使用这些数据库至关重要。通常，只存储当前状态。当客户更改地址时，旧地址会被新地址覆盖——这种思维方式我们至今仍然保留，尽管现在它已经完全过时了。
+- en: 'Today, in the age of big data, the tables are turned: storage is cheap and
+    data is valuable. Overwriting data is like throwing money out the window. Say
+    that a customer removes an item from their shopping basket—what do you do? Do
+    you delete a row in the database? If you do, you’ve just deleted valuable information
+    that might be useful in determining why certain items aren’t selling as expected.
+    Maybe customers often abandon certain items mid-purchase and replace them with
+    cheaper items from the suggestions list. If you delete the data, you can never
+    run this sort of analysis.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，在大数据时代，情况已经逆转：存储便宜，数据有价值。覆盖数据就像把钱扔出窗外。假设一个客户从他们的购物车中移除一个商品——你该怎么办？你在数据库中删除一行吗？如果你这样做，你刚刚删除了可能有助于确定某些商品为什么没有按预期销售的有价值信息。也许客户经常在购买中途放弃某些商品，并用建议列表中的更便宜的商品替换它们。如果你删除数据，你就永远无法进行这种分析。
+- en: This is why the idea of append-only storage has gained traction—never delete
+    or overwrite any data and only append new data. (For example, think about the
+    version control system you use to store your code. Does it overwrite existing
+    code when you commit new changes?)
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是为什么只追加存储的想法得到了人们的认可——永不删除或覆盖任何数据，只追加新数据。（例如，想想你用来存储代码的版本控制系统。你在提交新更改时是否会覆盖现有代码？）
+- en: 'Append-only storage has another great virtue: it eliminates the problem of
+    database contention. DB engines internally use locks to ensure that concurrent
+    connections modifying the same fields don’t conflict with each other. For instance,
+    imagine you have an e-commerce site, and there’s a rush of purchases for one particular
+    product. If the inventory count for that product is modeled as a value in a DB
+    cell that’s updated as orders are placed, that puts contention on that cell, making
+    database access inefficient. An append-only approach such as event sourcing eliminates
+    this problem. Let’s see what event sourcing looks like.'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只追加存储具有另一个显著的优点：它消除了数据库争用的问题。数据库引擎内部使用锁来确保并发连接修改相同字段时不会相互冲突。例如，想象你有一个电子商务网站，某个特定产品的购买热潮。如果该产品的库存计数被建模为一个数据库单元格中的值，该值在订单提交时更新，那么这将对该单元格造成争用，使数据库访问效率低下。像事件溯源这样的只追加方法可以消除这个问题。让我们看看事件溯源是什么样的。
+- en: 13.1.2 Relax and forget about storing state
+  id: totrans-22
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.1.2 放松并忘记存储状态
+- en: An important idea we explored in chapter 11 was the relationship of states to
+    entities. *States* are snapshots of an entity at a given time; conversely, an
+    *entity* is a sequence of logically related states. *State transitions* cause
+    a new state to be associated with the entity or, more intuitively, cause the entity
+    to go from one state to the next.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 11 章中，我们探讨的一个重要思想是状态与实体之间的关系。*状态* 是实体在某一时刻的快照；相反，*实体* 是一系列逻辑上相关的状态的序列。*状态转换*
+    导致新的状态与实体相关联，或者更直观地说，导致实体从一个状态转换到下一个状态。
+- en: State transitions are triggered by *events*; for example, your bank account
+    is affected by events like deposits, withdrawals, bank charges, and so on. As
+    a result, the state of your bank account changes, as figure 13.2 illustrates.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 状态转换是由 *事件* 触发的；例如，你的银行账户会受到存款、取款、银行费用等事件的影响。因此，你的银行账户状态会发生变化，如图 13.2 所示。
+- en: '![](Images/CH13_F02_Buonanno2.png)'
+  id: totrans-25
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F02_Buonanno2.png)'
+- en: Figure 13.2 An entity can be viewed as a sequence of logically related states.
+    The identity of the entity remains the same, but the state changes as the result
+    of events that affect the entity’s state.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.2 实体可以被视为一系列逻辑上相关的状态的序列。实体的身份保持不变，但状态会随着影响实体状态的事件而变化。
+- en: 'As developers, we tend to be overly concerned with representing state. In fact,
+    we often take it for granted that we *must* persist state. But this tacit assumption
+    is unfounded: it’s just the effect of relational databases being prevalent for
+    half a century.'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为开发者，我们往往过于关注状态的表示。事实上，我们常常想当然地认为我们必须 *持久化* 状态。但这个隐含的假设是没有根据的：这只是关系型数据库盛行了半个世纪的效果。
+- en: Typically, we use a relational database to only store the latest state of an
+    entity, overwriting previous states. When we really need to know about the past,
+    we often use history tables in which we store all snapshots. This approach is
+    inefficient because we’re duplicating all the data that hasn’t changed between
+    snapshots, and it’s ineffective because we must run complicated logic to compare
+    two states if we want to figure out what caused the changes.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，我们使用关系型数据库只存储实体的最新状态，覆盖之前的状态。当我们真正需要了解过去时，我们通常使用历史表来存储所有快照。这种方法效率低下，因为我们正在复制快照之间未更改的所有数据，而且它不有效，因为我们必须运行复杂的逻辑来比较两个状态，如果我们想找出导致变化的原因。
+- en: 'Event sourcing (ES) turns things around: it shifts the focus from states to
+    state transitions. Instead of storing data about the states, it stores data about
+    the events. It’s always possible to reconstruct the current state of an entity
+    by replaying all the events that affected the entity.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件溯源（ES）将事物颠倒过来：它将重点从状态转移到状态转换。它不存储关于状态的数据，而是存储关于事件的数据。通过重新播放影响实体的所有事件，总是可以重建实体的当前状态。
+- en: 'Figure 13.3 shows the same information as figure 13.2, but the focus has changed.
+    We don’t want to focus on state: *state is secondary*. In fact, an entity’s state
+    is (literally) a function of its event history.'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.3 显示了与图 13.2 相同的信息，但重点已改变。我们不想关注状态：*状态是次要的*。事实上，实体的状态（字面上）是其事件历史的函数。
+- en: '![](Images/CH13_F03_Buonanno2.png)'
+  id: totrans-31
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F03_Buonanno2.png)'
+- en: Figure 13.3 Event sourcing implies a shift of focus in thinking about entities.
+    Instead of concentrating on an entity’s state, we concentrate on the transitions
+    that bring about the new state.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.3 事件溯源意味着在思考实体时的重点转移。我们不是关注实体的状态，而是关注导致新状态的转换。
+- en: Given two successive states of an entity, it’s difficult to figure out what
+    event caused the transition. By contrast, given an entity’s state and an event
+    affecting that entity, it’s easy to figure out the entity’s new state. So in ES,
+    we persist data that captures details about events, not states.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定实体的两个连续状态，很难确定导致转换的事件。相比之下，给定实体的状态和影响该实体的一个事件，很容易确定实体的新状态。因此，在 ES 中，我们持久化捕获事件细节的数据，而不是状态。
+- en: 13.2 Event sourcing basics
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.2 事件溯源基础
+- en: Next, we’ll look at how we can apply these ideas in practice, illustrating them
+    through our BOC scenario. You’ll see how
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将看看如何在实践中应用这些想法，通过我们的 BOC 场景来说明。你会看到
+- en: '*Events* are represented as simple, immutable data objects capturing the details
+    of what happened.'
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*事件*被表示为简单的、不可变的数据对象，它们捕捉了发生的事情的细节。'
+- en: '*States* are also represented as immutable data objects, although they may
+    have a more complex structure than events, such as parent-child relationships.'
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*状态*也被表示为不可变的数据对象，尽管它们可能比事件具有更复杂的结构，例如父子关系。'
+- en: '*State transitions* are represented as functions that take a state and an event
+    and produce a new state.'
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*状态转换*被表示为接受状态和事件作为参数并产生新状态的函数。'
+- en: Finally, you’ll see how you can recreate an entity’s state from its event history.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，你将看到如何从实体的事件历史中重新创建实体的状态。
+- en: 13.2.1 Representing events
+  id: totrans-40
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.1 事件表示
+- en: Events are really simple, plain data objects that capture the minimum amount
+    of information required to faithfully represent what happened. For example, the
+    following listing shows some events that represent things that may affect a bank
+    account.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件实际上非常简单，是捕获所需信息量最少的数据对象，以忠实代表发生的事情。例如，以下列表显示了一些可能影响银行账户的事件。
+- en: Listing 13.1 Some events affecting a bank account
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.1 影响银行账户的一些事件
+- en: '[PRE0]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Identifies the affected entity (in this case, an account)
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 识别受影响的实体（在这种情况下，是一个账户）
+- en: The preceding events are only a subset of the events that might affect an account
+    (most obviously, we’re missing cash withdrawals and credited transfers). But they’re
+    representative enough that with these examples, you can figure out how other events
+    would be handled.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前述事件只是可能影响账户的事件的一个子集（最明显的是，我们遗漏了现金提取和已记入的转账）。但它们足以代表，通过这些例子，你可以了解其他事件是如何处理的。
+- en: 'Events should be immutable: they represent things that happened in the past,
+    and there’s no changing the past. They are persisted to storage, so they must
+    also be serializable.'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件应该是不可变的：它们代表过去发生的事情，过去的事情无法改变。它们被持久化到存储中，因此它们也必须是可序列化的。
+- en: 13.2.2 Persisting events
+  id: totrans-47
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.2 持续事件
+- en: 'If you look at the sample events in listing 13.1 with a view to persisting
+    them to a DB, you’ll immediately notice that all the events have a different structure
+    (different fields), so you can’t store them in a fixed-format structure like a
+    relational table. There are various options for storing events. In order of decreasing
+    event-orientation, you should consider using the following:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你查看列表13.1中的示例事件，目的是将它们持久化到数据库中，你会立即注意到所有事件的结构都不同（不同的字段），因此你不能将它们存储在固定格式的结构中，如关系表。存储事件有多种选择。按照事件导向递减的顺序，你应该考虑使用以下选项：
+- en: A specialized event DB such as Event Store ([https://geteventstore.com](https://geteventstore.com)),
+    which was designed specifically with event-sourced systems in mind.
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种专门的事件数据库，如Event Store ([https://geteventstore.com](https://geteventstore.com))，它是专门为事件源系统设计的。
+- en: A document database such as Redis, MongoDB, and others. These storage systems
+    make no assumptions about the structure of the data they store.
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种文档数据库，如Redis、MongoDB等。这些存储系统对其存储的数据结构不做任何假设。
+- en: A traditional relational DB such as SQL Server.
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种传统的SQL Server关系型数据库。
+- en: NOTE Whatever storage you use to persist your events is generally referred to
+    as an *event store*. Don’t confuse this with Event Store (always capitalized in
+    this chapter), which is a specific product that includes an event store and much
+    related functionality.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**注意** 无论你使用什么存储来持久化你的事件，通常都被称为**事件存储**。不要将其与本章中始终大写的Event Store（事件存储）混淆，它是一个包含事件存储和许多相关功能的具体产品。'
+- en: If you opt to store events in a relational DB, you’ll need an events table with
+    some header columns such as `EntityId` and `Timestamp`, which you’ll need in order
+    to query the event history of an entity (sorted and potentially filtered by timestamp).
+    The event payload is serialized into a JSON string and stored into a wide column,
+    as table 13.1 illustrates.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你选择在关系型数据库中存储事件，你需要一个包含一些标题列（如`EntityId`和`Timestamp`）的事件表，这些列是你查询实体事件历史（按时间排序，可能按时间过滤）所必需的。事件负载被序列化为JSON字符串并存储在一个宽列中，如表13.1所示。
+- en: Table 13.1 Event data can be stored in a relational DB table.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表13.1事件数据可以存储在关系型数据库表中。
+- en: '| EntityId | Timestamp | EventType | Data |'
+  id: totrans-55
+  prefs: []
+  type: TYPE_TB
+  zh: '| EntityId | Timestamp | EventType | Data |'
+- en: '| abcd | 2021-07-22 12:40 | CreatedAccount | { "Currency": "EUR" } |'
+  id: totrans-56
+  prefs: []
+  type: TYPE_TB
+  zh: '| abcd | 2021-07-22 12:40 | CreatedAccount | { "Currency": "EUR" } |'
+- en: '| abcd | 2021-07-30 13:25 | DepositedCash | { "Amount": 500, "BranchId": "BOCLHAYMCKT"
+    } |'
+  id: totrans-57
+  prefs: []
+  type: TYPE_TB
+  zh: '| abcd | 2021-07-30 13:25 | DepositedCash | { "Amount": 500, "BranchId": "BOCLHAYMCKT"
+    } |'
+- en: '| abcd | 2021-08-03 10:33 | DebitedTransfer | { "DebitedAmount": 300, "Beneficiary":
+    "Rose Stephens", ...} |'
+  id: totrans-58
+  prefs: []
+  type: TYPE_TB
+  zh: '| abcd | 2021-08-03 10:33 | DebitedTransfer | { "DebitedAmount": 300, "Beneficiary":
+    "Rose Stephens", ...} |'
+- en: All three storage options are viable; it depends on your requirements and existing
+    infrastructure. If most of your data is already in a relational DB and you only
+    want to event source some entities, then using that same DB may make sense because
+    it would involve less operational overhead.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有的三种存储选项都是可行的；这取决于你的需求和现有基础设施。如果你的大部分数据已经存储在关系型数据库中，而你只想将某些实体的事件源化，那么使用同一个数据库可能是有意义的，因为它将涉及更少的运营开销。
+- en: 13.2.3 Representing state
+  id: totrans-60
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.3 表示状态
+- en: 'We spent much of chapter 11 discussing how to represent state, so we’re already
+    in a pretty good position. But now we must ask the question, if we’re using events
+    for persistence, what exactly is the purpose of these states or snapshots? It
+    turns out that we still need snapshots of the state of data entities for two completely
+    independent purposes:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在第11章的大部分内容中讨论了如何表示状态，所以我们已经处于一个非常好的位置。但现在我们必须问一个问题，如果我们使用事件进行持久化，这些状态或快照的目的是什么？结果是，我们仍然需要数据实体的状态快照，出于两个完全独立的目的：
+- en: '*We need snapshots to make decisions on how to process commands.* For example,
+    if the server receives a command to make a transfer and the account is frozen
+    or has an insufficient balance, then it must reject the command.'
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*我们需要快照来决定如何处理命令。* 例如，如果服务器收到一个转账命令，而账户被冻结或余额不足，那么它必须拒绝该命令。'
+- en: '*We also need snapshots to display to clients.* I’ll refer to these as *view
+    models*.[³](#pgfId-1116544)'
+  id: totrans-63
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*我们还需要快照来向客户端显示。* 我将它们称为**视图模型**。[³](#pgfId-1116544)'
+- en: Let’s deal with the first type of snapshot (we’ll look at view models in section
+    13.3.4). We need a snapshot that captures *only* what we need in order to make
+    decisions about how to handle commands. The following listing shows such an object
+    that models the account state.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们处理第一种快照类型（我们将在13.3.4节中查看视图模型）。我们需要一个快照，它只捕获我们为了做出处理命令的决定所需要的内容。以下列表显示了一个这样的对象，它模拟账户状态。
+- en: Listing 13.2 A simplified model of the entity state
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.2 实体状态的简化模型
+- en: '[PRE1]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: You’ll notice that this is somewhat simplified compared to the `AccountState`
+    type discussed in chapter 11\. Specifically, I don’t have a list of transactions
+    because I’m assuming that the current balance and the account status are enough
+    to make decisions about how to handle any commands. Transactions may be shown
+    to the user, but they’re not required when processing commands.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会注意到，这与第11章中讨论的`AccountState`类型相比有所简化。具体来说，我没有列出交易，因为我假设当前的余额和账户状态足以做出处理任何命令的决定。交易可以显示给用户，但在处理命令时不是必需的。
+- en: 13.2.4 Representing state transitions
+  id: totrans-68
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.4 表示状态转换
+- en: 'Now let’s see how states and events are combined in state transitions. Once
+    you have a state and an event, you can compute the next state by applying the
+    event to the state. This computation is called a *state transition*, and it’s
+    a function whose signature has this general form:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看状态和事件是如何在状态转换中结合的。一旦你有一个状态和一个事件，你可以通过将事件应用于状态来计算下一个状态。这种计算称为*状态转换*，它是一个具有以下通用形式的函数：
+- en: '[PRE2]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: In other words, “Give me a state and an event, and I’ll compute the new state
+    after the event.” Particularized for our scenario, this signature becomes
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 换句话说，“给我一个状态和一个事件，我将计算事件之后的新状态。”针对我们的场景，这个签名变为
+- en: '[PRE3]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Here, `Event` is the base class from which all our events derive, so an implementation
+    must pattern match on the type of the event and then compute a new `AccountState`
+    with the relevant changes.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，`Event`是我们所有事件从中派生的基类，因此实现必须对事件类型进行模式匹配，然后计算一个新的`AccountState`，并包含相关的更改。
+- en: 'There’s also one special state transition, which is when an account is first
+    created. In that case, we have an event but no prior state, so the signature is
+    in this form:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，还有一个特殊的状态转换，即账户首次创建时。在这种情况下，我们有一个事件但没有先前的状态，因此签名是这样的：
+- en: '[PRE4]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: The following listing shows the implementation for our scenario.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表显示了我们的场景的实现。
+- en: Listing 13.3 Modeling state transitions
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.3 状态转换建模
+- en: '[PRE5]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ `CreatedAccount` is a special case because there is no prior state.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ `CreatedAccount`是一个特殊情况，因为没有先前的状态。
+- en: ❷ Makes the relevant transition depending on the type of the event
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 根据事件类型执行相关的转换
+- en: ❸ The discard pattern matches any events for which processing is not defined.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 丢弃模式匹配任何未定义处理的事件。
+- en: 'The first method is the special case of creation: it takes a `CreatedAccount`
+    event and creates a new `AccountState` populated with values from the event. To
+    simplify things, let’s assume that an account can be set to `Active` as soon as
+    it’s created.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一种方法是创建的特殊情况：它接受一个`CreatedAccount`事件并创建一个新的`AccountState`，该状态包含来自事件的价值。为了简化问题，让我们假设账户一旦创建就可以设置为`Active`状态。
+- en: The `Apply` method is the more general formulation of a state transition, and
+    it will process all other types of events by pattern matching on the event type.
+    If the event is `FrozeAccount`, we return a new state that has status `Frozen`;
+    if the event is `DepositedCash`, we increase the balance accordingly and so on.
+    In a real application, you’d have many more types of events here.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Apply`方法是对状态转换的更一般化表述，它将通过事件类型进行模式匹配来处理所有其他类型的事件。如果事件是`FrozeAccount`，我们返回一个状态为`Frozen`的新状态；如果事件是`DepositedCash`，我们相应地增加余额，依此类推。在实际应用中，这里会有更多类型的事件。'
+- en: Unrestricted inheritance and the discard pattern
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无限制继承和丢弃模式
+- en: 'The `switch` expression in listing 13.3 includes the obligatory *discard pattern*,
+    catering for any events that don’t match any of the patterns specified explicitly.
+    It’s obligatory in the sense that if you omit it, you’ll get a compiler warning:
+    without the discard pattern, the compiler cannot assume that the pattern matching
+    is exhaustive. `Event` could have other subclasses, even ones defined in other
+    assemblies, compiled separately.'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.3中的`switch`表达式包含强制性的*丢弃模式*，用于处理任何与显式指定的模式不匹配的事件。这里的“强制性”是指，如果你省略它，你将收到编译器警告：没有丢弃模式，编译器无法假设模式匹配是穷尽的。`Event`可能有其他子类，甚至是在其他程序集中定义的、单独编译的子类。
+- en: It’s wise to always throw an exception if the discard pattern matches. If you
+    introduce a new type of event and forget to define how to handle it, you want
+    the code to fail.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果丢弃模式匹配，总是抛出异常是明智的。如果你引入了一种新的事件类型，却忘记定义如何处理它，你希望代码失败。
+- en: 'Most statically typed functional languages take a different approach to sum
+    types: when you define a sum type, you also define all possible subtypes. For
+    example, you can say that a `List` can be `Empty` or `Cons` and *nothing* *else*.
+    The fact that it’s not possible to restrict inheritance in this way in C# has
+    lead me to define `Match` methods for most of the sum types in this book.'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数静态类型函数式语言在求和类型上采取不同的方法：当你定义一个求和类型时，你也定义了所有可能的子类型。例如，你可以说一个`List`可以是`Empty`或`Cons`，*没有其他*类型。在C#中，以这种方式限制继承是不可能的，这导致我为本书中的大多数求和类型定义了`Match`方法。
+- en: In languages where you can exhaustively specify the possible cases of a sum
+    type, pattern matching becomes even more powerful. The compiler knows all possible
+    types of, say, `Event`s that your system can handle. This means not only that
+    you no longer need a discard pattern but, crucially, if you add a new type of
+    `Event`, the compiler points out any places in which `Event`s are handled, effectively
+    guiding your development process. (You get compiler errors showing you where you
+    need to handle a new case instead of run-time errors thrown from matching a discard
+    pattern.)
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你可以穷尽地指定求和类型可能情况的编程语言中，模式匹配变得更加强大。编译器知道你的系统可以处理的所有可能的`Event`类型。这意味着你不再需要丢弃模式，更重要的是，如果你添加了一种新的`Event`类型，编译器会指出处理`Event`的所有地方，从而有效地指导你的开发过程。（你会得到编译器错误，显示你需要处理新情况的地方，而不是从丢弃模式匹配中抛出的运行时错误。）
+- en: Notice that this data-driven approach where you use data (such as different
+    types of events or commands) in order to perform different logic is completely
+    at odds with the open-closed principle so dear to OO programmers.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，这种使用数据（例如不同类型的事件或命令）来执行不同逻辑的数据驱动方法与面向对象程序员所珍视的开放封闭原则完全相悖。
+- en: 13.2.5 Reconstructing the current state from past events
+  id: totrans-90
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.5 从过去事件重建当前状态
+- en: Now that you’ve seen how to represent states and events and how to combine them
+    with state transitions, you’re ready to see how an entity’s current state can
+    be computed from the history of events that affected that entity in the past.
+    This is represented graphically in figure 13.4.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经看到了如何表示状态和事件，以及如何将它们与状态转换相结合，你就可以看到如何从影响该实体的过去事件历史中计算实体的当前状态。这在图13.4中进行了图形表示。
+- en: '![](Images/CH13_F04_Buonanno2.png)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像](Images/CH13_F04_Buonanno2.png)'
+- en: Figure 13.4 Recovering the present state of an entity from its event history
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.4 从事件历史中恢复实体的当前状态
+- en: 'You have a list of events that affected an account, and you want to compute
+    the account’s current state. Here are three considerations to keep in mind:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你有一系列影响账户的事件，你想要计算账户的当前状态。以下是需要考虑的三个因素：
+- en: When you start out with a list and want to end up with a single value, you use
+    `Aggregate`.
+  id: totrans-95
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当你从一个列表开始，并希望最终得到一个单一值时，你使用`Aggregate`。
+- en: The first event in the list caused the account to be created, whereas subsequent
+    events involve state transitions.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 列表中的第一个事件导致账户被创建，而后续事件涉及状态转换。
+- en: 'One final detail: imagine you query the DB for all events concerning account
+    123, and you get an empty list. This means that the account has no history, so
+    effectively, it doesn’t exist, and you should get a `None`.'
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后一个细节：想象一下，你查询数据库以获取所有关于账户123的事件，并得到一个空列表。这意味着该账户没有任何历史，因此实际上它不存在，你应该得到一个`None`。
+- en: The following listing shows how to compute an account’s state from its event
+    history.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面的列表显示了如何从事件历史中计算账户的状态。
+- en: Listing 13.4 Computing the state of an entity from its event history
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.4 从事件历史中计算实体的状态
+- en: '[PRE6]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Given the history of events
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 给定事件历史
+- en: ❷ Creates a new account from the first event, using it as an accumulator
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从第一个事件创建一个新的账户，将其用作累加器
+- en: ❸ Applies each subsequent event
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 应用每个后续事件
+- en: 'Let’s look at the signature first. We’re taking a sequence of events: the entity’s
+    history. This is the list of events you get from the DB when you query all the
+    events for a given account ID. I’m assuming that the sequence is sorted; events
+    that happened first should be at the top of the list. You must enforce this when
+    you retrieve events from the database, and this often comes for free: because
+    events are persisted as they occur, they’re appended in order, and this ordering
+    is normally preserved when they’re retrieved.'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先看看签名。我们正在处理一系列事件：实体的历史。这是当你查询给定账户ID的所有事件时从数据库中获取的事件列表。我假设这个序列是有序的；最早发生的事件应该在列表的顶部。你必须强制执行这一点，当你从数据库检索事件时，这通常是不需要额外工作的：因为事件在发生时持久化，它们按顺序附加，并且当它们被检索时，这种顺序通常被保留。
+- en: We then use the `Match` method defined in section 12.1.3\. This allows you to
+    handle the case of an empty event history, in which case, the account effectively
+    doesn’t exist, and the code returns `None`. This is why the desired return type
+    of `AccountState` is wrapped in an `Option`.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们接着使用在第12.1.3节中定义的`Match`方法。这允许你处理空事件历史的情况，在这种情况下，账户实际上不存在，代码返回`None`。这就是为什么`AccountState`的期望返回类型被包裹在`Option`中的原因。
+- en: If the list is not empty, it’s destructured into its head and tail. The head
+    must be a `CreatedAccount` event, while the tail contains all following events.
+    The code computes the initial state of the account from the `CreatedAccount` event,
+    and then uses that as an accumulator for `Aggregate`, which applies all subsequent
+    events to this initial state, thus obtaining the current state.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果列表不为空，它将被分解为其头部和尾部。头部必须是一个`CreatedAccount`事件，而尾部包含所有后续事件。代码从`CreatedAccount`事件计算账户的初始状态，然后将其用作`Aggregate`的累加器，将所有后续事件应用于此初始状态，从而获得当前状态。
+- en: Notice that if you wanted to see not the current state of the account but its
+    state at any point in the past, this can be done trivially by evaluating the same
+    function but only including events that occurred before the desired date. For
+    this reason, event sourcing is a valuable model when you need an audit trail and
+    need to see how an entity has changed through time.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，如果你想看到账户的当前状态而不是过去任何时刻的状态，这可以通过评估相同的函数但只包括在所需日期之前发生的事件来轻易完成。因此，当需要审计跟踪并需要查看实体随时间变化的情况时，事件源是一个有价值的模型。
+- en: Now that you’ve seen how event sourcing offers a viable, append-only model for
+    persistence from which present or past states can be easily computed, let’s see
+    what an event-sourced system looks like from a high-level architectural point
+    of view.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经看到了事件源如何提供一个可行的、只追加的持久化模型，从这个模型中可以轻松地计算出当前或过去的状态，让我们从高层次架构的角度看看事件源系统是什么样的。
+- en: 13.3 Architecture of an event-sourced system
+  id: totrans-109
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.3 事件源系统的架构
+- en: The data flows in an event-sourced system are different from those in a traditional
+    system, where data is backed up by a relational store. As figure 13.5 shows, in
+    CRUD-oriented systems, the program deals in entities or, better, in states. States
+    are saved in the DB; states are retrieved by the server; states are sent to the
+    client. The transformations between the *model* (the data stored in the DB) and
+    the *view model* (the data sent to the client) are often minor.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件源系统中的数据流与传统系统中由关系型存储支持的数据流不同。如图13.5所示，在面向CRUD的系统（创建、读取、更新、删除）中，程序处理实体或，更好的说法，是状态。状态保存在数据库中；服务器检索状态；状态发送到客户端。在*模型*（数据库中存储的数据）和*视图模型*（发送到客户端的数据）之间的转换通常是微小的。
+- en: '![](Images/CH13_F05_Buonanno2.png)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F05_Buonanno2.png)'
+- en: Figure 13.5 High-level comparison of data flows in a traditional vs. event-sourced
+    system
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.5 传统系统与事件源系统数据流的高级比较
+- en: 'In an event-sourced system, things are quite different. What we persist is
+    events. But users won’t want to see an event log, so the data that we surface
+    for the users’ consumption must be structured in a meaningful way. For this reason,
+    an event-sourced system can be split neatly into two separate parts—typically,
+    two separate server applications:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在事件源系统中，情况相当不同。我们持久化的是事件。但用户不会想看到事件日志，因此我们提供给用户消费的数据必须以有意义的方式结构化。因此，事件源系统可以被干净地分成两个独立的部分——通常，两个独立的服务器应用程序：
+- en: '*The command side*—This side has the job of writing data, which consists mainly
+    of handling commands received from clients. Commands are first validated, and
+    valid commands result in events being persisted and published.'
+  id: totrans-114
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*命令端*—这一端负责写入数据，主要是由处理从客户端接收到的命令组成。命令首先进行验证，有效的命令会导致事件被持久化和发布。'
+- en: '*The query side*—This side has the job of reading data. View models are dictated
+    by what you want to show on the client, and the query side must populate those
+    view models from the stored events. Optionally, the query side can also publish
+    notifications to the client when new events cause the views to change.'
+  id: totrans-115
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*查询端*—这一端负责读取数据。视图模型由你希望在客户端显示的内容决定，查询端必须从存储的事件中填充这些视图模型。可选地，查询端还可以在新的事件导致视图更改时向客户端发布通知。'
+- en: 'This natural split between the command and query sides results in smaller,
+    more focused components. It also gives you flexibility: the command and query
+    sides can be completely separate applications and can, therefore, be scaled and
+    deployed independently. This is advantageous when you think that the load on the
+    query side is likely to be much greater than on the command side. For example,
+    think about how little data you post when you visit a site like Twitter or Facebook
+    compared to the amount of data you retrieve.'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令和查询端的这种自然分离导致组件更小、更专注。它还提供了灵活性：命令和查询端可以是完全独立的应用程序，因此可以独立扩展和部署。当你认为查询端的负载可能远大于命令端时，这很有优势。例如，想想当你访问像Twitter或Facebook这样的网站时，你发布的数据量与检索的数据量相比是多么的小。
+- en: Conversely, on the command side, you may need to synchronize writes to prevent
+    concurrent changes. This is much more easily accomplished if there’s a single
+    instance of the command side. This separation (which goes by the name of *CQRS*
+    for command/query responsibility segregation), allows you to easily scale the
+    data-intensive query side to satisfy demand, while keeping fewer or perhaps even
+    a single instance of the command side.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，在命令端，你可能需要同步写入以防止并发更改。如果命令端只有一个实例，这将更容易实现。这种分离（被称为*CQRS*，即命令/查询责任分离），允许你轻松扩展数据密集型查询端以满足需求，同时保持较少或甚至只有一个命令端实例。
+- en: The command and query sides don’t have to be separate applications. Both can
+    live in the same application. But if you use event sourcing, there’s still an
+    internal separation between the two sides. Let’s see how you could go about implementing
+    them, starting with the command side.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令和查询端不必是独立的应用程序。它们可以存在于同一个应用程序中。但如果你使用事件源，这两端之间仍然存在内部分离。让我们看看如何实现它们，从命令端开始。
+- en: 13.3.1 Handling commands
+  id: totrans-119
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.3.1 处理命令
+- en: 'Commands are, if you like, the earliest source of data. Commands are sent to
+    your application by clients and are handled by the command side, which must do
+    the following:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令，如果你愿意，是数据的最早期来源。命令由客户端发送到你的应用程序，并由命令端处理，它必须执行以下操作：
+- en: Validate the command
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 验证命令
+- en: Turn the command into an event
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将命令转换为事件
+- en: Persist the event and publish it to interested parties
+  id: totrans-123
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 持久化事件并将其发布给感兴趣的各方
+- en: 'Let’s start by comparing commands and events, which are similar yet distinct:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先比较命令和事件，它们相似但不同：
+- en: '*Commands*—Represent requests from a client. It’s possible for a command to
+    be disobeyed or disregarded for some reason. Maybe the command fails validation
+    or maybe the system crashes while handling it. Commands should be named in the
+    imperative form, such as `MakeTransfer` or `FreezeAccount`.'
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*命令*—代表客户端的请求。由于某些原因，命令可能被忽视或不遵守。也许命令验证失败，或者处理它时系统崩溃。命令应使用祈使句命名，例如`MakeTransfer`或`FreezeAccount`。'
+- en: '*Events*—Represent things that have already happened. As a result, they can’t
+    fail or be disregarded. They should be named in the past tense, such as `DebitedTransfer`
+    or `FrozeAccount`. In the context of ES, the term *event* refers to events that
+    cause state transitions and, therefore, must be persisted (if you have other,
+    more transient events in your system that need not be persisted, make sure you
+    clearly differentiate between them).'
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*事件*—代表已经发生的事情。因此，它们不能失败或被忽视。它们应使用过去时命名，例如`DebitedTransfer`或`FrozeAccount`。在ES的上下文中，术语*事件*指的是导致状态转换的事件，因此必须被持久化（如果你有其他更短暂的事件需要持久化，确保你清楚地区分它们）。'
+- en: Other than that, commands and events generally capture the same information,
+    and creating an event from a command is a matter of copying field by field (sometimes
+    with some variations). The following listing provides an example.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这些，命令和事件通常捕获相同的信息，从命令创建事件只是逐字段复制（有时会有一些变化）。以下列表提供了一个示例。
+- en: Listing 13.5 Translating a command into an event
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.5 将命令转换为事件
+- en: '[PRE7]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Events are part of the domain definition.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 事件是领域定义的一部分。
+- en: ❷ Commands are part of the higher-level, client-facing code.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 命令是高级客户端代码的一部分。
+- en: ❸ Translates a command into an event by copying values field by field
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 通过逐字段复制值将命令转换为事件
+- en: I’ve defined similar `ToEvent` methods for each command in the BOC application.
+    Note that events are defined in your domain (hence, the `Boc.Domain.Events` namespace),
+    while commands are effectively part of your client-facing code (potentially, events
+    can be defined in a lower-level assembly on which your command-handling code depends).
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我为BOC应用程序中的每个命令定义了类似的`ToEvent`方法。请注意，事件是在你的领域定义中定义的（因此，`Boc.Domain.Events`命名空间），而命令实际上是客户端代码的一部分（可能，事件可以在你的命令处理代码所依赖的较低级别的程序集上定义）。
+- en: An event directly affects a single entity, but events are broadcast within your
+    system so they may trigger the creation of other events that affect other entities.
+    For example, a transfer directly affects a bank account but indirectly affects
+    the bank’s cash reserve.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事件直接影响单个实体，但事件在你的系统中广播，因此它们可能会触发创建其他事件，这些事件影响其他实体。例如，转账直接影响银行账户，但间接影响银行的现金储备。
+- en: Next, let’s look at the main workflow on the command side, as figure 13.6 illustrates.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们看看命令端的主要工作流程，如图13.6所示。
+- en: '![](Images/CH13_F06_Buonanno2.png)'
+  id: totrans-136
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F06_Buonanno2.png)'
+- en: Figure 13.6 The command side of an event-sourced system
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.6 事件源系统的命令端
+- en: To start with, I’ll disregard validation and error handling, so that you can
+    concentrate on the essentials of the data flow. The following listing shows the
+    entry point and main workflow on the command side.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我将忽略验证和错误处理，这样你可以专注于数据流的基本要素。以下列表显示了命令端的入口点和主要工作流程。
+- en: Listing 13.6 Top-level command-handling workflow
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表13.6 顶级命令处理工作流程
+- en: '[PRE8]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ Handles receiving a command
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 处理接收命令
+- en: ❷ Retrieves the account
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 检索账户
+- en: ❸ Performs the state transition; returns a tuple with the event and the new
+    state
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 执行状态转换；返回包含事件和新状态的元组
+- en: ❹ Persists the event and publishes to interested parties
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 持久化事件并向感兴趣方发布
+- en: ❺ Returns information to the client about the new state
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 向客户端返回有关新状态的信息
+- en: 'This code depends on two functions:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码依赖于两个函数：
+- en: '`getAccount`—Retrieves the current state of the affected account (computed
+    from its event history, as you saw in section 13.2.5)'
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`getAccount`—检索受影响账户的当前状态（从其事件历史中计算得出，如你在第13.2.5节中看到的）'
+- en: '`saveAndPublish`—Persists the given event to storage and publishes it to any
+    interested parties'
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`saveAndPublish`—将给定的事件持久化到存储中，并将其发布给任何感兴趣的方'
+- en: Now for the endpoint itself. It receives a command to make a transfer and uses
+    the `getAccount` function to retrieve the state of the account to be debited.
+    It then feeds the retrieved account state and the command to the `Debit` function,
+    which performs the state transition.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在来看端点本身。它接收一个执行转账的命令，并使用`getAccount`函数来检索将被扣除的账户的状态。然后，它将检索到的账户状态和命令传递给`Debit`函数，该函数执行状态转换。
+- en: '`Debit` returns a tuple containing both the created event and the account’s
+    new state. The code then destructures the tuple into its two elements: the created
+    event, which is passed to `saveAndPublish`, and the account’s new state, which
+    is used to populate the response that’s sent back to the client. Let’s look at
+    the `Debit` function:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Debit`返回一个包含创建的事件和账户新状态的元组。然后，代码将元组解构为其两个元素：传递给`saveAndPublish`的创建事件，以及用于填充发送回客户端的响应的账户新状态。让我们看看`Debit`函数：'
+- en: '[PRE9]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Translates the command into an event
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将命令转换为事件
+- en: ❷ Computes the new state
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 计算新状态
+- en: '`Debit` converts the command into an event and feeds that event, along with
+    the account’s current state, to the `Apply` function, obtaining the account’s
+    new state. Notice that this is the same `Apply` function that’s used when computing
+    the account’s current state from its event history.[⁴](#pgfId-1116777) This ensures
+    that state transitions are consistent regardless of whether the event is just
+    occurring now or has occurred in the past and is being replayed.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Debit` 将命令转换为事件，并将该事件以及账户的当前状态输入到 `Apply` 函数中，以获得账户的新状态。请注意，这正是当从事件历史中计算账户的当前状态时使用的
+    `Apply` 函数。[⁴](#pgfId-1116777) 这确保了状态转换的一致性，无论事件是现在刚刚发生还是过去发生并被重放。'
+- en: 13.3.2 Handling events
+  id: totrans-155
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.3.2 处理事件
+- en: 'Where do we actually send the money to the recipient? That’s done as part of
+    `saveAndPublish`: the newly created event should be propagated to interested parties.
+    A dedicated service should subscribe to these events and send the money to the
+    receiving bank (via SWIFT or another interbank platform) as appropriate. Several
+    other subscribers may consume the same event for other reasons, such as recomputing
+    the bank’s cash reserve, sending a toast notification to the client’s phone, and
+    so on.'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们实际上将钱发送给收款人？这是作为 `saveAndPublish` 的一部分完成的：新创建的事件应该传播给相关方。一个专门的服务应该订阅这些事件，并将钱发送到接收银行（通过
+    SWIFT 或其他银行间平台）。
+- en: 'This may throw some light on why the function is called `saveAndPublish`: both
+    things should happen atomically. If the process saves the event and then crashes
+    before all subscribers are able to handle the event, the system may be left in
+    an inconsistent state. For example, the account may be debited but the money not
+    sent to SWIFT.'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可能有助于解释为什么函数被命名为 `saveAndPublish`：这两件事都应该原子性地发生。如果在所有订阅者能够处理事件之前，进程保存了事件然后崩溃，系统可能处于不一致的状态。例如，账户可能被扣除，但钱没有发送到
+    SWIFT。
+- en: How this atomicity is achieved is somewhat intricate and strictly depends on
+    the infrastructure you’re targeting (both for storage and for event propagation).
+    For instance, if you use Event Store, you can take advantage of *durable* subscriptions
+    to event streams, which guarantee that the event is delivered at least once to
+    the subscriber (that’s the meaning of durable in this context).
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如何实现这种原子性有些复杂，并且严格依赖于你针对的基础设施（无论是存储还是事件传播）。例如，如果你使用 Event Store，你可以利用事件流的 *持久*
+    订阅，这保证了事件至少被发送给订阅者一次（在这个上下文中，“持久”的含义）。
+- en: By using Event Store, you could simplify the logic in `saveAndPublish` to only
+    save the event. Event handlers then subscribe to Event Store’s event streams,
+    as figure 13.7 shows.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用 Event Store，你可以简化 `saveAndPublish` 中的逻辑，使其只保存事件。事件处理程序随后订阅 Event Store
+    的事件流，如图 13.7 所示。
+- en: '![](Images/CH13_F07_Buonanno2.png)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F07_Buonanno2.png)'
+- en: Figure 13.7 Event handlers can subscribe to event streams published by Event
+    Store.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.7 事件处理程序可以订阅 Event Store 发布的事件流。
+- en: 13.3.3 Adding validation
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.3.3 添加验证
+- en: Let’s now add validation so that the command is only accepted and turned into
+    an event if the current state of the account allows it. This is shown in the following
+    listing.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们添加验证，以便只有当账户的当前状态允许时，命令才被接受并转换为事件。这将在下面的列表中展示。
+- en: Listing 13.7 Ensuring only valid transitions take place
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.7 确保只发生有效的转换
+- en: '[PRE10]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'Here `Debit` performs some account-specific validation, so the return type
+    is wrapped in a `Validation`:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，`Debit` 执行一些特定于账户的验证，因此返回类型被包装在 `Validation` 中：
+- en: If validation fails, the code returns an `Error` (here I’m demonstrating the
+    approach described in section 8.3.1, where an `Errors` class exposes a property
+    for each error that may occur in your app).
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果验证失败，代码将返回一个 `Error`（在这里，我演示了第 8.3.1 节中描述的方法，其中 `Errors` 类公开了可能在你应用程序中发生的每个错误的属性）。
+- en: If all goes well, it returns a tuple with the event and the new state.
+  id: totrans-168
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果一切顺利，它将返回一个包含事件和新的状态的元组。
+- en: In either case, the returned value is implicitly lifted into a `Validation`
+    in the appropriate state. With this in place, let’s revisit the main workflow,
+    adding validation as the following listing shows.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任何情况下，返回值都隐式提升到适当状态中的 `Validation`。有了这个，让我们回顾主工作流程，如以下列表所示添加验证。
+- en: Listing 13.8 Command handling with validation
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.8 带验证的命令处理
+- en: '[PRE11]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: This listing has a new dependency, `validate`, which should perform some general
+    validation of the command, such as ensuring that the IBAN and BIC codes are in
+    the right format and the like.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个列表有一个新的依赖项 `validate`，它应该执行一些命令的一般验证，例如确保 IBAN 和 BIC 代码格式正确等。
+- en: I mentioned in section 13.2.5 that retrieving an account should return an `Option`
+    to reflect the case that no history exists for the requested account. Here we
+    use `ToValidation` to convert the `Option` into a `Validation`, providing an `Error`
+    value to use if the given `Option` is `None`. (This is another example of a natural
+    transformation that we saw in section 6.5.)
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在 13.2.5 节提到，检索账户应该返回一个 `Option` 来反映请求的账户没有历史记录的情况。在这里，我们使用 `ToValidation`
+    将 `Option` 转换为 `Validation`，如果给定的 `Option` 是 `None`，则提供一个 `Error` 值使用。（这是我们在 6.5
+    节中看到的自然变换的另一个例子。）
+- en: The validation of the command, the validation that the entity exists, and the
+    account-specific validation in `Debit` are all modeled as functions that return
+    a `Validation` and can therefore be combined with `Bind`.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令的验证、实体存在的验证以及 `Debit` 中的账户特定验证都被建模为返回 `Validation` 的函数，因此可以与 `Bind` 结合使用。
+- en: 'The next step of the workflow happens inside a `Do` function (see the following
+    sidebar). This calls `saveAndPublish` and passes on the result of `Debit`, which
+    is therefore available in the subsequent call to `Match`: the final step in the
+    workflow, where we send an appropriate response to the client, depending on the
+    outcome of the validation.'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作流程的下一步发生在 `Do` 函数内部（见下文侧边栏）。这调用 `saveAndPublish` 并传递 `Debit` 的结果，因此它可以在后续对
+    `Match` 的调用中可用：工作流程的最终步骤，根据验证的结果向客户端发送适当的响应。
+- en: The `Do` function
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Do` 函数'
+- en: 'You can use `Do` to perform side effects in the middle of a workflow. `Do`
+    is similar to `ForEach` in that it takes a side-effecting function. Whereas `ForEach`
+    throws away the inner value, `Do` passes the value along, making it available
+    for subsequent logic. The implementation of `Do` is simple:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在工作流程的中间使用 `Do` 来执行副作用。`Do` 与 `ForEach` 类似，因为它接受一个执行副作用的功能。而 `ForEach` 会丢弃内部值，`Do`
+    则将值传递下去，使其对后续逻辑可用。`Do` 的实现很简单：
+- en: '[PRE12]'
+  id: totrans-178
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Alternatively to using `Do`, you could use `Map`, giving it a function that
+    performs a side effect and returns its input; however, it is preferable to be
+    explicit, so use `Do` to highlight the fact that a side effect is being performed,
+    while reserving `Map` for data transformations that are free of side effects.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了使用 `Do`，你也可以使用 `Map`，给它一个执行副作用并返回其输入的功能；然而，最好是明确表示，所以使用 `Do` 来强调正在执行副作用，而将
+    `Map` 保留用于没有副作用的纯数据转换。
+- en: '`Do` is also known as `Tap` or `Tee`. The name “Tee” is quite descriptive.
+    Think in terms of pipelines: `Do` is like a T-shaped piece of pipeline (the data
+    comes in at one end and goes out both toward the side-effecting function and toward
+    the following function in the pipeline, as the following figure illustrates).'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Do` 也被称为 `Tap` 或 `Tee`。名字“Tee”非常形象。从管道的角度来思考：`Do` 就像一段 T 形的管道（数据从一端进入，同时流向产生副作用的功能和管道中的后续功能，如图所示）。'
+- en: '![](Images/CH13_F08_Buonanno2b.png)'
+  id: totrans-181
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F08_Buonanno2b.png)'
+- en: Compared to our initial skeleton in listing 13.6, the code in listing 13.8 adds
+    validation but not exception handling. Because `getAccount` and `saveAndPublish`
+    perform I/O, either of them could fail. To express this, we’d have to combine
+    `Validation` with another effect such as `Exceptional`. You’ll see how this can
+    be achieved in chapter 18.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 13.6 列表中的初始骨架相比，13.8 列表中的代码增加了验证但没有异常处理。因为 `getAccount` 和 `saveAndPublish`
+    执行 I/O，它们中的任何一个都可能失败。为了表达这一点，我们需要将 `Validation` 与另一个效果如 `Exceptional` 结合使用。你将在第
+    18 章中看到如何实现这一点。
+- en: You should now have a pretty good idea of how the command side of an event-sourced
+    system works. Let’s now look at the query side.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你现在应该对事件源系统命令方面的工作方式有了相当好的了解。现在让我们看看查询方面。
+- en: 13.3.4 Creating views of the data from events
+  id: totrans-184
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.3.4 从事件创建数据视图
+- en: Now that we’ve seen the functioning of the command side of an event-sourced
+    system, let’s look at the query side. We’ll again start our exploration from the
+    client. The client displays data in the format that’s best suited for the user’s
+    needs, and the server is meant to provide data that appears in these views—the
+    view models.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到了事件源系统命令方面的功能，让我们看看查询方面。我们再次从客户端开始探索。客户端以最适合用户需求的方式显示数据，服务器旨在提供显示在这些视图中的数据——视图模型。
+- en: Let’s take a bank account statement as a typical view of a bank account. It
+    contains a list of transactions that occurred within a given period (let’s assume
+    that periods coincide with calendar months) as well as the balance at the start
+    and at the end of the period. Figure 13.8 shows an example.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们以银行账户对账单作为一个典型的银行账户视图。它包含了一个给定时间段内发生的交易列表（假设时间段与日历月份相吻合），以及该时间段开始和结束时的余额。图
+    13.8 展示了一个示例。
+- en: '![](Images/CH13_F09_Buonanno2.png)'
+  id: totrans-187
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F09_Buonanno2.png)'
+- en: Figure 13.8 Example structure of a bank statement
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.8 银行对账单示例结构
+- en: Next, let’s define the structure of the view model, containing the data necessary
+    to populate the bank statement. We’ll have a parent object, `AccountStatement`,
+    with a list of `Transaction`s, as the following listing shows.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们定义视图模型的结构，包含填充银行对账单所需的数据。我们将有一个父对象 `AccountStatement`，其中包含一系列 `Transaction`，如下所示。
+- en: Listing 13.9 The view model for a bank statement
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.9 银行对账单的视图模型
+- en: '[PRE13]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Note that `AccountStatement` is related to but completely separate from the
+    `AccountState` you saw in listing 13.2:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，`AccountStatement` 与你在列表 13.2 中看到的 `AccountState` 相关，但完全独立：
+- en: '`AccountState` is used on the command side to process commands that may affect
+    an account, so the server logic determines what data should be included.'
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`AccountState` 用于命令端来处理可能影响账户的命令，因此服务器逻辑确定应包含哪些数据。'
+- en: '`AccountStatement` is part of the query side, so the client determines what
+    data is required.'
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`AccountStatement` 是查询部分的一部分，因此客户端确定需要哪些数据。'
+- en: Both types refer to the same entity, but they may be defined in different namespaces,
+    assemblies, or even applications.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种类型都指向同一个实体，但它们可能定义在不同的命名空间、程序集或甚至不同的应用程序中。
+- en: Next, we need to populate this data from the event history of a given account.
+    Notice that we need the *full* history of events. The following listing shows
+    a function that populates an `AccountStatement` for a given period, given that
+    account’s event history.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要从给定账户的事件历史中填充这些数据。请注意，我们需要事件的完整历史记录。以下列表显示了一个为给定时间段填充 `AccountStatement`
+    的函数，该函数基于账户的事件历史。
+- en: Listing 13.10 Populating the `AccountStatement` view model
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.10 填充 `AccountStatement` 视图模型
+- en: '[PRE14]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ The period for which we want to populate a statement
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们想要填充对账单的期间
+- en: ❷ The account’s full event history
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 账户的完整事件历史
+- en: Let’s go through the code. First, the list of events is split up. We’ll need
+    all events that occurred before the start of the statement period in order to
+    calculate the account balance at the start of the period and all events that occurred
+    during the period to calculate the balance at the end.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们分析一下代码。首先，事件列表被拆分。我们需要在报表期开始之前发生的事件，以便计算报表期开始时的账户余额，以及在该期间发生的事件，以便计算期末余额。
+- en: To calculate the starting balance, we aggregate all prior events using 0 as
+    a seed value and a reducer function (see section 9.6) that increments or decrements
+    the balance, depending on how an event affected the balance. The following listing
+    shows this approach.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了计算起始余额，我们使用 0 作为种子值和一个累加器函数（见第 9.6 节）来累加所有先前事件，该函数根据事件如何影响余额来增加或减少余额。以下列表显示了这种方法。
+- en: Listing 13.11 A reducer modeling how each event affects the account balance
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 13.11 模型化每个事件如何影响账户余额的累加器
+- en: '[PRE15]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Events that affect the balance
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 影响余额的事件
+- en: ❷ Other events don’t affect the balance, so this default clause returns the
+    running balance.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 其他事件不影响余额，因此此默认子句返回运行余额。
+- en: Not all events affect the balance, so the discard pattern of the `switch` expression
+    returns the running balance.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并非所有事件都会影响余额，因此 `switch` 表达式的丢弃模式返回的是运行余额。
+- en: To calculate the end balance, the same logic can be used, except that we’ll
+    use the starting balance as a seed and aggregate the events that occurred within
+    the statement period.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了计算期末余额，可以使用相同的逻辑，但我们将使用起始余额作为种子值，并累加报表期内的所有事件。
+- en: 'Now for the list of transactions. Some events (like making a transfer) involve
+    a transaction; others (like changes to the account status) don’t. I’ve modeled
+    this in a function, `CreateTransaction`, that populates a `Transaction` from an
+    `Event`:'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是交易列表。一些事件（如转账）涉及交易；其他事件（如账户状态的变化）则不涉及。我在一个名为 `CreateTransaction` 的函数中模拟了这一点，该函数从
+    `Event` 中填充 `Transaction`：
+- en: '[PRE16]'
+  id: totrans-210
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Events that don’t affect the account’s balance don’t involve a transaction;
+    hence, this function returns an `Option`. You can use this function to compute
+    all the transactions that belong in the statement. But instead of using `Map`,
+    which would yield a `IEnumerable <Option<Transaction>>`, you can use `Bind`, which
+    filters out all the `None`s, as we saw in section 6.5.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不影响账户余额的事件不涉及交易；因此，此函数返回一个`Option`。您可以使用此函数计算所有属于报表的交易。但您可以使用`Bind`而不是`Map`，后者会生成一个`IEnumerable<Option<Transaction>>`，因为`Bind`会过滤掉所有的`None`，正如我们在第6.5节中看到的。
+- en: As you can see, populating a view model from a list of events requires some
+    work and a bit of thinking. The data transformations involved can usually be performed
+    through the usual `Map`, `Bind`, and `Aggregate` functions. View models stay centered
+    on the user experience and are completely decoupled from the underlying representation.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，从事件列表中填充视图模型需要一些工作和思考。涉及的数据转换通常可以通过常规的`Map`、`Bind`和`Aggregate`函数来完成。视图模型始终围绕用户体验为中心，并且与底层表示完全解耦。
+- en: Populating a view model can be computationally intensive if it involves processing
+    a large number of events, so some optimization is often required to avoid recomputing
+    a view model every time it’s required. One such optimization is for the query
+    side to cache the current version for every view model and to update it as new
+    events are received. In this case, the query side subscribes to events published
+    by the command side and, upon receiving these, updates the cached version and
+    (optionally) publishes the updated view model to connected clients.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果涉及处理大量事件，填充视图模型可能会很耗时，因此通常需要一些优化来避免每次需要时都重新计算视图模型。一种这样的优化是查询端缓存每个视图模型的当前版本，并在接收到新事件时更新它。在这种情况下，查询端订阅由命令端发布的事件，并在接收到这些事件后更新缓存的版本，并（可选地）将更新的视图模型发布给连接的客户端。
+- en: As you can see, if you want an event-sourced model with the performance characteristics
+    of a relational database (or better), some extra work is required to precompute
+    and maintain view models. Some more sophisticated optimizations involve a dedicated
+    DB for the query side, where data is stored in an optimized format for querying.
+    For example, if you need to query views with arbitrary filters, this can be a
+    relational DB. This *query model* is always a by-product of past events so that,
+    in case of discrepancies, the event store always acts as a *source of truth*.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，如果您想要一个具有关系数据库（或更好）性能特征的事件源模型，则需要做一些额外的工作来预先计算和维护视图模型。一些更复杂的优化包括为查询端设置一个专门的数据库，其中数据以优化的格式存储以供查询。例如，如果您需要查询具有任意过滤器的视图，这可以是一个关系数据库。这种*查询模型*始终是过去事件的副产品，因此，在出现差异的情况下，事件存储始终作为*真相之源*。
+- en: 13.4 Comparing different approaches to immutable storage
+  id: totrans-215
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.4 比较不可变存储的不同方法
+- en: In this chapter, you’ve had a fairly comprehensive overview of ES—an event-based
+    approach to data storage. You’ve seen why it’s a functional technique at heart
+    and how storing data about state transitions rather than state provides some important
+    benefits.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您已经对ES——一种基于事件的数据存储方法——有一个相当全面的概述。您已经看到为什么它本质上是一种函数式技术，以及存储关于状态转换的数据而不是状态提供的一些重要好处。
+- en: The other approach I mentioned in the opening of the chapter is the *assertion-based
+    approach*. This is more like the relational model in the sense that you still
+    define entities and attributes, which are essentially like rows and columns in
+    a relational DB. (For example, you could define a `Person` entity with an `Email`
+    attribute.)
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章开头提到的另一种方法是*断言方法*。在某种程度上，它更类似于关系模型，因为您仍然定义实体和属性，这些本质上类似于关系数据库中的行和列。（例如，您可以定义一个具有`Email`属性的`Person`实体。）
+- en: You’d modify this DB through *assertions*—things like “starting now, the `Email`
+    attribute of the `Person` with ID 123 has the value jobl@manning.com.” In the
+    future, this attribute may become associated with a different value, but the fact
+    that it was associated with the value jobl@manning.com within a particular time
+    range is never forgotten, overwritten, or destroyed. In this model, the DB becomes
+    an ever-growing collection of facts. You can then query the DB in much the same
+    manner that you would a relational DB, but you get to specify whether you want
+    to query the current state or the state at any point in time.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将通过*断言*来修改这个数据库——例如，“从现在开始，ID为123的`Person`的`Email`属性值为jobl@manning.com。”在未来，这个属性可能与不同的值相关联，但它在特定时间范围内与jobl@manning.com的值相关联的事实永远不会被遗忘、覆盖或销毁。在这个模型中，数据库变成了一个不断增长的实情集合。你可以以与查询关系数据库相同的方式查询数据库，但你可以选择查询当前状态或任何时间点的状态。
+- en: 'With both the assertion-based and event-based approaches, you get the following:'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在基于断言和基于事件的方法中，你得到以下好处：
+- en: An audit trail, making it possible to query the state of an entity at any point
+    in time
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 审计跟踪，使得能够查询实体在任何时间点的状态
+- en: No database contention because no data is ever overwritten
+  id: totrans-221
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 没有数据库冲突，因为数据永远不会被覆盖
+- en: These benefits are inherent in the fact that both approaches embrace immutability.
+    Let’s look at some other factors that may influence your choice between these
+    two approaches.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些好处是固有的，因为这两种方法都拥抱不可变性。让我们看看可能影响你在这两种方法之间选择的其他因素。
+- en: 13.4.1 Datomic vs. Event Store
+  id: totrans-223
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.4.1 Datomic与Event Store
+- en: The assertion-based approach really only has one embodiment, Datomic ([http://www.datomic.com/](http://www.datomic.com/)),
+    which, apart from the principles discussed here, implements other interesting
+    design decisions that give it good characteristics in terms of performance and
+    scalability. Datomic is a proprietary product with a free version that’s limited
+    in terms of scalability. It would be an arduous task to roll out your own assertion-based
+    storage system.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于断言的方法实际上只有一个实现，那就是Datomic ([http://www.datomic.com/](http://www.datomic.com/))，除了这里讨论的原则之外，它还实现了其他有趣的设计决策，使其在性能和可扩展性方面具有良好特性。Datomic是一个专有产品，有一个在可扩展性方面受限的免费版本。自行推出基于断言的存储系统将是一项艰巨的任务。
+- en: 'Implementing an event-sourced system, on the other hand, is relatively simple:
+    most of what’s required was covered in this chapter. You can write an effective
+    implementation using any DB (either NoSQL or relational) as underlying storage.
+    For a large-scale application, it still pays to use a DB specifically designed
+    for ES, such as Event Store, which is open source.[⁵](#pgfId-1116999) In short,
+    if you want an assertion-based approach, you pretty much have to use Datomic;
+    with ES, you may need or choose to use Event Store.'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，实现一个事件源系统相对简单：本章已经涵盖了大部分所需内容。你可以使用任何数据库（无论是NoSQL还是关系型）作为底层存储来编写有效的实现。对于大规模应用，仍然值得使用专门为ES设计的数据库，例如开源的Event
+    Store。[⁵](#pgfId-1116999) 简而言之，如果你想使用基于断言的方法，你几乎不得不使用Datomic；对于ES，你可能需要或选择使用Event
+    Store。
+- en: Because Event Store was developed in .NET, it provides a .NET client for communicating
+    with the store via TCP, and the project has good visibility in the .NET community.
+    Datomic was developed in Clojure, and interoperability with .NET is not good.[⁶](#pgfId-1117613)
+    These aspects have tilted the scales in favor of Event Store and, partly as a
+    result of that, we’ve seen much wider adoption of ES (whether using Event Store
+    or not) among .NET users.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Event Store是用.NET开发的，它提供了一个.NET客户端，用于通过TCP与存储进行通信，该项目在.NET社区中具有良好的可见性。Datomic是用Clojure开发的，与.NET的互操作性不佳。[⁶](#pgfId-1117613)
+    这些方面使得Event Store更有优势，部分原因是因为这一点，我们在.NET用户中看到了对ES（无论是否使用Event Store）的更广泛采用。
+- en: 13.4.2 How event-driven is your domain?
+  id: totrans-227
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.4.2 你的领域有多少是事件驱动的？
+- en: 'The most important consideration when deciding on any technology is the specific
+    requirements of your domain: some applications are intrinsically event-driven
+    and others aren’t.'
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在决定任何技术时，最重要的考虑因素是特定领域的具体需求：一些应用程序本质上是事件驱动的，而另一些则不是。
+- en: How can you assess whether ES is a good fit? First, look at what you consider
+    events in your domain. How important are they? Second, see if there’s a natural
+    difference between the sort of data being provided and the data being consumed
+    by the parties involved.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你如何评估ES是否适合你的需求？首先，看看你认为是领域事件的什么。它们有多重要？其次，看看提供的数据类型和参与方消费的数据类型之间是否存在自然差异。
+- en: 'Consider, for example, the domain of online auctions. A typical event would
+    be when a client places a bid on an item. This event triggers changes: the client
+    becomes the high bidder, and the value for the next bid is raised. Another important
+    event is when the hammer comes down. The high bidder is bound to purchase the
+    item, which is no longer for sale, and so on. This domain is definitely event-driven.'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以在线拍卖领域为例进行考虑。一个典型的事件是当客户对某件物品出价时。这个事件会触发变化：客户成为最高出价者，下一次出价的价值提高。另一个重要的事件是当锤子落下时。最高出价者有义务购买该物品，该物品不再出售，等等。这个领域无疑是事件驱动的。
+- en: 'Furthermore, the data consumed by clients tends to be in a completely different
+    shape from the data they produce: most clients produce single bids, but they may
+    consume data containing the details of an item for sale, the history of bids placed
+    so far on an item, or the list of items they purchased. So there’s already a natural
+    decoupling between user actions (commands) and the data they consume (queries).
+    ES is a natural fit for this domain.'
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，客户端消耗的数据往往与它们产生的数据形状完全不同：大多数客户端产生单个出价，但他们可能消耗包含待售物品细节、迄今为止对该物品的出价历史或他们购买物品列表的数据。因此，用户操作（命令）和它们消耗的数据（查询）之间已经存在自然解耦。ES是这个领域的自然选择。
+- en: By contrast, imagine an application enabling an insurance provider to manage
+    its products. What events can you think of? A new policy can be created, or it
+    can be retired, or some parameter can be modified . . . but, wait, these are essentially
+    the CRUD operations! You still require an audit log because modifying the characteristics
+    of a product may affect thousands of contracts once the modification comes into
+    effect. This is a much better fit for an assertion-based DB.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与此相反，想象一个能够使保险公司管理其产品的应用程序。你能想到哪些事件？可以创建一项新政策，或者将其退役，或者修改某些参数……但是等等，这些本质上都是CRUD操作！你仍然需要一个审计日志，因为一旦修改生效，修改产品特性可能会影响数千份合同。这非常适合基于断言的数据库。
+- en: Immutable data storage is an area to watch for future developments, as both
+    approaches to immutable storage provide important responses to the needs and challenges
+    of modern applications.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不可变数据存储是未来发展的一个值得关注领域，因为这两种不可变存储方法都为现代应用的需求和挑战提供了重要的回应。
+- en: Summary
+  id: totrans-234
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: 'Thinking functionally about data also encompasses storage. Instead of mutating
+    stored data, consider the database as a big immutable collection: you can append
+    new data but never overwrite existing data.'
+  id: totrans-235
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 关于数据的功能性思考也涵盖了存储。与其修改存储的数据，不如将数据库视为一个大的不可变集合：你可以添加新数据，但永远不能覆盖现有数据。
+- en: 'There are two main approaches to immutable storage:'
+  id: totrans-236
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 不可变存储主要有两种方法：
+- en: '*Event-based*—The DB is an ever-growing collection of events.'
+  id: totrans-237
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*基于事件的*——数据库是一个不断增长的事件集合。'
+- en: '*Assertion-based*—The DB is an ever-growing collection of facts.'
+  id: totrans-238
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*基于断言的*——数据库是一个不断增长的事实集合。'
+- en: Event sourcing means persisting event data as events occur. The state of an
+    entity need not be stored because it can always be computed as the “sum” of all
+    events that affected the entity.
+  id: totrans-239
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件源意味着在事件发生时持久化事件数据。实体的状态不需要存储，因为它总是可以计算为影响实体的所有事件的“总和”。
+- en: An event-sourced system naturally separates the concerns of reading and writing
+    data, enabling a CQRS architecture that separates between
+  id: totrans-240
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件源系统自然地将读取和写入数据的关注点分开，使得CQRS架构能够在以下方面进行分离
+- en: '*The command side*—Commands are received, validated, and turned into events
+    that are persisted and published.'
+  id: totrans-241
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*命令端*——命令被接收、验证，并转换为持久化和发布的事件。'
+- en: '*The query side*—Events are combined to create view models, which are served
+    to clients and, optionally, cached for better performance.'
+  id: totrans-242
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*查询端*——事件被组合以创建视图模型，这些模型被提供给客户端，并且可选地缓存以提高性能。'
+- en: 'Event-sourced systems include the following components:'
+  id: totrans-243
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事件源系统包括以下组件：
+- en: '*Commands*—Simple, immutable data objects encapsulating a request from a client.'
+  id: totrans-244
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*命令*——简单、不可变的数据对象，封装了来自客户端的请求。'
+- en: '*Events*—Simple, immutable data objects capturing what happened.'
+  id: totrans-245
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*事件*——简单、不可变的数据对象，捕捉发生了什么。'
+- en: '*States*—Data objects representing the state of an entity at a certain point
+    in time.'
+  id: totrans-246
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*状态*——表示实体在某个时间点的状态的数据对象。'
+- en: '*State transitions*—Functions that take a state and an event and produce a
+    new state.'
+  id: totrans-247
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*状态转换*——接受状态和事件作为输入并产生新状态的函数。'
+- en: '*View models*—Data objects for populating views. They’re computed from events.'
+  id: totrans-248
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*视图模型*——用于填充视图的数据对象。它们是从事件计算得出的。'
+- en: '*Event handlers*—These subscribe to events to perform business logic (on the
+    command side) or to update view models (on the query side).'
+  id: totrans-249
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*事件处理器*——这些订阅事件以执行业务逻辑（在命令端）或更新视图模型（在查询端）。'
+- en: '* * *'
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '* * *'
+- en: '¹ The traditional functions of a relational DB are the CRUD operations: create,
+    read, update, and delete. The functional approach to data storage is CRA: create,
+    read, append.'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹ 关系型数据库的传统功能是CRUD操作：创建、读取、更新和删除。数据存储的功能方法是CRA：创建、读取、追加。
+- en: '² Stateless servers are easy to scale: you can have countless instances, all
+    of which can process requests interchangeably. By contrast, if a server is stateful
+    and processes requests differently depending on its internal state, then you are
+    limited to a single instance, or alternatively, you have to devise a mechanism
+    to ensure that different instances behave consistently.'
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ² 无状态服务器易于扩展：您可以拥有无数实例，所有这些实例都可以相互处理请求。相比之下，如果一个服务器是有状态的，并且根据其内部状态以不同的方式处理请求，那么您将限制为单个实例，或者您必须设计一种机制来确保不同的实例表现一致。
+- en: ³ Running complex analytics on data stored as events can be inefficient, so
+    you may also decide to store snapshots for this reason. These snapshots are called
+    *projections* and are updated as the events occur to make the data available for
+    querying in an efficient format. They’re not fundamentally different from view
+    models (more precisely, you can think of a view model as a projection), so I won’t
+    deal with projections specifically in this book.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ³ 在以事件形式存储的数据上运行复杂的分析可能效率低下，因此您也可能出于这个原因决定存储快照。这些快照被称为*投影*，并且随着事件的发生而更新，以便以高效格式查询数据。它们与视图模型在本质上没有区别（更准确地说，您可以将视图模型视为投影），因此在这本书中我不会专门处理投影。
+- en: ⁴ Other authors on ES would allow for a command to be translated into several
+    events at this point, but I find this tends to add complexity without any real
+    benefit. Instead, I find that a command should be translated into a single event.
+    When this event is then published, downstream event handlers can create other
+    events, affecting the same but more frequently other entities.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁴ 其他ES的作者可能会允许在这一点上将命令转换为多个事件，但我发现这往往会增加复杂性而没有带来任何真正的益处。相反，我发现命令应该转换为单个事件。当这个事件发布后，下游的事件处理器可以创建其他事件，影响相同的实体，但更频繁地影响其他实体。
+- en: ⁵ Although Event Store is particularly attractive for .NET users, it’s not the
+    only database designed around event streams. Another stack built on the same principles
+    is Apache Kafka (which manages event streams) and Samza (a framework for maintaining
+    view models computed from these streams).
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁵ 尽管Event Store对.NET用户特别有吸引力，但它并不是唯一围绕事件流设计的数据库。另一个基于相同原则的堆栈是Apache Kafka（它管理事件流）和Samza（一个用于维护从这些流中计算出的视图模型的框架）。
+- en: ⁶ As of 2021, there is no native .NET client, so it’s only possible to connect
+    to Datomic via a RESTful API, which is considered obsolete. For more information,
+    see [https://docs.datomic.com/on-prem/reference/languages.html](https://docs.datomic.com/on-prem/reference/languages.html).
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁶ 截至2021年，没有本地的.NET客户端，因此只能通过RESTful API连接到Datomic，这被认为是过时的。更多信息，请参阅[https://docs.datomic.com/on-prem/reference/languages.html](https://docs.datomic.com/on-prem/reference/languages.html)。

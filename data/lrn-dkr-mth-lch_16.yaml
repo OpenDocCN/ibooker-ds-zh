@@ -1,0 +1,1073 @@
+- en: 14 Automating releases with upgrades and rollbacks
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 14 自动化升级和回滚的发布
+- en: Updating containerized applications should be a zero-downtime process that is
+    managed by the container orchestrator. You typically have spare compute power
+    in your cluster that managers can use to schedule new containers during updates,
+    and your container images have health checks so the cluster knows if the new components
+    fail. Those are the enablers for zero-downtime updates, and you’ve already worked
+    through the process with Docker Swarm stack deployments in chapter 13\. The update
+    process is highly configurable, and we’ll spend time exploring the configuration
+    options in this chapter.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新容器化应用程序应该是一个零停机时间的过程，由容器编排器管理。你通常在集群中有额外的计算能力，管理者可以使用这些能力在更新期间安排新的容器，并且你的容器镜像有健康检查，这样集群就知道新组件是否失败。这些都是零停机更新所必需的，你已经在第13章中通过Docker
+    Swarm堆栈部署的过程进行了这个过程。更新过程高度可配置，我们将在本章中花时间探索配置选项。
+- en: Tuning update configuration might sound like a topic you can safely skip, but
+    I can tell you from my own experience that it will cause you pain if you don’t
+    understand how rollouts work and how you can modify the default behavior. This
+    chapter is focused on Docker Swarm, but all orchestrators have a staged rollout
+    process that works in a similar way. Knowing how updates and rollbacks work lets
+    you experiment to find the settings that fit for your app so you can deploy to
+    production as often as you like, confident that the update will either work successfully
+    or automatically roll back to the previous version.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调整更新配置可能听起来像是一个你可以安全跳过的主题，但根据我自己的经验，如果你不了解如何进行滚动发布以及如何修改默认行为，这将会给你带来痛苦。本章专注于Docker
+    Swarm，但所有编排器都有一个分阶段滚动发布过程，其工作方式类似。了解更新和回滚的工作原理让你能够尝试找到适合你应用程序的设置，这样你就可以频繁地将应用程序部署到生产环境中，有信心更新要么成功执行，要么自动回滚到上一个版本。
+- en: 14.1 The application upgrade process with Docker
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.1 使用Docker的应用程序升级过程
+- en: Docker images are a deceptively simple packaging format. You build your image
+    and run your app in a container, and it feels like you can let that run until
+    you have a new version of your app to deploy, but there are at least four deployment
+    cadences you need to consider. First there’s your own application and its dependencies,
+    then the SDK that compiles your app, then the application platform it runs on,
+    and finally the operating system itself. Figure 14.1 shows an example for a .NET
+    Core app built for Linux that actually has six update cadences.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker镜像是一种表面上简单的打包格式。你构建你的镜像，在容器中运行你的应用程序，感觉上你可以让它一直运行，直到你有新版本的应用程序要部署，但你需要考虑至少四种部署周期。首先是你的应用程序及其依赖项，然后是编译你的应用程序的SDK，然后是运行应用程序的平台，最后是操作系统本身。图14.1显示了一个为Linux构建的.NET
+    Core应用程序的示例，实际上有六个更新周期。
+- en: '![](../Images/14-1.jpg)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图14.1](../Images/14-1.jpg)'
+- en: Figure 14.1 Your Docker image has a lot of dependencies when you include the
+    other images you use.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.1 当你包含你使用的其他镜像时，你的Docker镜像有很多依赖项。
+- en: You can see that you should really plan to deploy updates on a monthly schedule
+    to cover OS updates, and you should be comfortable kicking off an ad hoc deployment
+    at any time, to cover security fixes from the libraries your app uses. That’s
+    why your build pipeline is the heart of your project. Your pipeline should run
+    every time a change to the source code is pushed--that will take care of new application
+    features and manual updates to your app’s dependencies. It should also build every
+    night, which makes sure you always have a potentially releasable image built on
+    the latest SDK, application platform, and operating system updates.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以看到，你确实应该计划每月部署更新，以覆盖操作系统更新，并且你应该能够随时启动一个临时的部署，以覆盖你应用程序使用的库中的安全修复。这就是为什么你的构建管道是项目的核心。每次源代码发生变化时，你的管道都应该运行——这将处理新应用程序功能和应用程序依赖项的手动更新。它还应该每晚构建，确保你总是有一个基于最新SDK、应用程序平台和操作系统更新的可发布镜像。
+- en: 'Releasing every month whether your application has changed or not sounds scary,
+    especially in organizations where the release ceremony is so expensive in terms
+    of time and resources that you only do it three times a year. But this approach
+    gets your whole organization into a much healthier mindset: releasing an update
+    is something boring that happens all the time, usually without any humans getting
+    involved. When you have regular automated releases, each update builds confidence
+    in the process, and before you know it you’re releasing new features as soon as
+    they’re completed, rather than waiting for the next deployment window.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论应用程序是否发生变化，每月发布一次听起来可能很可怕，尤其是在发布仪式在时间和资源方面成本极高的组织中，你一年只做三次。但这种方法能让整个组织拥有更健康的心态：发布更新是一件无聊的事情，它经常发生，通常不需要任何人的参与。当你有定期的自动化发布时，每次更新都会增强对流程的信心，而且在你意识到之前，你就可以在完成新功能后立即发布，而不是等待下一个部署窗口。
+- en: You only get that confidence when releases are successful, and that’s where
+    application health checks become critical. Without them, you don’t have a self-healing
+    app, and that means you can’t have safe updates and rollbacks. We’ll follow that
+    through in this chapter using the random number app from chapter 8, making use
+    of the Docker Compose overrides you learned about in chapter 10\. That will let
+    us keep a single clean Compose file with the core app definition, a separate Compose
+    file with the production specification, and additional files for the updates.
+    Docker doesn’t support stack deployment from multiple Compose files though, so
+    first you need to use Docker Compose to join the override files together.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有在发布成功时，你才能获得这种信心，这就是为什么应用程序健康检查变得至关重要的原因。没有它们，你没有一个自我修复的应用程序，这意味着你不能进行安全更新和回滚。我们将通过本章中第
+    8 章的随机数应用来探讨这一点，利用你在第 10 章中学到的 Docker Compose 覆盖功能。这将使我们能够保持一个干净的 Compose 文件，其中包含核心应用程序定义，一个单独的
+    Compose 文件用于生产规范，以及用于更新的附加文件。但是，Docker 不支持从多个 Compose 文件中进行堆栈部署，所以首先你需要使用 Docker
+    Compose 将覆盖文件合并在一起。
+- en: 'Try it now Let’s start by deploying the first build of the random number app.
+    We’ll run a single web container and six replicas of the API container, which
+    will help us see how updates get rolled out. You’ll need to be running in Swarm
+    mode; then join together some Compose files and deploy the stack:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试吧！让我们先部署随机数应用的第一个版本。我们将运行一个单独的 Web 容器和六个 API 容器的副本，这将帮助我们了解更新是如何分阶段实施的。你需要以
+    Swarm 模式运行；然后合并一些 Compose 文件并部署堆栈：
+- en: '` cd ch14/exercises`  ` # join the core Compose file with the production override:`
+    ` docker-compose -f ./numbers/docker-compose.yml -f ./numbers/prod.yml config
+    > stack.yml`  ` # deploy the joined Compose file:` ` docker stack deploy -c stack.yml
+    numbers`  ` # show the services in the stack:` ` docker stack services numbers`'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` cd ch14/exercises`  ` # 将核心 Compose 文件与生产覆盖文件合并:` ` docker-compose -f ./numbers/docker-compose.yml
+    -f ./numbers/prod.yml config > stack.yml`  ` # 部署合并后的 Compose 文件:` ` docker stack
+    deploy -c stack.yml numbers`  ` # 显示堆栈中的服务:` ` docker stack services numbers`'
+- en: You can see my output in figure 14.2--the Docker Compose command joined the
+    core Compose file with the production override. It’s useful to use Docker Compose
+    to join the override files together because it also validates the contents, and
+    that could be part of a continuous deployment pipeline. The stack deployment created
+    an overlay network and two services.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图 14.2 中看到我的输出--Docker Compose 命令将核心 Compose 文件与生产覆盖文件合并。使用 Docker Compose
+    合并覆盖文件很有用，因为它还验证了内容，这可能是持续部署管道的一部分。堆栈部署创建了一个覆盖网络和两个服务。
+- en: '![](../Images/14-2.jpg)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-2.jpg)'
+- en: Figure 14.2 Deploying a stack from multiple Compose files by joining them together
+    first
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.2 通过首先合并它们来从多个 Compose 文件部署堆栈
+- en: One thing is new about the stack you see in figure 14.2--the API service is
+    running in the normal replicated mode, but the web service is running in global
+    mode. Global services run with a single replica on each node of the Swarm, and
+    you can use that configuration to bypass the ingress network. There are scenarios
+    like reverse proxies where that’s a good deployment option, but I’m using it here
+    so you can see how it’s different from replicated services for rollouts. The settings
+    for the web service are in listing 14.1 (which is an excerpt from the `prod.yml`
+    override file).
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.2 中您看到的堆栈有一个新特点--API 服务以正常复制模式运行，但 Web 服务以全局模式运行。全局服务在每个 Swarm 节点上运行一个副本，您可以使用此配置来绕过入口网络。在某些场景中，如反向代理，这是一个好的部署选项，但我在这里使用它，以便您可以看到它与复制服务在推出时的不同。Web
+    服务的设置在列表 14.1 中（这是 `prod.yml` 覆盖文件的摘录）。
+- en: Listing 14.1 A global service that uses host networking rather than ingress
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 14.1 使用主机网络而不是入口网络的全球服务
+- en: '`   numbers-web:` `       ports:` `           - target: 80` `               published:
+    80` `               mode: host` `       deploy:` `             mode: global`'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`   numbers-web:` `       ports:` `           - target: 80` `               published:
+    80` `               mode: host` `       deploy:` `             mode: global`'
+- en: 'In this new configuration there are two fields which configure the global service:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此新配置中，有两个字段用于配置全局服务：
+- en: '`mode:` `global` --This setting in the `deploy` section configures the deployment
+    to run one container on every node in the Swarm. The number of replicas will equal
+    the number of nodes, and if any nodes join, they will also run a container for
+    the service.'
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`mode:` `global` -- 在 `deploy` 部分的此设置配置部署在 Swarm 的每个节点上运行一个容器。副本的数量将等于节点的数量，如果有任何节点加入，它们也将为服务运行一个容器。'
+- en: '`mode:` `host` --This setting in the `ports` section configures the service
+    to bind directly to port 80 on the host, and not use the ingress network. This
+    can be a useful pattern if your web apps are lightweight enough that you only
+    need one replica per node, but network performance is critical so you don’t want
+    the overhead of routing in the ingress network.'
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`mode:` `host` -- 在 `ports` 部分的此设置配置服务直接绑定到主机的 80 端口，而不使用入口网络。如果您的 Web 应用程序足够轻量级，只需要每个节点一个副本，并且网络性能至关重要，您不想在入口网络中引入路由开销，这可以是一个有用的模式。'
+- en: 'This deployment uses the original application images, which don’t have any
+    health checks, and this is the app where the API has a bug that means it stops
+    working after a few calls. You can browse to http: */ /* localhost (or from an
+    external machine with Windows containers), and you can request lots of random
+    numbers because the calls are load-balanced between six API service replicas.
+    Eventually they’ll all break, and then the app will stop working and won’t ever
+    repair itself--the cluster doesn’t replace containers because it doesn’t know
+    they’re unhealthy. That’s not a safe position to be in, because if you roll out
+    an updated version without any health checks, the cluster won’t know if the update
+    has been successful either.'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '此部署使用原始应用程序镜像，这些镜像没有任何健康检查，并且这是 API 存在错误的那个应用程序，几次调用后就会停止工作。您可以通过 http: */
+    /* localhost（或从具有 Windows 容器的外部机器）浏览，并且可以请求大量的随机数字，因为调用在六个 API 服务副本之间进行负载均衡。最终它们都会崩溃，然后应用程序将停止工作并且永远不会自行修复--集群不会替换容器，因为它不知道它们是不健康的。这并不是一个安全的位置，因为如果您在没有健康检查的情况下推出更新版本，集群也无法知道更新是否成功。'
+- en: So we’ll go on to deploy version 2 of the application images, which have health
+    checks built in. The v2 Compose override file uses the v2 image tag, and there’s
+    also an override that adds configuration for health checks to set how often they
+    fire and how many failures trigger corrective action. That’s in the normal `healthcheck`
+    block, which works in the same way in Docker Compose, except Compose doesn’t take
+    corrective action for you. When this version of the app is deployed to Docker
+    Swarm, the cluster will repair the API. When you break the API containers, they’ll
+    fail their health checks and get replaced, and then the app will start working
+    again.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们将继续部署应用程序镜像的版本 2，该版本内置了健康检查。v2 Compose 覆盖文件使用 v2 镜像标签，还有一个覆盖配置，用于设置健康检查的触发频率和触发纠正操作的失败次数。这位于正常的
+    `healthcheck` 块中，它在 Docker Compose 中的工作方式与之前相同，但 Compose 不会为您执行纠正操作。当此版本的应用程序部署到
+    Docker Swarm 时，集群将修复 API。当您破坏 API 容器时，它们将失败健康检查并被替换，然后应用程序将再次开始工作。
+- en: 'Try it now You need to join the new v2 Compose override with the health check
+    and production override files to get your stack deployment YAML. Then you just
+    need to deploy the stack again:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看。您需要将新的 v2 Compose 覆盖文件与健康检查和生产覆盖文件一起加入，以获取您的堆栈部署 YAML 文件。然后您只需再次部署堆栈即可：
+- en: '` # join the healthcheck and v2 overrides to the previous files:` ` docker-compose
+    -f ./numbers/docker-compose.yml -f ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml
+    -f ./numbers/v2.yml --log-level ERROR config > stack.yml`  ` # update the stack:`
+    ` docker stack deploy -c stack.yml numbers`  ` # check the stack''s replicas:`
+    ` docker stack ps numbers`'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 将健康检查和 v2 覆盖文件添加到之前的文件中：` ` docker-compose -f ./numbers/docker-compose.yml
+    -f ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml -f ./numbers/v2.yml --log-level
+    ERROR config > stack.yml`  ` # 更新堆栈：` ` docker stack deploy -c stack.yml numbers` 
+    ` # 检查堆栈的副本：` ` docker stack ps numbers`'
+- en: This deployment updates both the web and API services to version 2 of their
+    images. Service updates are always done as a staged rollout, and the default is
+    to stop existing containers before starting new ones. This makes sense for global
+    services that are using host-mode ports, because the new container can’t start
+    until the old one exits and frees up the port. It might make sense for replicated
+    services too, if your application expects a maximum level of scale, but you need
+    to be aware that during the update the services will be under capacity while old
+    containers are shut down and replacements are starting up. You can see that behavior
+    in figure 14.3.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此部署更新了 Web 和 API 服务到其镜像的版本 2。服务更新始终作为分阶段滚动发布完成，默认情况下是在启动新容器之前停止现有容器。这对于使用主机模式端口的全局服务来说是有意义的，因为新容器无法启动，直到旧容器退出并释放端口。如果您的应用程序期望最大扩展级别，这也可能对复制服务有意义，但您需要意识到，在更新期间，服务将在旧容器关闭和替换启动时处于容量不足状态。您可以在图
+    14.3 中看到这种行为。
+- en: '![](../Images/14-3.jpg)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-3.jpg)'
+- en: Figure 14.3 Deploying a service update with default configuration--one replica
+    is updated at a time.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.3 使用默认配置部署服务更新--每次只更新一个副本。
+- en: Docker Swarm uses cautious defaults for the rollout of service updates. It updates
+    one replica at a time and ensures the container starts correctly before moving
+    on to the next replica. Services roll out by stopping existing containers before
+    starting replacements, and if the update fails because new containers don’t start
+    correctly, the rollout is paused. That all seems reasonable when it’s presented
+    with an authoritative tone in a book, but actually it’s pretty strange. Why default
+    to removing old containers before starting new ones, when you don’t know if the
+    new ones will work? Why pause a failed rollout, which could leave you with a half-broken
+    system, instead of rolling back automatically? Fortunately the rollout can be
+    configured with more sensible options.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Docker Swarm 在服务更新的滚动发布中使用了谨慎的默认设置。它一次更新一个副本，并在移动到下一个副本之前确保容器正确启动。服务通过在启动替换容器之前停止现有容器来滚动发布，如果更新失败因为新容器无法正确启动，则滚动发布会暂停。当以权威的语气在书中呈现时，这似乎都是合理的，但实际上它相当奇怪。为什么在不知道新容器是否可以正常工作的情况下，默认先删除旧容器再启动新容器？为什么暂停失败的滚动发布，这可能会让您留下一个半损坏的系统，而不是自动回滚？幸运的是，滚动发布可以通过更合理的选项进行配置。
+- en: 14.2 Configuring production rollouts with Compose
+  id: totrans-29
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.2 使用 Compose 配置生产滚动发布
+- en: Version 2 of the random number app is self-repairing because of the health checks.
+    If you request lots of random numbers through the web UI, the API replicas will
+    all break, but wait 20 seconds or so and the Swarm will replace them all and the
+    app will start working again. This is an extreme example, but in a real application
+    with occasional failures, you can see how the cluster monitors containers and
+    keeps the app online based on the health checks.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机数应用程序的版本 2 由于健康检查而具有自我修复功能。如果您通过 Web UI 请求大量随机数，API 副本都会崩溃，但等待大约 20 秒后，Swarm
+    会替换它们，应用程序将重新开始工作。这是一个极端的例子，但在实际应用程序偶尔出现故障的情况下，您可以看到集群如何根据健康检查监控容器并保持应用程序在线。
+- en: The rollout of version 2 used the default update configuration, but I want rollouts
+    for the API to be faster and safer. That behavior is set in the `deploy` section
+    for the service in the Compose file. Listing 14.2 shows the `update_config` section
+    I want to apply for the API service (this is an excerpt from the `prod-update-config.yml`
+    file).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 版本 2 的滚动发布使用了默认的更新配置，但我想 API 的滚动发布更快更安全。这种行为在 Compose 文件中服务的 `deploy` 部分被设置。列表
+    14.2 显示了我想要应用于 API 服务的 `update_config` 部分（这是 `prod-update-config.yml` 文件的一个摘录）。
+- en: Listing 14.2 Specifying custom configuration for application rollouts
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 14.2 指定应用程序部署的自定义配置
+- en: '`   numbers-api:` `       deploy:` `           update_config:` `               parallelism:
+    3` `               monitor: 60s` `               failure_action: rollback` `                 order:
+    start-first`'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`   numbers-api:` `       deploy:` `           update_config:` `               parallelism:
+    3` `               monitor: 60s` `               failure_action: rollback` `                 order:
+    start-first`'
+- en: 'The four properties of the update configuration section change how the rollout
+    works:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新配置部分的四个属性会改变部署流程的工作方式：
+- en: '`parallelism` is the number of replicas that are replaced in parallel. The
+    default is 1, so updates roll out by one container at a time. The setting shown
+    here will update three containers at a time. That gives you a faster rollout and
+    a greater chance of finding failures, because there are more of the new replicas
+    running.'
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`parallelism` 表示并行替换的副本数量。默认值为 1，因此更新是逐个容器进行部署。这里显示的设置将同时更新三个容器。这会加快部署速度，并增加发现失败的机会，因为运行的新副本数量更多。'
+- en: '`monitor` is the time period the Swarm should wait to monitor new replicas
+    before continuing with the rollout. The default is 0, and you definitely want
+    to change that if your images have health checks, because the Swarm will monitor
+    health checks for this amount of time. This increases confidence in the rollout.'
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`monitor` 表示 Swarm 在继续部署之前等待监控新副本的时间段。默认值为 0，如果你的镜像有健康检查，你绝对需要更改这个设置，因为 Swarm
+    将会监控健康检查这个时间段。这增加了部署的信心。'
+- en: '`failure_action` is the action to take if the rollout fails because containers
+    don’t start or fail health checks within the `monitor` period. The default is
+    to pause the rollout; I’ve set it here to automatically roll back to the previous
+    version.'
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`failure_action` 表示在 `monitor` 期间容器无法启动或健康检查失败时采取的操作。默认操作是暂停部署；我在这里将其设置为自动回滚到上一个版本。'
+- en: '`order` is the order of replacing replicas. `stop-first` is the default, and
+    it ensures there are never more replicas running than the required number, but
+    if your app can work with extra replicas, `start-first` is better because new
+    replicas are created and checked before the old ones are removed.'
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`order` 表示替换副本的顺序。默认为 `stop-first`，这确保运行中的副本数量永远不会超过所需数量，但如果你的应用程序可以处理额外的副本，则
+    `start-first` 更好，因为新副本会在旧副本被移除之前创建和检查。'
+- en: This setup is generally a good practice for most apps, but you’ll need to tweak
+    it for your own use case. Parallelism can be set to around 30% of the full replica
+    count so your update happens fairly quickly, but you should have a monitor period
+    long enough to run multiple health checks, so the next set of tasks only get updated
+    if the previous update worked.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种设置通常是大多数应用程序的良好实践，但你可能需要根据自己使用情况进行调整。并行度可以设置为全副本数量的约 30%，以便更新发生得更快，但你应该有一个足够长的监控时间段来运行多个健康检查，这样下一组任务只有在前一次更新成功后才会更新。
+- en: 'There’s one important thing to understand: when you deploy changes to a stack,
+    the update configuration gets applied first. Then, if your deployment also includes
+    service updates, the rollout will happen using the new update configuration.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一个重要的事情需要理解：当你向堆栈部署更改时，首先应用更新配置。然后，如果你的部署还包括服务更新，部署将使用新的更新配置进行。
+- en: 'Try it now The next deployment sets the update config and updates the services
+    to image tag v3\. The replica rollout will use the new update configuration:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下。下一次部署将设置更新配置并将服务更新到标签 v3。副本部署将使用新的更新配置：
+- en: '` docker-compose -f ./numbers/docker-compose.yml -f ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml
+    -f ./numbers/prod-update-config.yml -f ./numbers/v3.yml --log-level ERROR config
+    > stack.yml`  ` docker stack deploy -c stack.yml numbers`  ` docker stack ps numbers`'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` docker-compose -f ./numbers/docker-compose.yml -f ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml
+    -f ./numbers/prod-update-config.yml -f ./numbers/v3.yml --log-level ERROR config
+    > stack.yml`  ` docker stack deploy -c stack.yml numbers`  ` docker stack ps numbers`'
+- en: You’ll see that the replica list from `stack` `ps` gets unmanageably large when
+    you’ve done a few updates. It shows all the replicas from every deployment, so
+    the original containers and the v2 containers that have been updated are shown
+    as well as the new v3 replicas. I’ve trimmed my output in figure 14.4, but if
+    you scroll down in yours you’ll see three replicas of the API service have been
+    updated and are being monitored before the next set is updated.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您进行几次更新后，您会发现`stack` `ps`的副本列表变得难以管理。它显示了每个部署的所有副本，因此原始容器和已更新的v2容器以及新的v3副本都会显示出来。我在图14.4中裁剪了我的输出，但如果您在您的输出中向下滚动，您会看到API服务的三个副本已被更新，并在下一个集合更新之前正在被监控。
+- en: '![](../Images/14-4.jpg)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-4.jpg)'
+- en: Figure 14.4 Updating a stack with a new update config--the rollout settings
+    take immediate effect.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.4 更新堆栈的新更新配置--滚动设置立即生效。
+- en: There’s a neater way to report on a Swarm service that identifies the service
+    specification, the update configuration, and the latest update status. That’s
+    using the `inspect` command with the `pretty` flag. Services created by a stack
+    use the naming convention `{stack-name}_{service-name}` , so you can work with
+    stack services directly.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一种更整洁的方式来报告Swarm服务，该服务可以识别服务规范、更新配置和最新的更新状态。这是使用带有`pretty`标志的`inspect`命令。由堆栈创建的服务使用命名约定`{stack-name}_{service-name}`，因此您可以直接处理堆栈服务。
+- en: 'Try it now Inspect the random number API service to view the update status:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 检查随机数API服务以查看更新状态：
+- en: '` docker service inspect --pretty numbers_numbers-api`'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` docker service inspect --pretty numbers_numbers-api`'
+- en: You can see my output in figure 14.5\. I’ve trimmed it down again to show just
+    the main pieces of information, but if you scroll in your output you’ll also see
+    the health check configuration, resource limits, and update config.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在图14.5中看到我的输出。我已经再次进行了裁剪，只显示主要的信息部分，但如果您在输出中滚动，您也会看到健康检查配置、资源限制和更新配置。
+- en: '![](../Images/14-5.jpg)'
+  id: totrans-50
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-5.jpg)'
+- en: Figure 14.5 Inspecting a service shows the current configuration and the most
+    recent update status.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.5 检查服务显示了当前配置和最新的更新状态。
+- en: One important thing you need to be aware of when you change the default update
+    configuration settings is that you need to include those settings in every subsequent
+    deployment. My v3 deployment added the custom settings, but if I don’t include
+    the same update override file in the next deployment, Docker will revert the service
+    back to the default update settings. Swarm makes changes to the update configuration
+    first, so it would set the update config back to the defaults and then roll out
+    the next version one replica at a time.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您更改默认更新配置设置时，您需要注意的一个重要事项是，您需要将这些设置包含在每次后续部署中。我的v3部署添加了自定义设置，但如果我不在下一个部署中包含相同的更新覆盖文件，Docker会将服务回滚到默认更新设置。Swarm首先更改更新配置，因此它会将更新配置重置为默认值，然后逐个副本推出下一个版本。
+- en: The update config settings for Swarm rollouts have an identical set that applies
+    for rollbacks, so you can also configure how many replicas at a time and how long
+    to wait between sets for an automated rollback. These may seem like minor tweaks,
+    but it’s really important to specify the update and rollback process for a production
+    deployment and test it with your app at scale. You need to be confident that you
+    can roll out an update at any time, and that it will be applied quickly but with
+    enough checks in the process for it to roll back automatically if there’s a problem.
+    You get that confidence by working through failure scenarios with these config
+    settings.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Swarm滚动更新的更新配置设置有一个相同的集合适用于回滚，因此您也可以配置每次同时更新多少个副本以及在每个集合之间等待多长时间以进行自动回滚。这些可能看起来像是微调，但对于生产部署来说，指定更新和回滚过程并使用您的应用程序进行规模测试是非常重要的。您需要确信您可以在任何时间推出更新，并且它将快速应用，但在过程中有足够的检查以便在出现问题时自动回滚。您可以通过使用这些配置设置处理故障场景来获得这种信心。
+- en: 14.3 Configuring service rollbacks
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.3 配置服务回滚
+- en: There is no `docker` `stack` `rollback` command; only individual services can
+    be rolled back to their previous state. You shouldn’t need to manually start a
+    service rollback unless something’s gone badly wrong. Rollbacks should happen
+    automatically when the cluster is performing a rollout and it identifies that
+    new replicas are failing within the monitor period. If that happens and you’ve
+    got your configuration right, you won’t realize a rollback has happened until
+    you wonder why your new features aren’t showing up.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有名为 `docker` `stack` `rollback` 的命令；只有单个服务可以被回滚到之前的状态。除非出了严重错误，否则你通常不需要手动启动服务回滚。当集群执行滚动更新并识别到新副本在监控期间失败时，回滚应该自动发生。如果发生这种情况，并且你的配置正确，你直到疑惑为什么新功能没有显示出来时才会意识到回滚已经发生。
+- en: Application deployments are the main cause of downtime, because even when everything
+    is automated, there are still humans writing the automation scripts and the application
+    YAML files, and sometimes things get forgotten. We can experience that with the
+    random number app--a new version is ready to deploy, but it has a configuration
+    option that must be set. If it isn’t set, the API fails immediately.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用部署是导致停机时间的主要原因，因为即使一切自动化，仍然有人员编写自动化脚本和应用程序 YAML 文件，有时事情会被遗忘。我们可以通过随机数应用来体验这一点——一个新版本已经准备好部署，但它有一个必须设置的配置选项。如果没有设置，API
+    将会立即失败。
+- en: 'Try it now Run v5 of the random number app (v4 was the version we used to demonstrate
+    continuous integration in chapter 11, but it used the same code as v3). This deployment
+    will fail because the configuration setting that v5 needs isn’t provided in the
+    Compose files:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看。运行随机数应用的 v5 版本（v4 是我们在第 11 章中用来演示持续集成的版本，但它使用了与 v3 相同的代码）。这次部署将会失败，因为
+    v5 需要的配置设置没有在 Compose 文件中提供：
+- en: '` # join lots of Compose files together` ` docker-compose -f ./numbers/docker-compose.yml
+    -f ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml -f ./numbers/prod-update-config.yml
+    -f ./numbers/v5-bad.yml config > stack.yml`  ` # deploy the update:` ` docker
+    stack deploy -c stack.yml numbers`  ` # wait for a minute and check the service
+    status:` ` docker service inspect --pretty numbers_numbers-api`'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 将多个 Compose 文件合并` ` docker-compose -f ./numbers/docker-compose.yml -f ./numbers/prod.yml
+    -f ./numbers/prod-healthcheck.yml -f ./numbers/prod-update-config.yml -f ./numbers/v5-bad.yml
+    config > stack.yml`  ` # 部署更新:` ` docker stack deploy -c stack.yml numbers`  ` #
+    等待一分钟并检查服务状态:` ` docker service inspect --pretty numbers_numbers-api`'
+- en: This is a typical failed deployment. The new API replicas were created and started
+    successfully but they failed their health checks--the health-check configuration
+    is set to run every two seconds with two retries before flagging the container
+    as unhealthy. If any new replicas report as unhealthy during the monitor period
+    of the rollout, that triggers the rollback action, which I’ve set for this service
+    to automatically roll back. If you wait 30 seconds or so after the deployment
+    before you inspect the service, you’ll see output similar to mine in figure 14.6
+    saying the update has been rolled back and the service is running six replicas
+    of the v3 image.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个典型的失败部署。新的 API 副本被成功创建并启动，但它们在健康检查中失败了——健康检查配置设置为每两秒运行一次，在标记容器为不健康之前进行两次重试。如果在滚动更新的监控期间，任何新的副本报告为不健康，这将触发回滚操作，我已经为这个服务设置了自动回滚。如果你在检查服务之前等待大约
+    30 秒，你将看到类似于图 14.6 中的输出，表明更新已经回滚，服务正在运行六个 v3 镜像的副本。
+- en: '![](../Images/14-6.jpg)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 14.6 当你正确配置了配置时，失败的更新会被识别并回滚。](../Images/14-6.jpg)'
+- en: Figure 14.6 When you get your configuration right, a failed update is identified
+    and rolled back.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.6 当你正确配置了配置时，失败的更新会被识别并回滚。
+- en: It’s no fun when deployments go wrong, but a failed update like this that automatically
+    rolls back does at least keep your app running. Using the `start-first` rollout
+    strategy helps with that. If I used the default `stop-first` , there would be
+    a period of reduced capacity when three v3 replicas get stopped, then three v5
+    replicas get started and fail. In the time it takes the new replicas to flag themselves
+    as unhealthy and for the rollback to complete, there would only be three active
+    replicas of the API. Users wouldn’t see any errors because Docker Swarm doesn’t
+    send any traffic to replicas that aren’t healthy, but the API would be running
+    at 50% capacity.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署出错时没有乐趣，但像这样的失败更新会自动回滚，至少能保持你的应用运行。使用`start-first`部署策略有助于这一点。如果我使用默认的`stop-first`，那么在三个v3副本停止、三个v5副本启动并失败期间，会有一个容量减少的时期。在新副本标记自己为不健康和回滚完成所需的时间内，API将只有三个活动副本。用户不会看到任何错误，因为Docker
+    Swarm不会将流量发送到不健康的副本，但API将运行在50%的容量。
+- en: 'This deployment uses the default configuration for rollbacks, which is the
+    same as the default configuration for updates: one task at a time with a `stop-first`
+    strategy, zero monitoring time, and the rollback pauses if the replacement replicas
+    fail. I find that too cautious, because in the situation where your app was working
+    fine and a deployment broke it, you usually want to roll back to the previous
+    state as quickly as possible. Listing 14.3 shows my preferred rollback configuration
+    for this service (from `prod-rollback-config.yml` ):'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此部署使用默认的回滚配置，这与更新默认配置相同：一次一个任务，使用`stop-first`策略，零监控时间，如果替换副本失败，回滚会暂停。我发现这太谨慎了，因为在你的应用运行正常而部署破坏了它的情况下，你通常希望尽可能快地回滚到之前的状态。列表14.3显示了此服务的首选回滚配置（来自`prod-rollback-config.yml`）：
+- en: Listing 14.3 Rollback configuration that reverts failed updates quickly
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表14.3 快速回滚失败更新的配置
+- en: '`   numbers-api:` `       deploy:` `           rollback_config:` `               parallelism:
+    6` `               monitor: 0s` `               failure_action: continue` `                 order:
+    start-first`'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`   numbers-api:` `       deploy:` `           rollback_config:` `               parallelism:
+    6` `               monitor: 0s` `               failure_action: continue` `                 order:
+    start-first`'
+- en: The goal here is to revert back as quickly as possible--the parallelism is 6
+    so all the failed replicas will be replaced in one go, using `start-first` strategy
+    so replicas of the old version will be started before the rollback worries about
+    shutting down replicas of the new version. There’s no monitoring period, and if
+    the rollback fails (because replicas don’t start) it’s set to continue anyway.
+    This is an aggressive rollback policy that assumes the previous version was good
+    and will become good again when the replicas start.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的目标是尽可能快地恢复——并行度为6，所以所有失败的副本将一次性替换，使用`start-first`策略，这样旧版本的副本将在回滚担心关闭新版本副本之前启动。没有监控期，如果回滚失败（因为副本无法启动），它仍然会继续。这是一个激进的回滚策略，它假设上一个版本是好的，当副本启动时将再次变得良好。
+- en: 'Try it now We’ll try the v5 update again, specifying the custom rollback configuration.
+    This rollout will still fail, but the rollback will happen more quickly, returning
+    the app to full capacity on the v3 API:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 我们将再次尝试v5更新，并指定自定义回滚配置。这次部署仍然会失败，但回滚将会更快，使应用回到v3 API的全容量状态：
+- en: '` # join together even more Compose files:` ` docker-compose -f ./numbers/docker-compose.yml
+    -f ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml -f ./numbers/prod-update-config.yml
+    -f ./numbers/prod-rollback-config.yml -f ./numbers/v5-bad.yml config > stack.yml` 
+    ` # deploy the update again with the new rollback config:` ` docker stack deploy
+    -c stack.yml numbers`  ` # wait and you''ll see it reverts back again:` ` docker
+    service inspect --pretty numbers_numbers-api`'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 将更多的Compose文件合并在一起：` ` docker-compose -f ./numbers/docker-compose.yml -f
+    ./numbers/prod.yml -f ./numbers/prod-healthcheck.yml -f ./numbers/prod-update-config.yml
+    -f ./numbers/prod-rollback-config.yml -f ./numbers/v5-bad.yml config > stack.yml` 
+    ` # 再次使用新的回滚配置部署更新：` ` docker stack deploy -c stack.yml numbers`  ` # 等待，你会看到它再次回滚：`
+    ` docker service inspect --pretty numbers_numbers-api`'
+- en: This time you’ll see the rollback happens more quickly, but only marginally
+    because there are only a small number of replicas in the API service, all running
+    on my single node. You can see how important this would be in a larger deployment
+    that might have 100 replicas running across 20 nodes--rolling back each replica
+    individually would prolong the amount of time your app might be running below
+    capacity or in an unstable state. You can see my output in figure 14.7--I was
+    quick enough this time to catch the rollback just as it had triggered, so the
+    state shows the rollback is starting.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这次你会看到回滚发生得更快，但只是略微快一些，因为 API 服务中只有少数副本，所有副本都在我的单个节点上运行。你可以看到在一个可能跨越 20 个节点运行
+    100 个副本的更大部署中，这有多么重要——逐个回滚每个副本将延长你的应用在低于容量或不稳定状态下运行的时间。你可以在图 14.7 中看到我的输出——这次我足够快，能够捕捉到回滚刚刚触发时的状态，所以状态显示回滚已经开始。
+- en: '![](../Images/14-7.jpg)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-7.jpg)'
+- en: Figure 14.7 Specifying custom rollback settings means a failed rollout gets
+    fixed faster.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.7 指定自定义回滚设置意味着失败的部署可以更快地得到修复。
+- en: When you run this yourself, take a look at the full service configuration when
+    the rollback has completed--you’ll see that the rollback configuration has been
+    reset to the default values. That’s guaranteed confusion right there, because
+    you’ll be thinking the rollback config wasn’t applied. But actually it’s because
+    the whole service configuration got rolled back, and that includes the rollback
+    setup--the replicas were rolled back in line with the new policy, and then the
+    rollback policy was rolled back. Next time you deploy, you’ll need to make sure
+    you keep adding the update and rollback configs, or they’ll be updated back to
+    the default settings.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你自己运行这个操作时，请在回滚完成后查看完整的服务配置——你会看到回滚配置已重置为默认值。这肯定会引起混淆，因为你可能会认为回滚配置没有被应用。但实际上，这是因为整个服务配置都被回滚了，这包括回滚设置——副本按照新策略回滚，然后回滚策略也被回滚。下次你部署时，你需要确保继续添加更新和回滚配置，否则它们将被更新回默认设置。
+- en: This is where having multiple override files gets dangerous, because they’re
+    all necessary and they all need to be specified in the correct order. Normally
+    you wouldn’t split out settings for one environment across multiple files; I’ve
+    just done that to make our journey through updates and rollbacks easier to follow.
+    Typically you’d have the core Compose file, an environment override file, and
+    possibly a version override file. We’ll take that approach for the final deployment,
+    fixing the v5 issue and getting the app working again.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是拥有多个覆盖文件变得危险的地方，因为它们都是必要的，并且它们都需要按照正确的顺序指定。通常你不会将一个环境的设置拆分到多个文件中；我只是这样做，以便使我们的更新和回滚过程更容易跟踪。通常，你会有一个核心
+    Compose 文件，一个环境覆盖文件，以及可能的一个版本覆盖文件。我们将采取这种方法进行最终部署，修复 v5 问题，并使应用恢复正常工作。
+- en: 'Try it now The v5 update failed and rolled back, so we got the team together
+    and realized we’d missed a crucial config setting. The `v5.yml` override file
+    adds that in, and the `prod-full.yml` override file has all the production settings
+    in one place. Now we can deploy v5 successfully:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 v5 更新失败并回滚了，所以我们召集了团队，意识到我们遗漏了一个关键的配置设置。`v5.yml` 覆盖文件添加了那个设置，而 `prod-full.yml`
+    覆盖文件将所有生产设置放在一个地方。现在我们可以成功部署 v5：
+- en: '` # this is more like it - all the custom config is in the prod-full file:`
+    ` docker-compose -f ./numbers/docker-compose.yml -f ./numbers/prod-full.yml -f
+    ./numbers/v5.yml --log-level ERROR config > stack.yml`  ` # deploy the working
+    version of v5:` ` docker stack deploy -c stack.yml numbers`  ` # wait a while
+    and check the rollout succeeded:` ` docker service inspect --pretty numbers_numbers-api`'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 这才是正确的做法 - 所有自定义配置都在 prod-full 文件中：` ` docker-compose -f ./numbers/docker-compose.yml
+    -f ./numbers/prod-full.yml -f ./numbers/v5.yml --log-level ERROR config > stack.yml` 
+    ` # 部署 v5 的工作版本：` ` docker stack deploy -c stack.yml numbers`  ` # 稍等片刻，检查部署是否成功：`
+    ` docker service inspect --pretty numbers_numbers-api`'
+- en: My output is in figure 14.8\. I waited a couple of minutes between the deployment
+    and the service list to be sure that the update had worked and there was no rollback.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出在图 14.8 中。我在部署和服务列表之间等待了几分钟，以确保更新已经成功，并且没有回滚。
+- en: '![](../Images/14-8.jpg)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-8.jpg)'
+- en: Figure 14.8 A successful deployment after fixing the app configuration
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.8 修复应用配置后的成功部署
+- en: Now you have v5 running in all its glory--it’s actually the same simple demo
+    app as before, but we can use it to illustrate one final point about rollbacks.
+    The app is working fine now, and the health checks are in place, so if you keep
+    using the API and break the replicas, they’ll get replaced and the app will start
+    working again. Failing health checks don’t cause a rollback of the last update;
+    they just trigger replacement replicas unless the failure happens during the monitor
+    period of the update. If you deploy v5 and during the 60-second monitor period
+    you break the API containers, that will trigger a rollback. Figure 14.9 shows
+    what the update and rollback process would look like for the v3 to v5 update.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，你已经在所有荣耀中运行了v5——它实际上和之前的简单演示应用程序相同，但我们可以用它来说明关于回滚的最后一个要点。应用程序现在运行良好，健康检查已经到位，所以如果你继续使用API并破坏副本，它们将被替换，应用程序将重新开始工作。失败的健康检查不会触发最后一次更新的回滚；它们只会触发替换副本，除非失败发生在更新的监控期间。如果你部署v5，并在60秒的监控期间破坏API容器，这将触发回滚。图14.9显示了从v3到v5更新的更新和回滚过程。
+- en: '![](../Images/14-9.jpg)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-9.jpg)'
+- en: Figure 14.9 This looks suspiciously like a flowchart, but it’s just a useful
+    way to model the update process.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.9 这看起来可疑地像流程图，但它只是建模更新过程的有用方式。
+- en: That’s it for update and rollback configuration. It’s really just a case of
+    setting a few values in the deployment section of your Compose file and testing
+    variations to be sure your updates are fast and safe and that they roll back quickly
+    if there’s a problem. That helps you maximize the uptime for your application.
+    All that’s left is to understand how that uptime is impacted when there’s downtime
+    of nodes in the cluster.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更新和回滚配置到此结束。这实际上只是在你的Compose文件部署部分设置几个值，并测试不同的变体以确保你的更新快速且安全，如果出现问题，它们可以快速回滚。这有助于你最大化应用程序的运行时间。剩下要做的就是了解当集群中的节点出现停机时，这种运行时间会受到怎样的影响。
+- en: 14.4 Managing downtime for your cluster
+  id: totrans-83
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.4 管理集群的停机时间
+- en: Container orchestrators turn a bunch of machines into a powerful cluster, but
+    ultimately it’s the machines that run the containers, and they’re prone to downtime.
+    Disk, network, and power are all going to fail at some point--the larger your
+    cluster, the more frequently you’ll have an outage. The cluster will be able to
+    keep your apps running through most outages, but some unplanned failures need
+    active intervention, and if you have planned outages you can make it easier for
+    the Swarm to work around them.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器编排器将一堆机器转换成一个强大的集群，但最终运行容器的是这些机器，它们容易出现停机。磁盘、网络和电源都可能在某个时刻出现故障——你的集群越大，出现故障的频率就越高。集群能够通过大多数故障来保持你的应用程序运行，但一些未计划的故障需要主动干预，如果你有计划的停机，你可以让Swarm更容易地绕过它们。
+- en: If you want to follow along with this section, you’ll need a multi-node Swarm.
+    You can set up your own if you’re happy building virtual machines and installing
+    Docker on them, or you can use an online playground. Play with Docker is a great
+    choice for that--you can create a multi-node Swarm and practice deployments and
+    node management without needing any extra machines of your own. Browse to *[https://labs
+    .play-with-docker.com](https://labs.play-with-docker.com)* , sign in with your
+    Docker Hub ID, and click Add New Instance to add a virtual Docker server to your
+    online session. I’ve added five instances to my session, and I’ll use them as
+    my Swarm.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想要跟随本节内容，你需要一个多节点Swarm。如果你乐意构建虚拟机并在其上安装Docker，你可以自己设置，或者你可以使用在线沙盒。Play with
+    Docker是一个不错的选择——你可以创建一个多节点Swarm，并练习部署和节点管理，而不需要任何额外的机器。浏览到*[https://labs.play-with-docker.com](https://labs.play-with-docker.com)*，使用你的Docker
+    Hub ID登录，然后点击添加新实例以将虚拟Docker服务器添加到你的在线会话中。我已经在我的会话中添加了五个实例，我将使用它们作为我的Swarm。
+- en: Try it now Start your Play with Docker session and create five instances--you’ll
+    see them listed in the left navigation, and you can click to select them. In the
+    main window you’ll see a terminal session that is connected to the node you have
+    selected.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 启动你的Play with Docker会话并创建五个实例——你将在左侧导航中看到它们，你可以点击选择它们。在主窗口中，你会看到一个连接到你选择的节点的终端会话。
+- en: '` # select node1 and initialize the Swarm using the node''s IP address:` ` ip=$(hostname
+    -i)` ` docker swarm init --advertise-addr $ip`  ` # show the commands to join
+    managers and workers to the Swarm:` ` docker swarm join-token manager` ` docker
+    swarm join-token worker`  ` # select node2 and paste the manager join command,
+    then the same on node3`  ` # select node4 and paste the worker join command, then
+    the same on node5`  ` # back on node1 make sure all the nodes are ready:` ` docker
+    node ls`'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 选择节点1并使用节点的 IP 地址初始化 Swarm:` ` ip=$(hostname -i)` ` docker swarm init --advertise-addr
+    $ip`  ` # 显示将管理器和工作节点加入 Swarm 的命令:` ` docker swarm join-token manager` ` docker
+    swarm join-token worker`  ` # 选择节点2并粘贴管理器加入命令，然后在节点3上执行相同的操作` ` # 选择节点4并粘贴工作节点加入命令，然后在节点5上执行相同的操作`
+    ` # 回到节点1，确保所有节点都准备就绪:` ` docker node ls`'
+- en: This gives you a completely disposable Swarm. You can do as much damage as you
+    like and then just close your session, and all those nodes will disappear (they’re
+    actually containers running Docker-in-Docker with a lot of smarts to manage the
+    sessions and the networking). You can see my output in figure 14.10 with the Swarm
+    all ready to go.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这为您提供了一个完全可丢弃的 Swarm。您可以造成尽可能多的损害，然后只需关闭会话，所有这些节点都将消失（它们实际上是运行 Docker-in-Docker
+    的容器，具有许多智能来管理会话和网络）。您可以在图 14.10 中看到我的输出，Swarm 已经准备就绪。
+- en: '![](../Images/14-10.jpg)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-10.jpg)'
+- en: Figure 14.10 Initializing a multi-node Swarm using disposable instances from
+    Play with Docker
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.10 使用 Play with Docker 中的可丢弃实例初始化多节点 Swarm
+- en: Let’s take the simplest scenario first--you need to take a node down for an
+    operating system update on the server or some other infrastructure task. That
+    node might be running containers, and you want them to be gracefully shut down,
+    replaced on other nodes, and for your machine to go into maintenance mode so Docker
+    doesn’t try and schedule any new containers during any reboot cycles you need
+    to do. Maintenance mode for nodes in the Swarm is called drain mode, and you can
+    put managers or workers into drain.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们从最简单的情况开始——您需要关闭一个节点以在服务器上进行操作系统更新或其他基础设施任务。该节点可能正在运行容器，您希望它们能够优雅地关闭，在其他节点上替换，并且让您的机器进入维护模式，这样
+    Docker 就不会在您需要重启的任何周期中尝试调度任何新的容器。Swarm 中的节点维护模式称为排空模式，您可以将管理器或工作节点放入排空模式。
+- en: 'Try it now Switch to the terminal session for your node1 manager, and set two
+    of the other nodes into drain mode:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 切换到您的节点1管理器的终端会话，并将其他两个节点设置为排空模式：
+- en: '` # set a worker and a manager into drain mode:` ` docker node update --availability
+    drain node5` ` docker node update --availability drain node3`  ` # check nodes:`
+    ` docker node ls`'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 将一个工作节点和一个管理节点设置为排空模式:` ` docker node update --availability drain node5`
+    ` docker node update --availability drain node3`  ` # 检查节点:` ` docker node ls`'
+- en: Drain mode means slightly different things for workers and managers. In both
+    cases all the replicas running on the node are shut down and no more replicas
+    will be scheduled for the node. Manager nodes are still part of the management
+    group though, so they still synchronize the cluster database, provide access to
+    the management API, and can be the leader. Figure 14.11 shows my cluster with
+    two drained nodes.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于工作节点和管理节点，排空模式意味着不同的事情。在两种情况下，节点上运行的所有副本都将关闭，并且不会为该节点调度更多副本。尽管如此，管理节点仍然是管理组的一部分，因此它们仍然同步集群数据库，提供对管理
+    API 的访问，并且可以是领导者。图 14.11 显示了我的集群中有两个排空节点。
+- en: '![](../Images/14-11.jpg)'
+  id: totrans-95
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/14-11.jpg)'
+- en: Figure 14.11 Entering drain mode removes all containers and lets you run maintenance
+    on the node.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 14.11 进入排空模式会移除所有容器，并允许您对节点进行维护。
+- en: What’s this about a leader manager? You need multiple managers for high availability,
+    but it’s an active-passive model. Only one manager is actually controlling the
+    cluster, and that’s the leader. The others keep a replica of the cluster database,
+    they can action API requests, and they can take over if the leader fails. That
+    happens with an election process between the remaining managers, which requires
+    a majority vote, and for that you always need an odd number of managers--typically
+    three for smaller clusters and five for large clusters. If you permanently lose
+    a manager node and find yourself with an even number of managers, you can promote
+    a worker node to become a manager instead.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这关于领导者管理器是什么意思？您需要多个管理器来实现高可用性，但这是一种活动-被动模型。只有一个管理器实际上在控制集群，那就是领导者。其他管理器保留集群数据库的副本，它们可以处理
+    API 请求，并且在领导者失败时可以接管。这发生在剩余管理器之间的选举过程中，需要多数投票，为此您始终需要奇数个管理器——对于较小的集群通常是三个，对于大型集群通常是五个。如果您永久丢失一个管理节点，发现自己有偶数个管理器，可以将工作节点提升为管理器。
+- en: 'Try it now It’s not easy to simulate node failure in Play with Docker, but
+    you can connect to the leader and manually remove it from the Swarm. Then one
+    of the remaining managers becomes the leader, and you can promote a worker to
+    keep an odd number of managers:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 在Docker中模拟节点故障并不容易，但你可以连接到领导者并手动将其从Swarm中移除。然后剩下的一个管理者成为领导者，你可以提升一个工作节点以保持管理者的奇数数量：
+- en: '` # on node1 - forcibly leave the Swarm:` ` docker swarm leave --force`  ` #
+    on node 2 - make the worker node available again:` ` docker node update --availability
+    active node5`  ` # promote the worker to a manager:` ` docker node promote node5` 
+    ` # check the nodes:` ` docker node ls`'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在节点1上强制离开Swarm：` ` docker swarm leave --force`  ` # 在节点2上使工作节点再次可用：` ` docker
+    node update --availability active node5`  ` # 提升工作节点为管理者：` ` docker node promote
+    node5`  ` # 检查节点：` ` docker node ls`'
+- en: There are two ways a node can leave the Swarm--a manager can initiate it with
+    the `node` `rm` command or the node itself can do it with `swarm` `leave` . If
+    the node leaves by itself, that’s a similar situation to the node going offline--the
+    Swarm managers think it should still be there, but it’s not reachable. You can
+    see that in my output in figure 14.12\. The original node1 is still listed as
+    a manager, but the status is `Down` and the manager status is `Unreachable` .
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 节点可以以两种方式离开Swarm——管理者可以使用`node rm`命令启动它，或者节点本身可以使用`swarm leave`命令执行。如果节点自行离开，那与节点离线的情况类似——Swarm管理者认为它应该还在那里，但它无法访问。你可以在图14.12的输出中看到这一点。原始节点1仍然被列为管理者，但状态是`Down`，管理者状态是`Unreachable`。
+- en: '![](../Images/14-12.jpg)'
+  id: totrans-101
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/14-12.jpg)'
+- en: Figure 14.12 Node management keeps your Swarm fully available even when nodes
+    are offline.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.12 节点管理确保即使节点离线，Swarm也能完全可用。
+- en: Now the swarm has three managers again, which gives it high availability. If
+    node1 had gone offline unexpectedly, when it came back online I could return one
+    of the other managers to the worker pool by running `node` `demote` . Those are
+    pretty much the only commands you need to manage a Docker Swarm cluster.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，Swarm又有三个管理者了，这给它提供了高可用性。如果节点1意外离线，当它重新上线时，我可以通过运行`node demote`命令将其他管理者中的一个返回到工作池。这些几乎是你管理Docker
+    Swarm集群所需的所有命令。
+- en: 'We’ll finish up with a couple of less common scenarios, so you know how the
+    Swarm will behave if you encounter them:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将结束几个不太常见的场景，这样你就知道如果你遇到它们时Swarm会如何表现：
+- en: All managers go offline --If all your managers go offline but the worker nodes
+    are still running, then your apps are still running. The ingress network and all
+    the service replicas on the worker nodes work in the same way if there are no
+    managers, but now there’s nothing to monitor your services, so if a container
+    fails it won’t be replaced. You need to fix this and bring managers online to
+    make the cluster healthy again.
+  id: totrans-105
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有管理者都离线 —— 如果所有管理者都离线但工作节点仍在运行，那么你的应用程序仍在运行。如果没有管理者，入口网络和工作节点上的所有服务副本将以相同的方式工作，但现在没有任何东西可以监控你的服务，所以如果容器失败，它将不会被替换。你需要修复这个问题，并将管理者上线，以使集群恢复健康。
+- en: Leader and all but one manager go offline --It’s possible to lose control of
+    your cluster if all but one manager node goes offline and the remaining manager
+    is not the leader. Managers have to vote for a new leader, and if there are no
+    other managers, a leader can’t be elected. You can fix this by running `swarm`
+    `init` on the remaining manager with the `force-new-cluster` argument. That makes
+    this node the leader but preserves all the cluster data and all the running tasks.
+    Then you can add more managers to restore high availability.
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 领导者和除了一个管理者之外的所有管理者都离线 —— 如果除了一个管理者节点之外的所有管理者节点都离线，而剩下的管理者不是领导者，那么你可能会失去对集群的控制。管理者必须投票选举新的领导者，如果没有其他管理者，则无法选举领导者。你可以通过在剩下的管理者上运行带有`force-new-cluster`参数的`swarm
+    init`命令来修复这个问题。这使得该节点成为领导者，但保留了所有集群数据和所有运行的任务。然后你可以添加更多管理者以恢复高可用性。
+- en: Rebalancing replicas for even distribution --Service replicas don’t automatically
+    get redistributed when you add new nodes. If you increase the capacity of your
+    cluster with new nodes but don’t update any services, the new nodes won’t run
+    any replicas. You can rebalance replicas so they’re evenly distributed around
+    the cluster by running `service` `update` `--force` without changing any other
+    properties.
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 平衡副本以实现均匀分布 —— 当你添加新节点时，服务副本不会自动重新分配。如果你使用新节点增加了集群的容量，但没有更新任何服务，新节点将不会运行任何副本。你可以通过运行`service
+    update --force`来重新平衡副本，使它们在集群周围均匀分布，而无需更改任何其他属性。
+- en: 14.5 Understanding high availability in Swarm clusters
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.5 理解Swarm集群中的高可用性
+- en: 'There are multiple layers in your app deployment where you need to consider
+    high availability. We’ve covered a lot of them in this chapter: health checks
+    tell the cluster if your app is working, and it will replace failed containers
+    to keep the app online; multiple worker nodes provide extra capacity for containers
+    to be rescheduled if a node goes offline; multiple managers provide redundancy
+    for scheduling containers and monitoring workers. There’s one final area to consider--the
+    datacenter where the cluster is running.'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在你的应用程序部署中，有多个层次需要考虑高可用性。我们已经在本章中讨论了很多：健康检查告诉集群你的应用程序是否正在运行，并且它会替换失败的容器以保持应用程序在线；多个工作节点为容器提供额外的容量，以便在节点离线时重新调度；多个管理者为调度容器和监控工作节点提供冗余。还有一个需要考虑的最终区域——集群运行的数据中心。
+- en: 'I’m just going to cover this very briefly to finish up the chapter, because
+    people often try to get high availability between regions by building a single
+    cluster that spans several datacenters. In theory you can do this--you could create
+    managers in datacenter A with workers in datacenters A, B, and C. That certainly
+    simplifies your cluster management, but the problem is network latency. Nodes
+    in a Swarm are very chatty, and if there’s a sudden network lag between A and
+    B, the managers might think all the B nodes have gone offline and reschedule all
+    their containers on C nodes. And those scenarios just get worse, with the potential
+    to have split-brain: multiple managers in different regions thinking they’re the
+    leader.'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我只是简要地介绍这部分内容，以便完成本章，因为人们常常试图通过构建跨越几个数据中心的一个单一集群来实现区域之间的高可用性。从理论上讲，你可以这样做——你可以在数据中心A创建管理者，并在数据中心A、B和C中创建工作节点。这确实简化了你的集群管理，但问题是网络延迟。Swarm中的节点非常健谈，如果A和B之间突然出现网络延迟，管理者可能会认为所有B节点都离线了，并将所有容器重新调度到C节点上。而且这些情况只会变得更糟，可能会出现脑裂现象：不同区域中的多个管理者都认为自己是领导者。
+- en: If you really need your apps to keep running when there’s a regional outage,
+    the only safe way is with multiple clusters. It adds to your management overhead,
+    and there’s the risk of drift between the clusters and the apps they’re running,
+    but those are manageable issues, unlike network latency. Figure 14.13 shows what
+    that configuration looks like.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你真的需要在区域故障时保持应用程序运行，唯一安全的方法是使用多个集群。这会增加你的管理开销，并且存在集群和它们运行的应用程序之间的漂移风险，但这些是可管理的问题，与网络延迟不同。图14.13显示了这种配置的外观。
+- en: '![](../Images/14-13.jpg)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图14.13](../Images/14-13.jpg)'
+- en: Figure 14.13 To achieve datacenter redundancy, you need multiple clusters in
+    different regions.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图14.13 要实现数据中心冗余，需要在不同区域拥有多个集群。
+- en: 14.6 Lab
+  id: totrans-114
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 14.6 实验室
+- en: 'It’s back to the image gallery app for this lab, and it’s your turn to build
+    a stack deployment that has a sensible rollout and rollback configuration for
+    the API service. There’s a twist though--the API component doesn’t have a health
+    check built into the Docker image, so you’ll need to think about how you can add
+    a health check in the service specification. Here are the requirements:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这次实验室回到图像库应用程序，轮到你来构建一个具有合理的推出和回滚配置的堆栈部署，用于API服务。但是有一个转折——API组件的Docker镜像中没有内置健康检查，所以你需要考虑如何在服务规范中添加健康检查。以下是要求：
+- en: 'Write a stack file to deploy the image gallery app using these container images:
+    `diamol/ch04-access-log` , `diamol/ch04-image-of-the-day` , and `diamol/ch04-image-gallery`
+    .'
+  id: totrans-116
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 编写一个堆栈文件，使用以下容器镜像部署图像库应用程序：`diamol/ch04-access-log`，`diamol/ch04-image-of-the-day`，和`diamol/ch04-image-gallery`。
+- en: The API component is `diamol/ch04-image-of-the-day` , and it should run with
+    four replicas, it should have a health check specified, and it should use an update
+    config that is fast but safe and a rollback config that is just fast.
+  id: totrans-117
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: API组件是`diamol/ch04-image-of-the-day`，它应该运行四个副本，应该指定一个健康检查，并且应该使用一个快速但安全的更新配置和一个仅快速回滚的配置。
+- en: 'When you’ve deployed the app, prepare another stack file that updates the services
+    to these images: `diamol/ch09-access-log` , `diamol/ch09-image-of-the-day` , and
+    `diamol/ch09-image-gallery` .'
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当你部署了应用程序后，准备另一个更新服务的堆栈文件，以更新以下镜像：`diamol/ch09-access-log`，`diamol/ch09-image-of-the-day`，和`diamol/ch09-image-gallery`。
+- en: Deploy your stack update, and be sure the API component rolls out using your
+    expected policy and doesn’t roll back due to an incorrect health check.
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署你的堆栈更新，并确保API组件按照你预期的策略推出，并且不会因为不正确的健康检查而回滚。
+- en: 'This one should be fun, if you find this sort of thing fun. Either way, my
+    solution is up on GitHub for you to check in the usual place: *[https://github.com/sixeyed/diamol/
+    blob/master/ch14/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch14/lab/README.md)*
+    . Happy updating!'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这件事应该很有趣，如果你觉得这类事情有趣的话。无论如何，我的解决方案已经上传到GitHub上，你可以在通常的位置查看：*[https://github.com/sixeyed/diamol/blob/master/ch14/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch14/lab/README.md)*。祝更新愉快！

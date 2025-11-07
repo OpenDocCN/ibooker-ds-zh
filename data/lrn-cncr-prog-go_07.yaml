@@ -1,0 +1,1633 @@
+- en: 6 Synchronizing with waitgroups and barriers
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 6 使用waitgroups和屏障同步
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: Waiting for completed tasks with waitgroups
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用waitgroups等待已完成的任务
+- en: Building waitgroups with semaphores
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用信号量构建waitgroups
+- en: Implementing waitgroups using condition variables
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用条件变量实现waitgroups
+- en: Synchronizing concurrent work using barriers
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用屏障同步并发工作
+- en: Waitgroups and barriers are two synchronization abstractions that work on groups
+    of executions (such as goroutines). We typically use *waitgroups* to wait for
+    a group of tasks to complete. We use *barriers* to synchronize many executions
+    at a common point.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Waitgroups和屏障是两种在执行组（如goroutines）上工作的同步抽象。我们通常使用*waitgroups*来等待一组任务完成。我们使用*barriers*在共同点上同步多个执行。
+- en: 'We’ll start this chapter by examining Go’s bundled waitgroups using a couple
+    of applications. Later, we’ll investigate two implementations of waitgroups: one
+    built using semaphores and a more functionally complete one using condition variables.'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将首先通过几个应用程序来检查Go的内置waitgroups。稍后，我们将研究两种waitgroups的实现：一种使用信号量构建，另一种使用条件变量构建，功能更完整。
+- en: Go does not bundle barriers in its libraries, so we’ll build our own barrier
+    type. Then we’ll employ this barrier type in a simple concurrent matrix multiplication
+    algorithm.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go的库中没有捆绑屏障，因此我们将构建自己的屏障类型。然后，我们将在这个简单的并发矩阵乘法算法中使用这个屏障类型。
+- en: 6.1 Waitgroups in Go
+  id: totrans-9
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.1 Go中的waitgroups
+- en: With waitgroups, we can have a goroutine wait for a set of concurrent tasks
+    to complete. We can think of a waitgroup as a project manager managing a set of
+    tasks given to different workers. Once the tasks are all complete, the project
+    manager notifies us.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用waitgroups，我们可以让一个goroutine等待一组并发任务完成。我们可以将waitgroup视为一个项目经理，管理分配给不同工人的任务集。一旦所有任务都完成，项目经理会通知我们。
+- en: 6.1.1 Waiting for tasks to complete with waitgroups
+  id: totrans-11
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.1 使用waitgroups等待任务完成
+- en: In previous chapters, we saw a concurrency pattern where a main goroutine splits
+    a problem into multiple tasks and passes each task to a separate goroutine. The
+    goroutines then complete these tasks concurrently. For example, in chapter 3,
+    we saw this pattern when we were developing the letter-frequency program. The
+    main goroutine created many goroutines, each of which downloaded and processed
+    a separate web page. In our first implementation, we used a `sleep()` function
+    to wait for some seconds until all the goroutines completed their downloads. Using
+    a waitgroup will make it easier to wait for all the goroutines to complete their
+    tasks.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们看到了一个并发模式，其中主goroutine将问题分解成多个任务，并将每个任务传递给一个单独的goroutine。goroutines随后并发地完成这些任务。例如，在第3章中，当我们开发字母频率程序时，我们看到了这种模式。主goroutine创建了多个goroutine，每个goroutine下载并处理一个单独的网页。在我们的第一个实现中，我们使用`sleep()`函数等待几秒钟，直到所有goroutine完成下载。使用waitgroup将使等待所有goroutine完成任务变得更加容易。
+- en: Figure 6.1 shows a typical pattern of using a waitgroup. We set the size of
+    the waitgroup and then use the two operations `Wait()` and `Done()`d. In this
+    pattern, we typically have multiple goroutines that need to complete a few tasks
+    concurrently. We can create a waitgroup and set its size to be equal to the number
+    of assigned tasks. The main goroutine will hand over the tasks to the newly created
+    goroutines, and its execution will be suspended after it calls the `Wait()` operation.
+    Once a goroutine finishes its task, it calls the `Done()` operation on the waitgroup
+    (see the left side of figure 6.1). When all the goroutines have called the `Done()`
+    operation for all their assigned tasks, the main goroutine will unblock. At this
+    point, the main goroutine knows that all the tasks have been completed (see the
+    right side of figure 6.1).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.1显示了使用waitgroup的典型模式。我们设置waitgroup的大小，然后使用两个操作`Wait()`和`Done()`。在这个模式中，我们通常有多个goroutine需要并发完成一些任务。我们可以创建一个waitgroup，并将其大小设置为分配的任务数。主goroutine将任务交给新创建的goroutines，并在调用`Wait()`操作后暂停执行。一旦一个goroutine完成其任务，它将在waitgroup上调用`Done()`操作（见图6.1的左侧）。当所有goroutine都对其分配的所有任务调用了`Done()`操作后，主goroutine将解除阻塞。此时，主goroutine知道所有任务都已完成（见图6.1的右侧）。
+- en: '![](../../OEBPS/Images/CH06_F01_Cutajar.png)'
+  id: totrans-14
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH06_F01_Cutajar.png)'
+- en: Figure 6.1 Typical use of a waitgroup
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.1 waitgroup的典型使用
+- en: 'Go comes bundled with a `WaitGroup` implementation in its `sync` package. It
+    contains the three functions that allow us to use the pattern described in figure
+    6.1:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go的`sync`包中内置了`WaitGroup`实现。它包含三个函数，允许我们使用图6.1中描述的模式：
+- en: '`Done()`—Decrements the waitgroup size counter by `1`'
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Done()`—将waitgroup的大小计数器减`1`'
+- en: '`Wait()`—Blocks until the waitgroup size counter is `0`'
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Wait()`—阻塞直到waitgroup的大小计数器为`0`'
+- en: '`Add(delta int)`—Increments the waitgroup size counter by delta'
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Add(delta int)`—将waitgroup的大小计数器增加delta'
+- en: Listing 6.1 shows a simple example of how we can use these three operations.
+    We have a `doWork()` function that simulates completing a task by sleeping for
+    a random length of time. Once it finishes, it prints out a message and calls the
+    `Done()` function on the waitgroup. The `main()` function calls the `Add(4)` function,
+    creates four of these `doWork()` goroutines, and calls `Wait()` on the waitgroup.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.1展示了我们如何使用这三个操作的简单示例。我们有一个`doWork()`函数，通过睡眠随机长度的时间来模拟完成任务。一旦完成，它打印一条消息并在waitgroup上调用`Done()`函数。`main()`函数调用`Add(4)`函数，创建四个这样的`doWork()`协程，并在waitgroup上调用`Wait()`。
+- en: Once all the goroutines have signaled that they’re finished, the `Wait()` unblocks,
+    and the `main()` function resumes.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦所有协程都表示已完成，`Wait()`解除阻塞，`main()`函数继续执行。
+- en: Listing 6.1 Simple use of a waitgroup
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.1 简单使用waitgroup
+- en: '[PRE0]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Creates a new waitgroup
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的waitgroup
+- en: ❷ Adds 4 to the waitgroup since we have four pieces of work
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 由于我们有四项工作，将4添加到waitgroup中
+- en: ❸ Creates four goroutines, passing a reference to the waitgroup
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建四个协程，传递waitgroup的引用
+- en: ❹ Waits for the work to be complete
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待工作完成
+- en: ❺ Sleeps for a random time (up to 5 seconds)
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 随机睡眠一段时间（最多5秒）
+- en: ❻ Signals that the goroutine has completed its task
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 信号表示协程已完成其任务
+- en: 'When we run listing 6.1, all the goroutines complete after sleeping for slightly
+    different times. They call `Done()` on the waitgroup, and the `main()` goroutine
+    unblocks, giving us the following output:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行列表6.1时，所有协程在睡眠了略微不同的时间后完成。它们在waitgroup上调用`Done()`，然后`main()`协程解除阻塞，给出以下输出：
+- en: '[PRE1]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Now that we have this extra tool at our disposal, let’s fix the letter-frequency
+    program (from listing 4.5) so that it uses waitgroups. In the `main()` goroutine,
+    instead of calling the `sleep()` function for 10 seconds, we can create a goroutine
+    that calls our existing `CountLetters()` function and then calls `Done()` on the
+    waitgroup, as shown in the following listing. Notice that we didn’t need to modify
+    the `CountLetters()` function to call `Done()`; instead, we use an anonymous function
+    running in a separate goroutine, calling both functions.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了这个额外的工具，让我们修复字母频率程序（来自列表4.5），使其使用waitgroups。在`main()`协程中，我们不再调用`sleep()`函数等待10秒，而是可以创建一个协程，调用我们现有的`CountLetters()`函数，然后在该waitgroup上调用`Done()`，如下所示。注意，我们不需要修改`CountLetters()`函数来调用`Done()`；相反，我们使用一个在单独的协程中运行的匿名函数，调用这两个函数。
+- en: Listing 6.2 Count frequency using waitgroups
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.2 使用waitgroup计算频率
+- en: '[PRE2]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Creates a new waitgroup
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的waitgroup
+- en: ❷ Adds a delta of 31—one for each web page to be downloaded concurrently
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 添加一个delta为31——为每个要并发下载的网页添加一个
+- en: ❸ Creates a goroutine with an anonymous function
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建一个带有匿名函数的协程
+- en: ❹ Calls Done() after it finishes counting letters
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在完成字母计数后调用Done()
+- en: ❺ Waits until all goroutines are complete
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 等待所有协程完成
+- en: When we run listing 6.2, instead of having to wait a fixed time for all the
+    goroutines to complete, the `main()` function will output the result as soon as
+    the waitgroup unblocks.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行列表6.2时，我们不需要等待所有协程完成固定时间，`main()`函数将在waitgroup解除阻塞后立即输出结果。
+- en: 6.1.2 Creating a waitgroup type using semaphores
+  id: totrans-41
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.2 使用信号量创建waitgroup类型
+- en: Let’s now take a look at how we can implement a waitgroup ourselves instead
+    of using the implementation bundled with Go. We can create a simple version of
+    a waitgroup just by building on top of the semaphore type that we developed in
+    the previous chapter.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看我们如何自己实现waitgroup，而不是使用Go捆绑的实现。我们可以在上一章中开发的信号量类型的基础上创建waitgroup的简单版本。
+- en: We can include logic in the `Wait()` function to call the semaphore’s `Acquire()`
+    function. In a semaphore, the `Acquire()` call will suspend the execution of the
+    goroutine if the permits available are `0` or less. We can use a trick and initialize
+    a semaphore with the number of permits equal to `1 – n` to act as our waitgroup
+    of size `n`. This means that our `Wait()` function will block until the number
+    of permits is increased `n` times, from `1` `–` `n` up to `1`. Figure 6.2 shows
+    an example of a waitgroup of size `3`. For a group of size `3`, we can use a semaphore
+    of size `–2`.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在 `Wait()` 函数中包含逻辑来调用信号量的 `Acquire()` 函数。在信号量中，如果可用的许可数是 `0` 或更少，`Acquire()`
+    调用将挂起 goroutine 的执行。我们可以使用一个技巧，用一个等于 `1 – n` 的许可数初始化信号量，以作为大小为 `n` 的 waitgroup。这意味着我们的
+    `Wait()` 函数将阻塞，直到许可数增加到 `n` 次，从 `1 – n` 到 `1`。图 6.2 展示了一个大小为 `3` 的 waitgroup 的示例。对于大小为
+    `3` 的组，我们可以使用大小为 `-2` 的信号量。
+- en: '![](../../OEBPS/Images/CH06_F02_Cutajar.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH06_F02_Cutajar.png)'
+- en: Figure 6.2 Initializing a semaphore with a negative number of permits to use
+    as a waitgroup
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.2 使用负数许可数初始化信号量以用作 waitgroup
+- en: Every time a goroutine calls `Done()` on the waitgroup, we can call the `Release()`
+    operation on the semaphore. This will increment the number of permits available
+    on the semaphore by `1` each time. Once all the goroutines finish their task and
+    have all called `Done()`, the number of permits in the semaphore will end up being
+    `1`. This process is shown in figure 6.3.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每次一个 goroutine 在 waitgroup 上调用 `Done()` 时，我们都可以在信号量上调用 `Release()` 操作。这将每次将信号量上可用的许可数增加
+    `1`。一旦所有 goroutine 完成它们的任务并都调用了 `Done()`，信号量中的许可数最终将变成 `1`。这个过程在图 6.3 中展示。
+- en: '![](../../OEBPS/Images/CH06_F03_Cutajar.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH06_F03_Cutajar.png)'
+- en: Figure 6.3 When a goroutine is done, it results in an `Acquire()`, increasing
+    the permits by `1` and leaving `1` permit available in the end.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.3 当一个 goroutine 完成，它会导致一个 Acquire() 调用，许可数增加 1，最终留下 1 个许可。
+- en: When the number of permits is greater than `0`, the `Acquire()` call unblocks,
+    releasing our suspended goroutine. In figure 6.4, the permit is acquired by the
+    `main()` goroutine, and the number of permits goes back down to `0`. In this way,
+    the `main()` goroutine is resumed, and it knows that all goroutines have completed
+    their assigned tasks.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当许可数大于 `0` 时，`Acquire()` 调用将解除阻塞，释放我们挂起的 goroutine。在图 6.4 中，许可被 `main()` goroutine
+    获取，许可数回到 `0`。这样，`main()` goroutine 就会恢复，并且知道所有 goroutine 都完成了它们分配的任务。
+- en: '![](../../OEBPS/Images/CH06_F04_Cutajar.png)'
+  id: totrans-50
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH06_F04_Cutajar.png)'
+- en: Figure 6.4 Once a permit is available, `Acquire()` unblocks the `main()` goroutine.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.4 一旦有许可可用，`Acquire()` 将解除 `main()` goroutine 的阻塞。
+- en: Listing 6.3 shows an implementation of a waitgroup using a semaphore. In this
+    listing, we’re using the implementation of semaphores from chapter 5\. As discussed
+    previously, when we create the waitgroup, we initialize a semaphore of `1 – size`
+    permits. We try to acquire one permit when we call the `Wait()` function and release
+    one permit when we call `Done()`.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.3 展示了使用信号量实现 waitgroup 的一个示例。在这个列表中，我们使用了第 5 章中关于信号量的实现。正如之前所讨论的，当我们创建
+    waitgroup 时，我们初始化一个具有 `1 – size` 许可的信号量。当我们调用 `Wait()` 函数时，我们尝试获取一个许可，当我们调用 `Done()`
+    函数时，我们释放一个许可。
+- en: Listing 6.3 Waitgroup implementation using a semaphore
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.3 使用信号量实现的 Waitgroup
+- en: '[PRE3]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Stores semaphore reference (developed in the previous chapter) on WaitGrp
+    type
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在 WaitGrp 类型上存储信号量引用（在上一章中开发）
+- en: ❷ Initializes a new semaphore with 1 – size permits
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用 1 – size 许可初始化一个新的信号量
+- en: ❸ Calls Acquire() on the semaphore in the Wait() function
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在 Wait() 函数中调用信号量的 Acquire()
+- en: ❹ When done, calls Release() on the semaphore
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 完成后，在信号量上调用 Release()
+- en: Listing 6.4 shows a simple use of our semaphore waitgroup. The main difference
+    between Go’s bundled waitgroup and our implementation is that we need to specify
+    the size of the waitgroup at the start before we use it. In the waitgroup in Go’s
+    `sync` package, we can increase the size of the group at any point—even when we
+    have goroutines waiting on the work to be completed.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.4 展示了我们对信号量 waitgroup 的简单使用。Go 的内置 waitgroup 和我们的实现之间的主要区别是我们需要在开始使用它之前指定
+    waitgroup 的大小。在 Go 的 `sync` 包中的 waitgroup，我们可以在任何时间点增加组的大小——即使有 goroutine 正在等待工作完成。
+- en: Listing 6.4 Simple use of the semaphore waitgroup
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.4 简单使用信号量 waitgroup
+- en: '[PRE4]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ When the goroutine is complete, it calls Done() on the waitgroup.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当 goroutine 完成，它会在 waitgroup 上调用 Done()
+- en: ❷ Creates new waitgroup of size 4
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建一个大小为 4 的新 waitgroup
+- en: ❸ Creates a goroutine, passing a reference to the waitgroup
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建一个 goroutine，传递对 waitgroup 的引用
+- en: ❹ Waits on the waitgroup for work to be complete
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待waitgroup以完成工作
+- en: 6.1.3 Changing the size of our waitgroup while waiting
+  id: totrans-66
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.3 在等待时更改我们的waitgroup大小
+- en: Our waitgroup implementation using semaphores is limited because we must specify
+    the size of the waitgroup at the start. This means we cannot change the size after
+    we create our waitgroup. To better understand this limitation, let’s look at an
+    application in which we need to resize the waitgroup after creation.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用信号量实现的waitgroup实现有限制，因为我们必须在开始时指定waitgroup的大小。这意味着我们无法在创建waitgroup后更改其大小。为了更好地理解这种限制，让我们看看一个在创建后需要调整waitgroup大小的应用场景。
+- en: 'Imagine we are writing a filename search program using multiple goroutines.
+    The program will search recursively for a filename string starting from an input
+    directory. We want the program to accept the input directory and the filename
+    string as two input arguments. It should output a list of matches with a full
+    path:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象我们正在编写一个使用多个goroutine的文件名搜索程序。程序将从输入目录递归地搜索文件名字符串。我们希望程序接受输入目录和文件名字符串作为两个输入参数。它应该输出一个包含完整路径的匹配列表：
+- en: '[PRE5]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Using multiple goroutines would help us find files quicker, especially when
+    we are searching across multiple drives. We can take the approach of creating
+    a separate goroutine for each directory that we encounter in our search. Figure
+    6.5 shows the concept.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用多个goroutine可以帮助我们更快地找到文件，尤其是在跨多个驱动器搜索时。我们可以为我们在搜索中遇到的每个目录创建一个单独的goroutine。图6.5显示了这一概念。
+- en: '![](../../OEBPS/Images/CH06_F05_Cutajar.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH06_F05_Cutajar.png)'
+- en: Figure 6.5 Recursive concurrent filename search
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.5 递归并发文件名搜索
+- en: The idea here is to have a goroutine find files that match the input string.
+    If this goroutine encounters a directory, it adds `1` to a global waitgroup and
+    spawns a new goroutine that runs the same exact logic for that directory. The
+    search ends after every goroutine calls `Done()` on the waitgroup. This means
+    that we have explored every single subdirectory of our first input directory.
+    The following listing implements this recursive search function.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的想法是让一个goroutine找到与输入字符串匹配的文件。如果这个goroutine遇到一个目录，它将`1`添加到一个全局waitgroup，并启动一个新的goroutine，该goroutine为该目录运行相同的逻辑。搜索在每一个goroutine在waitgroup上调用`Done()`后结束。这意味着我们已经探索了我们第一个输入目录的每一个子目录。下面的列表实现了这个递归搜索函数。
+- en: Listing 6.5 Recursive search function (error handling omitted for brevity)
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.5 递归搜索函数（为简洁起见省略了错误处理）
+- en: '[PRE6]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Reads all files from the directory given to the function
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 读取函数提供的目录中的所有文件
+- en: '❷ Joins each file to the directory: ’cat.jpg’ becomes ’/home/pics/cat.jpg’'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将每个文件连接到目录：’cat.jpg’变为’/home/pics/cat.jpg’
+- en: ❸ If there is a match, prints path on console
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果有匹配，将在控制台打印路径
+- en: ❹ If it is a directory, adds 1 to the waitgroup before starting a new goroutine
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果它是一个目录，在启动新goroutine之前将1添加到waitgroup
+- en: ❺ Creates goroutine recursively, searching in the new directory
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 递归地创建goroutine，在新目录中进行搜索
+- en: ❻ Marks Done() on the waitgroup after processing all files
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 在处理完所有文件后在waitgroup上标记Done()
+- en: Now we just need a `main()` function that creates a waitgroup, adds 1 to it,
+    and then starts a goroutine that calls our `fileSearch()` function. The `main()`
+    function can just wait on the waitgroup for the search to complete, as shown in
+    the following listing. In this listing, we are using command-line arguments to
+    read the search directory and the filename string to be matched.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们只需要一个`main()`函数，该函数创建一个waitgroup，将其增加1，然后启动一个调用我们的`fileSearch()`函数的goroutine。`main()`函数可以简单地等待waitgroup以完成搜索，如下面的列表所示。在这个列表中，我们使用命令行参数来读取搜索目录和要匹配的文件名字符串。
+- en: Listing 6.6 `main()` function calling the file search function and waiting on
+    the waitgroup
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.6 `main()`函数调用文件搜索函数并等待waitgroup
+- en: '[PRE7]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Creates a new, empty waitgroup
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的、空的waitgroup
+- en: ❷ Adds a delta of 1 to the waitgroup
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将1的增量添加到waitgroup
+- en: ❸ Creates a new goroutine, performing the file search and passing a reference
+    to the waitgroup
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建一个新的goroutine，执行文件搜索并传递waitgroup的引用
+- en: ❹ Waits for the search to complete
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待搜索完成
+- en: 6.1.4 Building a more flexible waitgroup
+  id: totrans-89
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.4 构建一个更灵活的waitgroup
+- en: The file search program shows us the advantage of using Go’s bundled waitgroup
+    over our own semaphore waitgroup implementation. Not knowing how many goroutines
+    we are going to create at the start forces us to resize our waitgroup as we go
+    along. In addition, our semaphore waitgroup implementation had the limitation
+    that only one goroutine could wait on the waitgroup. If we had multiple goroutines
+    calling the `Wait()` function, only one would be resumed because we only incremented
+    the permit count on the semaphore to `1`. Can we change our implementation to
+    match the functionality of Go’s bundled waitgroup?
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 文件搜索程序展示了使用Go的内置waitgroup而不是我们自己的信号量waitgroup实现的优点。不知道我们将在开始时创建多少goroutine，这迫使我们随着进程的进行而调整waitgroup的大小。此外，我们的信号量waitgroup实现有一个限制，即只有一个goroutine可以等待在waitgroup上。如果我们有多个goroutine调用`Wait()`函数，只有一个会被恢复，因为我们只将信号量的许可计数增加到了`1`。我们能否改变我们的实现以匹配Go内置waitgroup的功能？
+- en: We can use condition variables to implement a more complete waitgroup. Figure
+    6.6 shows us how we can implement both the `Add(delta)` and `Wait()` functions
+    with a condition variable. The `Add(``)` function simply adds to a waitgroup’s
+    size variable. We can protect this variable with a mutex so that we don’t modify
+    it at the same time as another goroutine (see the left side of figure 6.6). To
+    implement the `Wait()` operation, we can have a condition variable that waits
+    while the size of the waitgroup is bigger than `0` (see the right side of figure
+    6.6).
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用条件变量来实现一个更完整的waitgroup。图6.6展示了我们如何使用条件变量实现`Add(delta)`和`Wait()`函数。`Add()`函数简单地增加waitgroup的大小变量。我们可以使用互斥锁保护这个变量，这样我们就不与其他goroutine同时修改它（见图6.6的左侧）。为了实现`Wait()`操作，我们可以有一个条件变量，当waitgroup的大小大于`0`时等待（见图6.6的右侧）。
+- en: '![](../../OEBPS/Images/CH06_F06_Cutajar.png)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH06_F06_Cutajar.png)'
+- en: Figure 6.6 (a) An `Add()` operation on a waitgroup; (b) a `Wait()` operation
+    results in waiting on a condition variable.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.6 (a) 在waitgroup上的`Add()`操作； (b) `Wait()`操作导致在条件变量上等待。
+- en: The next listing implements a `WaitGrp` type containing this waitgroup size
+    variable and a condition variable. Go initializes the group size to the value
+    of `0` by default. The listing also shows a function that initializes the condition
+    variable with its mutex.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个列表实现了一个包含此waitgroup大小变量和条件变量的`WaitGrp`类型。Go默认将组大小初始化为`0`。列表还显示了一个初始化条件变量及其互斥锁的函数。
+- en: Listing 6.7 Initializing a waitgroup using condition variables
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.7 使用条件变量初始化waitgroup
+- en: '[PRE8]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ The waitgroup size property, initialized to 0 by default
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ waitgroup大小属性，默认初始化为0
+- en: ❷ The condition variable to be used in the waitgroup
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在waitgroup中使用的条件变量
+- en: ❸ Initializes the condition variable with a new mutex
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用新的互斥锁初始化条件变量
+- en: To write our `Add(delta)` function, we need to acquire the mutex on the condition
+    variable, add the delta to the `groupSize` variable, and then finally release
+    the mutex. In the `Done()` operation, we again need to protect the `groupSize`
+    variable with a mutex `Lock()` and `Unlock()`. We also perform a condition wait
+    while the group size is larger than `0`. This logic is shown in the following
+    listing.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要编写我们的`Add(delta)`函数，我们需要获取条件变量的互斥锁，将delta加到`groupSize`变量上，然后最后释放互斥锁。在`Done()`操作中，我们再次需要使用`Lock()`和`Unlock()`互斥锁保护`groupSize`变量。我们还执行条件等待，当组大小大于`0`时。这个逻辑在下面的列表中展示。
+- en: Listing 6.8 `Add(delta)` and `Wait()` operations for the waitgroup
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.8 waitgroup的`Add(delta)`和`Wait()`操作
+- en: '[PRE9]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Protects the update to groupSize with a mutex lock on the condition variable
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用条件变量的互斥锁保护对groupSize更新的操作
+- en: ❷ Increases groupSize by delta
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 通过delta增加groupSize
+- en: ❸ Protects the read of the groupSize variable with a mutex lock on the condition
+    variable
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用条件变量的互斥锁保护对groupSize变量的读取
+- en: ❹ Waits and atomically releases the mutex while groupSize is greater than 0
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 当groupSize大于0时等待并原子性地释放互斥锁
+- en: A goroutine calls the `Done()` function when it wants to signal that it has
+    completed its task. When this happens, inside the waitgroup’s `Done()` function,
+    we can reduce the group size by `1`. We also need to add logic so that the last
+    goroutine to call the `Done()` function in the waitgroup broadcasts to any other
+    goroutines currently suspended on the `Wait()` operation. The goroutine knows
+    that it’s the last goroutine because the group size will be `0` after it decrements
+    the group size.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当goroutine想要表示它已经完成其任务时，它会调用`Done()`函数。当这种情况发生时，在等待组的`Done()`函数内部，我们可以通过`1`减少组的大小。我们还需要添加逻辑，以便等待组中最后一个调用`Done()`函数的goroutine向当前挂起在`Wait()`操作上的任何其他goroutine广播。goroutine知道它是最后一个，因为减少组大小后组的大小将是`0`。
+- en: '![](../../OEBPS/Images/CH06_F07_Cutajar.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH06_F07_Cutajar.png)'
+- en: Figure 6.7 (a) The `Done()` operation decrements group size; (b) last `Done()`
+    operation results in a broadcast.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.7（a）`Done()`操作减少组大小；（b）最后一个`Done()`操作导致广播。
+- en: The left side of figure 6.7 shows how a goroutine acquires the mutex lock, reduces
+    the value of the group size, and then releases the mutex lock. The right side
+    of figure 6.7 shows that when the group size reaches `0`, the goroutine knows
+    that it’s the last one, and it broadcasts on the condition variable so that any
+    suspended goroutines are resumed. In this way, we’re indicating that all the work
+    done by the waitgroup is complete. We use a broadcast call instead of a signal
+    since there might be more than one goroutine suspended on the `Wait()` operation.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.7的左侧显示了goroutine如何获取互斥锁（mutex lock），减少组的大小值，然后释放互斥锁。图6.7的右侧显示，当组的大小达到`0`时，goroutine知道它是最后一个，它会在条件变量上广播，以便任何挂起的goroutine都能继续执行。这样，我们就表明所有由等待组完成的工作都已经完成。我们使用广播调用而不是信号调用，因为可能有多个goroutine在`Wait()`操作上挂起。
+- en: Listing 6.9 implements the `Done()` operation of our waitgroup. As usual, we
+    protect the `groupSize` variable by using a mutex. Afterward, we reduce this variable
+    by `1`. Finally, we check to see whether we’re the last goroutine in the waitgroup
+    by checking whether the value is `0`. If it is `0`, we call the `Broadcast()`
+    operation on the condition variable to resume any suspended goroutines.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.9实现了等待组的`Done()`操作。像往常一样，我们使用互斥锁来保护`groupSize`变量。之后，我们减少这个变量的值。最后，我们检查是否是等待组中最后一个调用`Done()`函数的goroutine，通过检查值是否为`0`。如果是`0`，我们在条件变量上调用`Broadcast()`操作以恢复任何挂起的goroutine。
+- en: Listing 6.9 `Done()` operation for the waitgroup using condition variables
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.9 `Done()`操作使用条件变量实现等待组
+- en: '[PRE10]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Protects the update to the groupSize variable with a mutex lock
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用互斥锁保护对groupSize变量的更新
+- en: ❷ Reduces the groupSize by 1
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 通过1减少groupSize
+- en: ❸ If it’s the last goroutine to be done in the waitgroup, it broadcasts on the
+    condition variable.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果它是等待组中最后一个完成的goroutine，它将在条件变量上广播。
+- en: This new implementation satisfies both our initial requirements. We can change
+    the size of the waitgroup after creating the waitgroup, and we can unblock more
+    than one goroutine suspended on the `Wait()` operation.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种新的实现满足了我们的初始要求。我们可以在创建等待组之后更改等待组的大小，并且我们可以解除在`Wait()`操作上挂起的多个goroutine的阻塞。
+- en: 6.2 Barriers
+  id: totrans-118
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.2 屏障
+- en: Waitgroups are great for synchronizing after a task has been completed. But
+    what if we need to coordinate our goroutines before we start a task? We might
+    also need to align different executions at different points in time. Barriers
+    give us the ability to synchronize groups of goroutines at specific points in
+    our code.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Waitgroups（等待组）在任务完成后进行同步非常出色。但如果我们需要在开始任务之前协调我们的goroutines（协程）怎么办？我们可能还需要在不同时间点对不同的执行进行对齐。屏障（Barriers）赋予我们在代码的特定点同步goroutines组的能力。
+- en: Let’s look at a simple analogy to help us compare waitgroups and barriers. A
+    private plane will only leave when all the passengers arrive at the departure
+    terminal. This represents a barrier. Everyone has to wait until every passenger
+    arrives at this barrier (the airport terminal). When everyone has finally arrived,
+    the passengers can proceed and board the plane.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们用一个简单的类比来帮助我们比较等待组和屏障。一架私人飞机只有在所有乘客到达出发终端时才会起飞。这代表了一个屏障。每个人都必须等待直到每个乘客到达这个屏障（机场终端）。当所有人都最终到达后，乘客可以继续并登机。
+- en: For the same flight, the pilot must wait for a number of tasks to be complete
+    before departing, such as refueling, stowing luggage, and loading passengers.
+    In our analogy, this represents the waitgroup. The pilot is waiting for these
+    concurrent tasks to be complete before the plane can depart.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于同一航班，飞行员必须在起飞前等待一系列任务完成，例如加油、存放行李和装载乘客。在我们的类比中，这代表着waitgroup。飞行员正在等待这些并发任务完成，然后飞机才能起飞。
+- en: 6.2.1 What is a barrier?
+  id: totrans-122
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.1 什么是屏障？
+- en: To understand program barriers, think about a set of goroutines, all working
+    together on different parts of the same computation. Before the goroutines start,
+    they all need to wait for their input data. Once they have completed, they again
+    need to wait for another execution to collect and merge the results of their computations.
+    The cycle might repeat multiple times, as long as there is more input data that
+    needs to be computed. Figure 6.8 illustrates this concept.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解程序屏障，可以想象一组goroutines，它们共同在不同的计算部分工作。在goroutines开始之前，它们都需要等待它们的输入数据。一旦完成，它们又需要等待另一个执行来收集和合并它们计算的结果。这个周期可能会重复多次，只要还有需要计算更多的输入数据。图6.8说明了这个概念。
+- en: '![](../../OEBPS/Images/CH06_F08_Cutajar.png)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH06_F08_Cutajar.png)'
+- en: Figure 6.8 Barriers suspend executions until all goroutines catch up.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.8 屏障挂起执行，直到所有goroutines赶上。
+- en: 'When thinking about barriers, we can visualize our goroutines as being in one
+    of two possible states: either executing their task or suspended and waiting for
+    others to catch up. For example, a goroutine might perform some computation and
+    then wait (by calling a `Wait()` function) for the other goroutines to finish
+    their computations. This `Wait()` function would suspend the goroutine’s execution
+    until all the other goroutines participating in this barrier group catch up by
+    also calling `Wait()` themselves. At this point, the barrier releases all the
+    suspended goroutines together (see figure 6.9) so that they can continue or restart
+    their execution.'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当思考屏障时，我们可以将我们的goroutines想象成处于两种可能的状态之一：要么正在执行它们的任务，要么暂停并等待其他人赶上。例如，一个goroutine可能执行一些计算，然后等待（通过调用一个`Wait()`函数）其他goroutines完成它们的计算。这个`Wait()`函数将挂起goroutine的执行，直到所有参与这个屏障组的其他goroutines也通过调用`Wait()`来赶上。此时，屏障将一起释放所有挂起的goroutines（见图6.9），以便它们可以继续或重新开始它们的执行。
+- en: '![](../../OEBPS/Images/CH06_F09_Cutajar.png)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH06_F09_Cutajar.png)'
+- en: Figure 6.9 Goroutines resume execution after they all call the `Wait()` operation.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.9 在所有goroutines都调用了`Wait()`操作后，goroutines将恢复执行。
+- en: Barriers are different from waitgroups in that they combine the waitgroup’s
+    `Done()` and `Wait()` operations together into one atomic call. The other difference
+    is that depending on the implementation, barriers can be reused multiple times.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与waitgroups不同，屏障将waitgroup的`Done()`和`Wait()`操作合并成一个原子的调用。另一个区别是，根据实现方式，屏障可以被重复使用多次。
+- en: Definition A barrier that can be reused is sometimes called a *cyclic barrier*.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 可以重复使用的屏障有时被称为*循环屏障*。
+- en: 6.2.2 Implementing a barrier in Go
+  id: totrans-131
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.2 在Go中实现屏障
+- en: Unfortunately, Go does not come with a bundled implementation of a barrier,
+    so if we want to use one, we need to implement it ourselves. As with waitgroups,
+    we can use a condition variable to implement our barrier.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 很不幸，Go 语言并没有自带屏障的实现，所以如果我们想使用它，就需要自己实现。就像使用waitgroups一样，我们可以使用一个条件变量来实现我们的屏障。
+- en: To start with, we need to know the size of the group of executions that will
+    be using this barrier. In the implementation, we’ll call this the *barrier size**.*
+    We can use this size to know when enough goroutines are at the barrier.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们需要知道将要使用这个屏障的执行组的大小。在实现中，我们将称之为*屏障大小**。我们可以使用这个大小来知道何时足够的goroutines到达屏障。
+- en: In the barrier implementation, we’ll only need to worry about the `Wait()` operation.
+    Figure 6.10 shows the two scenarios of calling this function. The first scenario
+    is when a goroutine calls this function and not all executions are at the barrier
+    (shown on the left side of figure 6.10). In this scenario, calling the `Wait()`
+    function results in an increment of the wait counter, which tells us how many
+    goroutines are currently waiting on the barrier to be released. When the number
+    of goroutines waiting is less than the size of the barrier, we suspend the goroutine
+    by waiting on a condition variable.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在屏障实现中，我们只需担心 `Wait()` 操作。图 6.10 展示了调用此函数的两个场景。第一个场景是当 goroutine 调用此函数而并非所有执行都在屏障上（如图
+    6.10 的左侧所示）。在这种情况下，调用 `Wait()` 函数会导致等待计数器的增加，这告诉我们有多少 goroutine 正在等待屏障释放。当等待的
+    goroutine 数量少于屏障大小时，我们通过在条件变量上等待来挂起 goroutine。
+- en: '![](../../OEBPS/Images/CH06_F10_Cutajar.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH06_F10_Cutajar.png)'
+- en: Figure 6.10 Waiting when not all goroutines are at barrier, and broadcasting
+    and resuming barriers when all goroutines are at the barrier
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.10 当并非所有 goroutine 都在屏障上时的等待，以及当所有 goroutine 都在屏障上时的广播和恢复屏障
+- en: When the wait counter reaches the size of the barrier (on the right side of
+    figure 6.10), we need to reset the counter to `0` and broadcast on the condition
+    variable to wake up any suspended goroutines. In this way, any goroutines that
+    were waiting on the barrier become unblocked and can resume their execution.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当等待计数器达到屏障的大小（如图 6.10 的右侧所示）时，我们需要将计数器重置为 `0` 并在条件变量上广播以唤醒任何挂起的 goroutine。这样，任何在屏障上等待的
+    goroutine 将被解除阻塞并可以继续执行。
+- en: In listing 6.10, we implement the struct type and `NewBarrier(size)` construct
+    function for the barrier. The Go struct contains the size of the barrier, a wait
+    counter, and a reference to the condition variable. In the constructor, we then
+    initialize the wait counter to `0`, create a new condition variable, and set the
+    barrier size to be the same value as the input parameter in the function.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表 6.10 中，我们实现了屏障的结构类型和 `NewBarrier(size)` 构造函数。Go 结构包含屏障的大小、一个等待计数器和条件变量的引用。在构造函数中，我们初始化等待计数器为
+    `0`，创建一个新的条件变量，并将屏障大小设置为与函数输入参数相同的值。
+- en: Listing 6.10 Type struct and `NewBarrier()` function for `Barrier`
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.10 屏障的 `Type struct` 和 `NewBarrier()` 函数
+- en: '[PRE11]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Total number of participants in the barrier
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 屏障的参与者总数
+- en: ❷ Counter variable representing the number of currently suspended executions
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 表示当前挂起执行数量的计数器变量
+- en: ❸ Condition variable used in the barrier
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 屏障中使用的条件变量
+- en: ❹ Creates new condition variable
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 创建新的条件变量
+- en: ❺ Creates and returns reference to new barrier
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 创建并返回新屏障的引用
+- en: Listing 6.11 implements the `Wait()` function with its two scenarios. In the
+    function, we immediately acquire the mutex lock on the condition variable and
+    then increment the wait count. If the wait counter hasn’t yet reached the size
+    of the barrier, we suspend the goroutine’s execution by calling the `Wait()` function
+    on the condition variable. This second part of our `if` statement represents the
+    left side of figure 6.10, where the counter reaches the barrier’s size. In this
+    case, we simply reset the counter to `0` and broadcast on the condition variable.
+    This will wake up all of the suspended goroutines waiting on the barrier.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.11 实现了 `Wait()` 函数及其两种场景。在函数中，我们立即在条件变量上获取互斥锁，然后增加等待计数。如果等待计数器尚未达到屏障的大小，我们通过在条件变量上调用
+    `Wait()` 函数来挂起 goroutine 的执行。这个 `if` 语句的第二部分代表了图 6.10 的左侧，其中计数器达到屏障的大小。在这种情况下，我们只需将计数器重置为
+    `0` 并在条件变量上广播。这将唤醒所有在屏障上等待的挂起 goroutine。
+- en: Listing 6.11 `Wait()` function for barrier
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.11 屏障的 `Wait()` 函数
+- en: '[PRE12]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Protects access to the waitCount variable by using a mutex
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用互斥锁保护对 waitCount 变量的访问
+- en: ❷ Increments the count variable by 1
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将计数变量增加 1
+- en: ❸ If waitCount has reached the barrier size, resets waitCount and broadcasts
+    on the condition variable
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果 waitCount 达到屏障大小，重置 waitCount 并在条件变量上广播
+- en: ❹ If waitCount hasn’t reached the barrier size, waits on the condition variable
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果 waitCount 未达到屏障大小，则在条件变量上等待
+- en: ❺ Protects access to the waitCount variable by using a mutex
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 使用互斥锁保护对 waitCount 变量的访问
+- en: We can test our barrier by having two goroutines simulate executing for different
+    periods of time. In listing 6.12, we have a `workAndWait()` function that simulates
+    doing work for a period of time and then goes to wait on a barrier. As usual,
+    we simulate doing work by using the `time.Sleep()` function. After the goroutine
+    is unblocked from the barrier, it goes back to work for the same amount of time.
+    At each stage, the function prints the time in seconds from the start of the goroutine.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过让两个 goroutine 模拟执行不同时间段来测试我们的屏障。在列表 6.12 中，我们有一个 `workAndWait()` 函数，它模拟了一段时间的工作，然后等待在屏障上。像往常一样，我们通过使用
+    `time.Sleep()` 函数来模拟工作。goroutine 从屏障中解除阻塞后，它会用相同的时间继续工作。在每一个阶段，该函数都会打印从 goroutine
+    开始以来的秒数。
+- en: Listing 6.12 Simple use of a barrier
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.12 简单使用屏障
+- en: '[PRE13]'
+  id: totrans-156
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Simulates doing work for a number of seconds
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 模拟工作若干秒
+- en: ❷ Waits for other goroutines to catch up
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待其他 goroutine 赶上
+- en: We can now start two goroutines that use the `workAndWait()` function, each
+    with a different `timeToWork`. In this way, the goroutine that completes the work
+    earlier will have its execution suspended by the barrier, and it will wait for
+    the slower goroutine before starting work again. In the next listing, we create
+    a barrier and start two goroutines, passing a reference to both. We call the two
+    goroutines `Red` and `Blue`, giving them 4 and 10 seconds to work, respectively.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以启动两个使用 `workAndWait()` 函数的 goroutine，每个 goroutine 有不同的 `timeToWork`。这样，先完成工作的
+    goroutine 将被屏障挂起，并在开始工作之前等待较慢的 goroutine。在下一个列表中，我们创建了一个屏障并启动了两个 goroutine，将它们的引用传递过去。我们将这两个
+    goroutine 命名为 `Red` 和 `Blue`，分别给它们 4 秒和 10 秒的工作时间。
+- en: Listing 6.13 Starting slow and fast goroutines and sharing a barrier
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.13 启动快慢不同的 goroutine 并共享一个屏障
+- en: '[PRE14]'
+  id: totrans-161
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ Creates a new barrier with two participants using the implementation from
+    listing 6.10
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用列表 6.10 中的实现创建一个新的屏障，包含两个参与者
+- en: ❷ Starts goroutine with the name Red and a timeToWork of 4
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用名为 Red 的 goroutine 并设置工作时间为 4 秒
+- en: ❸ Starts goroutine with the name Blue and a timeToWork of 10
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用名为 Blue 的 goroutine 并设置工作时间为 10 秒
+- en: ❹ Waits for 100 seconds
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待 100 秒
+- en: 'When we run listings 6.12 and 6.13 together, the program runs for 100 seconds,
+    after which the `main()` goroutine terminates. As expected, the fast 4-second
+    goroutine, called `Red`, finishes early and waits for the slower one, called `Blue`,
+    which takes 10 seconds. We can see this reflected in the output timestamps:'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们同时运行列表 6.12 和 6.13 时，程序运行了 100 秒，之后 `main()` goroutine 终止。正如预期的那样，快速 4 秒的
+    goroutine，称为 `Red`，提前完成并等待较慢的，称为 `Blue` 的 goroutine，它需要 10 秒。我们可以从输出时间戳中看到这一点：
+- en: '[PRE15]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Let’s now look at a real-world application that uses barriers to synchronize
+    multiple executions.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看一个使用屏障来同步多个执行的实际应用。
+- en: 6.2.3 Concurrent matrix multiplication using barriers
+  id: totrans-169
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.3 使用屏障进行并发矩阵乘法
+- en: Matrix multiplication is a fundamental operation from linear algebra that is
+    used in various computer science fields. Many algorithms in graph theory, artificial
+    intelligence, and computer graphics adopt matrix multiplication in their algorithms.
+    Unfortunately, computing this linear algebra operation is a time-consuming process.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 矩阵乘法是线性代数中的一个基本操作，它在计算机科学的各个领域中都有应用。图论、人工智能和计算机图形学中的许多算法都采用了矩阵乘法。不幸的是，计算这个线性代数操作是一个耗时的过程。
+- en: Multiplying two *n* × *n* matrices together using the simple iterative approach
+    gives us a runtime complexity of O(*n*³). This means that the time spent on computing
+    the result will grow cubically with regard to the matrix size *n*. For example,
+    if it takes us 10 seconds to compute the multiplication of two 100 × 100 matrices,
+    then when we double the size of the matrices to 200 × 200, it will take us 80
+    seconds to compute the result. Doubling the input size results in scaling the
+    time taken by 2³.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用简单的迭代方法将两个 *n* × *n* 矩阵相乘，其运行时间复杂度为 O(*n*³)。这意味着计算结果所需的时间将与矩阵大小 *n* 的立方成正比。例如，如果我们用
+    10 秒来计算两个 100 × 100 矩阵的乘法，那么当我们将矩阵的大小加倍到 200 × 200 时，计算结果将需要 80 秒。输入大小的加倍会导致所需时间按
+    2³ 的比例扩展。
+- en: Faster matrix multiplication algorithms
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更快的矩阵乘法算法
+- en: There are matrix multiplication algorithms with a better runtime complexity
+    than O(*n*³). In 1969, Volker Strassen, a German mathematician, devised a faster
+    algorithm with a runtime complexity of O(*n*^(2.807)). Although this is a big
+    improvement over the simple approach, the speedup is significant only when the
+    size of the matrices is very large. For smaller matrix sizes, the simple approach
+    seems to work best.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存在一些矩阵乘法算法的运行时间复杂度比O(*n*³)更好。1969年，德国数学家Volker Strassen设计了一个运行时间复杂度为O(*n*^(2.807))的更快算法。尽管这比简单方法有很大的改进，但只有在矩阵的大小非常大时，这种加速才是显著的。对于较小的矩阵大小，简单方法似乎效果最好。
+- en: Other more recent algorithms have even better runtime complexities. However,
+    these algorithms are not used in practice because they perform faster only if
+    the input size of the matrices is extremely large—so large, in fact, that they
+    wouldn’t fit in the memory of today’s computers. These solutions belong to a class
+    of algorithms called *galactic algorithms*, where the algorithms outperform other
+    algorithms for inputs that are too big to be used in practice.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他更近期的算法甚至有更好的运行时间复杂度。然而，这些算法在实际应用中并不使用，因为它们只有在矩阵的输入大小极端巨大时才会更快——实际上，如此之大以至于它们无法适应今天计算机的内存。这些解决方案属于一类称为*银河算法*的算法，其中算法对于太大以至于无法在实际中使用的输入优于其他算法。
+- en: How can we use parallel computing and build a concurrent version of the matrix
+    multiplication algorithm to help speed up this operation? Let’s start by reminding
+    ourselves how matrix multiplication works. To keep the implementation simple,
+    we’ll consider only square matrices (*n* × *n*) in this section. For example,
+    when computing the multiplication of matrix A by matrix B, the result of the first
+    cell (row 0, col 0) is the result of multiplying row 0 from A with column 0 from
+    B. An example of a 3 × 3 matrix multiplication is shown in figure 6.11\. To compute
+    the second cell (row 0, col 1), we need to multiply row 0 from A with column 1
+    from B, and so on.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何使用并行计算并构建矩阵乘法算法的并发版本来加速这个操作？让我们首先回顾一下矩阵乘法是如何工作的。为了使实现简单，我们将在本节中仅考虑方阵(*n*
+    × *n*)。例如，当计算矩阵A与矩阵B的乘积时，第一个单元格（行0，列0）的结果是A的行0与B的列0相乘的结果。一个3 × 3矩阵乘法的示例如图6.11所示。要计算第二个单元格（行0，列1），我们需要将A的行0与B的列1相乘，依此类推。
+- en: '![](../../OEBPS/Images/CH06_F11_Cutajar.png)'
+  id: totrans-176
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图6.11 并行矩阵乘法使用每个结果行的单独goroutine](../../OEBPS/Images/CH06_F11_Cutajar.png)'
+- en: Figure 6.11 Parallel matrix multiplication using a separate goroutine on each
+    result row
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.11 使用每个结果行的单独goroutine进行并行矩阵乘法
+- en: The following listing shows a function that does this multiplication in a single
+    goroutine. The function uses three nested loops iterating first over the rows,
+    then over the columns, and multiplying and adding each together in the final loop.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表显示了一个在单个goroutine中执行此乘法的函数。该函数使用三个嵌套循环，首先遍历行，然后遍历列，并在最后的循环中相乘和相加。
+- en: Listing 6.14 A simple matrix multiplication function
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.14 一个简单的矩阵乘法函数
+- en: '[PRE16]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Iterates over every row
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 遍历每一行
+- en: ❷ Iterates over every column
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 遍历每一列
+- en: ❸ Sums up each value of the row from A multiplied by each value of the column
+    from B
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将矩阵A的每一行的值与矩阵B的每一列的值相乘后的总和
+- en: ❹ Updates the result matrix with the sum
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用总和更新结果矩阵
+- en: One way to convert our algorithm to be executed in parallel by multiple processors
+    is to break down the matrix multiplication into different parts and let each part
+    be computed by a goroutine. Figure 6.11 shows how we can compute the result of
+    each row separately, using a goroutine for each row. For an *n* × *n* result matrix,
+    we can create *n* goroutines and assign one goroutine to each row. Each goroutine
+    would then be responsible for computing the result for its row.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将我们的算法转换为可由多个处理器并行执行的一种方法是将矩阵乘法分解成不同的部分，并让每个部分由一个goroutine计算。图6.11展示了我们可以如何使用每个行对应的goroutine分别计算每行的结果。对于一个
+    *n* × *n* 的结果矩阵，我们可以创建 *n* 个goroutine，并将一个goroutine分配给每一行。然后，每个goroutine将负责计算其行的结果。
+- en: 'To make our matrix multiplication application more realistic, we can make it
+    go through three steps and then have these three steps repeat, simulating a long-running
+    computation:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使我们的矩阵乘法应用程序更真实，我们可以让它经过三个步骤，然后重复这三个步骤，模拟长时间的计算：
+- en: Load the inputs of matrices A and B.
+  id: totrans-187
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 加载矩阵A和B的输入。
+- en: Compute the result of A × B concurrently, using one goroutine per row.
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用每个行一个goroutine的方式并发计算A × B的结果。
+- en: Output the result on the console.
+  id: totrans-189
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在控制台上输出结果。
+- en: For step 1, loading the input matrices, we can just generate them using random
+    integers. In a real-world application, we would read these inputs from a source,
+    such as a network connection or a file. The following listing shows a function
+    we can use to populate a matrix with random integers.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于步骤 1，加载输入矩阵，我们可以简单地使用随机整数生成它们。在实际应用中，我们会从源读取这些输入，例如网络连接或文件。下面的列表显示了我们可以使用的函数，用于用随机整数填充矩阵。
+- en: Listing 6.15 Generate a matrix using random integers
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.15 使用随机整数生成矩阵
+- en: '[PRE17]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ For every row and column, assigns a random number between –5 and 4
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 对于每一行和每一列，分配一个介于 -5 和 4 之间的随机数
+- en: To compute the concurrent multiplication (step 2), we need a function that evaluates
+    the multiplication for a single row in our result matrix. The idea is that we
+    run this function from multiple goroutines, one per row. Once the goroutines compute
+    all the rows of our result matrix, we can output the resulting matrix on the console
+    (step 3).
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了计算并发乘法（步骤 2），我们需要一个函数来评估结果矩阵中单行的乘法。想法是，我们从多个协程中运行这个函数，每个协程对应一行。一旦协程计算出结果矩阵的所有行，我们就可以在控制台上输出结果矩阵（步骤
+    3）。
+- en: If we are going to perform steps 1 through 3 multiple times, we also need a
+    mechanism to coordinate the steps. For example, we cannot perform the multiplication
+    before loading up the input matrices. Nor should we output the result before our
+    goroutines are finished computing all the rows.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们要多次执行步骤 1 到 3，我们还需要一个机制来协调这些步骤。例如，在加载输入矩阵之前我们不能执行乘法。同样，在协程完成计算所有行之前，我们也不应该输出结果。
+- en: This is where the barrier utility that we developed in the previous section
+    comes in handy. We can ensure proper synchronization between the various steps
+    by using our barrier so that we don’t start one step before finishing the other.
+    Figure 6.12 shows how we can do this. The figure shows that for a 3 × 3 matrix,
+    we can use a barrier with a size of 4 (total number of rows + 1). This is the
+    total number of goroutines in our Go program when we include the `main()` goroutine.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是我们在上一节中开发的屏障实用程序发挥作用的地方。我们可以通过使用我们的屏障来确保各个步骤之间的适当同步，这样我们就不在完成其他步骤之前开始一个步骤。图
+    6.12 显示了我们可以如何做到这一点。该图显示，对于一个 3 × 3 矩阵，我们可以使用一个大小为 4 的屏障（总行数 + 1）。这是包括 `main()`
+    协程在内的我们 Go 程序中的总协程数。
+- en: '![](../../OEBPS/Images/CH06_F12_Cutajar.png)'
+  id: totrans-197
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH06_F12_Cutajar.png)'
+- en: Figure 6.12 Synchronization using a barrier during matrix multiplication
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.12 使用屏障在矩阵乘法中进行同步
+- en: 'Let’s walk through the various steps of the concurrent matrix multiplication
+    program, shown in figure 6.12:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐步分析并发矩阵乘法程序的各种步骤，如图 6.12 所示：
+- en: Initially, the `main()` goroutine loads up the input matrices while the row
+    goroutines wait on a barrier. In our application, we will be randomly generating
+    the matrices using the function developed in listing 6.15.
+  id: totrans-200
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 初始时，`main()` 协程加载输入矩阵，而行协程则在屏障上等待。在我们的应用程序中，我们将使用第 6.15 列表中开发的函数随机生成矩阵。
+- en: Once the loading is complete, the `main()` goroutine calls the final `Wait()`
+    operation, releasing all the goroutines.
+  id: totrans-201
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一旦加载完成，`main()` 协程调用最后的 `Wait()` 操作，释放所有协程。
+- en: It is now the `main()` goroutine’s turn to wait on the barrier for the goroutines
+    to complete their row multiplication.
+  id: totrans-202
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 现在轮到 `main()` 协程在屏障上等待，直到协程完成行乘法。
+- en: Once a goroutine calculates its result on its row, it will call another `Wait()`
+    on the barrier.
+  id: totrans-203
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一旦协程在其行上计算出结果，它将在屏障上调用另一个 `Wait()`。
+- en: Once all goroutines finish and call `Wait()` on the barrier, all goroutines
+    will unblock, and the `main()` goroutine will output the results and load the
+    next input matrices.
+  id: totrans-204
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 一旦所有协程完成并在屏障上调用 `Wait()`，所有协程将解除阻塞，`main()` 协程将输出结果并加载下一个输入矩阵。
+- en: Each row goroutine will wait by calling `Wait()` on the barrier until the loading
+    from the `main()` goroutine is complete.
+  id: totrans-205
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 每个行协程将通过在屏障上调用 `Wait()` 等待，直到 `main()` 协程的加载完成。
+- en: Repeat from step 2 as long as we have more matrices to multiply.
+  id: totrans-206
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 只要我们还有更多的矩阵要乘，就重复步骤 2。
+- en: Listing 6.16 shows how we can implement the single row multiplication. The function
+    accepts two input matrices, a space where the resulting matrix can be put, a barrier,
+    and a row number representing which row it is supposed to work out. Instead of
+    iterating over every row, it will only work on the row number passed in as a parameter.
+    It has the same implementation as listing 6.14, but it’s missing the outer row
+    loop. In terms of parallelism, depending on how many free processors we have,
+    Go’s runtime should be able to balance the row computations on the available CPU
+    resources. In an ideal scenario, we would have one CPU available for each goroutine
+    executing each row calculation.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.16 展示了我们可以如何实现单行乘法。该函数接受两个输入矩阵、一个可以放置结果的空格、一个屏障和一个表示它应该计算哪一行的行号。它不会迭代每一行，而只会处理作为参数传入的行号。它的实现与列表
+    6.14 相同，但缺少外层行循环。在并行性的方面，根据我们有多少空闲处理器，Go 的运行时应该能够平衡行计算在可用的 CPU 资源上。在理想情况下，我们会有一个
+    CPU 可用于每个执行每行计算的 goroutine。
+- en: Listing 6.16 A matrix single-row multiplication function for separate goroutines
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.16 为单独的 goroutines 实现的矩阵单行乘法函数
+- en: '[PRE18]'
+  id: totrans-209
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Starts an infinite loop
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 启动一个无限循环
+- en: ❷ Waits on the barrier until the main() goroutine loads the matrices
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在屏障上等待，直到 main() goroutine 加载矩阵
+- en: ❸ Calculates the result of the row in this goroutine
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在这个 goroutine 中计算行的结果
+- en: ❹ Assigns the result to the correct row and column
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 将结果分配给正确的行和列
+- en: ❺ Waits on the barrier until every other row has been computed
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 在屏障上等待，直到其他每一行都被计算
+- en: The `rowMultiply()` function from listing 6.16 uses the barrier twice. The first
+    time is to wait until the `main()` goroutine loads up the two input matrices.
+    The second time, at the end of the loop, it waits for all the other goroutines
+    to finish working out their own respective rows. In this way, it can stay synchronized
+    with the main and other goroutines.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.16 中的 `rowMultiply()` 函数使用了屏障两次。第一次是在等待 `main()` goroutine 加载两个输入矩阵。第二次，在循环的末尾，它等待所有其他
+    goroutine 完成它们各自行的计算。这样，它可以与 main 和其他 goroutine 保持同步。
+- en: Now we can write our `main()` function, which will perform the loading of the
+    matrices, wait on the barrier, and output the results. The `main()` function also
+    initializes the barrier of size `matrixSize + 1` and starts up the goroutines
+    at the beginning, as the following listing shows.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以编写我们的 `main()` 函数，该函数将执行矩阵的加载、在屏障上等待以及输出结果。`main()` 函数还初始化大小为 `matrixSize
+    + 1` 的屏障，并在开始时启动 goroutines，如下列所示。
+- en: Listing 6.17 `main()` function for matrix multiplication
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.17 矩阵乘法的 `main()` 函数
+- en: '[PRE19]'
+  id: totrans-218
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Creates a new barrier with size of row goroutines + main() goroutine
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个大小为行 goroutine + main() goroutine 的新屏障
+- en: ❷ Creates a goroutine per row, assigning the correct row numbers
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 为每一行创建一个 goroutine，并分配正确的行号
+- en: ❸ Loads up both matrices by randomly generating them
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 通过随机生成来加载两个矩阵
+- en: ❹ Releases the barrier so the goroutines can start their computations
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 释放屏障，以便 goroutines 可以开始它们的计算
+- en: ❺ Waits until the goroutines finish their computations
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 等待 goroutines 完成它们的计算
+- en: ❻ Ouputs results to console
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 将结果输出到控制台
+- en: 'Running listings 6.15, 6.16, and 6.17 together, we get the following results
+    on the console:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将列表 6.15、6.16 和 6.17 一起运行，我们在控制台上得到以下结果：
+- en: '[PRE20]'
+  id: totrans-226
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Barriers or no barriers?
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用屏障还是不使用屏障？
+- en: Barriers are useful concurrency tools that let us synchronize executions at
+    certain points in our code, as we saw in the matrix multiplication application.
+    This pattern of loading work, waiting for it to complete, and collecting the results
+    is a typical application for barriers. However, it is mostly useful when creating
+    new executions is a fairly expensive operation, such as when we use kernel-level
+    threads. Using this pattern, you save the time taken to create new threads on
+    every load cycle.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 屏障是有用的并发工具，它允许我们在代码的某些点上同步执行，正如我们在矩阵乘法应用中看到的那样。这种加载工作、等待其完成以及收集结果的模式是屏障的典型应用。然而，当创建新的执行是一个相当昂贵的操作时，例如当我们使用内核级线程时，它主要是有用的。使用这种模式，你可以在每次加载周期上节省创建新线程的时间。
+- en: In Go, creating goroutines is cheap and fast, so using a barrier for this pattern
+    does not bring huge performance improvements. It is usually easier to just load
+    work, create your worker goroutines, wait for their completion using a waitgroup,
+    and then collect the results. Nonetheless, barriers might still have performance
+    benefits in scenarios when you need to synchronize large numbers of goroutines.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Go中，创建goroutines既便宜又快，因此使用障碍（barriers）来提高这种模式的性能提升并不大。通常，直接加载工作，创建你的工作goroutines，使用等待组等待它们的完成，然后收集结果会更简单。尽管如此，在需要同步大量goroutines的场景中，障碍（barriers）仍然可能带来性能上的好处。
+- en: 6.3 Exercises
+  id: totrans-230
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.3 练习
+- en: 'In listings 6.5 and 6.6, we developed a recursive concurrent file search. When
+    a goroutine finds a file match, it outputs it on the console. Can you change the
+    implementation of this file search so that it prints all the file matches, sorted
+    into alphabetical order, after the search completes? Hint: try collecting the
+    results in a shared data structure instead of printing them on the console from
+    the goroutine.'
+  id: totrans-231
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表 6.5 和 6.6 中，我们开发了一个递归并发文件搜索。当一个goroutine找到文件匹配时，它会在控制台上输出。你能修改这个文件搜索的实现，使其在搜索完成后按字母顺序打印所有文件匹配项吗？提示：尝试在共享数据结构中收集结果，而不是从goroutine在控制台上打印它们。
+- en: In previous chapters, we saw the `TryLock()` operation on mutexes. This is a
+    non-blocking call that returns immediately without waiting. If the lock is not
+    available, the function returns `false`; otherwise, it locks the mutex and returns
+    `true`. Can you write a similar non-blocking function called `TryWait()` on our
+    implementation of a waitgroup from listing 6.8? This function will return immediately
+    with `false` if the waitgroup is not done; otherwise, it returns `true`.
+  id: totrans-232
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们看到了互斥锁上的 `TryLock()` 操作。这是一个非阻塞调用，会立即返回而不等待。如果锁不可用，函数返回 `false`；否则，它会锁定互斥锁并返回
+    `true`。你能为我们列表 6.8 中的等待组实现一个类似的非阻塞函数，称为 `TryWait()` 吗？如果等待组尚未完成，此函数会立即返回 `false`；否则，它返回
+    `true`。
+- en: In listings 6.14 and 6.15 and again in 6.16 and 6.17, we implemented single-
+    and multi-threaded matrix multiplication programs. Can you measure the time it
+    takes to compute the multiplication for large matrices of size 1000 × 1000 or
+    larger? For the time measurement to be accurate, you should remove the `Println()`
+    calls because large matrices will take a long time to be printed on the console.
+    You might notice a difference only if your system has multiple cores.
+  id: totrans-233
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表 6.14 和 6.15 以及 6.16 和 6.17 中，我们实现了单线程和多线程的矩阵乘法程序。你能测量计算大小为 1000 × 1000 或更大的大型矩阵乘法所需的时间吗？为了使时间测量准确，你应该移除
+    `Println()` 调用，因为大型矩阵在控制台上打印将花费很长时间。你可能只有在系统有多个核心的情况下才会注意到差异。
+- en: 'In listings 6.16 and 6.17, the concurrent matrix multiplication, we used a
+    barrier to reuse the goroutines when they needed to start working on a new row.
+    Since in Go it’s cheap and quick to create new threads, can you change this implementation
+    so that it doesn’t use barriers? Instead, you can create a set of goroutines (one
+    per row) every time you generate a new matrix. Hint: you still need a way to notify
+    the `main()` goroutine that all the rows have been calculated.'
+  id: totrans-234
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表 6.16 和 6.17 中，在并发矩阵乘法中，我们使用障碍（barriers）在goroutines需要开始处理新行时重用goroutines。由于在Go中创建新线程既便宜又快，你能修改这个实现，使其不使用障碍（barriers）吗？相反，你可以在每次生成新矩阵时创建一组goroutines（每个goroutine对应一行）。提示：你仍然需要一种方法来通知
+    `main()` goroutine所有行都已计算完成。
+- en: Summary
+  id: totrans-235
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Waitgroups allow us to wait for a set of goroutines to finish their work.
+  id: totrans-236
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 等待组（Waitgroups）允许我们等待一组goroutines完成其工作。
+- en: When using a waitgroup, a goroutine calls `Done()` after it finishes a task.
+  id: totrans-237
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当使用等待组时，goroutine在完成一个任务后会调用 `Done()`。
+- en: To wait for all tasks to complete using a waitgroup, we call the `Wait()` function.
+  id: totrans-238
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要使用等待组等待所有任务完成，我们调用 `Wait()` 函数。
+- en: We can use a semaphore initialized to a negative permit number to implement
+    a fixed-size waitgroup.
+  id: totrans-239
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用初始化为负许可数的信号量来实现固定大小的等待组。
+- en: Go’s bundled waitgroup allows us to resize the group dynamically after we create
+    the waitgroup by using the `Add(``)` function.
+  id: totrans-240
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Go的内置等待组允许我们通过使用 `Add(``)` 函数在创建等待组后动态调整组的大小。
+- en: We can use condition variables to implement a dynamically sized waitgroup.
+  id: totrans-241
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用条件变量来实现动态大小的等待组。
+- en: Barriers allow us to synchronize our goroutines at specific points in their
+    executions.
+  id: totrans-242
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 障碍（Barriers）允许我们在goroutines执行的特定点进行同步。
+- en: Barriers suspend the execution when a goroutine calls `Wait()` until all the
+    goroutines participating in the barrier also call `Wait()`.
+  id: totrans-243
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当一个goroutine调用`Wait()`时，屏障会暂停执行，直到所有参与屏障的goroutine也调用`Wait()`。
+- en: When all the goroutines participating in the barrier call `Wait()`, all the
+    suspended executions on the barrier are resumed.
+  id: totrans-244
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当所有参与屏障的goroutine调用`Wait()`时，屏障上所有暂停的执行都会恢复。
+- en: Barriers can be reused multiple times.
+  id: totrans-245
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 屏障可以被多次重用。
+- en: We can also implement barriers using condition variables.
+  id: totrans-246
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们还可以使用条件变量来实现屏障。

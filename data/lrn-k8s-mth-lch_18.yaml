@@ -1,0 +1,1220 @@
+- en: 15 Managing incoming traffic with Ingress
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 15 使用入口管理入站流量
+- en: Services bring network traffic into Kubernetes, and you can have multiple LoadBalancer
+    Services with different public IP addresses to make your web apps available to
+    the world. Doing this creates a management headache because it means allocating
+    a new IP address for every application and mapping addresses to apps with your
+    DNS provider. Getting traffic to the right app is a routing problem, but you can
+    manage it inside Kubernetes instead, using *Ingress*. Ingress uses a set of rules
+    to map domain names and request paths to applications, so you can have a single
+    IP address for your whole cluster and route all traffic internally.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务将网络流量引入Kubernetes，你可以有多个具有不同公共IP地址的LoadBalancer服务，以便将你的Web应用程序提供给全世界。这样做会带来管理上的麻烦，因为这意味着为每个应用程序分配一个新的IP地址，并使用你的DNS提供商将地址映射到应用程序。将流量引导到正确的应用程序是一个路由问题，但你可以在Kubernetes内部管理它，使用*入口*。入口使用一组规则将域名和请求路径映射到应用程序，因此你可以为整个集群使用单个IP地址，并内部路由所有流量。
+- en: 'Routing by domain name is an old problem that has usually been solved with
+    a *reverse proxy*, and Kubernetes uses a pluggable architecture for Ingress. You
+    define the routing rules as standard resources and deploy your choice of reverse
+    proxy to receive traffic and act on the rules. All the major reverse proxies have
+    Kubernetes support, along with a new species of container—aware reverse proxy.
+    They all have different capabilities and working models, and in this chapter,
+    you’ll learn how you can use Ingress to host multiple apps in your cluster with
+    two of the most popular: Nginx and Traefik.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过域名进行路由是一个老问题，通常使用*反向代理*来解决，Kubernetes使用可插拔的入口架构。你定义路由规则作为标准资源，并部署你选择的反向代理来接收流量并执行规则。所有主要的反向代理都支持Kubernetes，以及一种新的容器感知反向代理。它们都有不同的功能和操作模型，在本章中，你将了解到如何使用入口在集群中托管多个应用程序，其中最流行的是Nginx和Traefik。
+- en: 15.1 How Kubernetes routes traffic with Ingress
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 15.1 Kubernetes如何使用入口路由流量
+- en: 'We’ve used Nginx as a reverse proxy several times in this book already (17,
+    by my count), but we’ve always used it for one application at a time. We had a
+    reverse proxy to cache responses from the Pi app in chapter 6 and another for
+    the random-number API in chapter 13\. Ingress moves the reverse proxy into a central
+    role, running it as a component called the *ingress controller*, but the approach
+    is the same: the proxy receives external traffic from a LoadBalancer Service,
+    and it fetches content from apps using ClusterIP Services. Figure 15.1 shows the
+    architecture.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这本书中，我们已经多次使用Nginx作为反向代理（据我统计有17次），但我们每次都是为单个应用程序使用它。在第6章中，我们有一个反向代理来缓存来自Pi应用程序的响应，在第13章中，我们还有一个用于随机数API的反向代理。入口将反向代理移至中心角色，作为名为*入口控制器*的组件运行，但方法是一样的：代理从负载均衡器服务接收外部流量，并使用集群IP服务从应用程序获取内容。图15.1显示了架构。
+- en: '![](../Images/15-1.jpg)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图15-1](../Images/15-1.jpg)'
+- en: Figure 15.1 Ingress controllers are the entry point to the cluster, routing
+    traffic based on Ingress rules.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.1 入口控制器是集群的入口点，根据入口规则路由流量。
+- en: The important thing in this diagram is the ingress controller, which is the
+    pluggable reverse proxy—it could be one of a dozen options including Nginx, HAProxy,
+    Contour, and Traefik. The Ingress object stores routing rules in a generic way,
+    and the controller feeds those rules into the proxy. Proxies have different feature
+    sets, and the Ingress spec doesn’t attempt to model every possible option, so
+    controllers add support for those features using annotations. You’ll learn in
+    this chapter that the core functionality of routing and HTTPS support is simple
+    to work with, but the complexity is in the ingress controller deployment and its
+    additional features.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个图中，重要的是入口控制器，它是一个可插拔的反向代理——它可以是Nginx、HAProxy、Contour和Traefik等十几种选项之一。入口对象以通用方式存储路由规则，控制器将这些规则输入到代理中。代理有不同的功能集，入口规范并不试图模拟每个可能的选择，因此控制器通过注解添加对这些功能的支持。你将在本章中了解到，路由和HTTPS支持的核心功能简单易用，但复杂性在于入口控制器部署及其附加功能。
+- en: We’ll start by running the basic Hello, World web app from way back in chapter
+    2, keeping it as an internal component with a ClusterIP Service and using the
+    Nginx ingress controller to route traffic.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从运行第2章中提到的基本的Hello, World网页应用程序开始，将其作为一个内部组件，使用ClusterIP服务，并使用Nginx入口控制器来路由流量。
+- en: Try it now Run the Hello, World app, and confirm that it’s accessible only inside
+    the cluster or externally using a `port-forward` in kubectl.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 运行Hello, World应用程序，并确认它只能在集群内部或通过kubectl中的`port-forward`在外部访问。
+- en: '[PRE0]'
+  id: totrans-10
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: There’s nothing new in the Deployment or Service specs for that application—no
+    special labels or annotations, no new fields you haven’t already worked with.
+    You can see in figure 15.2 that the Service has no external IP address, and I
+    can access the app only while I have a `port-forward` running.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于该应用程序的部署或服务规范没有新内容——没有特殊的标签或注解，没有你已经使用过的新字段。你可以在图15.2中看到服务没有外部IP地址，我只能在运行`port-forward`时访问应用程序。
+- en: '![](../Images/15-2.jpg)'
+  id: totrans-12
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/15-2.jpg)'
+- en: Figure 15.2 ClusterIP Services make an app available internally—it can go public
+    with Ingress.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.2 集群IP服务使应用程序在内部可用——它可以通过入口公开。
+- en: To make the app available using Ingress rules, we need an ingress controller.
+    Controllers manage other objects. You know that Deployments manage ReplicaSets
+    and ReplicaSets manage Pods. Ingress controllers are slightly different; they
+    run in standard Pods and monitor Ingress objects. When they see any changes, they
+    update the rules in the proxy. We’ll start with the Nginx ingress controller,
+    which is part of the wider Kubernetes project. There’s a production-ready Helm
+    chart for the controller, but I’m using a much simpler deployment. Even so, there
+    are a few security components in the manifest that we haven’t covered yet, but
+    I won’t go through them now. (There are comments in the YAML if you want to investigate.)
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用入口规则使应用程序可用，我们需要一个入口控制器。控制器管理其他对象。你知道部署管理副本集，副本集管理Pod。入口控制器略有不同；它们在标准Pod中运行并监视入口对象。当它们看到任何更改时，它们会更新代理中的规则。我们将从Nginx入口控制器开始，它是更广泛Kubernetes项目的一部分。控制器有一个生产就绪的Helm图表，但我使用了一个更简单的部署。即便如此，在清单中还有一些我们尚未覆盖的安全组件，但我现在不会详细介绍。（如果需要调查，YAML中有注释。）
+- en: Try it now Deploy the Nginx ingress controller. This uses the standard HTTP
+    and HTTPS ports in the Service, so you need to have ports 80 and 443 available
+    on your machine.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 部署Nginx入口控制器。这使用服务中的标准HTTP和HTTPS端口，因此你需要在你的机器上开启80和443端口。
+- en: '[PRE1]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: When you run this exercise, you’ll see a 404 error page when you browse. That
+    proves the Service is receiving traffic and directing it to the ingress controller,
+    but there aren’t any routing rules yet so Nginx has no content to show, and it
+    returns the default not-found page. My output is shown in figure 15.3, where you
+    can see the Service is using the standard HTTP port.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行这个练习时，当你浏览时你会看到一个404错误页面。这证明了服务正在接收流量并将其定向到入口控制器，但还没有任何路由规则，所以Nginx没有内容可以显示，并返回默认的未找到页面。我的输出显示在图15.3中，你可以看到服务正在使用标准的HTTP端口。
+- en: '![](../Images/15-3.jpg)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/15-3.jpg)'
+- en: Figure 15.3 Ingress controllers receive incoming traffic, but they need routing
+    rules to know what to do with it.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.3 入口控制器接收传入的流量，但它们需要路由规则来知道如何处理它。
+- en: Now that we have an application running and an ingress controller, we just need
+    to deploy an Ingress object with routing rules to tell the controller which application
+    Service to use for each incoming request. Listing 15.1 shows the simplest rule
+    for an Ingress object, which will route every request coming into the cluster
+    to the Hello, World application.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一个运行的应用程序和一个入口控制器，我们只需要部署一个带有路由规则的入口对象，告诉控制器每个传入请求应使用哪个应用程序服务。列表15.1显示了入口对象的简单规则，它将把每个进入集群的请求路由到Hello,
+    World应用程序。
+- en: Listing 15.1 localhost.yaml, a routing rule for the Hello, World app
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表15.1 localhost.yaml，Hello, World应用程序的路由规则
+- en: '[PRE2]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The ingress controller is watching for new and changed Ingress objects, so when
+    you deploy any, it will add the rules to the Nginx configuration. In Nginx terms,
+    it will set up a proxy server where the hello-kiamol Service is the upstream—the
+    source of the content—and it will serve that content for incoming requests to
+    the root path.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 入口控制器正在监视新的和更改的入口对象，因此当你部署任何对象时，它将规则添加到Nginx配置中。在Nginx术语中，它将设置一个代理服务器，其中hello-kiamol服务是上游——内容的来源——并且它将为传入请求到根路径提供该内容。
+- en: Try it now Create the Ingress rule that publishes the Hello, World app through
+    the ingress controller.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 创建发布Hello, World应用程序的入口规则。
+- en: '[PRE3]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Well, that was simple—map a path to the backend Service for the application
+    in an Ingress object, and the controller takes care of everything else. My output
+    in figure 15.4 shows the localhost address, which previously returned a 404 error,
+    now returns the Hello, World app in all its glory.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 嗯，这很简单——在 Ingress 对象中将路径映射到应用的后端服务，控制器会处理其他所有事情。我在图 15.4 中的输出显示了本地地址，之前返回了 404
+    错误，现在返回了完整的 Hello, World 应用。
+- en: '![](../Images/15-4.jpg)'
+  id: totrans-27
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/15-4.jpg)'
+- en: Figure 15.4 Ingress object rules link the Ingress controller to the app Service.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.4 Ingress 对象规则将 Ingress 控制器链接到应用服务。
+- en: Ingress is usually a centralized service in the cluster, like logging and monitoring.
+    An admin team might deploy and manage the Ingress controller, whereas each product
+    team owns the Ingress objects that route traffic to their apps. This process creates
+    the potential for collisions—Ingress rules do not have to be unique, and one team’s
+    update could end up redirecting all of another team’s traffic to some other app.
+    In practice that doesn’t happen because those apps will be hosted at different
+    domains, and the Ingress rules will include a domain name to restrict their scope.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress 通常是在集群中的集中式服务，如日志记录和监控。管理员团队可能会部署和管理 Ingress 控制器，而每个产品团队则拥有路由流量到其应用的
+    Ingress 对象。这个过程可能会产生冲突——Ingress 规则不必是唯一的，一个团队的更新可能会导致另一个团队的流量被重定向到其他应用。实际上这种情况不会发生，因为这些应用将托管在不同的域名上，并且
+    Ingress 规则将包括一个域名以限制其作用范围。
+- en: 15.2 Routing HTTP traffic with Ingress rules
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 15.2 使用 Ingress 规则路由 HTTP 流量
+- en: 'Ingress works only for web traffic—HTTP and HTTPS requests—because it needs
+    to use the route specified in the request to match it to a backend service. The
+    route in an HTTP request contains two parts: the host and the path. The host is
+    the domain name, like `www.manning.com`, and the path is the location of the resource,
+    like `/dotd` for the Deal of the Day page. Listing 15.2 shows an update to the
+    Hello, World Ingress object that uses a specific host name. Now the routing rules
+    will apply only if the incoming request is for the host `hello.kiamol.local`.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress 只适用于 Web 流量——HTTP 和 HTTPS 请求——因为它需要使用请求中指定的路由来匹配后端服务。HTTP 请求中的路由包含两部分：主机和路径。主机是域名，如
+    `www.manning.com`，路径是资源的位置，如 `/dotd` 是每日交易页面的位置。列表 15.2 显示了对 Hello, World Ingress
+    对象的更新，它使用特定的主机名。现在，只有当传入请求是为主机 `hello.kiamol.local` 时，路由规则才会生效。
+- en: Listing 15.2 hello.kiamol.local.yaml, specifying a host domain for Ingress rules
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 15.2 hello.kiamol.local.yaml，指定 Ingress 规则的主域名
+- en: '[PRE4]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: When you deploy this code, you won’t be able to access the app because the domain
+    name `hello.kiamol.local` doesn’t exist. Web requests normally look up the IP
+    address for a domain name from a public DNS server, but all computers also have
+    their own local list in a *hosts file*. In the next exercise, you’ll deploy the
+    updated Ingress object and register the domain name in your local hosts file—you’ll
+    need admin access in your terminal session for that.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您部署此代码时，您将无法访问该应用，因为域名 `hello.kiamol.local` 不存在。Web 请求通常从公共 DNS 服务器查找域名的 IP
+    地址，但所有计算机也有它们自己的本地列表，即 *hosts 文件*。在下一个练习中，您将部署更新的 Ingress 对象并在您的本地 hosts 文件中注册域名——您需要在终端会话中拥有管理员权限。
+- en: Try it now Editing the hosts file is restricted. You’ll need to use the “Run
+    as Administrator” option for your terminal session in Windows and have scripts
+    enabled with the `Set-ExecutionPolicy` command. Be ready to enter your admin (sudo)
+    password in Linux or macOS.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 编辑 hosts 文件是受限的。您需要在 Windows 的终端会话中使用“以管理员身份运行”选项，并且使用 `Set-ExecutionPolicy`
+    命令启用脚本。在 Linux 或 macOS 上，准备好输入您的管理员（sudo）密码。
+- en: '[PRE5]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: In this exercise, the existing Ingress object is updated, so there’s still only
+    one routing rule for the ingress controller to map. Now that rule is restricted
+    to an explicit domain name. You can see in figure 15.5 that the request to `hello.kiamol.local`
+    returns the app, and I’ve also browsed to the ingress controller at localhost,
+    which returns a 404 error because there are no rules for the localhost domain.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，现有的 Ingress 对象被更新，因此仍然只有一个路由规则供 Ingress 控制器映射。现在这个规则被限制为显式的域名。您可以在图 15.5
+    中看到，对 `hello.kiamol.local` 的请求返回了应用，我还浏览到了本地的 Ingress 控制器，它返回了一个 404 错误，因为没有为
+    localhost 域设置规则。
+- en: '![](../Images/15-5.jpg)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/15-5.jpg)'
+- en: Figure 15.5 You can publish apps by domain name with Ingress rules and use them
+    locally by editing your hosts file.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.5 您可以使用 Ingress 规则通过域名发布应用，并通过编辑您的 hosts 文件在本地使用它们。
+- en: Routing is an infrastructure-level concern, but like the other shared services
+    we’ve seen in this section of the book, it runs in lightweight containers so you
+    can use exactly the same setup in development, test, and production environments.
+    That lets you run multiple apps in your nonproduction cluster with friendly domain
+    names, without having to use different ports—the Service for the ingress controller
+    uses the standard HTTP port for every app.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 路由是基础设施级别的关注点，但就像我们在本书本节中看到的其他共享服务一样，它运行在轻量级容器中，这样你就可以在开发、测试和生产环境中使用完全相同的设置。这让你可以在你的非生产集群中运行多个应用程序，使用友好的域名，而无需使用不同的端口——ingress
+    控制器的 Service 使用每个应用程序的标准 HTTP 端口。
+- en: You need to fiddle with your hosts file if you want to run multiple apps with
+    different domains in your lab environment. Typically, all the domains will resolve
+    to 127.0.0.1, which is your machine’s local address. Organizations might run their
+    own DNS server in a test environment, so anyone can access `hello.kiamol.test`
+    from the company network, and it will resolve to the IP address of the test cluster,
+    running in the data center. Then, in production, the DNS resolution is from a
+    public DNS service, so `hello.kiamol.net` resolves to a Kubernetes cluster running
+    in the cloud.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想在实验室环境中运行具有不同域的多个应用程序，你需要调整你的主机文件。通常，所有域名都会解析到 127.0.0.1，这是你的机器的本地地址。组织可能在测试环境中运行自己的
+    DNS 服务器，因此任何人都可以从公司网络访问 `hello.kiamol.test`，并且它将解析到数据中心运行测试集群的 IP 地址。然后，在生产环境中，DNS
+    解析来自公共 DNS 服务，因此 `hello.kiamol.net` 解析到在云中运行的 Kubernetes 集群。
+- en: You can combine host names and paths in Ingress rules to present a consistent
+    set of addresses for your application, although you could be using different components
+    in the backend. You might have a REST API and a website running in separate Pods,
+    and you could use Ingress rules to make the API available on a subdomain (`api.rng.com`)
+    or as a path on the main domain (`rng.com/api`). Listing 15.3 shows Ingress rules
+    for the simple versioned web app from chapter 9, where both versions of the app
+    are available from one domain.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在 Ingress 规则中组合主机名和路径，以向你的应用程序展示一组一致的地址，尽管你可能在后端使用不同的组件。你可能有一个 REST API 和一个网站在不同的
+    Pod 中运行，并且你可以使用 Ingress 规则使 API 在子域名（`api.rng.com`）或主域名上的路径（`rng.com/api`）上可用。列表
+    15.3 展示了来自第 9 章的简单版本化 Web 应用程序的 Ingress 规则，其中应用程序的两个版本都从一个域名中可用。
+- en: Listing 15.3 vweb/ingress.yaml, Ingress rules with host name and paths
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 15.3 vweb/ingress.yaml，带有主机名和路径的 Ingress 规则
+- en: '[PRE6]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Modeling paths adds complexity because you’re presenting a fake URL, which needs
+    to be modified to match the real URL in the service. In this case, the ingress
+    controller will respond to requests for `http://vweb.kiamol.local/v1` and fetch
+    the content from the vweb-v1 service. But the application doesn’t have any content
+    at `/v1`, so the proxy needs to rewrite the incoming URL—that’s what the annotation
+    does in listing 15.3\. It’s a basic example that ignores the path in the request
+    and always uses the root path in the backend. You can’t express URL rewrites with
+    the Ingress spec, so it needs custom support from the ingress controller. A more
+    realistic rewrite rule would use regular expressions to map the requested path
+    to the target path.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 路径建模增加了复杂性，因为你提供了一个虚假的 URL，它需要修改以匹配服务中的真实 URL。在这种情况下，ingress 控制器将响应对 `http://vweb.kiamol.local/v1`
+    的请求，并从 vweb-v1 服务获取内容。但是应用程序在 `/v1` 上没有任何内容，因此代理需要重写传入的 URL——这就是列表 15.3 中注释所做的工作。这是一个基本示例，它忽略了请求中的路径，并且始终使用后端的根路径。你不能使用
+    Ingress 规范表达 URL 重写，因此它需要从 ingress 控制器那里获得自定义支持。一个更现实的重写规则将使用正则表达式将请求的路径映射到目标路径。
+- en: We’ll deploy this simple version to avoid any regular expressions and see how
+    the ingress controller uses routing rules to identify the backend service and
+    modify the request path.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将部署这个简单的版本以避免使用正则表达式，并查看 ingress 控制器如何使用路由规则来识别后端服务并修改请求路径。
+- en: Try it now Deploy a new app with a new Ingress rule, and add a new domain to
+    your hosts file to see the ingress controller serving multiple applications from
+    the same domain.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 部署一个新的应用程序，并使用新的 Ingress 规则，然后向你的主机文件中添加一个新的域名，以查看 ingress 控制器从同一域名服务多个应用程序。
+- en: '[PRE7]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: In figure 15.6, you can see that two separate apps are made available at the
+    same domain name, using the request path to route between different components,
+    which are different versions of the application in this exercise.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图 15.6 中，你可以看到两个不同的应用在同一域名下可用，通过请求路径在不同的组件之间进行路由，这些组件是本练习中应用程序的不同版本。
+- en: '![](../Images/15-6.jpg)'
+  id: totrans-50
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 15-6](../Images/15-6.jpg)'
+- en: Figure 15.6 Ingress routing on the host name and path presents multiple apps
+    on the same domain name.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.6 展示了主机名和路径上的 Ingress 路由，它在同一域名下呈现多个应用。
+- en: Mapping the routing rules is the most complicated part of publishing a new app
+    to your ingress controller, but it does give you a lot of control. The Ingress
+    rules are the public face of your app, and you can use them to compose several
+    components—or to restrict access to features. In this section of the book, we’ve
+    seen that apps work better in Kubernetes if they have health endpoints for container
+    probes and metrics endpoints for Prometheus to scrape, but those shouldn’t be
+    publicly available. You can use Ingress to control that, using exact path mappings,
+    so only paths that are explicitly listed are available outside of the cluster.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将路由规则映射是发布新应用到您的 Ingress 控制器的最复杂部分，但它确实给了您很多控制权。Ingress 规则是您应用的公共面孔，您可以使用它们来组合多个组件——或者限制对功能的访问。在本节中，我们看到了如果应用有用于容器探针的健康端点和用于
+    Prometheus 收集的度量端点，它们在 Kubernetes 中工作得更好，但那些不应该公开可用。您可以使用 Ingress 来控制这一点，使用精确路径映射，因此只有明确列出的路径才在集群外部可用。
+- en: Listing 15.4 shows an example of that for the to-do list app. It’s abridged
+    because the downside with this approach is that you need to specify every path
+    you want to publish, so any paths not specified are blocked.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 15.4 展示了待办事项应用的示例。由于这种方法的一个缺点是您需要指定要发布的每个路径，因此未指定的任何路径都将被阻止。
+- en: Listing 15.4 ingress-exact.yaml, using exact path matching to restrict access
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 15.4 ingress-exact.yaml，使用精确路径匹配来限制访问
+- en: '[PRE8]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The to-do list app has several paths that shouldn’t be available outside of
+    the cluster—as well as `/metrics`, there’s a `/config` endpoint that lists all
+    of the application configurations and a diagnostics page. None of those paths
+    is included in the new Ingress spec, and we can see that they’re effectively blocked
+    when the rules are applied. The PathType field is a later addition to the Ingress
+    spec, so your Kubernetes cluster needs to be running at least version 1.18; otherwise,
+    you’ll get an error in this exercise.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 待办事项应用有几个不应该在集群外部可用的路径——以及 `/metrics`，还有一个列出所有应用程序配置的 `/config` 端点和诊断页面。这些路径都没有包含在新的
+    Ingress 规范中，并且我们可以看到当应用规则时，它们实际上被阻止了。PathType 字段是 Ingress 规范的后期添加，因此您的 Kubernetes
+    集群至少需要运行版本 1.18；否则，您将在本练习中遇到错误。
+- en: Try it now Deploy the to-do list app with an Ingress spec that allows all access,
+    and then update it with exact path matching, and confirm that the sensitive paths
+    are no longer available.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：部署一个允许所有访问的 Ingress 规范的待办事项应用，然后使用精确路径匹配来更新它，并确认敏感路径不再可用。
+- en: '[PRE9]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'You’ll see when you run this exercise that all of the sensitive paths are blocked
+    when you deploy the updated Ingress rules. My output is shown in figure 15.7\.
+    It’s not a perfect solution, but you can extend your ingress controller to show
+    a friendly 404 error page instead of the Nginx default. (Docker has a nice example:
+    try [https://www.docker.com/not-real-url](https://www.docker.com/not-real-url).)
+    The app still shows a menu for the diagnostics page because it’s not an app setting
+    that removes the page; it’s happening earlier in the process.'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您运行此练习时，您将看到当部署更新的 Ingress 规则时，所有敏感路径都被阻止。我的输出如图 15.7 所示。这不是一个完美的解决方案，但您可以将您的
+    Ingress 控制器扩展以显示友好的 404 错误页面，而不是 Nginx 的默认页面。（Docker 有一个很好的例子：尝试 [https://www.docker.com/not-real-url](https://www.docker.com/not-real-url)。）应用仍然显示诊断页面的菜单，因为这不是移除页面的应用设置；它发生在处理过程的更早阶段。
+- en: '![](../Images/15-7.jpg)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/15-7.jpg)'
+- en: Figure 15.7 Exact path matching in Ingress rules can be used to block access
+    to features.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.7 Ingress 规则中的精确路径匹配可用于阻止对功能的访问。
+- en: The separation between Ingress rules and the ingress controller makes it easy
+    to compare different proxy implementations and see which gives you the combination
+    of features and usability you’re happy with. But it comes with a warning because
+    there isn’t a strict ingress controller specification, and not every controller
+    implements Ingress rules in the same way. Some controllers ignore the PathType
+    field, so if you’re relying on that to build up an access list with exact paths,
+    you may find your site becomes access-all-areas if you switch to a different ingress
+    controller.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress 规则和 Ingress 控制器之间的分离使得比较不同的代理实现并查看哪个提供了您满意的特性和可用性变得容易。但是，它也带来一个警告，因为没有一个严格的
+    Ingress 控制器规范，并且不是每个控制器都以相同的方式实现 Ingress 规则。一些控制器忽略了 PathType 字段，因此如果您依赖于它来构建具有精确路径的访问列表，您可能会发现如果切换到不同的
+    Ingress 控制器，您的网站将变成一个可以访问所有区域的网站。
+- en: Kubernetes does let you run multiple ingress controllers, and in a complex environment,
+    you may do that to provide different sets of capabilities for different applications.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes确实允许你运行多个入口控制器，在一个复杂的环境中，你可能需要这样做，为不同的应用提供不同的功能集。
+- en: 15.3 Comparing ingress controllers
+  id: totrans-64
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 15.3 比较入口控制器
+- en: 'Ingress controllers come in two categories: reverse proxies, which have been
+    around for a long time and work at the network level, fetching content using host
+    names; and modern proxies, which are platform-aware and can integrate with other
+    services (cloud controllers can provision external load balancers). Choosing between
+    them comes down to the feature set and your own technology preferences. If you
+    have an established relationship with Nginx or HAProxy, you can continue that
+    in Kubernetes. Or if you have an established relationship with Nginx or HAProxy,
+    you might be glad to try a more lightweight, modern option.'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 入口控制器分为两类：反向代理，它们存在已久，在网络层工作，使用主机名获取内容；以及现代代理，它们具有平台意识，可以与其他服务集成（云控制器可以配置外部负载均衡器）。选择它们取决于功能集和你的技术偏好。如果你与Nginx或HAProxy有既定的关系，你可以在Kubernetes中继续使用它们。或者，如果你与Nginx或HAProxy有既定的关系，你可能很高兴尝试一个更轻量级、更现代的选项。
+- en: Your ingress controller becomes the single public entry point for all of the
+    apps in your cluster, so it’s a good place to centralize common concerns. All
+    controllers support SSL termination, so the proxy provides the security layer,
+    and you get HTTPS for all of your applications. Most controllers support web application
+    firewalls, so you can provide protection from SQL injection and other common attacks
+    in the proxy layer. Some controllers have special powers—we’ve already used Nginx
+    as a caching proxy, and you can use it for caching at the ingress level, too.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的入口控制器成为你集群中所有应用的唯一公共入口点，所以它是集中处理常见问题的好地方。所有控制器都支持SSL终止，因此代理提供了安全层，你为所有应用都获得了HTTPS。大多数控制器支持Web应用防火墙，因此你可以在代理层提供对SQL注入和其他常见攻击的保护。一些控制器具有特殊功能——我们之前已经使用Nginx作为缓存代理，你还可以在入口级别使用它进行缓存。
+- en: Try it now Deploy the Pi application using Ingress, then update the Ingress
+    object so the Pi app makes use of the Nginx cache in the ingress controller.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：使用入口部署π应用，然后更新入口对象，使π应用利用入口控制器中的Nginx缓存。
+- en: '[PRE10]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: You’ll see in this exercise that the ingress controller is a powerful component
+    in the cluster. You can add caching to your app just by specifying new Ingress
+    rules—no updates to the application itself and no new components to manage. The
+    only requirement is that the HTTP responses from your app include the right caching
+    headers, which they should anyway. Figure 15.8 shows my output, where the Pi calculation
+    took 1.2 seconds, but the response came from the ingress controller’s cache, so
+    the page loaded pretty much instantly.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你会发现入口控制器是集群中的一个强大组件。你只需指定新的入口规则，就可以给你的应用添加缓存——无需更新应用本身，也无需管理新的组件。唯一的要求是，你的应用返回的HTTP响应包含正确的缓存头信息，这本来就应该做到。图15.8展示了我的输出，其中π的计算耗时1.2秒，但响应来自入口控制器的缓存，所以页面几乎瞬间就加载完成了。
+- en: '![](../Images/15-8.jpg)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图15-8](../Images/15-8.jpg)'
+- en: Figure 15.8 If your ingress controller supports response caching, that’s an
+    easy performance boost.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.8 如果你的入口控制器支持响应缓存，那将是一个简单的性能提升。
+- en: Not every ingress controller provides a response cache, so that’s not a specific
+    part of the Ingress spec. Any custom configuration is applied with annotations,
+    which the controller picks up. Listing 15.5 shows the metadata for the updated
+    cache setting you applied in the previous exercise. If you’re familiar with Nginx,
+    you’ll recognize these as the proxy cache settings you would normally set in the
+    configuration file.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并非每个入口控制器都提供响应缓存，所以这并不是入口规范的具体部分。任何自定义配置都是通过注解来应用的，控制器会捕获这些注解。列表15.5展示了你在上一个练习中应用的更新缓存设置的元数据。如果你熟悉Nginx，你会认出这些是你在配置文件中通常设置的代理缓存设置。
+- en: Listing 15.5 ingress-with-cache.yaml, using the Nginx cache in the ingress controller
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表15.5 ingress-with-cache.yaml，使用入口控制器中的Nginx缓存
+- en: '[PRE11]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: The configuration in an Ingress object applies to all of its rules, but if you
+    need different features for different parts of your app, you can have multiple
+    Ingress rules. That’s true for the to-do list app, which needs some more help
+    from the ingress controller to work properly at scale. Ingress controllers use
+    load balancing if a Service has many Pods, but the to-do app has some cross-site
+    forgery protection, which breaks if the request to create a new item is sent to
+    a different app container from the one that originally rendered the new item page.
+    Lots of apps have a restriction like this, which proxies solve using *sticky sessions*.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress对象中的配置适用于其所有规则，但如果你需要为应用的不同部分提供不同的功能，你可以有多个Ingress规则。这对于需要从ingress控制器获得更多帮助以在扩展时正常工作的待办事项列表应用来说也是如此。如果服务有多个Pod，ingress控制器会使用负载均衡，但待办事项应用有一些跨站伪造保护，如果创建新项目的请求被发送到最初渲染新项目页面的不同应用容器，则会中断。许多应用都有这样的限制，代理使用*粘性会话*来解决这种限制。
+- en: Sticky sessions are a mechanism for the ingress controller to send requests
+    from the same end user to the same container, which is often a requirement for
+    older apps where components aren’t stateless. It’s something to avoid where possible
+    because it limits the cluster’s potential for load balancing, so in the to-do
+    list app, we want to restrict it to just one page. Figure 15.9 shows the Ingress
+    rules we’ll apply to get different features for different parts of the app.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 粘性会话是ingress控制器将来自同一终端用户的请求发送到同一容器的机制，这对于组件不是无状态的旧应用来说通常是必需的。在可能的情况下应避免使用它，因为它限制了集群的负载均衡潜力，所以在待办事项列表应用中，我们希望将其限制在仅一个页面上。图15.9显示了我们将应用于应用不同部分的Ingress规则。
+- en: '![](../Images/15-9.jpg)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片15-9](../Images/15-9.jpg)'
+- en: Figure 15.9 A domain can be mapped with multiple Ingress rules, using different
+    proxy features.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.9 一个域可以使用多个Ingress规则进行映射，使用不同的代理功能。
+- en: We can scale up the to-do app now to understand the problem and then apply the
+    updated Ingress rules to fix it.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以将待办事项应用程序扩展以了解问题，然后应用更新的Ingress规则来修复它。
+- en: Try it now Scale up the to-do application to confirm that it breaks without
+    sticky sessions, and then deploy the updated Ingress rules from figure 15.9 and
+    confirm it all works again.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 将待办事项应用程序扩展以确认在没有粘性会话的情况下它会崩溃，然后部署图15.9中的更新后的Ingress规则，并确认一切恢复正常。
+- en: '[PRE12]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: You can see my output in figure 15.10, but unless you run the exercise yourself,
+    you’ll have to take my word for which is the “before” and which is the “after”
+    screenshot. Scaling up the application replicas means requests from the ingress
+    controller are load-balanced, which triggers the antiforgery error. Applying sticky
+    sessions stops load balancing on the new item path, so a user’s requests are always
+    routed to the same Pod, and the forgery check passes.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图15.10中看到我的输出，但除非你自己运行这个练习，否则你只能相信我的话，来确定哪个是“之前”的截图，哪个是“之后”的截图。增加应用副本的数量意味着来自ingress控制器的请求会被负载均衡，这会触发反伪造错误。应用粘性会话停止在新项目路径上的负载均衡，因此用户的请求总是被路由到同一个Pod，伪造检查通过。
+- en: '![](../Images/15-10.jpg)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片15-10](../Images/15-10.jpg)'
+- en: Figure 15.10 Proxy features can fix problems as well as improve performance.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.10 代理功能既可以解决问题，也可以提高性能。
+- en: The Ingress resources for the to-do app use a combination of host, paths, and
+    annotations to set all the rules and the features to apply. Behind the scenes,
+    the job of the controller is to convert those rules into proxy configuration,
+    which in the case of Nginx means writing a config file. The controller features
+    lots of optimizations to minimize the number of file writes and configuration
+    reloads, but as a result, the Nginx configuration file is horribly complex. If
+    you opt for the Nginx ingress controller because you have Nginx experience and
+    you’d be comfortable debugging the config file, you’re in for an unpleasant surprise.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 待办事项应用的Ingress资源使用主机、路径和注解的组合来设置所有规则和要应用的功能。在幕后，控制器的任务是把这些规则转换成代理配置，在Nginx的情况下意味着编写一个配置文件。控制器有很多优化来最小化文件写入和配置重新加载的次数，但结果是，Nginx配置文件非常复杂。如果你选择Nginx
+    ingress控制器是因为你有Nginx经验，并且你愿意调试配置文件，那么你可能会遇到一个不愉快的惊喜。
+- en: Try it now The Nginx configuration is in a file in the ingress controller Pod.
+    Run a command in the Pod to check the size of the file.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 Nginx配置位于ingress控制器Pod中的文件中。在Pod中运行一个命令来检查文件的大小。
+- en: '[PRE13]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Figure 15.11 shows there are more than 1,700 lines in my Nginx configuration
+    file. If you run `cat` instead of `wc`, you’ll find the contents are strange,
+    even if you’re familiar with Nginx. (The controller uses Lua scripts so it can
+    update endpoints without a configuration reload.)
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.11 显示我的 Nginx 配置文件中有多达 1,700 行。如果你运行 `cat` 而不是 `wc`，你会发现即使你熟悉 Nginx，内容也很奇怪。（控制器使用
+    Lua 脚本，因此可以在不重新加载配置的情况下更新端点。）
+- en: '![](../Images/15-11.jpg)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 15-11](../Images/15-11.jpg)'
+- en: Figure 15.11 The generated Nginx configuration file is not made to be human-friendly.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.11 生成的 Nginx 配置文件并不是为了便于人类阅读的。
+- en: The ingress controller owns that complexity, but it’s a critical part of your
+    solution, and you need to be happy with how you’ll troubleshoot and debug the
+    proxy. This is when you might want to consider an alternative ingress controller
+    that is platform aware and doesn’t run from a complex configuration file. We’ll
+    look at Traefik in this chapter—it’s an open source proxy that has been gaining
+    popularity since it launched in 2015\. Traefik understands containers, and it
+    builds its routing list from the platform API, natively supporting Docker and
+    Kubernetes, so it doesn’t have a config file to maintain.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 入口控制器拥有这种复杂性，但它是你解决方案的关键部分，你需要对你的代理的故障排除和调试方式感到满意。这时，你可能想要考虑一个平台感知的替代入口控制器，它不运行在复杂的配置文件中。我们将在本章中查看
+    Traefik——它是一个自 2015 年推出以来越来越受欢迎的开源代理。Traefik 理解容器，并从平台 API 构建其路由列表，原生支持 Docker
+    和 Kubernetes，因此它没有配置文件需要维护。
+- en: Kubernetes supports multiple Ingress controllers running in a single cluster.
+    They’ll be exposed as LoadBalancer Services, so in production, you might have
+    different IP addresses for different ingress controllers, and you’ll need to map
+    domains to Ingress in your DNS configuration. In our lab environment, we’ll be
+    back to using different ports. We’ll start by deploying Traefik with a custom
+    port for the ingress controller Service.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 支持在单个集群中运行多个入口控制器。它们将作为负载均衡器服务公开，因此在生产环境中，你可能为不同的入口控制器有不同的 IP 地址，你需要在
+    DNS 配置中将域名映射到入口。在我们的实验室环境中，我们将回到使用不同的端口。我们将首先部署 Traefik，为入口控制器服务使用自定义端口。
+- en: Try it now Deploy Traefik as an additional ingress controller in the cluster.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：在集群中将 Traefik 部署为额外的入口控制器。
+- en: '[PRE14]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: You’ll see in that exercise that Traefik has an admin UI. It shows you the routing
+    rules the proxy is using, and as traffic passes through, it can collect and show
+    performance metrics. It’s much easier to work with than the Nginx config file.
+    Figure 15.12 shows two *routers*, which are the incoming routes Traefik manages.
+    If you explore the dashboard, you’ll see those aren’t Ingress routes; they’re
+    internal routes for Traefik’s own dashboard—Traefik has not picked up any of the
+    existing Ingress rules in the cluster.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在那个练习中，你会看到 Traefik 有一个管理界面。它显示了代理正在使用的路由规则，并且随着流量的通过，它可以收集并显示性能指标。与 Nginx 配置文件相比，它要容易操作得多。图
+    15.12 展示了两个 *路由器*，这是 Traefik 管理的进入路由。如果你探索仪表板，你会看到那些不是入口路由；它们是 Traefik 自身仪表板的内部路由——Traefik
+    没有在集群中获取任何现有的入口规则。
+- en: '![](../Images/15-12.jpg)'
+  id: totrans-96
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 15-12](../Images/15-12.jpg)'
+- en: Figure 15.12 Traefik is a container-native proxy that builds routing rules from
+    the platform and has a UI to display them.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.12 Traefik 是一个容器原生代理，它从平台构建路由规则，并有一个用户界面来显示它们。
+- en: Why hasn’t Traefik built a set of routing rules for the to-do list or the Pi
+    applications? It would if we had configured it differently, and all the existing
+    routes would be available via the Traefik Service, but that’s not how you use
+    multiple ingress controllers because they would end up fighting over incoming
+    requests. You run more than one controller to provide different proxy capabilities,
+    and you need the application to choose which one to use. You do that with *ingress
+    classes*, which are a similar concept to storage classes. Traefik has been deployed
+    with a named ingress class, and only Ingress objects that request that class will
+    be routed through Traefik.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么 Traefik 没有为待办事项列表或 Pi 应用程序构建一组路由规则？如果我们配置不同，它就会这样做，并且所有现有路由都将通过 Traefik
+    服务可用，但你不会使用多个入口控制器，因为它们最终会为进入请求而争斗。你运行多个控制器以提供不同的代理功能，你需要应用程序选择使用哪一个。你可以通过 *入口类*
+    来做到这一点，它与存储类有类似的概念。Traefik 已经部署了一个命名的入口类，并且只有请求该类的入口对象将通过 Traefik 路由。
+- en: '![](../Images/15-13.jpg)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 15-13](../Images/15-13.jpg)'
+- en: Figure 15.13 Ingress controllers work differently, and your route model will
+    need to change accordingly.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.13 入口控制器的工作方式不同，你的路由模型需要相应地改变。
+- en: The ingress class isn’t the only difference between ingress controllers, and
+    you may need to model your routes quite differently for different proxies. Figure
+    15.13 shows how the to-do app needs to be configured in Traefik. There’s no response
+    cache in Traefik so we don’t get caching for static resources, and sticky sessions
+    are configured at the Service level, so we need an additional Service for the
+    new item route.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress 类不是 Ingress 控制器之间唯一的区别，你可能需要为不同的代理对路由进行相当不同的建模。图 15.13 展示了在 Traefik
+    中 to-do 应用需要如何配置。在 Traefik 中没有响应缓存，所以我们不会为静态资源获得缓存，并且粘性会话是在服务级别配置的，因此我们需要为新的项目路由添加一个额外的服务。
+- en: That model is significantly different from the Nginx routing in figure 15.9,
+    so if you do plan to run multiple ingress controllers, you need to appreciate
+    the high risk of misconfiguration, with teams confusing the different capabilities
+    and approaches. Traefik uses annotations on Ingress resources to configure the
+    routing rules. Listing 15.6 shows a spec for the new-item path, which selects
+    Traefik as the ingress class and uses an annotation for exact path matching, because
+    Traefik doesn’t support the PathType field.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该模型与图 15.9 中的 Nginx 路由有显著不同，所以如果你确实计划运行多个 Ingress 控制器，你需要认识到配置错误的高风险，因为团队可能会混淆不同的功能和方法。Traefik
+    使用 Ingress 资源上的注解来配置路由规则。列表 15.6 显示了新项目路径的规范，它选择 Traefik 作为 Ingress 类，并使用注解进行精确路径匹配，因为
+    Traefik 不支持 PathType 字段。
+- en: Listing 15.6 ingress-traefik.yaml, selecting the ingress class with Traefik
+    annotations
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 15.6 ingress-traefik.yaml，选择带有 Traefik 注解的 Ingress 类
+- en: '[PRE15]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: We’ll deploy a new set of Ingress rules using a different host name, so we can
+    route traffic to the same set of to-do list Pods via Nginx or Traefik.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用不同的主机名部署一套新的 Ingress 规则，这样我们就可以通过 Nginx 或 Traefik 将流量路由到同一组 to-do 列表 Pods。
+- en: Try it now Publish the to-do app through the Traefik ingress controller, using
+    the Ingress routes modeled in figure 15.13.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 通过 Traefik Ingress 控制器发布 to-do 应用，使用图 15.13 中建模的 Ingress 路由。
+- en: '[PRE16]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Traefik watches for events from the Kubernetes API server and refreshes its
+    routing list automatically. When you deploy the new Ingress objects, you’ll see
+    the paths shown as routers in the Traefik dashboard, linked to the backend Services.
+    Figure 15.14 shows part of the routing list, together with the to-do app available
+    through the new URL.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Traefik 监视来自 Kubernetes API 服务器的事件，并自动刷新其路由列表。当你部署新的 Ingress 对象时，你将在 Traefik
+    仪表板中看到显示为路由器的路径，链接到后端服务。图 15.14 显示了部分路由列表，以及通过新 URL 可用的 to-do 应用。
+- en: '![](../Images/15-14.jpg)'
+  id: totrans-109
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/15-14.jpg)'
+- en: Figure 15.14 Ingress controllers achieve the same goals from different configuration
+    models.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.14 Ingress 控制器从不同的配置模型中实现相同的目标。
+- en: If you’re evaluating ingress controllers, you should look at the ease of modeling
+    your application paths, together with the approach to troubleshooting and the
+    performance of the proxy. Dual-running controllers in a dedicated environment
+    helps with that because you can isolate other factors and run comparisons using
+    the same application components. A more realistic app will have more complex Ingress
+    rules, and you’ll want to be comfortable with how the controller implements features
+    like rate limiting, URL rewrites, and client IP access lists.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你正在评估 Ingress 控制器，你应该考虑建模你的应用程序路径的简便性，以及故障排除方法和代理的性能。在专用环境中双运行的控制器有助于这一点，因为你可以隔离其他因素，并使用相同的应用程序组件进行对比。一个更真实的应用程序将具有更复杂的
+    Ingress 规则，你将希望对控制器实现诸如速率限制、URL 重写和客户端 IP 访问列表等功能的实现感到舒适。
+- en: The other major feature of Ingress is publishing apps over HTTPS without configuring
+    certificates and security settings in your applications. This is one area that
+    is consistent among ingress controllers, and in the next section, we’ll see it
+    with Traefik and Nginx.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress 的另一个主要功能是在不配置应用程序中的证书和安全设置的情况下通过 HTTPS 发布应用程序。这是 Ingress 控制器之间一致的一个领域，在下一节中，我们将通过
+    Traefik 和 Nginx 来看到这一点。
+- en: 15.4 Using Ingress to secure your apps with HTTPS
+  id: totrans-113
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 15.4 使用 Ingress 通过 HTTPS 保护你的应用
+- en: Your web apps should be published over HTTPS, but encryption needs server certificates,
+    and certificates are sensitive data items. It’s a good practice to make HTTPS
+    an ingress concern, because it centralizes certificate management. Ingress resources
+    can specify a TLS certificate in a Kubernetes Secret (TLS is Transport Layer Security,
+    the encryption mechanism for HTTPS). Moving TLS away from application teams means
+    you can have a standard approach to provisioning, securing, and renewing certificates—and
+    you won’t have to spend time explaining why packaging certificates inside a container
+    image is a bad idea.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的 Web 应用程序应通过 HTTPS 发布，但加密需要服务器证书，而证书是敏感数据项。将 HTTPS 作为入口关注点是一个好习惯，因为它集中管理证书。入口资源可以在
+    Kubernetes 机密（TLS 是传输层安全，HTTPS 的加密机制）中指定 TLS 证书。将 TLS 从应用团队移除意味着您可以有一个标准的方法来提供、保护和续订证书——您也不必花费时间解释为什么在容器镜像中打包证书是一个糟糕的想法。
+- en: All ingress controllers support loading a TLS certificate from a Secret, but
+    Traefik makes it easier still. If you want to use HTTPS in development and test
+    environments without provisioning any Secrets, Traefik can generate its own self-signed
+    certificate when it runs. You configure that with annotations in the Ingress rules
+    to enable TLS and the default certificate resolver.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有入口控制器都支持从机密加载 TLS 证书，但 Traefik 使其更加简单。如果您想在开发和测试环境中使用 HTTPS 而不配置任何机密，Traefik
+    在运行时可以生成自己的自签名证书。您可以通过入口规则中的注解来配置它，以启用 TLS 和默认证书解析器。
+- en: Try it now Using Traefik’s generated certificate is a quick way to test your
+    app over HTTPS. It’s enabled with more annotations in the Ingress objects.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 使用 Traefik 生成的证书是测试您的应用程序通过 HTTPS 的快速方法。它通过在入口对象中启用更多注解来实现。
+- en: '[PRE17]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Browsers don’t like self-signed certificates because anyone can create them—there’s
+    no verifiable chain of authority. You’ll see a big warning when you first browse
+    to the site, telling you it’s not safe, but you can proceed, and the to-do list
+    app will load. As shown in figure 15.15, the site is encrypted with HTTPS but
+    with a warning so you know it’s not really secure.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 浏览器不喜欢自签名证书，因为任何人都可以创建它们——没有可验证的授权链。当您第一次浏览到该网站时，您会看到一个大的警告，告诉您它不安全，但您可以继续，待办事项应用将加载。如图
+    15.15 所示，该网站使用 HTTPS 加密，但有一个警告，让您知道它实际上并不安全。
+- en: '![](../Images/15-15.jpg)'
+  id: totrans-119
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 15.15](../Images/15-15.jpg)'
+- en: Figure 15.15 Not all HTTPS is secure—self-signed certificates are fine for development
+    and test environments.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 15.15 并非所有 HTTPS 都是安全的——自签名证书适用于开发和测试环境。
+- en: 'Your organization will probably have its own idea about certificates. If you’re
+    able to own the provisioning process, you can have a fully automated system where
+    your cluster fetches short-lived certificates from a certificate authority (CA),
+    installs them, and renews them when required. Let’s Encrypt is a great choice:
+    it issues free certificates through an easily automated process. Traefik has native
+    integration with Let’s Encrypt; for other ingress controllers, you can use the
+    open source cert-manager tool ([https://cert-manager.io](https://cert-manager.io)),
+    which is a CNCF project.'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的组织可能对证书有自己的看法。如果您能够控制提供过程，您可以拥有一个完全自动化的系统，其中您的集群从证书颁发机构（CA）获取短期证书，安装它们，并在需要时续订它们。Let’s
+    Encrypt 是一个很好的选择：它通过一个易于自动化的过程颁发免费证书。Traefik 与 Let’s Encrypt 有原生集成；对于其他入口控制器，您可以使用开源的
+    cert-manager 工具（[https://cert-manager.io](https://cert-manager.io)），它是一个 CNCF
+    项目。
+- en: Not everyone is ready for an automated provisioning process, though. Some issuers
+    require a human to download certificate files, or your organization may create
+    certificate files from its own certificate authority for nonproduction domains.
+    Then you’ll need to deploy the TLS certificate and key files as a Secret in the
+    cluster. This scenario is common, so we’ll walk through it in the next exercise,
+    generating a certificate of our own.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管如此，并非每个人都准备好自动化提供过程。一些颁发者要求人工下载证书文件，或者您的组织可能为非生产域从其自己的证书颁发机构创建证书文件。然后您需要将
+    TLS 证书和密钥文件作为机密在集群中部署。这种情况很常见，所以我们在下一个练习中会演示如何生成自己的证书。
+- en: Try it now Run a Pod that generates a custom TLS certificate, and connect to
+    the Pod to deploy the certificate files as a Secret. The Pod spec is configured
+    to connect to the Kubernetes API server it’s running on.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 运行一个生成自定义 TLS 证书的 Pod，并连接到 Pod 以将证书文件作为机密部署。Pod 规范配置为连接到其运行的 Kubernetes
+    API 服务器。
+- en: '[PRE18]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: That exercise simulates the situation where someone gives you a TLS certificate
+    as a pair of PEM files, which you need to rename and use as the input to create
+    a TLS Secret in Kubernetes. The certificate generation is all done using a tool
+    called OpenSSL, and the only reason for running it inside a Pod is to package
+    up the tool and the scripts to make it easy to use. Figure 15.16 shows my output,
+    with a Secret created in the cluster that can be used by an Ingress object.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该练习模拟了有人向您提供作为一对PEM文件的TLS证书的情况，您需要将其重命名并用作在Kubernetes中创建TLS机密的输入。证书生成全部使用名为OpenSSL的工具完成，将其在Pod内部运行的唯一原因是为了打包工具和脚本，使其易于使用。图15.16显示了我的输出，其中在集群中创建了一个机密，该机密可以被Ingress对象使用。
+- en: '![](../Images/15-16.jpg)'
+  id: totrans-126
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/15-16.jpg)'
+- en: Figure 15.16 If you’re given PEM files from a certificate issuer, you can create
+    them as a TLS Secret.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.16 如果您从证书发行者那里收到PEM文件，您可以将它们创建为TLS机密。
+- en: HTTPS support is simple with an ingress controller. You add a TLS section to
+    your Ingress spec and state the name of the Secret to use—that’s it. Listing 15.7
+    shows an update to the Traefik ingress, which applies the new certificate to the
+    `todo2.kiamol .local` host.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用入口控制器支持HTTPS很简单。您只需在Ingress规范中添加一个TLS部分，并声明要使用的Secret名称——这就完成了。列表15.7显示了Traefik入口的更新，它将新证书应用于`todo2.kiamol
+    .local`主机。
+- en: Listing 15.7 ingress-traefik-https.yaml, using the standard Ingress HTTPS feature
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表15.7 ingress-traefik-https.yaml，使用标准的Ingress HTTPS功能
+- en: '[PRE19]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: The TLS field with the Secret name is all you need, and it’s portable across
+    all ingress controllers. When you deploy the updated Ingress rules, the site will
+    be served over HTTPS with your custom certificate. You’ll still get a security
+    warning from the browser because the certificate authority is untrusted, but if
+    your organization has its own CA, then it will be trusted by your machine and
+    the organization’s certificates will be valid.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 带有Secret名称的TLS字段就是您所需要的，并且它在所有入口控制器之间都是可移植的。当您部署更新的Ingress规则时，网站将通过HTTPS使用您的自定义证书提供服务。您仍然会从浏览器收到安全警告，因为证书颁发机构不受信任，但如果您的组织有自己的CA，那么它将被您的机器和组织证书所信任。
+- en: Try it now Update the to-do list Ingress objects to publish HTTPS using the
+    Traefik ingress controller and your own TLS cert.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 更新待办事项列表中的Ingress对象，以使用Traefik入口控制器和您自己的TLS证书发布HTTPS。
+- en: '[PRE20]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: You can see my output in figure 15.17\. I’ve opened the certificate details
+    in one screen to confirm this is my own “kiamol” certificate. I accepted the warning
+    in the second screen, and the to-do list traffic is now encrypted with the custom
+    certificate. The script that generates the certificate sets it for all the `kiamol.local`
+    domains we’ve used in this chapter, so the certificate is valid for the address,
+    but it’s not from a trusted issuer.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在图15.17中看到我的输出。我在一个屏幕上打开了证书详情，以确认这是我的“kiamol”证书。我在第二个屏幕上接受了警告，现在待办事项列表的流量现在已通过自定义证书加密。生成证书的脚本将其设置为我们在本章中使用的所有`kiamol.local`域名，因此证书对该地址有效，但它不是来自受信任的发行者。
+- en: '![](../Images/15-17.jpg)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/15-17.jpg)'
+- en: Figure 15.17 Ingress controllers can apply TLS certs from Kubernetes Secrets.
+    If the certificate had come from a trusted issuer, the site would be secure
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.17 入口控制器可以从Kubernetes机密中应用TLS证书。如果证书来自受信任的发行者，则网站将是安全的
+- en: We’ll switch back to Nginx for the final exercise—using the same certificate
+    with the Nginx ingress controller, just to show that the process is identical.
+    The updated Ingress specs use the same rules as the previous Nginx deployment,
+    but now they add the TLS field with the same Secret name as listing 15.7.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将切换回Nginx进行最后的练习——使用与Nginx入口控制器相同的证书，只是为了展示过程是相同的。更新的Ingress规范使用与之前Nginx部署相同的规则，但现在它们添加了与列表15.7相同的Secret名称的TLS字段。
+- en: Try it now Update the to-do Ingress rules for Nginx, so the app is available
+    using HTTPS over the standard port 443, which the Nginx ingress controller is
+    using.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 更新待办事项的Ingress规则以Nginx，以便应用程序可以通过标准端口443（Nginx入口控制器正在使用）使用HTTPS进行访问。
+- en: '[PRE21]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: I cheated when I ran that exercise and added the Kiamol CA to my trusted issuer
+    list in the browser. You can see in figure 15.18 that the site is shown as secure,
+    without any warnings, which is what you’d see for an organization’s own certificates.
+    You can also see that the ingress controller redirects HTTP requests to HTTPS—the
+    308 redirect response in the `curl` command is taken care of by Nginx.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我运行那个练习时，我作弊了，并将Kiamol CA添加到浏览器中信任的发行者列表中。你可以在图15.18中看到，该网站显示为安全，没有任何警告，这就是你看到组织自己的证书时的样子。你还可以看到入口控制器将HTTP请求重定向到HTTPS——`curl`命令中的308重定向响应由Nginx处理。
+- en: '![](../Images/15-18.jpg)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/15-18.jpg)'
+- en: Figure 15.18 The TLS Ingress configuration works in the same way with the Nginx
+    ingress controller.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图15.18 TLS入口配置与Nginx入口控制器的工作方式相同。
+- en: The HTTPS part of Ingress is solid and easy to use, and it’s good to head to
+    the end of the chapter on a high note. But using an ingress controller features
+    a lot of complexity, and in some cases, you’ll spend more time crafting your Ingress
+    rules than you will modeling the deployment of the app.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Ingress的HTTPS部分稳固且易于使用，在章节结束时留下一个积极的印象是很好的。但是，使用入口控制器具有很多复杂性，在某些情况下，你可能会花更多的时间来制定入口规则，而不是建模应用程序的部署。
+- en: 15.5 Understanding Ingress and ingress controllers
+  id: totrans-144
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 15.5 理解入口和入口控制器
+- en: You’ll almost certainly run an ingress controller in your cluster, because it
+    centralizes routing for domain names and moves TLS certificate management away
+    from the applications. The Kubernetes model uses a common Ingress spec and a pluggable
+    implementation that is very flexible, but the user experience is not straightforward.
+    The Ingress spec records only the most basic routing details, and to use more
+    advanced features from your proxy, you’ll need to add chunks of configuration
+    as annotations.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你几乎肯定会在你的集群中运行入口控制器，因为它集中管理域名路由，并将TLS证书管理从应用程序中移除。Kubernetes模型使用一个通用的入口规范和一个可插拔的实现，非常灵活，但用户体验并不直观。入口规范仅记录最基本的路由细节，要使用代理的更高级功能，你需要添加配置注释的块。
+- en: Those annotations are not portable, and there is no interface specification
+    for the features an ingress controller must support. There will be a migration
+    project if you want to move from Nginx to Traefik or HAProxy or Contour (an open
+    source project accepted into the CNCF on the very day I wrote this chapter), and
+    you may find the features you need aren’t all available. The Kubernetes community
+    is aware of the limitations of Ingress and is working on a long-term replacement
+    called the *Service API*, but as of 2021, that’s still in the early stages.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些注释是不可移植的，并且没有为入口控制器必须支持的功能提供接口规范。如果你想从Nginx迁移到Traefik或HAProxy或Contour（一个在撰写本章的同一天被CNCF接受的开源项目），将会有一个迁移项目，你可能发现你需要的功能并不全部可用。Kubernetes社区意识到入口的限制，并正在开发一个长期替代方案，称为*服务API*，但截至2021年，这仍然处于早期阶段。
+- en: That’s not to say that Ingress should be avoided—it’s the best option right
+    now, and it’s likely to be the production choice for many years. It’s worth evaluating
+    different ingress controllers and then settling on a single option. Kubernetes
+    supports multiple ingress controllers, but the trouble will really start if you
+    use different implementations and have to manage sets of Ingress rules with incompatible
+    feature sets invoked through incomprehensible annotations. In this chapter, we
+    looked at Nginx and Traefik, which are both good options, but there are plenty
+    of others, including commercial options backed with support contracts.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这并不是说应该避免使用入口——目前这是最佳选择，并且可能在未来许多年里都是生产环境的选择。评估不同的入口控制器，然后确定一个单一选项是值得的。Kubernetes支持多个入口控制器，但如果使用不同的实现并需要管理具有不兼容功能集的入口规则集，麻烦就会真正开始。在本章中，我们探讨了Nginx和Traefik，它们都是不错的选择，但还有许多其他选项，包括有支持合同的商业选项。
+- en: We’re done with Ingress now, so we can tidy up the cluster to get ready for
+    the lab.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在完成了入口，因此我们可以整理集群，为实验室做准备。
+- en: Try it now Clear down the Ingress namespaces and the application resources.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 清除入口命名空间和应用程序资源。
+- en: '[PRE22]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 15.6 Lab
+  id: totrans-151
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 15.6 实验室
+- en: Here is a nice lab for you to do, following the pattern from chapters 13 and
+    14\. Your job is to build the Ingress rules for the Astronomy Picture of the Day
+    app. Simple . . .
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一个很好的实验室供你完成，遵循第13章和第14章的模式。你的任务是为每日天文图片应用程序构建入口规则。简单……
+- en: Start by deploying the ingress controller in the `lab/ingress-nginx` folder.
+  id: totrans-153
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 首先在`lab/ingress-nginx`文件夹中部署入口控制器。
+- en: The ingress controller is restricted to look for Ingress objects in one namespace,
+    so you’ll need to figure out which one and deploy the `lab/apod/` folder to that
+    namespace.
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 入口控制器限制在单个命名空间中查找入口对象，因此您需要找出是哪一个，并将`lab/apod/`文件夹部署到那个命名空间。
+- en: The web app should be published at `www.apod.local` and the API at `api.apod
+    .local`.
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 网站应用应发布在 `www.apod.local`，API则在 `api.apod .local`。
+- en: We want to prevent distributed denial-of-service attacks, so you should use
+    the rate-limiting feature in the ingress controller to prevent too many requests
+    from the same IP address.
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们希望防止分布式拒绝服务攻击，因此您应该使用入口控制器中的速率限制功能来防止来自同一IP地址的过多请求。
+- en: The ingress controller uses a custom class name, so you’ll need to find that,
+    too.
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 入口控制器使用自定义类名，因此您还需要找到那个类名。
+- en: 'This is partly about digging into the ingress controller configuration and
+    partly about the documentation for the controller—be aware that there are two
+    Nginx ingress controllers. We’ve used the one from the Kubernetes project in this
+    chapter, but there’s an alternative published by the Nginx project. My solution
+    is ready for you to check against: [https://github.com/sixeyed/kiamol/blob/master/ch15/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch15/lab/README.md).'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这部分内容涉及深入挖掘入口控制器配置以及控制器的文档——请注意，存在两个Nginx入口控制器。在本章中，我们使用了来自Kubernetes项目的那个，但Nginx项目也发布了一个替代版本。我的解决方案已经准备好供您检查：[https://github.com/sixeyed/kiamol/blob/master/ch15/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch15/lab/README.md)。

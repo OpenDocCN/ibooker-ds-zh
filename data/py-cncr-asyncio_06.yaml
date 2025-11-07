@@ -1,0 +1,1669 @@
+- en: 6 Handling CPU-bound work
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 6 处理CPU密集型工作
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: The multiprocessing library
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: multiprocessing库
+- en: Creating process pools to handle CPU-bound work
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建进程池以处理CPU密集型工作
+- en: Using `async` and `await` to manage CPU-bound work
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用`async`和`await`管理CPU密集型工作
+- en: Using MapReduce to solve a CPU-intensive problem with asyncio
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用MapReduce在asyncio中解决CPU密集型问题
+- en: Handling shared data between multiple processes with locks
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用锁处理多个进程之间的共享数据
+- en: Improving the performance of work with both CPU- and I/O-bound operations
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过CPU和I/O密集型操作提高工作性能
+- en: Until now, we’ve been focused on performance gains we can get with asyncio when
+    running I/O-bound work concurrently. Running I/O-bound work is asyncio’s bread
+    and butter, and with the way we’ve written code so far, we need to be careful
+    not to run any CPU-bound code in our coroutines. This seems like it severely limits
+    asyncio, but the library is more versatile than just handling I/O-bound work.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直专注于在并发运行I/O密集型工作时，我们可以通过asyncio获得性能提升。运行I/O密集型工作是asyncio的核心，而且按照我们迄今为止编写的代码，我们需要小心不要在我们的协程中运行任何CPU密集型代码。这似乎严重限制了asyncio，但这个库的功能远不止处理I/O密集型工作。
+- en: asyncio has an API for interoperating with Python’s multiprocessing library.
+    This lets us use async `await` syntax as well as asyncio APIs with multiple processes.
+    Using this, we can get the benefits of the asyncio library even when using CPU-bound
+    code. This allows us to achieve performance gains for CPU-intensive work, such
+    as mathematical computations or data processing, letting us sidestep the global
+    interpreter lock and take full advantage of a multicore machine.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncio有一个API可以与Python的multiprocessing库交互。这让我们可以使用async `await`语法以及与多个进程一起使用的asyncio
+    API。使用这个，我们可以在使用CPU密集型代码时获得asyncio库的好处。这允许我们在进行数学计算或数据处理等CPU密集型工作时获得性能提升，从而绕过全局解释器锁，充分利用多核机器。
+- en: In this chapter, we’ll first learn about the multiprocessing module to become
+    familiar with the concept of executing multiple processes. We’ll then learn about
+    *process pool executors* and how we can hook them into asyncio. We’ll then take
+    this knowledge and use it to solve a CPU-intensive problem with MapReduce. We’ll
+    also learn about managing shared states amongst multiple processes, and we’ll
+    introduce the concept of locking to avoid concurrency bugs. Finally, we’ll look
+    at how to use multiprocessing to improve the performance of an application that
+    is both I/O- and CPU-bound as we saw in chapter 5.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将首先学习multiprocessing模块，以便熟悉执行多个进程的概念。然后，我们将学习*进程池执行器*以及如何将它们钩入asyncio。然后，我们将利用这些知识使用MapReduce解决CPU密集型问题。我们还将学习在多个进程之间管理共享状态，并介绍锁的概念以避免并发错误。最后，我们将探讨如何使用multiprocessing来提高第5章中提到的既I/O密集型又CPU密集型应用程序的性能。
+- en: 6.1 Introducing the multiprocessing library
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.1 介绍multiprocessing库
+- en: In chapter 1, we introduced the global interpreter lock. The global interpreter
+    lock prevents more than one piece of Python bytecode from running in parallel.
+    This means that for anything other than I/O-bound tasks, excluding some small
+    exceptions, using multithreading won’t provide any performance benefits, the way
+    it would in languages such as Java and C++. It seems like we might be stuck with
+    no solution for our parallelizable CPU-bound work in Python, but this is where
+    the multiprocessing library provides a solution.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第一章中，我们介绍了全局解释器锁。全局解释器锁防止Python字节码并行执行。这意味着，对于除了I/O密集型任务以外的任何任务，排除一些小异常，使用多线程不会提供任何性能优势，就像在Java和C++等语言中那样。看起来我们可能无法在Python中找到解决方案来处理可并行化的CPU密集型工作，但这就是multiprocessing库提供解决方案的地方。
+- en: Instead of our parent process spawning threads to parallelize things, we instead
+    spawn subprocesses to handle our work. Each subprocess will have its own Python
+    interpreter and be subject to the GIL, but instead of one interpreter we’ll have
+    several, each with its own GIL. Assuming we run on a machine with multiple CPU
+    cores, this means that we can parallelize any CPU-bound workload effectively.
+    Even if we have more processes than cores, our operating system will use preemptive
+    multitasking to allow our multiple tasks to run concurrently. This setup is both
+    concurrent *and* parallel.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与我们的父进程通过创建线程来并行化任务不同，我们反而创建子进程来处理我们的工作。每个子进程都将拥有自己的Python解释器和受到GIL（全局解释器锁）的影响，但我们将拥有多个解释器，每个解释器都有自己的GIL。假设我们在一个拥有多个CPU核心的机器上运行，这意味着我们可以有效地并行化任何CPU密集型工作负载。即使我们的进程数量超过了核心数量，我们的操作系统也会使用抢占式多任务处理来允许我们的多个任务并发运行。这种设置既是并发的，也是并行的。
+- en: To get started with the multiprocessing library, let’s start by running a couple
+    of functions in parallel. We’ll use a very simple CPU-bound function that counts
+    from zero to a large number to examine how the API works as well as the performance
+    benefits.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要开始使用多进程库，让我们先并行运行几个函数。我们将使用一个非常简单的CPU密集型函数，即从零计数到一个大数，以检查API的工作方式以及性能优势。
+- en: Listing 6.1 Two parallel processes with multiprocessing
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.1 使用多进程的并行进程
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Create a process to run the countdown function.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个运行倒计时函数的进程。
+- en: ❷ Start the process. This method returns instantly.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动进程。此方法会立即返回。
+- en: ❸ Wait for the process to finish. This method blocks until the process is done.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 等待进程完成。此方法会阻塞，直到进程完成。
+- en: 'In the preceding listing, we create a simple count function which takes an
+    integer and loops one by one until we count to the integer we pass in. We then
+    create two processes, one to count to 100,000,000 and one to count to 200,000,000\.
+    The `Process` class takes in two arguments, a `target` which is the function name
+    we wish to run in the process and `args` representing a tuple of arguments we
+    wish to pass to the function. We then call the `start` method on each process.
+    This method returns instantly and will start running the process. In this example
+    we start both processes one after another. We then call the `join` method on each
+    process. This will cause our main process to block until each process has finished.
+    Without this, our program would exit almost instantly and terminate the subprocesses,
+    as nothing would be waiting for their completion. Listing 6.1 runs both count
+    functions concurrently; assuming we’re running on a machine with at least two
+    CPU cores, we should see a speedup. When this code runs on a 2.5 GHz 8-core machine,
+    we achieve the following results:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的代码示例中，我们创建了一个简单的计数函数，该函数接受一个整数并逐个计数，直到我们数到传递给我们的整数。然后我们创建了两个进程，一个用于计数到10亿，另一个用于计数到20亿。`Process`类接受两个参数，一个`target`参数，表示我们希望在进程中运行的函数名称，以及一个`args`参数，表示传递给函数的参数元组。然后我们在每个进程中调用`start`方法。此方法会立即返回，并开始运行进程。在这个例子中，我们一个接一个地启动了这两个进程。然后我们在每个进程中调用`join`方法。这将导致我们的主进程阻塞，直到每个进程完成。如果没有这个，我们的程序几乎会立即退出并终止子进程，因为没有东西在等待它们的完成。列表6.1并行运行了两个计数函数；假设我们在至少拥有两个CPU核心的机器上运行，我们应该看到速度的提升。当这段代码在一个2.5
+    GHz 8核心的机器上运行时，我们得到了以下结果：
+- en: '[PRE1]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: In total, our countdown functions took a bit over 16 seconds, but our application
+    finished in just under 11 seconds. This gives us a time savings over running sequentially
+    of about 5 seconds. Of course, the results you see when you run this will be highly
+    variable depending on your machine, but you should see something directionally
+    equivalent to this.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总的来说，我们的倒计时函数总共花费了略超过16秒，但我们的应用程序仅用了不到11秒就完成了。这使我们相对于顺序运行节省了大约5秒的时间。当然，当你运行这段代码时，你看到的结果将高度依赖于你的机器，但你应该看到与这个方向上相当的结果。
+- en: 'Notice the addition of `if` `__name__` `==` `"__main__":` to our application
+    where we haven’t before. This is a quirk of the multiprocessing library; if you
+    don’t add this you may receive the following error: `An` `attempt` `has` `been`
+    `made` `to` `start` `a` `new` `process` `before` `the` `current` `process` `has`
+    `finished` `its` `bootstrapping` `phase`. The reason this happens is to prevent
+    others who may import your code from accidentally launching multiple processes.'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意到在我们的应用程序中添加了之前没有的 `if __name__ == "__main__":` 这一行。这是多进程库的一个特性；如果你不添加这一行，你可能会收到以下错误：`An
+    attempt has been made to start a new process before the current process has finished
+    its bootstrapping phase.` 这种情况发生的原因是为了防止其他人可能无意中导入你的代码时启动多个进程。
+- en: This gives us a decent performance gain; however, it is awkward because we must
+    call `start` and `join` for each process we start. We also don’t know which process
+    will complete first; if we want to do something like `asyncio.as_completed` and
+    process results as they finish, we’re out of luck. The `join` method also does
+    not return the value our target function returns; in fact, currently there is
+    no way to get the value our function returns without using shared inter-process
+    memory!
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这给我们带来了相当的性能提升；然而，这很尴尬，因为我们必须为每个启动的进程调用 `start` 和 `join`。我们也不知道哪个进程会先完成；如果我们想做一些像
+    `asyncio.as_completed` 的事情，在结果完成时进行处理，那我们就无能为力了。`join` 方法也不会返回目标函数返回的值；实际上，目前没有不用共享进程间内存就能获取函数返回值的方法！
+- en: This API will work for simple cases, but it clearly won’t work if we have functions
+    where we want to get the return value out or want to process results as soon as
+    they come in. Luckily, process pools provide a way for us to deal with this.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个API对于简单情况是有效的，但如果我们的函数需要获取返回值或者希望结果一出现就进行处理，那么它显然是不适用的。幸运的是，进程池为我们提供了一种处理这种情况的方法。
+- en: 6.2 Using process pools
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.2 使用进程池
+- en: In the previous example, we manually created processes and called their `start`
+    and `join` methods to run and wait for them. We identified several issues with
+    this approach, from code quality to not having the ability to access the results
+    our process returned. The multiprocessing module has an API that lets us deal
+    with this issue, called *process pools*.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一个例子中，我们手动创建了进程，并调用它们的 `start` 和 `join` 方法来运行并等待它们。我们发现了这种方法存在几个问题，从代码质量到无法访问进程返回的结果。多进程模块提供了一个API，让我们可以处理这个问题，称为*进程池*。
+- en: Process pools are a concept similar to the connection pools that we saw in chapter
+    5\. The difference in this case is that, instead of a collection of connections
+    to a database, we create a collection of Python processes that we can use to run
+    functions in parallel. When we have a CPU-bound function we wish to run in a process,
+    we ask the pool directly to run it for us. Behind the scenes, this will execute
+    this function in an available process, running it and returning the return value
+    of that function. To see how a process pool works, let’s create a simple one and
+    run a few “hello world”-style functions with it.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进程池是一个类似于我们在第5章中看到的连接池的概念。在这个情况下，区别在于，我们不是创建到数据库的连接集合，而是创建了一个可以用来并行运行函数的Python进程集合。当我们有一个希望在进程中运行的CPU密集型函数时，我们直接请求池为我们运行它。在幕后，这将在一个可用的进程中执行这个函数，运行它并返回该函数的返回值。为了了解进程池是如何工作的，让我们创建一个简单的进程池，并用它来运行几个“hello
+    world”风格的函数。
+- en: Listing 6.2 Creating a process pool
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.2 创建进程池
+- en: '[PRE2]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Create a new process pool.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的进程池。
+- en: ❷ Run say_hello with the argument 'Jeff ' in a separate process and get the
+    result.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在一个单独的进程中运行 `say_hello` 函数，并传递参数 'Jeff '，然后获取结果。
+- en: In the preceding listing, we create a process pool using `with` `Pool()` `as`
+    `process_pool`. This is a context manager because once we are done with the pool,
+    we need to appropriately shut down the Python processes we created. If we don’t
+    do this, we run the risk of leaking processes, which can cause resource-utilization
+    issues. When we instantiate this pool, it will automatically create Python processes
+    equal to the number of CPU cores on the machine you’re running on. You can determine
+    the number of CPU cores you have in Python by running the `multiprocessing.cpu_count()`
+    function. You can set the `processes` argument to any integer you’d like when
+    you call `Pool()`. The default value is usually a good starting point.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们使用 `with` `Pool()` `as` `process_pool` 创建了一个进程池。这是一个上下文管理器，因为一旦我们用完池，我们就需要适当地关闭我们创建的
+    Python 进程。如果我们不这样做，我们可能会遇到进程泄漏的问题，这可能导致资源利用率问题。当我们实例化这个池时，它将自动创建与你在其上运行的机器上的 CPU
+    核心数量相等的 Python 进程。你可以通过运行 `multiprocessing.cpu_count()` 函数来确定你有多少个 CPU 核心。当你调用
+    `Pool()` 时，你可以将 `processes` 参数设置为任何你想要的整数。默认值通常是一个很好的起点。
+- en: 'Next, we use the `apply` method of the process pool to run our `say_hello`
+    function in a separate process. This method looks similar to what we did previously
+    with the `Process` class, where we passed in a target function and a tuple of
+    arguments. The difference here is that we don’t need to start the process or call
+    `join` on it ourselves. We also get back the return value of our function, which
+    we couldn’t do in the previous example. Running this code, you should see the
+    following printed out:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们使用进程池的 `apply` 方法在单独的进程中运行我们的 `say_hello` 函数。这个方法看起来与我们之前使用 `Process`
+    类所做的方法很相似，其中我们传递了一个目标函数和一个参数元组。这里的区别是，我们不需要自己启动进程或对其调用 `join`。我们还得到了函数的返回值，这在之前的例子中是无法做到的。运行此代码，你应该会看到以下内容打印出来：
+- en: '[PRE3]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: This works, but there is a problem. The `apply` method blocks until our function
+    completes. That means that, if each call to `say_hello` took 10 seconds, our entire
+    program’s run time would be about 20 seconds because we’ve run things sequentially,
+    negating the point of running in parallel. We can solve this problem by using
+    the process pool’s `apply_async` method.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可以工作，但有一个问题。`apply` 方法会阻塞直到我们的函数完成。这意味着，如果每个 `say_hello` 调用需要 10 秒，我们的整个程序运行时间将大约是
+    20 秒，因为我们已经按顺序运行了事情，这抵消了并行运行的意义。我们可以通过使用进程池的 `apply_async` 方法来解决这个问题。
+- en: 6.2.1 Using asynchronous results
+  id: totrans-37
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.1 使用异步结果
+- en: In the previous example, each call to `apply` blocked until our function completed.
+    This doesn’t work if we want to build a truly parallel workflow. To work around
+    this, we can use the `apply_async` method instead. This method returns an `AsyncResult`
+    instantly and will start running the process in the background. Once we have an
+    `AsyncResult`, we can use its `get` method to block and obtain the results of
+    our function call. Let’s take our `say_hello` example and adapt it to use asynchronous
+    results.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一个示例中，每次对 `apply` 的调用都会阻塞，直到我们的函数完成。如果我们想要构建一个真正并行的流程，这是不行的。为了解决这个问题，我们可以使用
+    `apply_async` 方法代替。这个方法会立即返回一个 `AsyncResult`，并将在后台开始运行进程。一旦我们有了 `AsyncResult`，我们可以使用它的
+    `get` 方法来阻塞并获取函数调用的结果。让我们以我们的 `say_hello` 示例为例，并对其进行修改以使用异步结果。
+- en: Listing 6.3 Using async results with process pools
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.3 使用进程池异步结果
+- en: '[PRE4]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: When we call `apply_async`, our two calls to `say_hello` start instantly in
+    separate processes. Then, when we call the `get` method, our parent process will
+    block until each process returns a value. This lets things run concurrently, but
+    what if `hi_jeff` took 10 seconds, but `hi_john` only took one? In this case,
+    since we call `get` on `hi_jeff` first, our program would block for 10 seconds
+    before printing our `hi_john` message even though we were ready after only 1 second.
+    If we want to respond to things as soon as they finish, we’re left with an issue.
+    What we really want is something like asyncio’s `as_completed` in this instance.
+    Next, let’s see how to use process pool executors with asyncio, so we can address
+    this issue.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们调用 `apply_async` 时，我们的两个 `say_hello` 调用将立即在不同的进程中开始。然后，当我们调用 `get` 方法时，我们的父进程将阻塞，直到每个进程返回一个值。这使得事物可以并发运行，但如果我们假设
+    `hi_jeff` 需要 10 秒，而 `hi_john` 只需要 1 秒，会发生什么？在这种情况下，由于我们首先在 `hi_jeff` 上调用 `get`，我们的程序将阻塞
+    10 秒，然后才打印出我们的 `hi_john` 消息，尽管我们实际上在 1 秒后就准备好了。如果我们想要在事情完成时立即做出响应，我们就会遇到问题。在这种情况下，我们真正想要的是类似
+    asyncio 的 `as_completed` 的东西。接下来，让我们看看如何使用 asyncio 与进程池执行器一起使用，以便我们能够解决这个问题。
+- en: 6.3 Using process pool executors with asyncio
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.3 使用 asyncio 与进程池执行器一起使用
+- en: We’ve seen how to use process pools to run CPU-intensive operations concurrently.
+    These pools are good for simple use cases, but Python offers an abstraction on
+    top of multiprocessing’s process pools in the `concurrent.futures` module. This
+    module contains *executors* for both processes and threads that can be used on
+    their own but also interoperate with asyncio. To get started, we’ll learn the
+    basics of `ProcessPoolExecutor`, which is similar to `ProcessPool`. Then, we’ll
+    see how to hook this into asyncio, so we can use the power of its API functions,
+    such as `gather`.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了如何使用进程池来并发运行CPU密集型操作。这些进程池对于简单的用例来说很好，但Python在`concurrent.futures`模块中提供了对多进程进程池的抽象。此模块包含用于进程和线程的*executors*，这些executors可以单独使用，也可以与asyncio互操作。为了开始，我们将学习`ProcessPoolExecutor`的基础知识，它与`ProcessPool`类似。然后，我们将看到如何将其与asyncio集成，这样我们就可以使用其API函数的强大功能，例如`gather`。
+- en: 6.3.1 Introducing process pool executors
+  id: totrans-44
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3.1 介绍进程池执行器
+- en: Python’s process pool API is strongly coupled to processes, but multiprocessing
+    is one of two ways to implement preemptive multitasking, the other being multithreading.
+    What if we need to easily change the way in which we handle concurrency, seamlessly
+    switching between processes and threads? If we want a design like this, we need
+    to build an abstraction that encompasses the core of distributing work to a pool
+    of resources that does not care if those resources are processes, threads, or
+    some other construct.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Python的进程池API与进程紧密耦合，但多进程是实现抢占式多任务处理的两种方法之一，另一种是多线程。如果我们需要轻松地更改处理并发的方式，无缝地在进程和线程之间切换怎么办？如果我们想要这样的设计，我们需要构建一个抽象，它包含将工作分配给一组资源的核心，而这些资源是进程、线程还是其他结构无关紧要。
+- en: 'The `concurrent.futures` module provides this abstraction for us with the `Executor`
+    abstract class. This class defines two methods for running work asynchronously.
+    The first is `submit`, which will take a callable and return a `Future` (note
+    that this is not the same as asyncio futures but is part of the `concurrent.futures`
+    module)—this is equivalent to the `Pool.apply_async` method we saw in the last
+    section. The second is `map`. This method will take a callable and a list of function
+    arguments and then execute each argument in the list asynchronously. It returns
+    an iterator of the results of our calls similarly to `asyncio.as_completed` in
+    that results are available once they complete. `Executor` has two concrete implementations:
+    `ProcessPoolExecutor` and `ThreadPoolExecutor`. Since we’re using multiple processes
+    to handle CPU-bound work, we’ll focus on `ProcessPoolExecutor`. In chapter 7,
+    we’ll examine threads with `ThreadPoolExecutor.` To learn how a `ProcessPoolExecutor`
+    works, we’ll reuse our count example with a few small numbers and a few large
+    numbers to show how results come in.'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`concurrent.futures`模块通过`Executor`抽象类为我们提供了这个抽象。这个类定义了两个用于异步运行工作的方法。第一个是`submit`，它将接受一个可调用对象并返回一个`Future`（注意，这与asyncio
+    futures不同，但它是`concurrent.futures`模块的一部分）——这相当于我们在上一节中看到的`Pool.apply_async`方法。第二个是`map`。这个方法将接受一个可调用对象和一个函数参数列表，然后异步执行列表中的每个参数。它返回一个结果迭代器，类似于`asyncio.as_completed`，因为结果一旦完成就可用。`Executor`有两个具体实现：`ProcessPoolExecutor`和`ThreadPoolExecutor`。由于我们正在使用多个进程来处理CPU密集型工作，我们将重点关注`ProcessPoolExecutor`。在第7章中，我们将使用`ThreadPoolExecutor`来检查线程。为了了解`ProcessPoolExecutor`的工作原理，我们将使用一些小数字和一些大数字重用我们的计数示例，以展示结果是如何到来的。'
+- en: Listing 6.4 Process pool executors
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.4 进程池执行器
+- en: '[PRE5]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Much like before, we create a `ProcessPoolExecutor` in `context` `manager`.
+    The number of resources also defaults to the number of CPU cores our machine has,
+    as process pools did. We then use `process_pool.map` with our `count` function
+    and a list of numbers that we want to count to.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与之前类似，我们在`context` `manager`中创建一个`ProcessPoolExecutor`。资源数量默认为机器的CPU核心数，就像进程池一样。然后我们使用`process_pool.map`和我们的`count`函数以及我们想要计数的数字列表。
+- en: 'When we run this, we’ll see that our calls to countdown with a low number will
+    finish quickly and be printed out nearly instantly. Our call with `100000000`
+    will, however, take much longer and will be printed out after the few small numbers,
+    giving us the following output:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个程序时，我们会看到，当我们用较小的数字调用`countdown`时，它们会很快完成并几乎立即打印出来。然而，使用`100000000`的调用将会花费更长的时间，并且会在几个较小的数字之后打印出来，给我们以下输出：
+- en: '[PRE6]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: While it seems that this works the same as `asyncio.as_completed`, the order
+    of iteration is deterministic based on the order we passed in the `numbers` list.
+    This means that if `100000000` was our first number, we’d be stuck waiting for
+    that call to finish before we could print out the other results that completed
+    earlier. This means we aren’t quite as responsive as `asyncio.as_completed`.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然看起来这与 `asyncio.as_completed` 的效果相同，但迭代的顺序是基于我们传递给 `numbers` 列表的顺序确定的。这意味着如果
+    `100000000` 是我们的第一个数字，我们会在打印出其他更早完成的结果之前，一直等待这个调用完成。这意味着我们的响应性并不如 `asyncio.as_completed`。
+- en: 6.3.2 Process pool executors with the asyncio event loop
+  id: totrans-53
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.3.2 使用 asyncio 事件循环的进程池执行器
+- en: Now that we’ve know the basics of how process pool executors work, let’s see
+    how to hook them into the asyncio `event` loop. This will let us use the API functions
+    such as `gather` and `as_completed` that we learned of in chapter 4 to manage
+    multiple processes.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经了解了进程池执行器的基本工作原理，让我们看看如何将它们连接到 asyncio 的 `event` 循环中。这将使我们能够使用我们在第 4 章中学到的
+    API 函数，如 `gather` 和 `as_completed`，来管理多个进程。
+- en: Creating a process pool executor to use with asyncio is no different from what
+    we just learned; that is, we create one in within a context manager. Once we have
+    a pool, we can use a special method on the asyncio event loop called `run_in_executor`.
+    This method will take in a callable alongside an executor (which can be either
+    a thread pool or process pool) and will run that callable inside the pool. It
+    then returns an awaitable, which we can use in an `await` statement or pass into
+    an API function such as `gather`.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 asyncio 创建进程池执行器与我们刚刚学到的没有区别；也就是说，我们在上下文管理器中创建一个。一旦我们有了池，我们就可以使用 asyncio
+    事件循环上的一个特殊方法 `run_in_executor`。这个方法将接受一个可调用对象和一个执行器（可以是线程池或进程池），并在池中运行那个可调用对象。然后它返回一个可等待对象，我们可以在
+    `await` 语句中使用它，或者将其传递给 API 函数，如 `gather`。
+- en: Let’s implement our previous count example with a process pool executor. We’ll
+    submit multiple count tasks to the executor and wait for them all to finish with
+    `gather`. `run_in_executor` only takes a callable and does not allow us to supply
+    function arguments; so, to get around this, we’ll use partial function application
+    to build countdown calls with 0 arguments.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们使用进程池执行器实现我们之前的计数示例。我们将向执行器提交多个计数任务，并使用 `gather` 等待它们全部完成。`run_in_executor`
+    只接受一个可调用对象，不允许我们提供函数参数；因此，为了解决这个问题，我们将使用部分函数应用来构建不带参数的 countdown 调用。
+- en: What is partial function application?
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 什么是部分函数应用？
+- en: Partial function application is implemented in the `functools` module. Partial
+    application takes a function that accepts some arguments and turns it into a function
+    that accepts fewer arguments. It does this by “freezing” some arguments that we
+    supply. As an example, our count function takes one argument. We can turn it into
+    a function with 0 arguments by using `functools.partial` with the parameter we
+    want to call it with. If we want to have a call to `count(42)` but pass in no
+    arguments we can say `call_with_42` `=` `functools.partial(count,` `42)` that
+    we can then call as `call_ with_42()`*.*
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部分函数应用在 `functools` 模块中实现。部分应用接受一个接受一些参数的函数，并将其转换为一个接受较少参数的函数。它是通过“冻结”我们提供的某些参数来实现的。例如，我们的
+    count 函数接受一个参数。我们可以通过使用 `functools.partial` 并传递我们想要调用的参数来将其转换为一个不带参数的函数。如果我们想要有一个
+    `count(42)` 的调用，但传递没有参数，我们可以这样写 `call_with_42` `=` `functools.partial(count,`
+    `42)`，然后我们可以调用它为 `call_with_42()`*.*
+- en: Listing 6.5 Process pool executors with asyncio
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.5 使用 asyncio 的进程池执行器
+- en: '[PRE7]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Create a partially applied function for countdown with its argument.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为带有其参数的 countdown 创建一个部分应用函数。
+- en: ❷ Submit each call to the process pool and append it to a list.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将每个调用提交给进程池并将它追加到列表中。
+- en: ❸ Wait for all results to finish.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 等待所有结果完成。
+- en: We first create a process pool executor, as we did before. Once we have this,
+    we get the asyncio event loop, since `run_in_executor` is a method on the `AbstractEventLoop`.
+    We then partially apply each number in `nums` to the count function, since we
+    can’t call count directly. Once we have `count` function calls, then we can submit
+    them to the executor. We loop over these calls, calling `loop.run_in_executor`
+    for each partially applied count function and keep track of the awaitable it returns
+    in `call_coros`. We then take this list and wait for everything to finish with
+    `asyncio.gather`.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先创建一个进程池执行器，就像之前做的那样。一旦我们有了这个，我们就获取 asyncio 事件循环，因为 `run_in_executor` 是 `AbstractEventLoop`
+    上的一个方法。然后我们将 `nums` 中的每个数字部分应用到计数函数上，因为我们不能直接调用计数函数。一旦我们有了计数函数调用，我们就可以将它们提交给执行器。我们遍历这些调用，对每个部分应用的计数函数调用
+    `loop.run_in_executor`，并在 `call_coros` 中跟踪它返回的可等待对象。然后我们等待这个列表中的所有内容都完成，使用 `asyncio.gather`。
+- en: If we had wanted, we could also use `asyncio.as_completed` to get the results
+    from the subprocesses as they completed. This would solve the problem we saw earlier
+    with process pool’s `map` method, where if we had a task it took a long time.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们愿意，我们也可以使用 `asyncio.as_completed` 来获取子进程完成时的结果。这将解决我们之前在进程池的 `map` 方法中看到的问题，如果我们有一个耗时较长的任务。
+- en: We’ve now seen all we need to start using process pools with asyncio. Next,
+    let’s look at how to improve the performance of a real-world problem with multiprocessing
+    and asyncio.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到了使用 asyncio 的进程池所需的所有内容。接下来，让我们看看如何通过多进程和 asyncio 提高实际问题的性能。
+- en: 6.4 Solving a problem with MapReduce using asyncio
+  id: totrans-67
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.4 使用 asyncio 解决 MapReduce 问题
+- en: To understand the type of problem we can solve with MapReduce, we’ll introduce
+    a hypothetical real-world problem. We’ll then take that understanding and use
+    it to solve a similar problem with a large, freely available data set.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了理解我们可以用 MapReduce 解决的问题类型，我们将介绍一个假设的现实世界问题。然后我们将使用这种理解来解决一个类似的问题，使用一个大型、免费可用的数据集。
+- en: Going back to our example of an e-commerce storefront from chapter 5, we’ll
+    pretend our site receives a lot of text data through our customer support portal’s
+    *questions and concerns* field. Since our site is successful, this data set of
+    customer feedback is multiple terabytes in size and growing every day.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回到第 5 章中我们关于电子商务店面示例，我们将假装我们的网站通过客户支持门户的 *问题和关注* 字段接收大量的文本数据。由于我们的网站很成功，这个客户反馈数据集的大小已经达到数个太字节，并且每天都在增长。
+- en: To better understand the common issues our users are facing, we’ve been tasked
+    to find the most frequently used words in this data set. A simple solution would
+    be to use a single process to loop through each comment and keep track of how
+    many times each word occurs. This will work, but since our data is large, going
+    through this in serial could take a long time. Is there a faster way we could
+    approach this type of problem?
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了更好地理解我们的用户面临的一些常见问题，我们被要求找到这个数据集中最常用的单词。一个简单的解决方案是使用单个进程遍历每个评论并跟踪每个单词出现的次数。这将有效，但由于我们的数据量很大，按顺序处理可能需要很长时间。我们是否有更快的方法来处理这类问题？
+- en: This is the exact kind of problem that MapReduce can solve. The MapReduce programming
+    model solves a problem by first partitioning up a large data set into smaller
+    chunks. We can then solve our problem for that smaller subset of data instead
+    of entire set—this is known as *mapping*, as we “map” our data to a partial result.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这正是 MapReduce 可以解决的问题类型。MapReduce 编程模型通过首先将大型数据集划分为更小的块来解决问题。然后我们可以为这些更小的数据子集解决问题，而不是整个集合——这被称为
+    *映射*，因为我们“映射”我们的数据到部分结果。
+- en: Once the problem for each subset is solved, we can then combine the results
+    into a final answer. This step is known as *reducing*, as we “reduce” multiple
+    answers into one. Counting the frequency of words in a large text data set is
+    a canonical MapReduce problem. If we have a large enough dataset, splitting it
+    into smaller chunks can yield performance benefits as each map operation can run
+    in parallel, as shown in figure 6.1.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦每个子集的问题得到解决，我们就可以将结果组合成一个最终答案。这一步被称为 *归约*，因为我们“归约”多个答案到一个。在大型文本数据集中计数单词频率是一个经典的
+    MapReduce 问题。如果我们有一个足够大的数据集，将其拆分为更小的块可以带来性能优势，因为每个映射操作可以并行运行，如图 6.1 所示。
+- en: '![06-01](Images/06-01.png)'
+  id: totrans-73
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-01](Images/06-01.png)'
+- en: Figure 6.1 A large set of data is split into partitions, then a map function
+    produces intermediate results. These intermediate results are combined into a
+    result.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.1 一组大量数据被分割成分区，然后映射函数产生中间结果。这些中间结果被组合成一个结果。
+- en: Systems such as Hadoop and Spark exist to perform MapReduce operations in a
+    cluster of computers for truly large datasets. However, many smaller workloads
+    can be processed on one computer with multiprocessing. In this section, we’ll
+    see how to implement a MapReduce workflow with multiprocessing to find how frequently
+    certain words have appeared in literature since the year 1500.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似于Hadoop和Spark这样的系统可以在计算机集群中执行MapReduce操作，以处理真正的大型数据集。然而，许多较小的负载可以在一台计算机上通过多进程处理。在本节中，我们将看到如何使用多进程实现MapReduce工作流程，以找出自1500年以来某些词在文献中出现的频率。
+- en: 6.4.1 A simple MapReduce example
+  id: totrans-76
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.4.1 简单的MapReduce示例
+- en: 'To fully understand how MapReduce works, let’s walk through a concrete example.
+    Let’s say we have text data on each line of a file. For this example, we’ll pretend
+    we have four lines to handle:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了完全理解MapReduce是如何工作的，让我们通过一个具体的例子来了解。假设我们有一个文件中的每一行都有文本数据。对于这个例子，我们将假设我们有四行需要处理：
+- en: '[PRE8]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: We’d like to count how many times each distinct word occurs in this data set.
+    This example is small enough that we could solve it with a simple `for` loop,
+    but let’s approach it using a MapReduce model.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们想计算每个不同的词在这个数据集中出现的次数。这个例子足够小，我们可以用简单的`for`循环来解决它，但让我们使用MapReduce模型来处理。
+- en: First, we need to partition this data set into smaller chunks. For simplicity,
+    we’ll define a smaller chunk as one line of text. Next, we need to define the
+    mapping operation. Since we want to count word frequencies, we’ll split the line
+    of text on a space. This will get us an array of each individual word in the string.
+    We can then loop over this, keeping track of each distinct word in the line of
+    text in a dictionary.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们需要将这个数据集划分为更小的块。为了简单起见，我们将较小的块定义为一行文本。接下来，我们需要定义映射操作。由于我们想要计算词频，我们将文本行按空格分割。这将得到字符串中每个单独单词的数组。然后我们可以遍历这个数组，在一个字典中跟踪文本行中的每个不同的单词。
+- en: Finally, we need to define a *reduce* operation. This will take one or more
+    results from our map operation and combine them into an answer. In this example,
+    we need to take two dictionaries from our map operation and combine them into
+    one. If a word exists in both dictionaries, we add their word counts together;
+    if not, we copy over the word count to the result dictionary. Once we’ve defined
+    these operations, we can then run our `map` operation on each individual line
+    of text and our `reduce` operation on each pair of results from our map. Let’s
+    see how to do this example in code with the four lines of text we introduced earlier.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们需要定义一个*reduce*操作。这个操作将从一个或多个map操作的结果中取出，并将它们组合成一个答案。在这个例子中，我们需要从map操作中取出两个字典，并将它们合并成一个。如果一个词同时存在于两个字典中，我们将它们的词频相加；如果不存在，我们将词频复制到结果字典中。一旦我们定义了这些操作，我们就可以运行我们的`map`操作对每一行文本，以及我们的`reduce`操作对map操作的结果的每一对进行。
+- en: Listing 6.6 Single-threaded MapReduce
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.6 单线程MapReduce
+- en: '[PRE9]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ If we have the word in our frequency dictionary, add one to the count.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果我们的频率字典中有这个词，将计数加一。
+- en: ❷ If we do not have the word in our frequency dictionary, set its count to one.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果我们的频率字典中没有这个词，将其计数设置为1。
+- en: ❸ If the word is in both dictionaries, combine frequency counts.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果这个词同时存在于两个字典中，合并频率计数。
+- en: ❹ If the word is not in both dictionaries, copy over the frequency count.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果这个词不在两个字典中，复制频率计数。
+- en: ❺ For each line of text, perform our map operation.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 对于每一行文本，执行我们的map操作。
+- en: ❻ Reduce all our intermediate frequency counts into one result.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 将所有中间频率计数合并成一个结果。
+- en: 'For each line of text, we apply our `map` operation, giving us the frequency
+    count for each line of text. Once we have these mapped partial results, we can
+    begin to combine them. We use our merge function `merge_dictionaries` along with
+    the `functools .reduce` function. This will take our intermediate results and
+    add them together into one result, giving us the following output:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于每一行文本，我们应用我们的`map`操作，得到每一行文本的频率计数。一旦我们有了这些映射的局部结果，我们就可以开始将它们组合起来。我们使用我们的合并函数`merge_dictionaries`以及`functools
+    .reduce`函数。这将取我们的中间结果并将它们相加，得到以下输出：
+- en: '[PRE10]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Now that we understand the basics of MapReduce with a sample problem, we’ll
+    see how to apply this to a real-world data set where multiprocessing can yield
+    performance improvements.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经通过一个示例问题了解了MapReduce的基础，我们将看到如何将其应用于一个真实世界的数据集，其中多进程可以带来性能提升。
+- en: 6.4.2 The Google Books Ngram dataset
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.4.2 Google图书Ngram数据集
+- en: We’ll need a sufficiently large set of data to process to see the benefits of
+    MapReduce with multiprocessing. If our dataset is too small, we’ll see no benefit
+    from MapReduce and will likely see performance degradation from the overhead of
+    managing processes. A data set of a few uncompressed should be enough for us to
+    show a meaningful performance gain.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要一个足够大的数据集来处理，以便看到多进程 MapReduce 的好处。如果我们的数据集太小，我们将看不到 MapReduce 的好处，并且可能会因为管理进程的开销而看到性能下降。几个未压缩的数据集应该足以让我们展示有意义的性能提升。
+- en: The Google Books Ngram dataset is a sufficiently large data set for this purpose.
+    To understand what this data set is, we’ll first define what an n-gram is.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个 Google Books Ngram 数据集对于这个目的来说是一个足够大的数据集。为了理解这个数据集是什么，我们首先定义一下 n-gram 是什么。
+- en: An *n-gram* is a concept from natural language processing and is a phrase of
+    N words from a sample of given text. The phrase “the fast dog” has six n-grams.
+    Three 1-grams or *unigrams*, each of one single word (*the*, *fast*, and *dog*),
+    two 2-grams or *digrams* (*the fast* and *fast dog*), and one 3-gram or *trigram*
+    (*the fast dog*).
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*n-gram* 是自然语言处理中的一个概念，是从给定文本样本中提取的 N 个单词的短语。短语“the fast dog”有六个 n-gram。三个
+    1-gram 或 *unigrams*，每个都是一个单词（*the*、*fast* 和 *dog*），两个 2-grams 或 *digrams*（*the
+    fast* 和 *fast dog*），以及一个 3-gram 或 *trigram*（*the fast dog*）。'
+- en: 'The Google Books Ngram dataset is a scan of n-grams from a set of over 8,000,000
+    books, going back to the year 1500, comprising more than six percent of all books
+    published. It counts the number of times a distinct n-gram appears in text, grouped
+    by the year it appears. This data set has everything from unigrams to 5-grams
+    in tab-separated format. Each line of this data set has an n-gram, the year when
+    it was seen, the number of times it was seen, and how many books it occurred in.
+    Let’s look at the first few entries in the unigram dataset for the word *aardvark*:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google Books Ngram 数据集是对超过 8,000,000 本书中的 n-gram 的扫描，追溯到 1500 年，占所有出版书籍的超过六分之一。它按年份分组统计了不同
+    n-gram 在文本中出现的次数。这个数据集包含从单语元到 5-gram 的所有内容，以制表符分隔格式。这个数据集的每一行都有一个 n-gram、它被看到的年份、它出现的次数以及它出现在多少本书中。让我们看看单词
+    *aardvark* 在单语元数据集中的前几个条目：
+- en: '[PRE11]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: This means that in the year 1822, the word *aardvark* appeared twice in one
+    book. Then, in 1827, the word *aardvark* appeared ten times in seven different
+    books. The dataset has many more entries for *aardvark* (for example, aardvark
+    occurred 1,200 times in 2007), demonstrating the upwards trajectory of aardvarks
+    in literature over the years.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着在 1822 年，单词 *aardvark* 在一本书中出现了两次。然后，在 1827 年，单词 *aardvark* 在七本不同的书中出现了十次。数据集中有更多关于
+    *aardvark* 的条目（例如，2007 年 aardvark 出现了 1,200 次），展示了 aardvarks 在文学中多年的上升趋势。
+- en: For the sake of this example, we’ll count the occurrences of single words (unigrams)
+    for words that start with *a*. This dataset is approximately 1.8 GB in size. We’ll
+    aggregate this to the number of times each word has been seen in literature since
+    1500\. We’ll use this to answer the question, “How many times has the word *aardvark*
+    appeared in literature since the year 1500?” The relevant file we want to work
+    with is downloadable at [https://storage.googleapis.com/books/ngrams/books/googlebooks-eng-all-1gram-20120701-a.gz](https://storage.googleapis.com/books/ngrams/books/googlebooks-eng-all-1gram-20120701-a.gz)
+    or at [https://mattfowler.io/data/googlebooks-eng-all-1gram-20120701-a.gz](https://mattfowler.io/data/googlebooks-eng-all-1gram-20120701-a.gz).
+    You can also download any other part of the dataset from [http:// storage.googleapis.com/books/ngrams/books/datasetsv2.html](http://storage.googleapis.com/books/ngrams/books/datasetsv2.html).
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了这个示例，我们将统计以 *a* 开头的单词（单语元）的出现次数。这个数据集大约有 1.8 GB 的大小。我们将汇总自 1500 年以来每个单词在文献中出现的次数。我们将使用这些数据来回答问题：“自
+    1500 年以来，单词 *aardvark* 在文献中出现了多少次？”我们想要处理的相关文件可以在 [https://storage.googleapis.com/books/ngrams/books/googlebooks-eng-all-1gram-20120701-a.gz](https://storage.googleapis.com/books/ngrams/books/googlebooks-eng-all-1gram-20120701-a.gz)
+    或 [https://mattfowler.io/data/googlebooks-eng-all-1gram-20120701-a.gz](https://mattfowler.io/data/googlebooks-eng-all-1gram-20120701-a.gz)
+    下载。您也可以从 [http://storage.googleapis.com/books/ngrams/books/datasetsv2.html](http://storage.googleapis.com/books/ngrams/books/datasetsv2.html)
+    下载数据集的任何其他部分。
+- en: 6.4.3 Mapping and reducing with asyncio
+  id: totrans-101
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.4.3 使用 asyncio 进行映射和归约
+- en: To have a baseline to compare to, let’s first write a synchronous version to
+    count the frequencies of words. We’ll then use this frequency dictionary to answer
+    the question, “How many times has the word *aardvark* appeared in literature since
+    1500?” We’ll first load the entire contents of the dataset into memory. Then we
+    can use a dictionary to keep track of a mapping of words to the total time they
+    have occurred. For each line of our file, if the word on that line is in our dictionary,
+    we add to the count in our dictionary with the count for that word. If it is not,
+    we add the word and the count on that line to the dictionary.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了有一个比较的基准，让我们首先编写一个同步版本来统计单词的频率。然后我们将使用这个频率字典来回答问题：“自1500年以来，单词**aardvark**在文献中出现了多少次？”我们首先将数据集的全部内容加载到内存中。然后我们可以使用一个字典来跟踪单词到它们出现总时间的映射。对于文件中的每一行，如果那一行的单词在我们的字典中，我们就将字典中该单词的计数增加。如果不是，我们将那一行的单词和计数添加到字典中。
+- en: Listing 6.7 Counting frequencies of words that start with *a*
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.7 计算以*开头单词的频率
+- en: '[PRE12]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: To test how long the CPU-bound operation takes, we’ll time how long the frequency
+    counting takes and won’t include the length of time needed to load the file. For
+    multiprocessing to be a viable solution, we need to run on a machine with sufficient
+    CPU cores to make parallelization worth the effort. To see sufficient gains, we’ll
+    likely need a machine with more CPUs than most laptops have. To test on such a
+    machine, we’ll use a large Elastic Compute Cloud (EC2) instance on Amazon Web
+    Servers (AWS).
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了测试CPU密集型操作需要多长时间，我们将计时频率计数需要多长时间，而不会包括加载文件所需的时间。为了多进程成为一个可行的解决方案，我们需要在一个有足够CPU核心的机器上运行，以便使并行化值得付出努力。为了看到足够的收益，我们可能需要一个比大多数笔记本电脑都有更多CPU的机器。为了在这样的机器上进行测试，我们将使用亚马逊网络服务（AWS）上的大型弹性计算云（EC2）实例。
+- en: AWS is a cloud computing service run by Amazon. AWS is a collection of cloud
+    services that enable users to handle tasks from file storage to large-scale machine
+    learning jobs—all without managing their own physical servers. One such service
+    offered is EC2\. Using this, you can rent a virtual machine in AWS to run any
+    application you want, specifying how many CPU cores and memory you need on your
+    virtual machine. You can learn more about AWS and EC2 at [https://aws.amazon.com/ec2](https://aws.amazon.com/ec2).
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AWS是由亚马逊运营的云计算服务。AWS是一组云服务，使用户能够处理从文件存储到大规模机器学习任务的所有任务，而无需管理自己的物理服务器。提供的一项服务是EC2。使用它，你可以在AWS上租用一个虚拟机来运行你想要的任何应用程序，指定你的虚拟机上需要多少CPU核心和内存。你可以在[https://aws.amazon.com/ec2](https://aws.amazon.com/ec2)了解更多关于AWS和EC2的信息。
+- en: We’ll test on a c5ad.8xlarge instance. At the time of writing, this machine
+    has 32 CPU cores, 64 GB of RAM, and a solid-state drive, or SSD. On this instance,
+    listing 6.7’s script requires approximately 76 seconds. Let’s see if we can do
+    any better with multiprocessing and asyncio. If you run this on a machine with
+    fewer CPU cores or other resources, your results may vary.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在c5ad.8xlarge实例上进行测试。在撰写本文时，这台机器有32个CPU核心、64GB的RAM和一个固态硬盘，或SSD。在这个实例上，列出6.7的脚本需要大约76秒。让我们看看我们是否可以通过多进程和asyncio做得更好。如果你在一台CPU核心数较少或其他资源较少的机器上运行这个程序，你的结果可能会有所不同。
+- en: Our first step is to take our data set and partition it into a smaller set of
+    chunks. Let’s define a partition generator which can take our large list of data
+    and grab chunks of arbitrary size.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的第一步是将我们的数据集分成更小的数据块。让我们定义一个分区生成器，它可以接受我们的大列表数据并获取任意大小的数据块。
+- en: '[PRE13]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: We can use this partition generator to create slices of data that are `chunk_size`
+    long. We’ll use this to generate the data to pass into our map functions, which
+    we will then run in parallel. Next, let’s define our map function. This is almost
+    the same as our map function from the previous example, adjusted to work with
+    our data set.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用这个分区生成器来创建长度为`chunk_size`的数据切片。我们将使用它来生成传递给我们的映射函数的数据，然后我们将并行运行这些函数。接下来，让我们定义我们的映射函数。这几乎与上一个示例中的映射函数相同，只是调整了一下以适应我们的数据集。
+- en: '[PRE14]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'For now, we’ll keep our reduce operation, as in the previous example. We now
+    have all the blocks we need to parallelize our map operations. We’ll create a
+    process pool, partition our data into chunks, and for each partition run `map_frequencies`
+    in a resource (“worker”) on the pool. We have almost everything we need, but one
+    question remains: what partition size should I use?'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们将保持我们的归约操作，就像上一个示例中那样。我们现在有了所有需要的块来并行化我们的映射操作。我们将创建一个进程池，将数据分成块，并在池中的资源（“工作者”）上为每个分区运行`map_frequencies`。我们几乎有了所有需要的东西，但还有一个问题：我应该使用多大的分区大小？
+- en: There isn’t an easy answer for this. One rule of thumb is the *Goldilocks approach*;
+    that is, the partition should not be too big or too small. The reason the partition
+    size should not be small is that when we create our partitions they are serialized
+    (“pickled”) and sent to our worker processes, then the worker process unpickles
+    them. The process of serializing and deserializing this data can take up a significant
+    amount of time, quickly eating into any performance gains if we do it too often.
+    For example, a chunk size of two would be a poor choice as we would have nearly
+    1,000,000 pickle and unpickle operations.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个问题没有简单的答案。一个经验法则是“金发姑娘方法”；也就是说，分区不应该太大或太小。分区大小不应该太小的原因是，当我们创建分区时，它们会被序列化（“腌制”）并发送到我们的工作进程，然后工作进程将它们反序列化。序列化和反序列化这些数据的过程可能会占用相当多的时间，如果我们过于频繁地这样做，会迅速消耗掉任何性能提升。例如，如果块大小为两个，这将是一个糟糕的选择，因为我们会有近100万次序列化和反序列化操作。
+- en: We also don’t want the partition size to be too large; otherwise, we might not
+    fully utilize the power of our machine. For example, if we have 10 CPU cores but
+    only create two partitions, we’re missing out on eight cores that could run workloads
+    in parallel.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也不希望分区的大小太大；否则，我们可能无法充分利用我们机器的功率。例如，如果我们有10个CPU核心，但只创建了两个分区，我们就错过了八个可以并行运行工作负载的核心。
+- en: For this example, we’ll chose a partition size of 60,000, as this seems to offer
+    reasonable performance for the AWS machine we’re using based on benchmarking.
+    If you’re considering this approach for your data processing task, you’ll need
+    to test out a few different partition sizes to find the one for your data and
+    the machine you’re running on, or develop a heuristic algorithm for determining
+    the right partition size. We can now combine all these parts together with a process
+    pool and the event loop’s `run_in_executor` coroutine to parallelize our map operations.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个例子，我们将选择分区大小为60,000，因为这个大小似乎为我们使用的AWS机器提供了合理的性能，基于基准测试。如果你考虑将这种方法用于你的数据处理任务，你需要测试几个不同的分区大小，以找到适合你的数据和运行机器的大小，或者开发一个启发式算法来确定正确的分区大小。现在我们可以使用进程池和事件循环的`run_in_executor`协程将这些部分组合在一起，以并行化我们的映射操作。
+- en: Listing 6.8 Parallel MapReduce with process pools
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.8 使用进程池的并行MapReduce
+- en: '[PRE15]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ For each partition, run our map operation in a separate process.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 对于每个分区，在一个单独的进程中运行我们的映射操作。
+- en: ❷ Wait for all map operations to complete.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待所有映射操作完成。
+- en: ❸ Reduce all our intermediate map results into a result.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将所有中间映射结果汇总成一个结果。
+- en: In the `main` coroutine we create a process pool and partition the data. For
+    each partition, we launch a `map_frequencies` function in a separate process.
+    We then use `asyncio.gather` to wait for all intermediate dictionaries to finish.
+    Once all our map operations are complete, we run our reduce operation to produce
+    our result.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`main`协程中，我们创建一个进程池并分区数据。对于每个分区，我们在一个单独的进程中启动`map_frequencies`函数。然后我们使用`asyncio.gather`等待所有中间字典完成。一旦所有映射操作完成，我们运行我们的归约操作以生成我们的结果。
+- en: Running this on the instance we described, this code completes in roughly 18
+    seconds, delivering a significant speedup compared with our serial version. This
+    is quite a nice performance gain for not a whole lot more code! You may also wish
+    to experiment with a machine with more CPU cores to see if you can further improve
+    the performance of this algorithm.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们描述的实例上运行此代码，大约需要18秒完成，与我们的串行版本相比，速度有了显著提升。这对于不是很多额外的代码来说是一个相当不错的性能提升！你也可以尝试在一个具有更多CPU核心的机器上运行，看看你是否可以进一步提高这个算法的性能。
+- en: You may notice in this implementation that we still have some CPU-bound work
+    happening in our parent process that is parallelizable. Our reduce operation takes
+    thousands of dictionaries and combines them together. We can apply the partitioning
+    logic we used on the original data set and split these dictionaries into chunks
+    and combine them across multiple processes. Let’s write a new `reduce` function
+    that does that. In this function, we’ll partition the list and call `reduce` on
+    each chunk in a worker process. Once this completes, we’ll keep partitioning and
+    reducing until we have one dictionary remaining. (In this listing, we’ve removed
+    the partition, map, and merge functions for brevity.)
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会注意到，在这个实现中，我们仍然在我们的父进程中有一些可以并行化的CPU密集型工作。我们的归约操作需要处理成千上万的字典并将它们合并在一起。我们可以应用我们在原始数据集上使用的分区逻辑，将这些字典分成块，并在多个进程中合并它们。让我们编写一个新的`reduce`函数来完成这个任务。在这个函数中，我们将分区列表，并在工作进程中调用每个块的`reduce`。一旦完成，我们将继续分区和归约，直到只剩下一个字典。（在这个列表中，为了简洁，我们省略了分区、映射和合并函数。）
+- en: Listing 6.9 Parallelizing the reduce operation
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.9 并行化归约操作
+- en: '[PRE16]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Partition the dictionaries into parallelizable chunks.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将字典分区成可并行处理的块。
+- en: ❷ Reduce each partition into a single dictionary.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将每个分区归约成一个单一的字典。
+- en: ❸ Wait for all reduce operations to complete.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 等待所有归约操作完成。
+- en: ❹ Partition the results again, and start a new iteration of the loop.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 再次分区结果，并开始循环的新迭代。
+- en: If we run this parallelized `reduce`, we may see some small performance gain
+    or only a small gain, depending on the machine you run on. In this instance, the
+    overhead of pickling the intermediate dictionaries and sending them to the children
+    processes will eat away much of the time savings by running in parallel. This
+    optimization may not do much to make this problem less troublesome; however, if
+    our `reduce` operation was more CPU-intensive, or we had a much larger data set,
+    this approach can yield benefits.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们运行这个并行化的`reduce`，我们可能会看到一些小的性能提升，或者根据你运行的机器，可能只有很小的提升。在这种情况下，将中间字典序列化并发送到子进程的开销将消耗掉并行运行节省的大部分时间。这种优化可能不会在很大程度上减轻这个问题，但是，如果我们的`reduce`操作更密集地使用CPU，或者我们有一个更大的数据集，这种方法可以带来好处。
+- en: Our multiprocessing approach has clear performance benefits over a synchronous
+    approach, but right now there isn’t an easy way to see how many map operations
+    we’ve completed at any given time. In the synchronous version, we would only need
+    to add a counter we incremented for every line we processed to see how far along
+    we were. Since multiple processes by default do not share any memory, how can
+    we create a counter to track our job’s progress?
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的多进程方法在性能上比同步方法有明显的优势，但现在还没有一种简单的方法来查看在任何给定时间我们完成了多少个映射操作。在同步版本中，我们只需要添加一个计数器，每处理一行就增加一次，就可以看到我们进展到了哪里。由于默认情况下多个进程不共享任何内存，我们如何创建一个计数器来跟踪我们的工作进度呢？
+- en: 6.5 Shared data and locks
+  id: totrans-132
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.5 共享数据和锁
+- en: In chapter 1, we discussed the fact that, in multiprocessing, each process has
+    its own memory, separate from other processes. This presents a challenge when
+    we have shared state to keep track of. So how can we share data between processes
+    if their memory spaces are all distinct?
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第一章中，我们讨论了在多进程中，每个进程都有自己的内存，与其他进程分开。当我们需要跟踪共享状态时，这提出了一个挑战。那么，如果它们的内存空间都是独立的，我们如何在不同进程之间共享数据呢？
+- en: Multiprocessing supports a concept called *shared memory objects*. A shared
+    memory object is a chunk of memory allocated that a set of separate processes
+    can access. Each process, as shown in figure 6.2, can then read and write into
+    that memory space as needed.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多进程支持一个称为**共享内存对象**的概念。共享内存对象是一块分配的内存，一组独立的进程可以访问。如图6.2所示，每个进程都可以根据需要读取和写入该内存空间。
+- en: '![06-02](Images/06-02.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-02](Images/06-02.png)'
+- en: Figure 6.2 A parent process with two children processes, all sharing memory
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.2 一个父进程和两个子进程，它们共享内存
+- en: Shared state is complicated and can lead to hard-to-reproduce bugs if not properly
+    implemented. Generally, it is best to avoid shared state if possible. That said,
+    sometimes it is necessary to introduce shared state. One such instance is a shared
+    counter.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 共享状态很复杂，如果实现不当，可能会导致难以重现的错误。一般来说，如果可能的话，最好避免共享状态。尽管如此，有时引入共享状态是必要的。其中一个例子是共享计数器。
+- en: To learn more about shared data, we’ll take our MapReduce example from above
+    and keep a counter of how many map operations we’ve completed. We’ll then periodically
+    output this number to show how far along we are to the user.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解更多关于共享数据的信息，我们将使用上面的MapReduce示例，并记录我们完成了多少个map操作。然后我们将定期输出这个数字，以显示我们离用户有多远。
+- en: 6.5.1 Sharing data and race conditions
+  id: totrans-139
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.5.1 共享数据和竞争条件
+- en: 'Multiprocessing supports two kinds of shared data: values and array. A *value*
+    is a singular value, such as an integer or floating-point number. An *array* is
+    an array of singular values. The types of data that we can share in memory are
+    limited by the types defined in the Python array module, available at [https://docs.python.org/3/library/array
+    .html#module-array](https://docs.python.org/3/library/array.html#module-array).'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多进程支持两种类型的共享数据：值和数组。*值*是一个单一值，例如整数或浮点数。*数组*是一组单一值。我们可以在内存中共享的数据类型受Python数组模块中定义的类型限制，该模块可在[https://docs.python.org/3/library/array
+    .html#module-array](https://docs.python.org/3/library/array.html#module-array)找到。
+- en: To create a value or array, we first need to use the typecode from the array
+    module that is just a character. Let’s create two shared pieces of data—one integer
+    value and one integer array. We’ll then create two processes to increment each
+    of these shared pieces of data in parallel.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建一个值或数组，我们首先需要使用数组模块中的typecode，它只是一个字符。让我们创建两个共享的数据块——一个整数值和一个整型数组。然后我们将创建两个进程来并行地增加这些共享数据块。
+- en: Listing 6.10 Shared values and arrays
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.10 共享值和数组
+- en: '[PRE17]'
+  id: totrans-143
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: In the preceding listing, we create two processes—one to increment our shared
+    integer value and one to increment each element in our shared array. Once our
+    two subprocesses complete, we print out the data.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了两个进程——一个用于增加我们的共享整数值，另一个用于增加我们的共享数组中的每个元素。一旦我们的两个子进程完成，我们将打印出数据。
+- en: Since our two pieces of data are never touched by different processes, this
+    code works well. Will this code continue to work if we have multiple processes
+    modifying the same shared data? Let’s test this out by creating two processes
+    to increment a shared integer value in parallel. We’ll run this code repeatedly
+    in a loop to see if we get consistent results. Since we have two processes, each
+    incrementing a shared counter by one, once the processes finish we expect the
+    shared value to always be two.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的两个数据块永远不会被不同的进程接触，这段代码运行良好。如果我们有多个进程修改相同的共享数据，这段代码还会继续工作吗？让我们通过创建两个进程来并行增加共享整数值来测试这一点。我们将反复在循环中运行此代码，以查看我们是否得到一致的结果。由于我们有两个进程，每个进程增加共享计数器一次，一旦进程完成，我们预计共享值始终为二。
+- en: Listing 6.11 Incrementing a shared counter in parallel
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.11 并行增加共享计数器
+- en: '[PRE18]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: While you will see different output because this problem is nondeterministic,
+    at some point you should see that the result isn’t always 2.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然你将看到不同的输出，因为这个问题是非确定性的，但最终你应该看到结果并不总是2。
+- en: '[PRE19]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Sometimes our result is 1! Why is this? What we’ve encountered is called a *race
+    condition*. A race condition occurs when the outcome of a set of operations is
+    dependent on which operation finishes first. You can imagine the operations as
+    racing against one another; if the operations win the race in the right order,
+    everything works fine. If they win the race in the wrong order, bizarre behavior
+    results.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时我们的结果是1！这是为什么？我们遇到的是所谓的*竞争条件*。当一组操作的输出依赖于哪个操作先完成时，就会发生竞争条件。你可以想象这些操作就像在相互竞赛；如果操作以正确的顺序赢得比赛，那么一切都会正常。如果它们以错误的顺序赢得比赛，就会产生奇怪的行为。
+- en: So where is the race occurring in our example? The problem lies in that incrementing
+    a value involves both read and write operations. To increment a value, we first
+    need to read the value, add one to it, then write the result back to memory. The
+    value each process sees in the shared data is entirely dependent on when it reads
+    the shared value.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的例子中，竞争发生在哪里？问题在于增加一个值涉及到读和写操作。要增加一个值，我们首先需要读取该值，然后加一，最后将结果写回内存。每个进程在共享数据中看到的值完全取决于它何时读取共享值。
+- en: If the processes run in the following order, everything works fine, as seen
+    in figure 6.3.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果进程按照以下顺序运行，一切都会正常，如图6.3所示。
+- en: In this example, Process 1 increments the value just before Process 2 reads
+    it and wins the race. Since Process 2 finishes second, this means that it will
+    see the correct value of one and will add to it, producing the correct final value.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，进程1在进程2读取之前增加值，并赢得了比赛。由于进程2是第二个完成的，这意味着它将看到正确的值一，并将其添加进去，产生正确的最终值。
+- en: '![06-03](Images/06-03.png)'
+  id: totrans-154
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-03](Images/06-03.png)'
+- en: Figure 6.3 Successfully avoiding a race condition
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.3 成功避免竞争条件
+- en: What happens if there is a tie in our virtual race? Look at figure 6.4.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在我们的虚拟竞争中出现平局怎么办？看看图6.4。
+- en: '![06-04](Images/06-04.png)'
+  id: totrans-157
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-04](Images/06-04.png)'
+- en: Figure 6.4 A race condition
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.4 竞争条件
+- en: In this instance, Processes 1 and 2 both read the initial value of zero. They
+    then increment that value to 1 and write it back at the same time, producing the
+    incorrect value.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，进程1和进程2都读取了初始值零。然后它们将该值增加至1，并同时将其写回，从而产生了错误值。
+- en: You may ask, “But our code is only one line. Why are there two operations!?”
+    Under the hood, incrementing is written as two operations, which causes this issue.
+    This makes it *non-atomic* or not *thread-safe*. This isn’t easy to figure out.
+    An explanation of which operations are atomic and which operations are non-atomic
+    is available at [http://mng.bz/5Kj4](http://mng.bz/5Kj4).
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，“但我们的代码只有一行。为什么有两个操作！？”在底层，增加被写成了两个操作，这导致了这个问题。这使得它**非原子性**或**非线程安全**。这并不容易理解。关于哪些操作是原子的以及哪些操作是非原子的解释可以在[http://mng.bz/5Kj4](http://mng.bz/5Kj4)找到。
+- en: These types of errors are tricky because they are often difficult to reproduce.
+    They aren’t like normal bugs, since they depend on the order in which our operating
+    system runs things, which is out of our control when we use multiprocessing. So
+    how do we fix this nasty bug?
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这类错误很棘手，因为它们往往难以重现。它们与正常错误不同，因为它们依赖于我们的操作系统运行事物的顺序，当我们使用多进程时，这是我们无法控制的。那么我们如何修复这个讨厌的bug呢？
+- en: 6.5.2 Synchronizing with locks
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.5.2 使用锁进行同步
+- en: We can avoid race conditions by *synchronizing* access to any shared data we
+    want to modify. What does it mean to synchronize access? Revisiting our race example,
+    it means that we control access to any shared data so that any operations we have
+    finish the race in an order that makes sense. If we’re in a situation where a
+    tie between two operations could occur, we explicitly block the second operation
+    from running until the first completes, guaranteeing operations to finish the
+    race in a consistent manner. You can imagine this as a referee at the finish line,
+    seeing that a tie is about to happen and telling the runners, “Hold up a minute.
+    One racer at a time!” and picking one runner to wait while the other crosses the
+    finish line.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过**同步**访问任何我们想要修改的共享数据来避免竞争条件。同步访问意味着什么？回顾我们的竞争示例，这意味着我们控制对任何共享数据的访问，以便我们完成的任何操作都能以合理的顺序完成竞争。如果我们处于两个操作之间可能发生平局的情况，我们明确阻止第二个操作运行，直到第一个完成，从而保证操作以一致的方式完成竞争。你可以想象这就像终点线处的裁判员，看到即将发生平局，告诉跑者，“等一下。一次一个！”并选择一个跑者等待，直到另一个跑者越过终点线。
+- en: One mechanism for synchronizing access to shared data is a *lock*, also known
+    as a *mutex* (short for *mutual exclusion*). These structures allow for a single
+    process to “lock” a section of code, preventing other processes from running that
+    code. The locked section of code is commonly called a *critical section*. This
+    means that if one process is executing the code of a locked section and a second
+    process tries to access that code, the second process will need to wait (blocked
+    by the referee) until the first process is finished with the locked section.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同步访问共享数据的一种机制是**锁**，也称为**互斥锁**（简称**mutex**）。这些结构允许单个进程“锁定”一段代码，防止其他进程运行该代码。被锁定的代码段通常称为**临界区**。这意味着如果一个进程正在执行被锁定的代码，而第二个进程试图访问该代码，第二个进程将需要等待（被裁判员阻塞）直到第一个进程完成对锁定区的操作。
+- en: 'Locks support two primary operations: *acquiring* and *releasing*. When a process
+    acquires a lock, it is guaranteed that it will be the only process running that
+    section of code. Once the section of code that needs synchronized access is finished,
+    we release the lock. This allows other processes to acquire the lock and run any
+    code in the critical section. If a process tries to run code that is locked by
+    another process, acquiring the lock will block until the other process releases
+    that lock.'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 锁支持两种主要操作：**获取**和**释放**。当一个进程获取锁时，它保证它是唯一运行该代码段的进程。一旦需要同步访问的代码段完成，我们就释放锁。这允许其他进程获取锁并在临界区运行任何代码。如果一个进程试图运行被另一个进程锁定的代码，获取锁将阻塞，直到其他进程释放该锁。
+- en: Revisiting our counter race condition example, and using figure 6.5, let’s visualize
+    what happens when two processes try and acquire a lock at roughly the same time.
+    Then, let’s see how it prevents the counter from getting the wrong value.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新审视我们的计数器竞态条件示例，并使用图6.5，让我们可视化当两个进程几乎同时尝试获取锁时会发生什么。然后，让我们看看它是如何防止计数器得到错误值的。
+- en: '![06-05](Images/06-05.png)'
+  id: totrans-167
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-05](Images/06-05.png)'
+- en: Figure 6.5 Process 2 is blocked from reading shared data until Process 1 releases
+    the lock.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.5 显示，进程2在进程1释放锁之前无法读取共享数据。
+- en: In this diagram, Process 1 first acquires the lock successfully and reads and
+    increments the shared data. The second process tries to acquire the lock but is
+    blocked from advancing further until the first process releases the lock. Once
+    the first process releases the lock, the second process can successfully acquire
+    the lock and increment the shared data. This prevents the race condition because
+    the lock prevents more than one process from reading and writing the shared data
+    at the same time.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个图中，进程1首先成功获取了锁，并读取并增加了共享数据。第二个进程尝试获取锁，但被阻塞，无法进一步执行，直到第一个进程释放锁。一旦第一个进程释放了锁，第二个进程就可以成功获取锁并增加共享数据。这防止了竞态条件，因为锁阻止了多个进程同时读取和写入共享数据。
+- en: So how do we implement this synchronization with our shared data? The multiprocessing
+    API implementors thought of this and nicely included a method to get a lock on
+    both value and array. To acquire a lock, we call `get_lock().acquire()` and to
+    release a lock we call `get_lock().release()`. Using listing 6.12, let’s apply
+    this to our previous example to fix our bug.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，我们如何实现这种同步并共享我们的数据呢？多进程API实现者想到了这一点，并很好地包含了一个方法来获取值和数组的锁。要获取锁，我们调用`get_lock().acquire()`，要释放锁，我们调用`get_lock().release()`。使用列表6.12，让我们将此应用于之前的示例以修复我们的错误。
+- en: Listing 6.12 Acquiring and releasing a lock
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.12 获取和释放锁
+- en: '[PRE20]'
+  id: totrans-172
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'When we run this code, every value we get should be `2`. We’ve fixed our race
+    condition! Note that locks are also context managers, and to clean up our code
+    we could have written `increment_value` using a `with` block. This will acquire
+    and release the lock for us automatically:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这段代码时，我们应该得到每个值都是`2`。我们解决了竞态条件！请注意，锁也是上下文管理器，为了清理我们的代码，我们可以使用`with`块来编写`increment_value`。这将自动为我们获取和释放锁：
+- en: '[PRE21]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Notice that we have taken concurrent code and have just forced it to be sequential,
+    negating the value of running in parallel. This is an important observation and
+    is a caveat of synchronization and shared data in concurrency in general. To avoid
+    race conditions, we must make our parallel code sequential in critical sections.
+    This can hurt the performance of our multiprocessing code. Care must be taken
+    to lock only the sections that absolutely need it so that other parts of the application
+    can execute concurrently. When faced with a race condition bug, it is easy to
+    protect all your code with a lock. This will “fix” the problem but will likely
+    degrade your application’s performance.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们刚刚将并发代码强制变为顺序执行，这否定了并行运行的价值。这是一个重要的观察结果，也是并发中同步和共享数据的一般注意事项。为了避免竞态条件，我们必须在关键部分使我们的并行代码变为顺序执行。这可能会损害我们多进程代码的性能。必须小心只锁定绝对需要锁定的部分，以便应用程序的其他部分可以并发执行。当面对竞态条件错误时，很容易用锁保护所有代码。这将“修复”问题，但可能会降低应用程序的性能。
+- en: 6.5.3 Sharing data with process pools
+  id: totrans-176
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.5.3 使用进程池共享数据
+- en: We’ve just seen how to share data within a couple of processes, so how do we
+    apply this knowledge to process pools? Process pools operate a bit differently
+    than creating processes manually, posing a challenge with shared data. Why is
+    this?
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们刚刚看到了如何在几个进程之间共享数据，那么我们如何将这个知识应用到进程池中呢？进程池的操作方式与手动创建进程略有不同，这给共享数据带来了挑战。为什么会有这样的问题？
+- en: When we submit a task to a process pool, it may not run immediately because
+    the processes in the pool may be busy with other tasks. How does the process pool
+    handle this? In the background, process pool executors keep a queue of tasks to
+    manage this. When we submit a task to the process pool, its arguments are pickled
+    (serialized) and put on the task queue. Then, each worker process asks for a task
+    from the queue when it is ready for work. When a worker process pulls a task off
+    the queue, it unpickles (deserializes) the arguments and begins to execute the
+    task.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们将任务提交给进程池时，它可能不会立即运行，因为池中的进程可能正忙于其他任务。进程池是如何处理这个问题的呢？在后台，进程池执行器保持一个任务队列来管理这个问题。当我们向进程池提交一个任务时，其参数会被序列化（序列化）并放入任务队列。然后，每个工作进程在准备好工作时从队列中请求一个任务。当一个工作进程从队列中拉取任务时，它会反序列化（反序列化）参数并开始执行任务。
+- en: Shared data is, by definition, shared among worker processes. Therefore, pickling
+    and unpickling it to send it back and forth between processes makes little sense.
+    In fact, neither `Value` nor `Array` objects can be pickled, so if we try to pass
+    the shared data in as arguments to our functions as we did before, we’ll get an
+    error along the lines of `can’t` `pickle` `Value` `objects`.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据定义，共享数据是在工作进程之间共享的。因此，将数据序列化和反序列化以在进程之间来回传递几乎没有意义。事实上，`Value` 和 `Array` 对象都不能被序列化，所以如果我们尝试像之前那样将共享数据作为函数的参数传递，我们会得到类似
+    `can’t pickle Value objects` 的错误。
+- en: To handle this, we’ll need to put our shared counter in a global variable and
+    somehow let our worker processes know about it. We can do this with *process pool
+    initializers*. These are special functions that are called when each process in
+    our pool starts up. Using this, we can create a reference to the shared memory
+    that our parent process created. We can pass this function in when we create a
+    process pool. To see how this works, let’s create a simple example that increments
+    a counter.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了处理这个问题，我们需要将我们的共享计数器放入一个全局变量中，并设法让我们的工作进程知道它。我们可以通过 *进程池初始化器* 来实现这一点。这些是在我们池中的每个进程启动时被调用的特殊函数。使用这个功能，我们可以创建对父进程创建的共享内存的引用。在创建进程池时，我们可以传递这个函数。为了了解这是如何工作的，让我们创建一个简单的例子，该例子增加一个计数器。
+- en: Listing 6.13 Initializing a process pool
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.13 初始化进程池
+- en: '[PRE22]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ❶ This tells the pool to execute the function init with the argument counter
+    for each process.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这告诉池为每个进程执行带有参数 `counter` 的 `init` 函数。
+- en: We first define a global variable, `shared_counter`, which will contain the
+    reference to the shared `Value` object we create. In our `init` function, we take
+    in a `Value` and initialize `shared_counter` to that value. Then, in the main
+    coroutine, we create the counter and initialize it to 0, then pass in our `init`
+    function and our counter to the `initializer` and `initargs` parameter when creating
+    the process pool. The `init` function will be called for each process that the
+    process pool creates, correctly initializing our `shared_ counter` to the one
+    we created in our main coroutine.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先定义一个全局变量，`shared_counter`，它将包含我们创建的共享 `Value` 对象的引用。在我们的 `init` 函数中，我们接收一个
+    `Value` 并将 `shared_counter` 初始化为该值。然后，在主协程中，我们创建计数器并将其初始化为 0，接着在创建进程池时将我们的 `init`
+    函数和计数器传递给 `initializer` 和 `initargs` 参数。`init` 函数将为进程池创建的每个进程调用，正确地将我们的 `shared_counter`
+    初始化为主协程中创建的那个。
+- en: You may ask, “Why do we need to bother with all this? Can’t we just initialize
+    the global variable as `shared_counter:` `Value` `=` `Value('d',` `0)` instead
+    of leaving it empty?” The reason we can’t do this is that when each process is
+    created, the script we created it from is run again, per each process. This means
+    that each process that starts will execute `shared_counter:` `Value` `=` `Value('d',`
+    `0)`, meaning that if we have 100 processes, we’d get 100 `shared_counter` values,
+    each set to 0, resulting in some strange behavior.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，“为什么我们需要费这么大的力气？我们难道不能直接将全局变量 `shared_counter:` `Value` `=` `Value('d',`
+    `0)` 初始化，而不是让它为空吗？”我们不能这样做的原因是，每当创建一个进程时，创建它的脚本都会再次运行，针对每个进程。这意味着每个启动的进程都会执行 `shared_counter:`
+    `Value` `=` `Value('d',` `0)`，这意味着如果我们有 100 个进程，我们会得到 100 个 `shared_counter` 值，每个都设置为
+    0，从而导致一些奇怪的行为。
+- en: Now that we know how to initialize shared data properly with a process pool,
+    let’s see how to apply this to our MapReduce application. We’ll create a shared
+    counter that we’ll increment each time a map operation completes. We’ll also create
+    a `progress` `reporter1` task that will run in the background and output our progress
+    to the console every second. For this example, we’ll import some of our code around
+    partitioning and reducing, to avoid repeating ourselves.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们知道了如何使用进程池正确地初始化共享数据，让我们看看如何将此应用于我们的MapReduce应用程序。我们将创建一个共享计数器，每次map操作完成时我们将增加它。我们还将创建一个`progress`
+    `reporter1`任务，它将在后台运行，并且每秒将我们的进度输出到控制台。在这个例子中，我们将导入一些关于分区和减少的代码，以避免重复。
+- en: Listing 6.14 Keeping track of map operation progress
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表6.14跟踪map操作进度
+- en: '[PRE23]'
+  id: totrans-188
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'The main change from our original MapReduce implementation, aside from initializing
+    a shared counter, is inside our `map_frequencies` function. Once we have finished
+    counting all words in that chunk, we acquire the lock for the shared counter and
+    increment it. We also added a `progress_reporter` coroutine, which will run in
+    the background and report how many jobs we’ve completed every second. When running
+    this, you should see output similar to the following:'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与我们的原始MapReduce实现相比，主要的变化（除了初始化共享计数器之外）是在我们的`map_frequencies`函数内部。一旦我们完成了对那个块中所有单词的计数，我们就获取共享计数器的锁并增加它。我们还添加了一个`progress_reporter`协程，它将在后台运行，并且每秒报告我们完成了多少工作。运行此程序时，你应该会看到类似以下输出的内容：
+- en: '[PRE24]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: We now know how to use multiprocessing with asyncio to improve the performance
+    of CPU-intensive work. What happens if we have a workload that has work that has
+    both heavily CPU-bound and I/O-bound operations? We can use multiprocessing, but
+    is there a way for us to combine the ideas of multiprocessing and a single-threaded
+    concurrency model to further improve performance?
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在知道如何使用异步IO来提高CPU密集型工作的性能。如果我们有一个同时包含大量CPU密集型和I/O密集型操作的工作负载会发生什么？我们可以使用多进程，但有没有一种方法可以结合多进程和单线程并发模型的思想来进一步提高性能？
+- en: 6.6 Multiple processes, multiple event loops
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.6 多进程，多事件循环
+- en: While multiprocessing is mainly useful for CPU-bound tasks, it can have benefits
+    for workloads that are I/O-bound as well. Let’s take our example of running multiple
+    SQL queries concurrently from listing 5.8 in the previous chapter. Can we use
+    multiprocessing to further improve its performance? Let’s look at what its CPU
+    usage graph looks like on a single core, as illustrated in figure 6.6.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然多进程主要用于CPU密集型任务，但它也可以为I/O密集型工作负载带来好处。让我们以在前一章列表5.8中运行多个SQL查询并发的例子为例。我们能否使用多进程进一步提高其性能？让我们看看它在单核上的CPU使用率图，如图6.6所示。
+- en: '![06-06](Images/06-06.png)'
+  id: totrans-194
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-06](Images/06-06.png)'
+- en: Figure 6.6 The CPU utilization graph for the code in listing 5.8
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.6 列表5.8中代码的CPU利用率图
+- en: While this code is mostly making I/O-bound queries to our database, there is
+    still a significant amount of CPU utilization happening. Why is this? In this
+    instance, there is work happening to process the raw results we get from Postgres,
+    leading to higher CPU utilization. Since we’re single-threaded, while this CPU-bound
+    work is happening, our event loop isn’t processing results from other queries.
+    This poses a potential throughput issue. If we issue 10,000 SQL queries concurrently,
+    but we can only process one result at a time, we may end up with a backlog of
+    query results to process.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这段代码主要是在对数据库进行I/O密集型查询，但仍然有相当数量的CPU利用率。为什么会出现这种情况？在这个例子中，有工作正在进行以处理我们从Postgres获取的原始结果，这导致了更高的CPU利用率。由于我们是单线程的，当这个CPU密集型工作正在进行时，我们的事件循环无法处理其他查询的结果。这可能导致吞吐量问题。如果我们并发地发出10,000个SQL查询，但我们一次只能处理一个结果，我们可能会积累大量的查询结果等待处理。
+- en: Is there a way for us to improve our throughput by using multiprocessing? Using
+    multiprocessing, each process has its own thread and its own Python interpreter.
+    This opens up the opportunity to create one event loop per each process in our
+    pool. With this model, we can distribute our queries over several processes. As
+    seen in figure 6.7, this will spread the CPU load across multiple processes.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能否通过使用多进程来提高我们的吞吐量？使用多进程，每个进程都有自己的线程和自己的Python解释器。这为我们提供了在每个进程池中的每个进程中创建一个事件循环的机会。在这种模型下，我们可以将我们的查询分布到多个进程中。如图6.7所示，这将分散多个进程的CPU负载。
+- en: '![06-07](Images/06-07.png)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_IMG
+  zh: '![06-07](Images/06-07.png)'
+- en: Figure 6.7 A parent process creates a process pool. The parent process then
+    creates workers, each with its own event loop.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.7 父进程创建进程池。然后父进程创建具有各自事件循环的工作进程。
+- en: While this won’t make our I/O throughput increase, it will increase how many
+    query results we can process at a time. This will increase the overall throughout
+    of our application. Let’s take our example from listing 5.7 and use it to create
+    this architecture, as shown in listing 6.15.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这不会增加我们的 I/O 吞吐量，但它会增加我们一次可以处理的查询结果数量。这将提高我们应用程序的整体吞吐量。让我们以列表 5.7 的例子为例，使用它来创建这个架构，如列表
+    6.15 所示。
+- en: Listing 6.15 One event loop per process
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 6.15 每个进程一个事件循环
+- en: '[PRE25]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Run queries in a new event loop, and convert them to dictionaries.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在新的事件循环中运行查询，并将它们转换为字典。
+- en: ❷ Create five processes each with their own event loop to run queries.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建五个进程，每个进程都有自己的事件循环来运行查询。
+- en: ❸ Wait for all query results to complete.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 等待所有查询结果完成。
+- en: 'We create a new function: `run_in_new_loop`. This function has an inner coroutine,
+    `run_queries`, which creates a connection pool and runs the number of queries
+    we specify concurrently. We then call `run_queries` with `asyncio.run`, which
+    creates a new event loop and runs the coroutine.'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们创建了一个新函数：`run_in_new_loop`。这个函数有一个内部的协程，`run_queries`，它创建一个连接池并并发运行我们指定的查询数量。然后我们使用
+    `asyncio.run` 调用 `run_queries`，它创建一个新的事件循环并运行协程。
+- en: One thing to note here is that we convert our results into dictionaries because
+    asyncpg record objects cannot be pickled. Converting to a data structure that
+    is serializable ensures that we can send our result back to our parent process.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里需要注意的一点是我们将结果转换为字典，因为 asyncpg 记录对象无法被序列化。将它们转换为可序列化的数据结构确保我们可以将结果发送回父进程。
+- en: In our main coroutine, we create a process pool and make five calls to `run_in_
+    new_loop`. This will concurrently kick off 50,000 queries—10,000 per each of five
+    processes. When you run this, you should see five processes launched quickly,
+    followed by each of these processes finishing at roughly the same time. The runtime
+    of the entire application should take slightly longer than the slowest process.
+    When running this on an eight-core machine, this script was able to complete in
+    roughly 13 seconds. Going back to our previous example from chapter 5, we made
+    10,000 queries in about 6 seconds. This output means we were getting a throughput
+    of roughly 1,666 queries per second. With the multiprocessing and multiple event
+    loop approach, we completed 50,000 queries in 13 seconds, or roughly 3,800 queries
+    per second, more than doubling our throughput.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的主协程中，我们创建了一个进程池并调用了五次 `run_in_new_loop`。这将并发启动 50,000 个查询——每个进程 10,000 个。当你运行这个程序时，你应该会看到快速启动五个进程，然后每个进程大约在同一时间完成。整个应用程序的运行时间应该略长于最慢的进程。在八核机器上运行此脚本时，它大约在
+    13 秒内完成。回到第 5 章的先前的例子，我们大约在 6 秒内进行了 10,000 个查询。这个输出意味着我们每秒可以处理大约 1,666 个查询。使用多进程和多事件循环方法，我们在
+    13 秒内完成了 50,000 个查询，或者大约每秒 3,800 个查询，吞吐量翻了一倍多。
+- en: Summary
+  id: totrans-209
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: We’ve learned how to run multiple Python functions in parallel with a process
+    pool.
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何在进程池中并行运行多个 Python 函数。
+- en: We’ve learned how to create a process pool executor and run Python functions
+    in parallel. A process pool executor lets us use asyncio API methods such as `gather`
+    to run multiple processes concurrently and wait for the results.
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何创建进程池执行器并在并行中运行 Python 函数。进程池执行器允许我们使用 asyncio API 方法，如 `gather`，来并发运行多个进程并等待结果。
+- en: We’ve learned how to solve a problem with MapReduce using process pools and
+    asyncio. This workflow not only applies to MapReduce but can be used in general
+    with any CPU-bound work that we can split into multiple smaller chunks.
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用进程池和 asyncio 解决 MapReduce 问题。这个工作流程不仅适用于 MapReduce，还可以用于任何我们可以将其拆分为多个更小块的
+    CPU 密集型工作。
+- en: We’ve learned how to share state between multiple processes. This lets us keep
+    track of data that is relevant for subprocesses we kick off, such as a status
+    counter.
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何在多个进程之间共享状态。这使我们能够跟踪与启动的子进程相关的数据，例如状态计数器。
+- en: We’ve learned how to avoid race conditions by using locks. Race conditions happen
+    when multiple processes attempt to access data at roughly the same time and can
+    lead to hard-to reproduce bugs.
+  id: totrans-214
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何通过使用锁来避免竞态条件。竞态条件发生在多个进程试图几乎同时访问数据时，可能导致难以复现的故障。
+- en: We’ve learned how to use multiprocessing to extend the power of asyncio by creating
+    an event loop per each process. This has the potential to improve performance
+    of workloads that have a mixture of CPU-bound and I/O-bound work.
+  id: totrans-215
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何通过为每个进程创建一个事件循环来使用多进程来扩展 asyncio 的功能。这有可能提高具有 CPU 密集型和 I/O 密集型工作混合的工作负载的性能。

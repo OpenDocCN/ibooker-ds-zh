@@ -1,0 +1,1362 @@
+- en: 6 Rootless containers
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 6 无root容器
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: Why rootless mode is more secure
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为什么无root模式更安全
+- en: How Podman works with the user and mount namespaces
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Podman如何与用户和挂载命名空间协同工作
+- en: The architecture of Podman running in rootless mode
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 无root模式运行Podman的架构
+- en: In this chapter, you will take a deep dive into what is going on when running
+    Podman in rootless mode. I believe it is helpful to understand what is happening
+    when you run rootless containers and learn about the problems that running in
+    rootless mode can cause. With the introduction of containerized applications over
+    the last few years, certain highly secure environments were not able to take advantage
+    of the new technology.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你将深入了解在无root模式下运行Podman时发生的情况。我相信了解运行无root容器时发生的情况，以及了解在无root模式下运行可能引起的问题，是有帮助的。随着过去几年容器化应用程序的引入，某些高度安全的环境无法利用这项新技术。
+- en: High performance computing (HPC) systems run the fastest computers in the world.
+    These tend to be at national labs and universities and deal with high-security
+    information. They also handle some of the most secure data in the world and expressly
+    forbid the use of rootful containers. HPC systems deal with huge datasets, including
+    artificial intelligence, nuclear weapons, global weather patterns, and medical
+    research. These systems tend to have thousands of shared computers, and they need
+    to be locked down because of their multi-user shared environments. HPC computing
+    believes running daemons as root is too insecure. If a rogue container process
+    breaks out of confinement and gains root access, it can access highly sensitive
+    data. Administrators of HPC environments couldn’t use Open Container Initiative
+    (OCI) containers until Podman came along. The HPC community is now working to
+    move to rootless Podman.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高性能计算（HPC）系统运行着世界上最快的计算机。这些系统通常位于国家实验室和大学，处理高度机密信息。它们还处理世界上一些最安全的数据，并明确禁止使用root容器。HPC系统处理大量数据集，包括人工智能、核武器、全球天气模式和医学研究。这些系统通常有数千台共享计算机，由于它们的多用户共享环境，需要被锁定。HPC计算认为以root身份运行守护进程太不安全。如果一个恶意容器进程突破限制并获得root访问权限，它可以访问高度敏感的数据。HPC环境的管理员在Podman出现之前无法使用开放容器倡议（OCI）容器。现在，HPC社区正在努力迁移到无root的Podman。
+- en: Similarly, large financial company administrators do not allow users and developers
+    access to root on their shared computer systems, out of concern for the financial
+    data involved. The largest financial firms in the world were having difficulty
+    fully adopting OCI containers. Figure 6.1 shows that even though the Docker client
+    can be run as non-root, it connects to a root running daemon, giving full root
+    access to the host OS.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，大型金融公司管理员出于对涉及财务数据的担忧，不允许用户和开发人员访问他们共享计算机系统上的root权限。世界上最大的金融公司发现很难完全采用OCI容器。图6.1显示，尽管Docker客户端可以以非root身份运行，但它连接到一个root运行的守护进程，从而为宿主操作系统提供完整的root访问权限。
+- en: '![](../../OEBPS/Images/06-01.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-01.png)'
+- en: Figure 6.1 Multiple users’ workloads sharing the same daemon running as root
+    is inherently insecure.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.1 多个用户的工作负载共享同一个以root身份运行的守护进程，这在本质上是不安全的。
+- en: The bottom line is that allowing users on a shared computing system to run container
+    workloads accessing the same root-running daemon is too insecure. Running each
+    user’s containers in rootless mode under different users’ accounts is more secure.
+    Figure 6.2 shows multiple users running Podman independent of each other, without
+    any root access.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 核心问题是，允许共享计算系统上的用户运行访问相同root运行守护进程的容器工作负载，这太不安全了。在各个用户的账户下以无root模式运行每个用户的容器更安全。图6.2显示了多个用户独立运行Podman，没有任何root访问权限。
+- en: '![](../../OEBPS/Images/06-02.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-02.png)'
+- en: Figure 6.2 Each workload running within its unique user space is more secure.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.2 每个工作负载在其独特的用户空间中运行，这更安全。
+- en: Linux was designed from the ground up with a separation between privileged mode
+    (rootful) and unprivileged mode (rootless). In Linux almost all tasks run without
+    being privileged. Privileged operations are only required for modifications to
+    the core operating system. Almost all applications that run in containers, web
+    servers, databases, and user tools run without requiring root. The applications
+    do not modify core parts of the system. Sadly, most of the images you will find
+    on container registries are built to require root privileges or at least start
+    as root and then drop privileges.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux从一开始就被设计为在特权模式（rootful）和非特权模式（rootless）之间进行分离。在Linux中，几乎所有任务都是非特权运行的。特权操作仅需要修改核心操作系统。几乎在容器、Web服务器、数据库和用户工具中运行的所有应用程序都不需要root权限。这些应用程序不会修改系统的核心部分。遗憾的是，你将在容器注册表中找到的大多数镜像都是构建为需要root权限，或者至少以root身份启动然后降级权限的。
+- en: In the corporate world, administrators are very reluctant to give out root access
+    to their users. If you receive a corporate laptop from your employer, usually
+    you are not granted any root access. Administrators need to control what is installed
+    on their systems because of scale, and they need to be able to update hundreds
+    to thousands of machines at the same time, so controlling what is in the OS is
+    critical. If someone else is administering your machine, they need to control
+    who gets root access.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在企业界，管理员非常不愿意向用户授予root访问权限。如果你从雇主那里收到了一台企业笔记本电脑，通常你不会获得任何root访问权限。管理员需要控制他们系统上安装的内容，因为规模的原因，他们需要能够同时更新数百到数千台机器，因此控制操作系统中的内容至关重要。如果有人正在管理你的机器，他们需要控制谁可以获得root访问权限。
+- en: As a security person, I still flinch a little when I see sudo without a password.
+    When I first started working with Docker, I was shocked that it was encouraging
+    the use of the Docker group, giving users full root access on the host, without
+    a password. The holy grail of hackers is to get a root exploit; this means the
+    hackers gain full control over the system.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一名安全人员，当我看到没有密码的sudo时，我仍然会有些紧张。当我最初开始使用Docker时，我震惊地发现它鼓励使用Docker组，给予用户在主机上的完全root访问权限，而不需要密码。黑客的圣杯是获得根漏洞；这意味着黑客可以完全控制系统。
+- en: Bottom line is that if you have a container escape, as bad as that is, you are
+    better off in rootless mode. This is because the hackers have control over only
+    nonprivileged processes, as opposed to a root exploit, where they have full control
+    over the system and all of the data (ignoring other security mechanisms like SELinux).
+    Podman’s design goals include the ability to run as many workloads as possible
+    without being root and push the core OS to make it easier for you to run in this
+    more secure mode.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 核心观点是，如果你遇到了容器逃逸，尽管这很糟糕，但在无根模式下你会更好。这是因为黑客只能控制非特权进程，而不是像根漏洞那样，他们可以完全控制整个系统和所有数据（忽略其他安全机制，如SELinux）。Podman的设计目标包括尽可能多地运行工作负载而不需要root权限，并推动核心操作系统，使其更容易以这种更安全的方式运行。
+- en: 6.1 How does rootless Podman work?
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.1 无根Podman是如何工作的？
+- en: Have you ever wondered what happens behind the scenes of a rootless Podman container?
+    In chapter 2, all of the Podman examples were running in rootless mode. Let’s
+    take a look at what happens under the hood of rootless Podman containers. I’ll
+    explain each component and then break down all of the steps involved.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你是否曾经好奇过无根Podman容器背后的情况？在第2章中，所有的Podman示例都是在无根模式下运行的。让我们看看无根Podman容器底下的情况。我会解释每个组件，然后分解所有涉及的步骤。
+- en: Note Some of this section is copied and rewritten from the “What Happens behind
+    the Scenes of a Rootless Podman Container?” blog ([https://www.redhat.com/sysadmin/behind-scenes-podman](https://www.redhat.com/sysadmin/behind-scenes-podman)),
+    written by myself and coworkers Matthew Heon and Giuseppe Scrivano.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：本节中的一些内容是从“无根Podman容器背后的情况”博客（[https://www.redhat.com/sysadmin/behind-scenes-podman](https://www.redhat.com/sysadmin/behind-scenes-podman)）中复制和改写的，该博客由我和同事Matthew
+    Heon和Giuseppe Scrivano撰写。
+- en: First, let’s first clear out all storage, so you can get a fresh environment,
+    and then run a container on quay.io/rhatdan/myimage. (Remember that the `podman`
+    `rmi` `--all` `--force` command removes all images and containers from storage.)
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们清理所有存储，以便你获得一个全新的环境，然后在quay.io/rhatdan/myimage上运行一个容器。（记住，`podman rmi
+    --all --force`命令会从存储中删除所有镜像和容器。）
+- en: '[PRE0]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Now that you have a clean system, you need to retrieve the application image,
+    quay.io/ rhatdan/myimage, from the container registry you pushed it to in chapter
+    2\. In the following command, re-create the application on your machine. The command
+    pulls the image back from the container registry and starts the `myapp` container
+    on your host.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您有一个干净的系统，您需要从第2章中您推送到容器注册中心的容器镜像quay.io/ rhatdan/myimage中检索应用程序镜像。在以下命令中，在您的机器上重新创建应用程序。该命令从容器注册中心拉取镜像，并在您的宿主机上启动`myapp`容器。
+- en: '[PRE1]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Now let’s dig deep into what just happened when you ran a rootless Podman container.
+    The first thing that happened was Podman needed to set up the user namespace.
+    In the next section, I explain why, and how it works.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们深入探讨一下当你运行无根Podman容器时发生了什么。首先发生的事情是Podman需要设置用户命名空间。在下一节中，我将解释为什么需要这样做以及它是如何工作的。
+- en: 6.1.1 Images contain content owned by multiple user identifiers (UIDs)
+  id: totrans-25
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.1.1 图像包含多个用户标识符（UID）拥有的内容
+- en: In Linux, user identifiers (UIDs) and group identifiers (GIDs) are assigned
+    to processes and stored on filesystem objects. The filesystem objects also have
+    permission values assigned to them. Linux controls the processes’ access to the
+    filesystem based on these UIDs and GIDs. This access is called *discretionary
+    access control* (DAC). When you log in to a Linux machine, your rootless user
+    processes run with a single UID—say, `1000`—but container images usually come
+    with multiple different UIDs in their image layers. Let’s examine the UIDs needed
+    to run our image. In this example, you examine all the UIDs defined within the
+    container image by running another container.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Linux中，用户标识符（UID）和组标识符（GID）被分配给进程并存储在文件系统对象上。文件系统对象也分配了权限值。Linux根据这些UID和GID控制进程对文件系统的访问。这种访问称为*自主访问控制*（DAC）。当您登录Linux机器时，您的无根用户进程以单个UID运行——比如说`1000`——但容器镜像通常在其镜像层中包含多个不同的UID。让我们检查运行我们的镜像所需的UID。在这个例子中，您通过运行另一个容器来检查容器镜像中定义的所有UID。
+- en: In the following command, launch a container with the quay.io/rhatdan/myimage
+    image. You need to run the container as root (`- -user=root`) inside the container
+    to examine every file within the image.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下命令中，使用quay.io/rhatdan/myimage镜像启动一个容器。您需要在容器内部以root（`- -user=root`）身份运行容器，以检查镜像中的每个文件。
+- en: '[PRE2]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Since this is only a temporary container, use the `--rm` option to make sure
+    the container is removed when it finishes running. The container runs a Bash script,
+    which finds all of the UIDs and users associated with every file/directory in
+    the container. The script pipes the output to show unique entries and redirects
+    `stderr` to /dev/null to eliminate any errors.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这是一个临时容器，请使用`--rm`选项确保容器在运行完成后被删除。容器运行一个Bash脚本，该脚本查找容器中每个文件/目录关联的所有UID和用户。脚本将输出通过管道传递以显示唯一条目，并将`stderr`重定向到`/dev/null`以消除任何错误。
+- en: '[PRE3]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: As you can see from the output, our container image uses four different UIDs,
+    shown in table 6.1.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您从输出中可以看到，我们的容器镜像使用了四个不同的UID，如表6.1所示。
+- en: Table 6.1 Unique UIDs required to run the container image
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表6.1 运行容器镜像所需的唯一UID
+- en: '| UID | Name | Description |'
+  id: totrans-33
+  prefs: []
+  type: TYPE_TB
+  zh: '| UID | Name | Description |'
+- en: '| `0` | `root` | Owns most of the content within the container image |'
+  id: totrans-34
+  prefs: []
+  type: TYPE_TB
+  zh: '| `0` | `root` | 拥有容器镜像中的大部分内容 |'
+- en: '| `48` | `apache` | Owns all of the Apache content |'
+  id: totrans-35
+  prefs: []
+  type: TYPE_TB
+  zh: '| `48` | `apache` | 拥有所有Apache内容 |'
+- en: '| `1001` | `default` | Default user the container runs as |'
+  id: totrans-36
+  prefs: []
+  type: TYPE_TB
+  zh: '| `1001` | `default` | 容器运行时的默认用户 |'
+- en: '| `65634` | `nobody` | Assigned to any UID that is not mapped into the container
+    |'
+  id: totrans-37
+  prefs: []
+  type: TYPE_TB
+  zh: '| `65634` | `nobody` | 分配给任何未映射到容器中的UID |'
+- en: 'For you to pull a container image to your home directory, Podman needs to store
+    at least three different UIDs: `0`, `48`, and `1001`. Since the Linux kernel prevents
+    nonprivileged accounts from using more than a single UID, you are prevented from
+    creating files with different UIDs. You will need to take advantage of the user
+    namespace.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了将容器镜像拉取到您的家目录中，Podman需要存储至少三个不同的UID：`0`、`48`和`1001`。由于Linux内核阻止非特权账户使用超过一个UID，因此您无法创建具有不同UID的文件。您需要利用用户命名空间。
+- en: User namespace
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户命名空间
+- en: 'Linux supports the concept of user namespaces, which is a mapping of UID/GIDs
+    from the host to different UIDs and GIDs inside the namespace. Here is how the
+    man page describes it:'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux支持用户命名空间的概念，这是将主机上的UID/GID映射到命名空间内部的不同UID和GID。以下是手册页对该概念的描述：
+- en: '[PRE4]'
+  id: totrans-41
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: User namespaces isolate security-related identifiers and attributes—in particular,
+    user IDs and group IDs (see `credentials(7)`), the root directory, keys (see `keyrings(7)`),
+    and capabilities (see `capabilities(7)`). A process’s user and group IDs can be
+    different inside and outside a user namespace. In particular, a process can have
+    a normal, unprivileged user ID outside a user namespace, while at the same time
+    having a user ID of `0` inside the namespace; in other words, the process has
+    full privileges for operations inside the user namespace but is unprivileged for
+    operations outside the namespace.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户命名空间隔离了与安全相关的标识符和属性——特别是用户ID和组ID（见`credentials(7)`）、根目录、密钥（见`keyrings(7)`）和权限（见`capabilities(7)`）。进程的用户和组ID可以在用户命名空间内外不同。特别是，进程可以在用户命名空间外有一个普通的无特权的用户ID，同时在该命名空间内有一个用户ID为`0`；换句话说，进程在用户命名空间内的操作具有完全权限，但在命名空间外的操作是无特权的。
+- en: Since your container requires more than one UID, the Podman process first creates
+    and enters a user namespace, where it has access to more UIDs. Podman must also
+    mount several filesystems to run a container. These mount commands are not allowed
+    outside a user namespace (along with a mount namespace). Figure 6.3 shows the
+    UIDs used within a user namespace.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于您的容器需要多个UID，Podman进程首先创建并进入一个用户命名空间，在那里它可以访问更多的UID。Podman还必须挂载几个文件系统来运行容器。这些挂载命令在用户命名空间之外不允许（包括挂载命名空间）。图6.3显示了用户命名空间内的UID。
+- en: '![](../../OEBPS/Images/06-03.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-03.png)'
+- en: Figure 6.3 User namespace mapping for containers
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.3 容器的用户命名空间映射
+- en: 'When I created my system, I used the `useradd` program to create my account.
+    It assigned me `3267` as my UID and GID, defined in /etc/passwd and /etc/group.
+    It also allocated UID `100000-1065535`—additional UIDs and GIDs for me defined
+    in /etc/ subuid and /etc/subgid. Let’s see the content of these files:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我创建我的系统时，我使用了`useradd`程序来创建我的账户。它将`3267`分配给我作为UID和GID，这些在`/etc/passwd`和`/etc/group`中定义。它还分配了UID
+    `100000-1065535`——为我定义在`/etc/subuid`和`/etc/subgid`中的额外UID和GID。让我们看看这些文件的内容：
+- en: '[PRE5]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: You can cat these files on your system, and you’ll see something similar. On
+    my system I also have a `testuser` account; `useradd` also added UIDs/GIDs for
+    that user, starting right after my allocation.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在您的系统上查看这些文件，您将看到类似的内容。在我的系统中，我还有一个`testuser`账户；`useradd`也为该用户添加了UID/GID，在我分配之后立即开始。
+- en: Within a user namespace, I have access to UIDs `3267` (my UID) as well as `100000`,
+    `100001`, `100002`, ..., `165535`, for a total of 65,537 UIDs. A root user can
+    modify the /etc/subuid and /etc/subgid files to increase or decrease this number.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户命名空间内，我能够访问UID `3267`（我的UID）以及`100000`、`100001`、`100002`、...、`165535`，总共65,537个UID。root用户可以通过修改`/etc/subuid`和`/etc/subgid`文件来增加或减少这个数字。
+- en: The `useradd` command starts at UID `100000` to allow you to have around 99,000
+    regular users plus 1,000 UIDs reserved for system services on a Linux system.
+    The kernel supports more than 4 billion UIDs (2^(32) = 4,294,967,296). Since `useradd`
+    allocates 65,537 per user, Linux can support more than 60,000 users. The 65,536
+    (2^(16)) number was picked because up until the Linux kernel 2.4, this was the
+    maximum number of users on a Linux system. Let’s look deeper into the user namespace.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`useradd`命令从UID `100000`开始，这样您就可以在Linux系统上拥有大约99,000个普通用户，以及为系统服务预留的1,000个UID。内核支持超过40亿个UID（2^(32)
+    = 4,294,967,296）。由于`useradd`为每个用户分配65,537个，Linux可以支持超过60,000个用户。选择65,536（2^(16)）这个数字是因为直到Linux内核2.4，这曾是Linux系统上的最大用户数。让我们更深入地了解用户命名空间。'
+- en: 'Every process on a Linux system is in a namespace, including the init process
+    and systemd. These are the host namespaces. Therefore, every process is in a user
+    namespace. You can see the user namespace mapping for your process by examining
+    the /proc filesystem. The /proc/PID/uid_map and /proc/PID/gid_map contain the
+    user namespace mappings for each process on the OS. /proc/self/uid_map contains
+    the UID map of the current process:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux系统上的每个进程都在一个命名空间中，包括init进程和systemd。这些都是主机命名空间。因此，每个进程都在一个用户命名空间中。您可以通过检查/proc文件系统来查看您进程的用户命名空间映射。/proc/PID/uid_map和/proc/PID/gid_map包含了操作系统上每个进程的用户命名空间映射。/proc/self/uid_map包含了当前进程的UID映射：
+- en: '[PRE6]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: The mapping means UIDs starting at UID `0` are mapped to UID `0` for a range
+    of 4,294,967,295 UIDs.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 映射意味着从UID `0`开始的UID映射到UID `0`的范围为4,294,967,295个UID。
+- en: Another way of looking at this mapping is
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种看待这种映射的方式是
+- en: '[PRE7]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Basically, there is no mapping, so root is root. And my UID `3267` is mapped
+    to `3267`—itself.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基本上，没有映射，所以root是root。我的UID `3267`映射到`3267`——它自己。
+- en: Now let’s enter the user namespace and see what is mapped. Podman has a special
+    command, `podman` `unshare`, which allows you to enter a user namespace without
+    launching a container. It allows you to examine what is going on within the user
+    namespace, while still running as a regular process on your system.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们进入用户命名空间，看看映射情况。Podman有一个特殊的命令`podman unshare`，它允许你进入用户命名空间而不启动容器。它允许你在系统上作为常规进程运行的同时检查用户命名空间内发生的情况。
+- en: 'In the following command, I run `podman` `unshare` to launch the cat /proc/self/
+    uid_map within the default user namespace for my account:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下命令中，我运行`podman unshare`以在我的账户的默认用户命名空间中启动`cat /proc/self/uid_map`：
+- en: '[PRE8]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The mappings show that UID `0` is mapped to UID `3267` (my UID) for a range
+    of `1`. Then UID `1` is mapped to UID `100000` for a range of `65536` UIDS.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 映射显示UID `0`映射到UID `3267`（我的UID）的范围为`1`。然后UID `1`映射到UID `100000`的范围为`65536`个UID。
+- en: 'Any UID not mapped to the user namespace is reported within the user namespace
+    as the `nobody` user. You saw this earlier when you searched for the UIDs within
+    the container image:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何未映射到用户命名空间的UID在用户命名空间内都报告为`nobody`用户。你之前在搜索容器镜像中的UID时已经看到了这一点：
+- en: '[PRE9]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'If you look at `/` on the host, you see it is owned by the real root:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你查看宿主机的`/`，你会发现它属于真正的root：
+- en: '[PRE10]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'If you examine the same directory within the user namespace, you see it is
+    owned by the `nobody` user:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你检查用户命名空间内的相同目录，你会发现它属于`nobody`用户：
+- en: '[PRE11]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'Since the host’s UID `0` is not mapped into the user namespace, the kernel
+    reports the UID as the `nobody` user. Processes within the user namespace only
+    have access to `nobody` files based on only the `other` or `world` permissions.
+    In the example that follows, you will launch a Bash script that shows the user
+    is root within the user namespace but sees /etc/passwd as owned by the user `nobody`.
+    You can read the file with the grep command because /etc/passwd is world readable.
+    But the touch command fails because even root cannot modify files owned by UIDs
+    not mapped to the user namespace:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于宿主机的UID `0`没有映射到用户命名空间，内核报告的UID是`nobody`用户。用户命名空间内的进程只能根据`other`或`world`权限访问`nobody`文件。在下面的例子中，你将启动一个Bash脚本，它显示用户在用户命名空间内是root，但看到`/etc/passwd`属于用户`nobody`。你可以使用grep命令读取文件，因为`/etc/passwd`是可读的。但touch命令失败，因为即使是root也无法修改未映射到用户命名空间的UID的所有文件：
+- en: '[PRE12]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'Looking at your home directory on the host versus inside of the user namespace,
+    you see that the same files are reported as being owned by your UID:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在宿主机上查看你的家目录与用户命名空间内部，你会发现相同的文件被报告为属于你的UID：
+- en: '[PRE13]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Within the user namespace, they are owned by root:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户命名空间内，它们属于root：
+- en: '[PRE14]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: By default, Podman maps your UID to root within the user namespace. Podman defaults
+    to root because, as I specified at the beginning of this chapter, the majority
+    of container images assume they start with root.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，Podman将你的UID映射到用户命名空间内的root。Podman默认为root，因为我在本章开头指定了，大多数容器镜像假设它们以root身份启动。
+- en: 'I’ll give one last example. Create a directory and a file within the directory
+    while in the user namespace, and use the `chown` command to change the contents
+    UIDs to `1:1`:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我将给出最后一个例子。在用户命名空间内创建一个目录和一个文件，并使用`chown`命令将内容UID更改为`1:1`：
+- en: '[PRE15]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'Outside the user namespace, you see the test file is owned by UID `100000`:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户命名空间外，你会看到测试文件的所有者是UID `100000`：
+- en: '[PRE16]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: When you create the test file and `chown` it to UID/GID `1:1` within the user
+    namespace, the on-disk owner is actually UID `100000`/`100000`. Remember, within
+    the user namespace, UID `1` is mapped to UID `100000`, so when you create a UID
+    `1` file within the user namespace, the OS actually creates UID `100000`.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你在用户命名空间内创建测试文件并将其`chown`为UID/GID `1:1`时，磁盘上的所有者实际上是UID `100000`/`100000`。记住，在用户命名空间内，UID
+    `1`映射到UID `100000`，所以当你创建用户命名空间内的UID `1`文件时，操作系统实际上创建的是UID `100000`。
+- en: 'If you attempt to remove the file outside of the user namespace, you get an
+    error:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你尝试在用户命名空间外删除文件，你会得到一个错误：
+- en: '[PRE17]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Outside the user namespace, you have access to only your UID; you don’t have
+    access to the additional UIDs.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在用户命名空间外，你只能访问你的UID；你不能访问额外的UID。
+- en: Note In section 3.1.2, I showed how user namespace mappings can be problematic
+    with container volumes and discussed ways you can handle them.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在3.1.2节中，我展示了用户命名空间映射可能对容器卷造成问题，并讨论了你可以处理这些问题的方法。
+- en: 'Reentering the user namespace, you can remove the file:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重新进入用户命名空间，你可以删除文件：
+- en: '[PRE18]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Hopefully, you are starting to get a feel for the user namespace; the `podman`
+    `unshare` command makes it easy to explore your system within the user namespace
+    and understand what is happening in rootless containers. When running a rootless
+    container, Podman needs more than just to run as root; it also needs access to
+    some of the special powers of root called Linux capabilities.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 希望你现在已经开始对用户命名空间有所感觉；`podman` 的 `unshare` 命令使得在用户命名空间内探索你的系统变得容易，并理解在无根容器中发生了什么。当运行无根容器时，Podman
+    需要的不仅仅是以 root 身份运行；它还需要访问一些称为 Linux 能力的 root 特权。
+- en: In Linux, the root processes actually are not all equally powerful. Linux breaks
+    root privileges into a series of Linux capabilities. A root process with all Linux
+    capabilities is all powerful, while a root process without Linux capabilities
+    is not allowed to manipulate a lot of the system. For example, it cannot read
+    non-root files, unless those files have permission flags that allow all UIDs on
+    the system to read (world readable).
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Linux 中，root 进程实际上并不都是同等强大的。Linux 将 root 权限分解为一系列 Linux 能力。具有所有 Linux 能力的
+    root 进程是全能的，而没有 Linux 能力的 root 进程则不允许操纵系统中的许多部分。例如，它不能读取非 root 文件，除非这些文件具有允许系统上所有
+    UID 读取的权限标志（世界可读）。
+- en: 'Let’s see how capabilities work with the user namespace:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看能力如何与用户命名空间一起工作：
+- en: '[PRE19]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Linux currently has around 40 capabilities. Examples include `CAP_SETUID` and
+    `CAP_SETGID`, which allow processes to change their UIDs and GIDs. `CAP_NET_ADMIN`
+    allows you to manage the network stack.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux 目前大约有 40 个能力。例如，`CAP_SETUID` 和 `CAP_SETGID` 允许进程更改它们的 UID 和 GID。`CAP_NET_ADMIN`
+    允许你管理网络堆栈。
+- en: 'Another capability called `CAP_CHOWN` allows processes to change the UID/GID
+    of files on disk. In the preceding example, when you `chown`ed the test directory
+    to `1:1`, you used the `CAP_CHOWN` capability within the user namespace:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个名为 `CAP_CHOWN` 的能力允许进程更改磁盘上文件的 UID/GID。在先前的例子中，当你将测试目录 `chown` 为 `1:1` 时，你是在用户命名空间内使用了
+    `CAP_CHOWN` 能力：
+- en: '[PRE20]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: When you run within a user namespace, you are using namespaced capabilities.
+    The root user within your user namespace has these capabilities beyond the UIDs
+    and GIDs defined within the namespace. Processes with the namespaced capability,
+    `CAP_CHOWN`, are allowed to `chown` files owned within your user namespace to
+    UIDs that are also within the user namespace. If a process within a user namespace
+    attempts to `chown` a file not mapped to the user namespace, owned by the `nobody`
+    user, the process is denied permission. Likewise, a process attempting to `chown`
+    a file with a UID not defined within the user namespace also gets denied. Similarly,
+    the `CAP_SETUID` capability only allows processes to change UIDs to those defined
+    within the user namespace.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你在用户命名空间内运行时，你正在使用命名空间能力。你用户命名空间内的 root 用户拥有这些能力，而不仅仅是命名空间内定义的 UID 和 GID。具有命名空间能力
+    `CAP_CHOWN` 的进程允许将你用户命名空间内拥有的文件的所有权更改给也位于用户命名空间内的 UID。如果一个用户命名空间内的进程尝试将一个未映射到用户命名空间的文件（由
+    `nobody` 用户拥有）的所有权更改，该进程将被拒绝权限。同样，尝试将具有用户命名空间内未定义 UID 的文件的所有权更改的进程也会被拒绝。同样，`CAP_SETUID`
+    能力只允许进程将 UID 更改为用户命名空间内定义的 UID。
+- en: When Podman runs a container, it needs to mount several filesystems for the
+    container. In Linux, the `CAP_SYS_ADMIN` capability is required for mounting filesystems.
+    From a security point of view, mounting filesystems can be a dangerous thing to
+    do on Linux. The kernel adds additional controls on which types of filesystems
+    can be mounted and requires your user-namespaced processes to also be in a unique
+    mount namespace. In chapter 10, you will see how Podman limits the number of Linux
+    capabilities available to the namespaced root within a container.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 Podman 运行容器时，它需要为容器挂载几个文件系统。在 Linux 中，挂载文件系统需要 `CAP_SYS_ADMIN` 能力。从安全角度来看，在
+    Linux 上挂载文件系统可能是一件危险的事情。内核增加了对可以挂载的文件系统类型的额外控制，并要求你的用户命名空间进程也位于一个唯一的挂载命名空间中。在第
+    10 章中，你将看到 Podman 如何限制容器内命名空间 root 可用的 Linux 能力的数量。
+- en: Mount namespace
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 挂载命名空间
+- en: Mount namespaces allow processes within them to mount filesystems, where the
+    mount points are not seen by processes outside the mount namespace. Inside a mount
+    namespace, you can mount a `tmpfs` on /tmp, which blocks the processes within
+    the namespaces view of /tmp. Outside the mount namespace, processes still see
+    the original mount and files within /tmp, but they do not see your mount.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 挂载命名空间允许其内的进程挂载文件系统，其中挂载点对挂载命名空间外的进程是不可见的。在挂载命名空间内，你可以在 /tmp 上挂载一个 `tmpfs`，这将阻止命名空间内的进程看到
+    /tmp。在挂载命名空间外，进程仍然可以看到原始挂载和 /tmp 中的文件，但它们看不到你的挂载。
+- en: 'In rootless containers, Podman needs to mount the content in the container
+    images as well as /proc, /sys, devices from /dev, and some `tmpfs` filesystems.
+    For that, Podman needs to create a mount namespace:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在无根容器中，Podman 需要挂载容器镜像中的内容以及 /proc、/sys、/dev 中的设备和一些 `tmpfs` 文件系统。为此，Podman
+    需要创建一个挂载命名空间：
+- en: '[PRE21]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: When you execute the `podman` `unshare` command, you are actually entering a
+    different mount namespace as well as a different user namespace.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你执行 `podman` `unshare` 命令时，你实际上是在进入一个不同的挂载命名空间以及不同的用户命名空间。
+- en: 'You can examine a process’s namespaces by listing the /proc/self/ns/ directory
+    as follows:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过以下方式列出 /proc/self/ns/ 目录来检查进程的命名空间：
+- en: '[PRE22]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'Notice that when you enter the user namespace and mount namespace, the identifiers
+    change:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，当你进入用户命名空间和挂载命名空间时，标识符会发生变化：
+- en: '[PRE23]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'In the following test, you can create a file on /tmp and then attempt to bind
+    mount it onto /etc/shadow. Outside the namespaces, the kernel rightly prevents
+    you from mounting the file, as you can see in the following output:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下测试中，你可以在 /tmp 上创建一个文件，然后尝试将其绑定挂载到 /etc/shadow。在命名空间外，内核正确地阻止了你挂载文件，如下面的输出所示：
+- en: '[PRE24]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: Once you exit the `unshare`, everything is back to normal.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦你退出 `unshare`，一切都会恢复正常。
+- en: User namespace and mount namespace
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户命名空间和挂载命名空间
+- en: As you saw previously, when you over-mount the /etc/shadow file, you might trick
+    some `setuid` applications, like /bin/su or /bin/sudo, into giving you full root.
+    The reason rootless users are not allowed to mount filesystems is to prevent this
+    type of attack.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你之前看到的，当你覆盖挂载 /etc/shadow 文件时，你可能会欺骗一些 `setuid` 应用程序，如 /bin/su 或 /bin/sudo，让你获得完整的
+    root 权限。不允许无根用户挂载文件系统的原因是为了防止这种类型的攻击。
+- en: As you have seen, the separate mount namespace prevents you from affecting the
+    host’s view of the system, and anything you mount is seen only within the mount
+    namespace. Within the user namespace, the container already has a namespaced root.
+    Attacks on your mount points can be escalated to root only within the user namespace—not
+    real root on the host. Containerized processes cannot change their UID (`setuid`)
+    to real root or any other UID not mapped into the user namespace.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如你所看到的，独立的挂载命名空间阻止了你影响主机对系统的视图，而你挂载的任何内容只会在挂载命名空间内可见。在用户命名空间内，容器已经有一个命名空间的根。对你的挂载点的攻击只能在用户命名空间内升级到
+    root，而不是主机上的真实 root。容器化进程不能更改它们的 UID (`setuid`) 为真实 root 或任何映射到用户命名空间的 UID。
+- en: Even with the namespaces, the Linux kernel only allows you to mount certain
+    filesystem types. Many filesystem types are too dangerous to allow for rootless
+    users because they gain access to sensitive parts of the kernel. I work with filesystem
+    kernel engineers to see if there are ways to lock down other filesystem types
+    that could be allowed to be mounted in rootless mode, without affecting the security
+    of the system.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使有命名空间，Linux 内核也只允许挂载某些文件系统类型。许多文件系统类型对无根用户来说过于危险，因为它们可以访问内核的敏感部分。我正在与文件系统内核工程师合作，看看是否有方法可以锁定其他可以以无根模式挂载的文件系统类型，同时不影响系统的安全性。
+- en: As of kernel 5.13, the kernel engineers added native overlay mounts to the list
+    of allowed mounts. The filesystem types currently allowed are listed in table
+    6.2.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截至 5.13 内核版本，内核工程师将原生 overlay 挂载添加到了允许挂载的列表中。当前允许的文件系统类型列在表 6.2 中。
+- en: Table 6.2 Filesystem mounts currently supported in rootless mode
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 6.2 当前在无根模式下支持挂载的文件系统
+- en: '| Mount type | Description |'
+  id: totrans-112
+  prefs: []
+  type: TYPE_TB
+  zh: '| 挂载类型 | 描述 |'
+- en: '| `bind` | Used heavily in rootless containers. Because rootless users are
+    not allowed to create devices, Podman `bind` mounts /dev on the host into the
+    container. Podman also uses `bind` mounts to obscure content within the host filesystem
+    from containers. Podman also `bind` mounts /dev/null over files in /proc and /sys
+    to hide content. Volume mounts, described in chapter 3, also use `bind` mounts.
+    |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '| `bind` | 在无根容器中大量使用。因为无根用户不允许创建设备，Podman将主机上的/dev挂载到容器中。Podman还使用`bind`挂载来隐藏主机文件系统中的内容，使其对容器不可见。Podman还将/dev/null通过/proc和/sys中的文件`bind`挂载，以隐藏内容。第3章中描述的卷挂载也使用`bind`挂载。|'
+- en: '| `binderfs` | Filesystem for the Android binder IPC mechanism. It is not supported
+    by Podman. |'
+  id: totrans-114
+  prefs: []
+  type: TYPE_TB
+  zh: '| `binderfs` | 用于Android binder IPC机制的文件系统。Podman不支持它。|'
+- en: '| `devpts` | Virtual filesystem mounted at /dev/pts. It contains device files
+    used for terminal emulators |'
+  id: totrans-115
+  prefs: []
+  type: TYPE_TB
+  zh: '| `devpts` | 虚拟文件系统挂载在/dev/pts上。它包含用于终端模拟器的设备文件|'
+- en: '| `cgroupfs` | Kernel filesystem used to manipulate cgroups; rootless containers
+    can use `cgroupfs` to manipulate cgroups in cgroups v2\. On v1 this is not supported.
+    This is mounted at /sys/fs/cgroups. |'
+  id: totrans-116
+  prefs: []
+  type: TYPE_TB
+  zh: '| `cgroupfs` | 用于操作cgroups的内核文件系统；无根容器可以使用`cgroupfs`在cgroups v2中操作cgroups。在v1中不支持。它挂载在/sys/fs/cgroups上。|'
+- en: '| `FUSE` | Used to mount container images using the `fuse-overlayfs` in rootless
+    mode. Prior to kernel 5.13, this was the only way to use an overlay filesystem
+    in rootless mode. |'
+  id: totrans-117
+  prefs: []
+  type: TYPE_TB
+  zh: '| `FUSE` | 用于在无根模式下使用`fuse-overlayfs`挂载容器镜像。在内核5.13之前，这是在无根模式下使用overlay文件系统的唯一方法。|'
+- en: '| `procfs` | Mounted at /proc within the container. You can examine processes
+    within the container. |'
+  id: totrans-118
+  prefs: []
+  type: TYPE_TB
+  zh: '| `procfs` | 在容器内挂载在/proc上。你可以检查容器内的进程。|'
+- en: '| `mqueue` | Implements the POSIX message queues API. Podman mounts this filesystem
+    at /dev/mqueue. |'
+  id: totrans-119
+  prefs: []
+  type: TYPE_TB
+  zh: '| `mqueue` | 实现POSIX消息队列API。Podman将此文件系统挂载在/dev/mqueue上。|'
+- en: '| `overlayfs` | Used for mounting the image. Performs better in the `fuse-overlayfs`
+    filesystem. In certain use cases, it provides benefits over native overlay, such
+    as NFS home directories. |'
+  id: totrans-120
+  prefs: []
+  type: TYPE_TB
+  zh: '| `overlayfs` | 用于挂载镜像。在`fuse-overlayfs`文件系统中表现更好。在特定用例中，它比原生overlay提供更多好处，例如NFS家目录。|'
+- en: '| `ramfs` | Dynamically resizable, ram-based Linux filesystem, currently not
+    used with Podman. |'
+  id: totrans-121
+  prefs: []
+  type: TYPE_TB
+  zh: '| `ramfs` | 动态可调整大小的基于RAM的Linux文件系统，目前与Podman不兼容。|'
+- en: '| `sysfs` | Mounted at /sys. |'
+  id: totrans-122
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sysfs` | 挂载在/sys上。|'
+- en: '| `tmpfs` | Used to obscure kernel filesystem directories from containers in
+    /proc and /sys. |'
+  id: totrans-123
+  prefs: []
+  type: TYPE_TB
+  zh: '| `tmpfs` | 用于隐藏内核文件系统目录，使其在/proc和/sys中的容器不可见。|'
+- en: 6.2 Rootless Podman under the covers
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 6.2 无根Podman的内部机制
+- en: Now that you have some understanding of how the user namespace and mount namespace
+    work and why they are needed, let’s dig deeper into what Podman does when it runs
+    a container. The first time you run a Podman container after logging in, Podman
+    reads the /etc/subuid and /etc/subgid files, looking for your username or UID.
+    Once Podman finds the entry, it uses the contents as well as your current UID/GID
+    to generate a user namespace for you. Podman then launches the `podman` `pause`
+    process to hold open the user and mount namespaces (figure 6.4).
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经对用户命名空间和挂载命名空间的工作原理以及为什么需要它们有了了解，让我们深入探讨Podman在运行容器时做了什么。当你首次登录后运行Podman容器时，Podman读取/etc/subuid和/etc/subgid文件，寻找你的用户名或UID。一旦Podman找到条目，它就会使用条目内容以及你的当前UID/GID为你生成一个用户命名空间。然后Podman启动`podman`
+    `pause`进程以保持用户和挂载命名空间打开（图6.4）。
+- en: '![](../../OEBPS/Images/06-04.png)'
+  id: totrans-126
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/06-04.png)'
+- en: Figure 6.4 Podman launches the pause process to hold open the user and mount
+    namespaces.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.4 Podman启动pause进程以保持用户和挂载命名空间打开。
+- en: 'Users commonly report that after they run Podman containers, they see a `podman`
+    process still running when they run the following command:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户通常报告，在运行Podman容器后，当他们运行以下命令时，仍然可以看到一个`podman`进程在运行：
+- en: '[PRE25]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Subsequent running of the Podman commands joins the namespaces of the `podman`
+    `pause` process. Podman does this to avoid race conditions when user namespaces
+    are coming up and going down. The `pause` process remains running until you log
+    out. You can also execute the `podman` `system` `migrate` command to remove it.
+    The `pause` process’s role is keeping the user namespace alive, as all rootless
+    containers must be run in the same user namespace. If they were not, sharing content
+    and other namespaces (like sharing the network namespace from another container)
+    is impossible.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman命令的后续运行会将`podman pause`进程的命名空间连接起来。Podman这样做是为了避免在用户命名空间上下文切换时发生竞争条件。`pause`进程会一直运行，直到你注销。你也可以执行`podman
+    system migrate`命令来删除它。`pause`进程的作用是保持用户命名空间活跃，因为所有无根容器都必须在同一个用户命名空间中运行。如果不是这样，共享内容和其他命名空间（如从另一个容器共享网络命名空间）是不可能的。
+- en: Note I often have users report that when changing the /etc/subuid and /etc/subgid
+    files, their containers don’t reflect the changes right away. Since the pause
+    process was launched with the previous user namespace settings, it needs to be
+    removed. Executing the `podman` `system` `migrate` command restarts the pause
+    process within the user namespace.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我经常有用户报告说，在更改`/etc/subuid`和`/etc/subgid`文件时，他们的容器不会立即反映这些更改。由于`pause`进程是在先前的用户命名空间设置下启动的，因此需要将其删除。执行`podman
+    system migrate`命令会在用户命名空间内重新启动`pause`进程。
+- en: You can kill the `pause` process at any time, but Podman re-creates it on the
+    next run. By default each rootless user has their own user namespace, and all
+    of their containers run within the same user namespace. You can subdivide the
+    user namespace and run containers with different user namespaces, but realize,
+    by default, you only have 65,000 UIDs to work with. Running multiple containers
+    in different user namespaces is much easier to do when running rootful containers.
+    Now that the user namespace and mount namespace are created, Podman creates storage
+    for the container’s image and sets up a mount point to start storing the image.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以随时终止`pause`进程，但Podman会在下一次运行时重新创建它。默认情况下，每个无根用户都有自己的用户命名空间，并且它们的所有容器都在同一个用户命名空间中运行。你可以细分用户命名空间，并使用不同的用户命名空间运行容器，但请注意，默认情况下，你只有65,000个UID可以工作。当运行有根容器时，在多个用户命名空间中运行多个容器要容易得多。现在用户命名空间和挂载命名空间已经创建，Podman为容器的镜像创建存储，并设置挂载点以开始存储镜像。
+- en: 6.2.1 Pulling the image
+  id: totrans-133
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.1 拉取镜像
+- en: 'When pulling the image (figure 6.5), Podman checks if the container image quay.io/
+    rhatdan/myimage exists in local container storage. If it does, Podman sets up
+    the container network (see section 6.2.3). However, if the container image does
+    not exist, Podman uses the containers/image library to pull the image. Following
+    are the steps Podman takes while pulling the image:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当拉取镜像（图6.5）时，Podman会检查容器镜像quay.io/rhatdan/myimage是否存在于本地容器存储中。如果存在，Podman会设置容器网络（参见6.2.3节）。然而，如果容器镜像不存在，Podman会使用containers/image库来拉取镜像。以下是Podman在拉取镜像时采取的步骤：
+- en: 'Resolve the IP address for the registry: quay.io.'
+  id: totrans-135
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 解析注册表的IP地址：quay.io。
+- en: Connect to the IP address via the HTTPS port (`443`).
+  id: totrans-136
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过HTTPS端口（`443`）连接到IP地址。
+- en: Begin pulling the manifest, all layers, and the config of the image using the
+    HTTP protocol.
+  id: totrans-137
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 使用HTTP协议开始拉取镜像的清单、所有层和配置。
+- en: Find the multiple layers or blobs of quay.io/rhatdan/myimage.
+  id: totrans-138
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 查找quay.io/rhatdan/myimage的多个层或blob。
+- en: Copy all layers simultaneously from the container registry to the host.
+  id: totrans-139
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从容器注册表同时复制所有层到主机。
+- en: '![](../../OEBPS/Images/06-05.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-05.png)'
+- en: Figure 6.5 Podman pulls an image off a container registry and stores it in the
+    container storage.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.5 Podman从一个容器注册库拉取镜像并将其存储在容器存储中。
+- en: As each layer is copied to the host, Podman uses the containers/storage library
+    to reassemble the layers in order, creating an overlay mount point for each of
+    them on top of the previous one in ~/.local/share/containers/storage. If there
+    is no previous layer, it creates the initial layer.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着每一层被复制到主机，Podman使用containers/storage库按顺序重新组装层，并在`~/.local/share/containers/storage`上为每个层创建一个overlay挂载点。如果没有先前的层，它将创建初始层。
+- en: Next, containers/storage untars the contents of the layer into the new storage
+    layer. As the layers are untarred, containers/storage `chown`s the UID/GIDs of
+    files in the tarball into the home directory. Podman takes advantage of the user
+    namespace `CAP_CHOWN`, as explained in previous sections. Remember that Podman
+    fails to create content if the UID or GID specified in the TAR file was not mapped
+    into the user namespace.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，containers/storage将层的内容解压缩到新的存储层中。随着层的解压缩，containers/storage会对tar包中的文件进行`chown`操作，将UID/GID更改为家目录。Podman利用用户命名空间的`CAP_CHOWN`权限，如前几节所述。请记住，如果TAR文件中指定的UID或GID未映射到用户命名空间，Podman将无法创建内容。
+- en: 6.2.2 Creating a container
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.2 创建容器
+- en: Once the containers/storage library finishes downloading the image and creating
+    the storage, Podman creates a new container based on the image. Podman adds the
+    container to Podman’s internal database. It then tells containers/storage to create
+    writable space on disk and use the default storage driver, usually `overlayfs`,
+    to mount this space as a new container layer. The new container layer acts as
+    the final read/write layer and is mounted on top of the image.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦containers/storage库完成下载镜像和创建存储，Podman将基于该镜像创建一个新的容器。Podman将容器添加到Podman的内部数据库中。然后，它告诉containers/storage在磁盘上创建可写空间并使用默认的存储驱动程序，通常是`overlayfs`，将此空间挂载为新的容器层。新的容器层作为最终的读写层，并挂载在镜像之上。
+- en: Note Rootful containers default to using native Linux overlay mounts. In rootless
+    mode, kernel versions newer than 5.13 or with the rootless overlay feature backported
+    (RHEL 8.5 kernels or later also have this feature) use the native overlay mounts.
+    On older kernels, Podman uses the `fuse-overlayfs` executable to create the layer.
+    In Podman, `overlay` and `overlay2` are the same drivers.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：具有root权限的容器默认使用原生Linux overlay挂载。在无root模式下，对于版本高于5.13的内核或具有rootless overlay功能回滚的内核（RHEL
+    8.5内核或更高版本也具有此功能）使用原生overlay挂载。在较旧的内核上，Podman使用`fuse-overlayfs`可执行文件来创建层。在Podman中，`overlay`和`overlay2`是相同的驱动程序。
+- en: At this point, Podman needs to configure the network inside the network namespace.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一点上，Podman需要配置网络命名空间内的网络。
+- en: 6.2.3 Setting up the network
+  id: totrans-148
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.3 设置网络
+- en: In rootless Podman, you cannot create full, separate networking for containers
+    because rootless processes are not allowed to create network devices and modify
+    the firewall rules. Rootless Podman uses slirp4netns ([https://github.com/rootless-containers/slirp4netns](https://github.com/rootless-containers/slirp4netns))
+    to configure the host network and simulate a VPN for the container. Slirp4netns
+    provides user-mode networking (slirp) for unprivileged network namespaces. See
+    figure 6.6.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在无root Podman中，您不能为容器创建完整的、独立的网络，因为无root进程不允许创建网络设备并修改防火墙规则。无root Podman使用slirp4netns
+    ([https://github.com/rootless-containers/slirp4netns](https://github.com/rootless-containers/slirp4netns))来配置主机网络并为容器模拟VPN。Slirp4netns为无特权的网络命名空间提供用户模式网络（slirp）。见图6.6。
+- en: '![](../../OEBPS/Images/06-06.png)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-06.png)'
+- en: Figure 6.6 Podman creates a network namespace and launches slirp4netns to relay
+    network connections.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图6.6 Podman创建一个网络命名空间并启动slirp4netns以中继网络连接。
+- en: Note In rootful containers, Podman uses the CNI plugins to configure networking
+    devices. In rootless mode, even though the user is allowed to create and join
+    a network namespace, they are not allowed to create network devices. The slirp4netns
+    program emulates a virtual network to connect host networking to the container
+    networking. More advanced networking setups require rootful containers.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在具有root权限的容器中，Podman使用CNI插件来配置网络设备。在无root模式下，尽管用户被允许创建和加入一个网络命名空间，但他们不允许创建网络设备。slirp4netns程序模拟一个虚拟网络以连接主机网络到容器网络。更高级的网络设置需要具有root权限的容器。
+- en: 'Remember that in our original example, you specified the `8080:8080` port mapping
+    as follows:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，在我们的原始示例中，您指定了如下`8080:8080`端口映射：
+- en: '[PRE26]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Podman configures the slirp4netns program to listen on the host network at port
+    `8080` and allow the container process to bind to port `8080`. The slirp4netns
+    command creates a tap device that is injected inside the new network namespace,
+    where the container lives. Each packet is read back from slirp4netns and emulates
+    a TCP/IP stack in user space. Each connection outside the container network’s
+    namespace is converted in a socket operation the unprivileged user can run in
+    the host network’s namespace.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman 配置 slirp4netns 程序在主机网络的端口 `8080` 上监听，并允许容器进程绑定到端口 `8080`。slirp4netns
+    命令创建一个 tap 设备，该设备注入到新的网络命名空间中，容器就位于其中。每个数据包都会从 slirp4netns 读取并模拟用户空间中的 TCP/IP
+    堆栈。容器网络命名空间之外的所有连接都会转换为无特权的用户可以在主机网络命名空间中运行的套接字操作。
+- en: 'Note Linux TAP devices create a user space network bridge. In user space, TAP
+    devices can simulate network devices inside of a network namespace. Processes
+    within the namespace interact with the network device. Packets read/written from
+    the network device are routed via the TUN/TAP device to the user space program:
+    slirp4netns.'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 Linux TAP 设备创建一个用户空间网络桥。在用户空间中，TAP 设备可以模拟网络命名空间内的网络设备。命名空间内的进程与网络设备交互。从网络设备读取/写入的数据包通过
+    TUN/TAP 设备路由到用户空间程序：slirp4netns。
+- en: Now that the storage and network are configured, Podman is ready to finally
+    start the container process.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在存储和网络配置完成，Podman 准备最终启动容器进程。
+- en: '6.2.4 Starting the container monitor: conmon'
+  id: totrans-158
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.4 启动容器监控器：conmon
+- en: Podman now executes conmon (container monitor) for the container, telling it
+    to use its configured OCI runtime, usually `crun` or `runc`. It also executes
+    the `podman` `container` `cleanup` `$CTRID` command when the container exits (see
+    figure 6.7). conmon is described in section 4.1.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman 现在执行 conmon（容器监控器）以启动容器，并告诉它使用其配置的 OCI 运行时，通常是 `crun` 或 `runc`。当容器退出时，它还执行
+    `podman` `container` `cleanup` `$CTRID` 命令（见图 6.7）。conmon 在第 4.1 节中描述。
+- en: '![](../../OEBPS/Images/06-07.png)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-07.png)'
+- en: Figure 6.7 Podman launches the container monitor, which launches the OCI runtime.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.7 Podman 启动容器监控器，该监控器启动 OCI 运行时。
+- en: 6.2.5 Launching the OCI runtime
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.5 启动 OCI 运行时
+- en: 'The OCI runtime reads the OCI spec file and configures the kernel to run the
+    container (see figure 6.8). OCI runtimes do the following:'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: OCI 运行时读取 OCI 规范文件并配置内核以运行容器（见图 6.8）。OCI 运行时执行以下操作：
+- en: Set up the additional namespaces for the container.
+  id: totrans-164
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为容器设置额外的命名空间。
+- en: Configure cgroups v2 (cgroups v1 is not supported for rootless containers).
+  id: totrans-165
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 配置 cgroups v2（cgroups v1 不支持无根容器）。
+- en: Set up the SELinux label for running the container.
+  id: totrans-166
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为运行容器设置 SELinux 标签。
+- en: Load the /usr/share/containers/seccomp.json seccomp rules into the kernel.
+  id: totrans-167
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将 /usr/share/containers/seccomp.json seccomp 规则加载到内核中。
+- en: Set the environment variables for the container.
+  id: totrans-168
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 设置容器的环境变量。
+- en: Bind mount any volumes onto the paths in the rootfs.
+  id: totrans-169
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将任何卷绑定到 rootfs 中的路径。
+- en: Switch the current `/` to the rootfs `/`.
+  id: totrans-170
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将当前的 `/` 切换到 rootfs 的 `/`。
+- en: Fork the container process.
+  id: totrans-171
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 分叉容器进程。
+- en: Execute any OCI hook programs, passing them the rootfs as well as the container’s
+    PID 1.
+  id: totrans-172
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 执行任何 OCI 钩子程序，并将 rootfs 以及容器的 PID 1 传递给它们。
+- en: Execute the command specified by the image.
+  id: totrans-173
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 执行由镜像指定的命令。
+- en: Exit the OCI runtime, leaving conmon to monitor the container.
+  id: totrans-174
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 退出 OCI 运行时，留下 conmon 监控容器。
+- en: '![](../../OEBPS/Images/06-08.png)'
+  id: totrans-175
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-08.png)'
+- en: Figure 6.8 conmon launches the OCI runtime, which configures the kernel.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.8 conmon 启动 OCI 运行时，该运行时配置内核。
+- en: And finally, conmon reports the success back to Podman (see figure 6.9).
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，conmon 将成功报告回 Podman（见图 6.9）。
+- en: '![](../../OEBPS/Images/06-09.png)'
+  id: totrans-178
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/06-09.png)'
+- en: Figure 6.9 Podman and OCI runtime exit, leaving the container running with conmon
+    monitoring it and slirp4netns providing the network.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 6.9 Podman 和 OCI 运行时退出，留下容器在 conmon 监控下运行，并由 slirp4netns 提供网络。
+- en: The Podman command now exits because it ran in `--detach` (`-d`) mode.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Podman 命令现在退出，因为它在 `--detach` (`-d`) 模式下运行。
+- en: '[PRE27]'
+  id: totrans-181
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: Note If later you want Podman to interact with the detached container, use the
+    `podman` `attach` command, which connects to the conmon socket. conmon allows
+    Podman to interact with the container process through the `STDIN`, `STDOUT`, and
+    `STDERR` file descriptors, which conmon has been monitoring.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：如果您以后想让 Podman 与分离的容器交互，请使用 `podman` `attach` 命令，该命令连接到 conmon 套接字。conmon
+    允许 Podman 通过 `STDIN`、`STDOUT` 和 `STDERR` 文件描述符与容器进程交互，这些文件描述符是 conmon 监控的。
+- en: 6.2.6 The containerized application runs until completion
+  id: totrans-183
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 6.2.6 容器化应用程序运行至完成
+- en: 'The application process can exit on its own, or you can stop the container
+    by executing the `podman` `stop` command:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用进程可以自行退出，或者你可以通过执行 `podman` `stop` 命令来停止容器：
+- en: '[PRE28]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'When the container process exits, the kernel sends a `SIGCHLD` to the `conmon`
+    process. In turn, conmon does the following:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当容器进程退出时，内核向 `conmon` 进程发送 `SIGCHLD` 信号。反过来，conmon 执行以下操作：
+- en: Records the container’s exit code
+  id: totrans-187
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 记录容器的退出代码
+- en: Closes the container’s logfile
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 关闭容器的日志文件
+- en: Closes the Podman command’s `STDOUT`/`STDERR`
+  id: totrans-189
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 关闭 Podman 命令的 `STDOUT`/`STDERR`
+- en: Executes the `podman` `container` `cleanup` `$CTRID` command
+  id: totrans-190
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 执行 `podman` `container` `cleanup` `$CTRID` 命令
+- en: Exits itself
+  id: totrans-191
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 退出本身
+- en: The `podman` `container` `cleanup` command takes down the slirp4netns network
+    and unmounts all of the container mount points. If you specify the `--rm` option,
+    the container is entirely removed—layers are removed from containers/storage,
+    and the container definition is removed from the DB.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`podman` `container` `cleanup` 命令关闭 slirp4netns 网络，并卸载所有容器的挂载点。如果你指定了 `--rm`
+    选项，容器将被完全删除——层将从容器/存储中移除，容器定义将从数据库中删除。'
+- en: Summary
+  id: totrans-193
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Running rootless containers is more secure than running rootful containers.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 运行无根容器比运行有根容器更安全。
+- en: The user namespace gives ordinary users the ability to manipulate more than
+    one UID and is key to running containers.
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户命名空间使普通用户能够操作多个 UID，是运行容器的关键。
+- en: The mount namespace allows Podman to mount filesystems within the user namespace.
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 挂载命名空间允许 Podman 在用户命名空间内挂载文件系统。
+- en: Podman uses slirp4netns for providing network access to containers.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Podman 使用 slirp4netns 为容器提供网络访问。
+- en: Podman launches the `conmon` process to monitor the container.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Podman 启动 `conmon` 进程以监控容器。

@@ -1,0 +1,3295 @@
+- en: 13 Data pipeline
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 13 数据管道
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Understanding the common types of data formats and storage for training datasets
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解训练数据集的常见数据格式和存储类型
+- en: Using TensorFlow TFRecord format and tf.data for dataset representations and
+    transformations
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用TensorFlow TFRecord格式和tf.data进行数据集表示和转换
+- en: Constructing a data pipeline for feeding a model during training
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 构建用于训练期间向模型提供数据的数据管道
+- en: Preprocessing using TF.Keras preprocessing layers, layer subclassing, and TFX
+    components
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用TF.Keras预处理层、层子类化和TFX组件进行预处理
+- en: Using data augmentation to train models for translational, scale, and viewport
+    invariance
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用数据增强来训练具有平移、缩放和视口不变性的模型
+- en: You’ve built your model, using composable models as needed. You’ve trained and
+    retrained it, and tested and retested. Now you’re ready to launch it. In these
+    last two chapters, you’ll learn how to launch a model. More specifically, you’ll
+    migrate a model from the preparation and exploratory phases to a production environment,
+    using the TensorFlow 2.*x* ecosystem in conjunction with TensorFlow Extended (TFX).
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您已经构建了模型，根据需要使用了可组合模型。您已经训练和重新训练了它，并进行了测试和重新测试。现在您准备将其发布。在接下来的两章中，您将学习如何发布一个模型。更具体地说，您将使用TensorFlow
+    2.*x*生态系统和TensorFlow Extended (TFX)将模型从准备和探索阶段迁移到生产环境。
+- en: In a production environment, operations such as training and deploying are executed
+    as pipelines. *Pipelines* have the advantage of being configurable, reusable,
+    version-controlled, and retain history. Because of how extensive a production
+    pipeline is, we need two chapters to cover it. This chapter focuses on the data
+    pipeline components, which make up the frontend of a production pipeline. The
+    next chapter covers the training and deployment components.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，训练和部署等操作作为管道执行。*管道*具有可配置、可重用、版本控制和保留历史记录的优势。由于生产管道的广泛性，我们需要两章来涵盖它。本章重点介绍数据管道组件，这些组件构成了生产管道的前端。下一章将涵盖训练和部署组件。
+- en: Let’s start with a diagram, so you can see the process from start to finish.
+    Figure 13.1 shows an overall view of the basic end-to-end (e2e) production pipeline.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从一张图开始，这样您可以看到从开始到结束的过程。图13.1显示了基本端到端（e2e）生产管道的整体视图。
+- en: '![](Images/CH13_F01_Ferlitsch.png)'
+  id: totrans-10
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F01_Ferlitsch.png)'
+- en: Figure 13.1 The basic e2e production pipeline starts with a data pipeline, then
+    moves to training and deployment pipelines.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.1 基本端到端（e2e）生产管道从数据管道开始，然后移动到训练和部署管道。
+- en: The modern basic machine learning e2e pipeline starts with data warehousing,
+    which is the repository of the training data for all the production models. The
+    number of models an enterprise-size company is training varies. But here are some
+    examples from my experience in 2019\. The time between retraining (a new version)
+    of a production model has reduced from a monthly to a weekly cycle, and in some
+    cases is a daily cycle. Google (my employer) retrains over 4000 models a day.
+    Data warehousing at this scale is an enormous undertaking.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现代基本机器学习端到端（e2e）管道从数据仓库开始，这是所有生产模型训练数据的存储库。企业规模的公司正在训练的模型数量各不相同。但以下是我2019年经验中的一些例子。生产模型（新版本）重新训练的时间间隔已从每月减少到每周，在某些情况下甚至每天。我的雇主谷歌每天重新训练超过4000个模型。在这个规模上的数据仓库是一项巨大的任务。
+- en: From the data warehouse, we need to efficiently feed data for model training
+    and provide the data just in time and without input/output (I/O) bottlenecks.
+    The upstream process that compiles and assembles batches for training must do
+    it fast enough in real time so as not to stall the GPU/CPU training hardware.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从数据仓库中，我们需要高效地为模型训练提供数据，并确保数据及时提供，且没有输入/输出（I/O）瓶颈。编译和组装训练批次的上游过程必须在实时中足够快，以免阻碍GPU/CPU训练硬件。
+- en: At an enterprise scale, the data warehouse is generally distributed across a
+    large or vast number of compute instances, whether on premises, in the cloud,
+    or hybrid, making it more challenging to efficiently feed data during training.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在企业规模上，数据仓库通常分布在大量或庞大的计算实例上，无论是在本地、云端还是混合部署，这使得在训练过程中高效地提供数据变得更加具有挑战性。
+- en: Now comes the model training. But we are not training a single instance of a
+    model. We train multiple instances in parallel to find the best version, and we
+    do this in multiple stages, from data collection, preparation, augmentation, and
+    pretraining to hyperparameter search for full training.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是模型训练阶段。但我们不是训练单个模型的实例。我们并行训练多个实例以找到最佳版本，并且我们在多个阶段进行，从数据收集、准备、增强和预训练到完整训练的超参数搜索。
+- en: 'If we roll the clock back a few years, this pipeline process started with domain
+    experts making educated guesses and automating them. Today these stages are becoming
+    self-learning. We have advanced from automation (with experts setting the rules)
+    to automatic learning, where the machine is continuously learning to self-improve
+    from the expert human guidance. And that is why multiple instances of models get
+    trained: to automatically learn which model instance will become the best trained
+    model.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将时钟倒退几年，这个管道过程始于领域专家做出有根据的猜测并自动化它们。今天，这些阶段正在变得自我学习。我们已经从自动化（由专家设定规则）发展到自动学习，机器持续地从专家的人类指导中自我学习以不断改进。这就是为什么训练多个模型实例的原因：为了自动学习哪个模型实例将成为最佳训练模型。
+- en: Then we have version control. We need a means of evaluating the new trained
+    instance with past versions to answer the question of whether the new instance
+    is better than the last. If so, version it; otherwise, repeat the process. And
+    for new versions, deploy the model into production use.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后是版本控制。我们需要一种方法来评估新的训练实例与过去版本，以回答新实例是否比上一个实例更好的问题。如果是这样，就进行版本控制；如果不是，就重复这个过程。对于新版本，将模型部署到生产使用。
+- en: In this chapter, we cover moving data from storage, preprocessing the data,
+    and batching it to feed to the model instances during training. In the next chapter,
+    we cover training, retraining, and continuous training, candidate model validation,
+    versioning, deployment, and testing after deployment.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们介绍了将数据从存储中移动、预处理数据和将其分批以在训练期间提供给模型实例的过程。在下一章中，我们将介绍训练、重新训练和持续训练、候选模型验证、版本控制、部署以及部署后的测试。
+- en: 13.1 Data formats and storage
+  id: totrans-19
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.1 数据格式和存储
+- en: 'We will start by looking at the various formats for storing image data for
+    machine learning. Historically, image data was stored in one of the following:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将首先查看用于存储机器学习图像数据的各种格式。从历史上看，图像数据存储在以下之一：
+- en: Compressed image format (for example, JPG)
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 压缩图像格式（例如，JPG）
+- en: Uncompressed raw-image format (for example, BMP)
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 未压缩的原始图像格式（例如，BMP）
+- en: A high-dimensional format (for example, HDF5 or DICOM)
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 高维格式（例如，HDF5或DICOM）
+- en: With TensorFlow 2.*x*, we store image data in TFRecord format. Let’s look more
+    closely at each of these four formats.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用TensorFlow 2.*x*，我们以TFRecord格式存储图像数据。让我们更详细地看看这四种格式中的每一种。
+- en: 13.1.1 Compressed and raw-image formats
+  id: totrans-25
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.1.1 压缩和原始图像格式
+- en: 'When deep learning first became popular for computer vision, we were generally
+    training straight from the raw image data, after that image data was decompressed.
+    There were two basic ways of preparing this image data: drawing the training batches
+    from disk in JPG, PNG, or other compressed format; and drawing batches from compressed
+    images in RAM.'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当深度学习首次在计算机视觉中变得流行时，我们通常直接从原始图像数据中训练，在图像数据解压缩之后。有两种基本方法来准备这种图像数据：从磁盘绘制JPG、PNG或其他压缩格式的训练批次；以及在RAM中绘制压缩图像的批次。
+- en: Drawing batches from disk
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从磁盘抽取批次
+- en: In the first approach, as we build batches for training, we read the batches
+    of images from disk in a compressed format, like JPG or PNG. We then decompress
+    them in memory, resize, and do the image preprocessing, like normalizing the pixel
+    data.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第一种方法中，当我们构建训练批次时，我们从磁盘以压缩格式（如JPG或PNG）读取图像批次。然后我们在内存中解压缩它们，调整大小，并进行图像预处理，如归一化像素数据。
+- en: Figure 13.2 depicts this process. In this example, a subset of the JPG images,
+    specified by the batch size, are read into memory, and then decompressed and finally
+    resized to the input shape of the model to train.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.2描述了此过程。在这个例子中，根据批次大小指定的JPG图像子集被读入内存，然后解压缩，最后调整大小到模型的输入形状以进行训练。
+- en: '![](Images/CH13_F02_Ferlitsch.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F02_Ferlitsch.png)'
+- en: Figure 13.2 Drawing compressed images from a disk is easy to do, but expensive
+    to continuously reprocess for training.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从磁盘绘制压缩图像很容易做，但持续重新处理以进行训练的成本很高。
+- en: 'Let’s look at some pros and cons of this method. First, it is very easy to
+    do. Here are the steps:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看这种方法的一些优缺点。首先，它非常容易做。以下是步骤：
+- en: Create an index to all the paths of the images on disk and corresponding labels
+    (for example, CSV index file).
+  id: totrans-33
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建磁盘上所有图像路径及其对应标签的索引（例如，CSV索引文件）。
+- en: Read the index into memory and randomly shuffle the index.
+  id: totrans-34
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将索引读入内存并随机打乱索引。
+- en: Draw a batch of images and corresponding labels into memory by using the shuffled
+    index file.
+  id: totrans-35
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过使用打乱的索引文件，将一批图像及其对应标签绘制到内存中。
+- en: Decompress the images.
+  id: totrans-36
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 解压图像。
+- en: Resize the decompressed images to the input shape of the model to train.
+  id: totrans-37
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将解压后的图像调整到模型的输入形状以进行训练。
+- en: The big con is that when training a model, you have to repeat the preceding
+    steps for each epoch. The step that can be problematic is drawing data from the
+    disk. This step may become I/O bound and is specifically dependent on the type
+    of disk storage and the location of the data. Ideally, we want the data stored
+    in as fast of a read-access disk operation as possible, and as close (by limiting
+    network bandwidth) to the compute device doing the training.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最大的缺点是，在训练模型时，你必须为每个epoch重复前面的步骤。可能成为问题的一步是从磁盘获取数据。这一步可能成为I/O瓶颈，并且具体依赖于磁盘存储的类型和数据的位置。理想情况下，我们希望数据存储在尽可能快的读取访问磁盘操作中，并且尽可能靠近（通过限制网络带宽）进行训练的计算设备。
+- en: To compare this tradeoff between on-disk and in-memory, let’s assume you are
+    using a SOTA model with an ImageNet input shape of (224, 224, 3). This size is
+    typical for general image classification, while for image object detection or
+    segmentation, a large size like (512, 512, 3) is used.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了比较磁盘和内存之间的这种权衡，假设你正在使用一个具有ImageNet输入形状(224, 224, 3)的SOTA模型。这个大小对于一般图像分类来说是典型的，而对于图像目标检测或分割，则使用像(512,
+    512, 3)这样的大尺寸。
+- en: An image of shape (224, 224, 3) requires 150,000 bytes of memory (224 × 224
+    × 3 = 150,000). In order to hold 50,000 training images continuously in memory
+    in the ImageNet input shape, you will need 8 GB (50,000 × 150,000) of RAM—above
+    what you need for the operating system, background applications, and model training.
+    Now let’s say you have 100,000 training images. Then you would need 16 GB of RAM.
+    If you had a million images, you would need 160 GB of RAM.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 形状为(224, 224, 3)的图像需要150,000字节的内存（224 × 224 × 3 = 150,000）。为了在ImageNet输入形状中连续存储50,000个训练图像，你需要8
+    GB（50,000 × 150,000）的RAM——这超过了操作系统、后台应用程序和模型训练所需的内存。现在假设你有100,000个训练图像。那么你需要16
+    GB的RAM。如果你有一百万个图像，你需要160 GB的RAM。
+- en: That would be a lot of memory, and having all the images in uncompressed format
+    in memory is generally practical for only smaller datasets. For academic and other
+    tutorial purposes, training datasets are generally small enough to have the decompressed
+    and resized images entirely in memory. But in production environments, where the
+    dataset is too large to hold entirely in memory, we need to use a strategy that
+    incorporates drawing images from the disk.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将需要大量的内存，并且通常只有对于较小的数据集，将所有图像以未压缩格式存储在内存中才是实用的。对于学术和其他教程目的，训练数据集通常足够小，可以将解压和调整大小的图像完全存储在内存中。但在生产环境中，由于数据集太大而无法完全存储在内存中，我们需要使用一种策略，该策略结合了从磁盘获取图像。
+- en: Drawing batches from compressed images in RAM
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从RAM中的压缩图像中抽取批次
+- en: In this second strategy, we eliminate the disk I/O but still decompress and
+    resize in memory each time the image appears in a batch. By eliminating disk I/O,
+    we prevent being I/O bound, which would otherwise slow the training. For example,
+    if the training consists of 100 epochs, each image will be decompressed and resized
+    100 times—but all the compressed images stay in memory.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种第二种策略中，我们消除了磁盘I/O，但每次图像出现在批次中时，仍然在内存中解压缩和调整大小。通过消除磁盘I/O，我们防止了I/O瓶颈，否则会减慢训练速度。例如，如果训练包括100个epoch，每个图像将被解压缩和调整大小100次——但所有压缩图像都保持在内存中。
+- en: The average JPEG compression is about 10:1\. The size of the compressed image
+    will be dependent on the image source. For example, if the images are from a 3.5-megapixel
+    mobile phone (3.5 million pixels), the compressed image will be around 350,000
+    bytes. If our images are web-optimized for browser loading, the uncompressed image
+    is more typically in the 150,000 to 200,000 byte range.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 平均JPEG压缩约为10:1。压缩图像的大小将取决于图像来源。例如，如果图像来自350万像素的手机（350万像素），则压缩图像约为350,000字节。如果我们的图像是为浏览器加载进行优化的网页图像，则未压缩图像通常在150,000到200,000字节之间。
+- en: Assuming you have 100,000 training images that are web-optimized, 2 GB of RAM
+    would be enough (100K × 15K = 1.5 GB). If you have a million training images,
+    16 GB of RAM would be enough (1M × 15K = 15 GB).
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你有100,000张经过优化的训练图像，2 GB的RAM就足够了（100K × 15K = 1.5 GB）。如果你有一百万张训练图像，16 GB的RAM就足够了（1M
+    × 15K = 15 GB）。
+- en: 'Figure 13.3 illustrates this second approach, outlined here:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.3说明了这里概述的第二个方法：
+- en: Read all the compressed images and corresponding labels into memory as a list.
+  id: totrans-47
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将所有压缩图像及其相应的标签读取到内存中作为一个列表。
+- en: Create an index to all the list indices of the images in memory and corresponding
+    labels.
+  id: totrans-48
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为内存中所有图像列表索引及其相应的标签创建一个索引。
+- en: Randomly shuffle the index.
+  id: totrans-49
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 随机打乱索引。
+- en: Draw a batch of images and corresponding labels from memory by using the shuffled
+    index file.
+  id: totrans-50
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过使用打乱的索引文件从内存中抽取一批图像及其相应的标签。
+- en: Decompress the images.
+  id: totrans-51
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 解压缩图像。
+- en: Resize the decompressed images.
+  id: totrans-52
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 调整解压缩图像的大小。
+- en: '![](Images/CH13_F03_Ferlitsch.png)'
+  id: totrans-53
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/CH13_F03_Ferlitsch.png)'
+- en: Figure 13.3 Drawing compressed images from RAM eliminates the disk I/O, thus
+    speeding up the process.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.3从RAM中抽取压缩图像消除了磁盘I/O，从而加快了过程。
+- en: This approach tends to be a reasonable tradeoff for mid-size datasets. Let’s
+    assume we have 200,000 images that are web-optimized in size. We need only 4 GB
+    of memory to hold all the compressed images in memory without repeatedly reading
+    from disk. Even with a large batch size (say, 1024 web-optimized images), we would
+    need only an additional 150 MB of memory to hold the decompressed images—averaging
+    150,000 bytes per image.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法对于中等大小的数据集来说通常是一个合理的折衷方案。假设我们拥有200,000张大小经过优化的网页图像。我们只需要4 GB的内存来在内存中存储所有压缩图像，而无需反复从磁盘读取。即使是大批量的图像（比如说，1024张经过优化的网页图像），我们也只需要额外的150
+    MB内存来存储解压缩的图像——平均每张图像150,000字节。
+- en: 'Here’s my general practice:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是我的常规做法：
+- en: If the decompressed size of my training data is less than or equal to my RAM,
+    I train with decompressed images in memory. This is the fastest option.
+  id: totrans-57
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果我的训练数据的解压缩大小小于或等于我的RAM，我将使用内存中的解压缩图像进行训练。这是最快的选项。
+- en: If the compressed size of my training data is less than or equal to my RAM,
+    I train with compressed images in memory. This is the next-fastest option.
+  id: totrans-58
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果我的训练数据的压缩大小小于或等于我的RAM，我将使用内存中的压缩图像进行训练。这是下一个最快的选项。
+- en: Otherwise, I train with the images drawn from the disk or use a hybrid approach,
+    which I discuss next.
+  id: totrans-59
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 否则，我将使用从磁盘抽取的图像进行训练，或者使用我接下来要讨论的混合方法。
+- en: Hybrid approach
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 混合方法
+- en: Next, let’s consider a hybrid approach of feeding the training images from disk
+    and from memory. Why would we do this? We want to find a sweet spot in the tradeoff
+    between available memory space and otherwise being I/O bound by continuously rereading
+    images from the disk.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们考虑从磁盘和内存中喂食训练图像的混合方法。我们为什么要这样做呢？我们想要在可用内存空间和不断从磁盘重新读取图像的I/O受限之间找到一个最佳平衡点。
+- en: To do this, we’ll revisit the concept of a sampling distribution from chapter
+    12, which approximates the distribution of a population. Imagine you have 16 GB
+    of memory to hold data, and the preprocessed dataset after resizing is 64 GB.
+    In a hybrid feeding, we take a large segment of the preprocessed data at a time
+    (8 GB in our example) that has been *stratified* (examples match the training
+    data class distribution). We then repeatedly feed the same segment to the neural
+    network as epochs. But each time, we do image augmentation such that each epoch
+    is a unique sampling distribution of the entire preprocessed image dataset.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做到这一点，我们将回顾第12章中关于采样分布的概念，它近似了总体分布。想象一下，你有16 GB的内存来存储数据，预处理后的数据集在调整大小后是64 GB。在混合喂食中，我们一次取一个大的预处理数据段（在我们的例子中是8
+    GB），这些数据段已经被*分层*（示例与训练数据类别分布相匹配）。然后我们反复将相同的段作为epochs输入到神经网络中。但每次，我们都会进行图像增强，使得每个epoch都是整个预处理图像数据集的唯一采样分布。
+- en: I recommend this approach on extremely large datasets, like a million images.
+    With 16 GB of memory, you can hold very large subdistributions of your dataset,
+    and be able to get convergence at comparable training batches as compared to repeatedly
+    reading from disk, while reducing your training time or compute instance requirements.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我建议在极大数据集上使用这种方法，比如一百万张图像。有了16 GB的内存，你可以存储非常大的子分布，并且能够与反复从磁盘读取相比，在可比的训练批次中获得收敛，同时减少训练时间或计算实例需求。
+- en: 'Here are the steps for doing a hybrid in-memory/on-disk feeding. You can also
+    see the process depicted in figure 13.4:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面是进行混合内存/磁盘喂食的步骤。你还可以在图13.4中看到这个过程：
+- en: Create a stratified index to the preprocessed image data on disk.
+  id: totrans-65
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在磁盘上创建一个对预处理的图像数据的分层索引。
+- en: Partition the stratified index into partitions based on the available memory
+    to hold a segment in memory.
+  id: totrans-66
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 根据可用的内存将分层索引划分为存储一个段在内存中的分区。
+- en: 'For each segment, repeat for a specified number of epochs:'
+  id: totrans-67
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 对于每个段，重复指定数量的 epoch：
+- en: Randomly shuffle the segment per epoch.
+  id: totrans-68
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在每个 epoch 中随机打乱段。
+- en: Randomly apply image augmentation to create a unique sampling distribution per
+    epoch.
+  id: totrans-69
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在每个 epoch 中随机应用图像增强以创建独特的采样分布。
+- en: Feed the mini-batches to the neural network.
+  id: totrans-70
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将 mini-batch 输送到神经网络。
+- en: '![](Images/CH13_F04_Ferlitsch.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图像](Images/CH13_F04_Ferlitsch.png)'
+- en: Figure 13.4 Hybrid drawing images from disk as sampling distributions of the
+    training data
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.4 从磁盘混合绘制图像作为训练数据的采样分布
+- en: 13.1.2 HDF5 format
+  id: totrans-73
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.1.2 HDF5 格式
+- en: '*Hierarchical Data Format* 5 (*HDF5*) has been a long-standing common format
+    for storing high-dimensionality data, such as high-resolution satellite imagery.
+    So you may be asking, what is *high dimensionality*? We associate this term with
+    data that is very dense in information for a single dimension, and/or has many
+    dimensions (which we refer to as *multidimensional data*). As in the previous
+    discussions on TFRecords, these formats themselves do not substantially reduce
+    the amount of disk space for storage. Instead, their purpose is for rapid read
+    access to reduce I/O overhead.'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*层次数据格式* 5 (*HDF5*) 已经是存储高维数据（如高分辨率卫星图像）的长期通用格式。因此，你可能想知道什么是 *高维性*？我们将此术语与信息非常密集的单维数据相关联，并且/或具有许多维度（我们称之为
+    *多维数据*）。正如之前关于 TFRecords 的讨论，这些格式本身并没有实质性地减少存储所需的磁盘空间。相反，它们的目的在于快速读取访问以减少 I/O
+    开销。'
+- en: HDF5 is an efficient format for storing and accessing large amounts of multidimensional
+    data, such as images. The specification can be found at the HDF5 for Python website
+    ([www.h5py.org/](https://www.h5py.org/)). The format supports dataset and group
+    objects, as well as attributes (metadata) per object.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HDF5 是一种用于存储和访问大量多维数据（如图像）的高效格式。规范可以在 HDF5 for Python 网站找到（[www.h5py.org/](https://www.h5py.org/））。该格式支持数据集和组对象，以及每个对象的属性（元数据）。
+- en: 'The benefits of using HDF5 for storing image training data include the following:'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 HDF5 存储图像训练数据的优点包括以下内容：
+- en: Has broad scientific use, as in satellite imagery used by NASA (see [http://
+    mng.bz/qevJ](http://mng.bz/qevJ))
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有广泛的科学用途，例如 NASA 使用的卫星图像（见 [http:// mng.bz/qevJ](http://mng.bz/qevJ)）
+- en: Optimized for high-speed data-slice access
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 优化了高速数据切片访问
+- en: Is NumPy-compatible with NumPy syntax that allows accessing from disk as if
+    in memory
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: NumPy 是否与 NumPy 语法兼容，允许从磁盘访问，就像在内存中一样
+- en: Has hierarchical access for multidimensional representations, properties, and
+    classification
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有对多维表示、属性和分类的分层访问
+- en: 'The HDF5 package for Python can be installed as follows:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Python 的 HDF5 包可以按照以下方式安装：
+- en: '[PRE0]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'Let’s start by creating a dataset with the most basic HDF5 representation consisting
+    of raw (decompressed) image data and corresponding integer label data. In this
+    representation, we create two dataset objects, one for the image data and the
+    other for the corresponding labels:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从创建一个包含最基本 HDF5 表示的 dataset 开始，这个表示由原始（解压缩）图像数据和相应的整数标签数据组成。在这个表示中，我们创建了两个
+    dataset 对象，一个用于图像数据，另一个用于相应的标签：
+- en: '[PRE1]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The following code is an example implementation. The training data and labels
+    are in NumPy format. We open an HDF5 file for write access, and create two datasets,
+    one for the images and one for the labels:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码是一个示例实现。训练数据和标签都是 NumPy 格式。我们打开一个 HDF5 文件以进行写入访问，并创建两个数据集，一个用于图像，一个用于标签：
+- en: '[PRE2]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Opens HDF5 file for write access
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 打开 HDF5 文件以进行写入访问
+- en: ❷ Stores the training images as the dataset named “images”
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将训练图像存储为名为“images”的数据集
+- en: ❸ Stores the training labels as the dataset named “labels”
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将训练标签存储为名为“labels”的数据集
+- en: Now, when we want to read back the images and labels, we first open the HDF5
+    for read access. Then we create an iterator for the dataset’s images and labels.
+    The HDF5 file handle is a dictionary object, and we refer to our named datasets
+    via the dataset name as the key.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，当我们想要读取图像和标签时，我们首先打开 HDF5 以进行读取访问。然后我们为数据集的图像和标签创建一个迭代器。HDF5 文件句柄是一个字典对象，我们通过数据集名称作为键来引用我们的命名数据集。
+- en: 'Next, we reopen the HDF5 file for read access and then create an HDF5 iterator
+    for the dataset’s images and labels, using the keys `images` and `labels`. Here,
+    `x_train` and `y_train` are aliases for the HDF5 iterators. The data is not actually
+    in memory yet:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们重新打开 HDF5 文件进行读取访问，然后为数据集的图像和标签创建 HDF5 迭代器，使用键 `images` 和 `labels`。在这里，`x_train`
+    和 `y_train` 是 HDF5 迭代器的别名。数据实际上尚未在内存中：
+- en: '[PRE3]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Opens HDF5 file for read access
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 打开 HDF5 文件进行读取访问
+- en: ❷ Creates HDF5 iterator for the images dataset
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 为图像数据集创建 HDF5 迭代器
+- en: ❸ Creates HDF5 iterator for the labels dataset
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 为标签数据集创建 HDF5 迭代器
+- en: 'Since the HDF5 iterators use NumPy syntax, we can directly access the data
+    by using NumPy array slicing, which fetches the data from disk into an in-memory
+    NumPy array. In the following code, we are getting a single batch by using array
+    slicing of the images `(x_batch`) and corresponding labels (`y_batch`):'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 HDF5 迭代器使用 NumPy 语法，我们可以通过使用 NumPy 数组切片直接访问数据，这将从磁盘获取数据并将其加载到内存中的 NumPy 数组。在以下代码中，我们通过图像的数组切片（`x_batch`）和相应的标签（`y_batch`）获取单个批次：
+- en: '[PRE4]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ The first 100 images are now in memory as a NumPy array.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 前面的 100 张图像现在作为 NumPy 数组存储在内存中。
+- en: ❷ The first 100 labels are now in memory as a NumPy array.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 前面的 100 个标签现在作为 NumPy 数组存储在内存中。
+- en: Next, we iterate through the entire dataset, as batches, and feed each batch
+    to the model for training. Let’s assume that there are 50,000 images (for example,
+    in the CIFAR-10 dataset) stored in our HDF5 dataset.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将整个数据集作为批次迭代，并将每个批次输入到模型中进行训练。假设在我们的 HDF5 数据集中存储了 50,000 张图像（例如，在 CIFAR-10
+    数据集中）。
+- en: 'We iterate through the HDF5 dataset with a batch size of 50\. Each time, we
+    reference the next sequential array slice. The iterator will then draw 50 images
+    each time from disk and load them into `x_batch` as an in-memory NumPy array.
+    We do the same for the corresponding labels, which are loaded into `y_batch` as
+    a NumPy array. We then pass the batch of images and corresponding labels to the
+    TF.Keras method `train_on_batch``()`, which does a single batch update on the
+    model:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们以 50 个批次的尺寸遍历 HDF5 数据集。每次，我们引用下一个顺序数组切片。迭代器将每次从磁盘中抽取 50 张图像并将它们加载到内存中的 `x_batch`
+    数组。我们同样为相应的标签执行相同的操作，这些标签被加载到 `y_batch` 数组中。然后，我们将图像批次和相应的标签传递给 TF.Keras 方法 `train_on_batch()`，该方法对模型执行单个批次的更新：
+- en: '[PRE5]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Draws the next batch from HDF5 file as an in-memory NumPy slice
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从 HDF5 文件中抽取下一个批次作为内存中的 NumPy 切片
+- en: ❷ Updates the model for the batch
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 更新批次的模型
+- en: HDF5 groups
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HDF5 组
+- en: Next, we will look at an alternate storage representation using groups for storing
+    a dataset in HDF5 format. This alternative method has more efficient storage,
+    eliminates storing labels, and can store hierarchical datasets. In this representation,
+    we will create a separate group for each class (label) and corresponding dataset.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将查看使用组存储 HDF5 格式数据集的另一种存储表示。这种方法具有更高效的存储，消除了存储标签的需求，并且可以存储分层数据集。在这种表示中，我们将为每个类别（标签）及其对应的数据集创建一个单独的组。
+- en: 'The following example depicts this representation. We have two classes, `cats`
+    and `dogs`, and create a group for each. Within both groups, we create one dataset
+    for the corresponding images. Note that we don’t need to store an array of labels
+    anymore, since they are implied by the group name:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下示例描述了这种表示。我们有两个类别，`cats` 和 `dogs`，并为每个类别创建一个组。在两个组中，我们为相应的图像创建一个数据集。请注意，我们不再需要存储标签数组，因为它们由组名称隐含表示：
+- en: '[PRE6]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'The following code is an example implementation, where `x_cats` and `x_dogs`
+    are the corresponding in-memory NumPy arrays for the cat and dog images:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码是一个示例实现，其中 `x_cats` 和 `x_dogs` 是猫和狗图像对应的内存中 NumPy 数组：
+- en: '[PRE7]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Creates a group for the cat class and corresponding dataset within the group
+    for storing the cat images
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在组中创建猫类别及其对应的用于存储猫图像的数据集
+- en: ❷ Creates a group for the dog class and corresponding dataset within the group
+    for storing the dog images
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在组中创建狗类别及其对应的用于存储狗图像的数据集
+- en: 'Then we read a batch from our group version of cats and dogs. In this example,
+    we open HDF5 group handles to the cats and dogs groups. The HDF5 group handles
+    are then referenced using dictionary syntax. For example, to get an iterator to
+    the cats images, we reference it as `cats[''images'']`. Next we draw 25 images
+    from the cats dataset and 25 images from the dogs dataset, using NumPy array slicing,
+    into memory as `x_batch`. As a last step, we generate the corresponding integer
+    labels in `y_batch`. We assign 0 to `cats` and 1 to `dogs`:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后我们从猫和狗的组版本中读取一批数据。在这个例子中，我们打开 HDF5 组句柄到猫和狗的组。然后使用字典语法引用 HDF5 组句柄。例如，要获取猫图片的迭代器，我们将其引用为
+    `cats['images']`。接下来，我们使用 NumPy 数组切片从猫数据集中抽取 25 张图片和从狗数据集中抽取 25 张图片，将它们作为 `x_batch`
+    存入内存。最后一步，我们在 `y_batch` 中生成相应的整数标签。我们将 0 分配给 `cats`，将 1 分配给 `dogs`：
+- en: '[PRE8]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ Opens HDF5 group handles for the cats and dogs groups
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为猫和狗的组打开 HDF5 组句柄
+- en: ❷ Draws a batch from the cats and dogs datasets within the corresponding groups
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在相应的组内从猫和狗数据集中抽取一批数据
+- en: ❸ Creates the corresponding labels
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建相应的标签
+- en: 'The format supports hierarchical storage of groups, when images are multilabeled
+    hierarchically. If the images are hierarchically labeled, each group is further
+    partitioned into a hierarchy of subgroups, as depicted next. Additionally, we
+    use the `Group` attribute to explicitly assign a unique integer value to the corresponding
+    label:'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该格式支持对图像进行分层存储，当图像具有分层标签时。如果图像具有分层标签，每个组将进一步划分为子组的层次结构，如下所示。此外，我们使用`Group`属性显式地为相应的标签分配一个唯一的整数值：
+- en: '[PRE9]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'To implement this hierarchical storage, we create top-level groups and subgroups.
+    In this example, we create a top-level group for cats. Then, using the HDF5 group
+    handle for cats, we create subgroups for each breed, such as `persian` and `siamese`.
+    Then for each breed subgroup, we create a dataset for the corresponding images.
+    Additionally, we use the `attrs` property to explicitly assign a unique label
+    value:'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现这种分层存储，我们创建顶级组和子组。在这个例子中，我们为猫创建一个顶级组。然后，使用猫的 HDF5 组句柄，我们为每个品种创建子组，例如`persian`和`siamese`。然后，对于每个品种的子组，我们为相应的图片创建一个数据集。此外，我们使用`attrs`属性显式地为唯一的标签值分配：
+- en: '[PRE10]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Creates top-level group for cats and assigns label 0 as an attribute
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为猫创建顶级组并分配标签 0 作为属性
+- en: ❷ Creates a second-level subgroup under cats for the breed persian, assigns
+    label, and adds images for persian cats
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在猫组下创建一个二级子组用于波斯猫品种，分配标签，并添加波斯猫的图片
+- en: ❸ Creates a second-level subgroup under cats for the breed siamese, assigns
+    label, and adds images for siamese cats
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在猫组下为品种暹罗猫创建一个二级子组，分配标签，并添加暹罗猫的图片
+- en: 'In summary, the HDF5 group feature is an easy and efficient storage method
+    for accessing hierarchical labeled data, particularly for multilabel datasets,
+    where the labels also have a hierarchical relationship. Another common multilabel
+    hierarchical example is produce. At the top of the hierarchy, you have two classes:
+    `fruit` and `vegetable`. Below each of these two classes are type (for example,
+    apple, banana, orange), and below type, you have variety (for example, granny
+    smith, gala, golden delicious).'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结来说，HDF5 组功能是访问分层标记数据的简单高效存储方法，尤其是对于具有分层关系的多标签数据集。另一个常见的多标签分层示例是产品。在分层结构的顶部，你有两个类别：`水果`和`蔬菜`。在这两个类别下面是类型（例如，苹果、香蕉、橙子），在类型下面是品种（例如，格兰尼史密斯、加拉、金色美味）。
+- en: 13.1.3 DICOM format
+  id: totrans-126
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.1.3 DICOM 格式
+- en: While the HDF5 format is widely used in satellite imagery, the *Digital Imaging
+    and Communications in Medicine* (*DICOM*) format is used in medical imaging. In
+    fact, DICOM is the ISO 12052 international standard for storing and accessing
+    medical imaging data, such as CT scans and X-rays, as well as patient information.
+    This format, which predates HDF5, is specialized for and broadly used throughout
+    medical research and healthcare systems with an abundance of public de-identified
+    health imaging datasets. If you are working with medical imaging data, you will
+    need to be familiar with this format.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然HDF5格式在卫星图像中广泛使用，但*医学数字成像和通信*（*DICOM*）格式在医学成像中使用。实际上，DICOM是存储和访问医学成像数据（如CT扫描和X射线）以及患者信息的ISO
+    12052国际标准。这种格式比HDF5更早，专门用于医学研究和医疗保健系统，广泛使用，拥有大量的公开去标识的健康成像数据集。如果你正在处理医学成像数据，你需要熟悉这种格式。
+- en: Here I’ll introduce some basic guidelines for using the format, along with a
+    demonstration sample. But if you are, or plan to be, specializing in medical imaging,
+    I recommend the DICOM specification and training tutorials located at the DICOM
+    website ([www.dicomstandard.org/](https://www.dicomstandard.org/)).
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我将介绍一些使用该格式的基本指南，以及一个演示示例。但如果你是，或者计划成为医学影像方面的专家，我建议你查看DICOM网站上的DICOM规范和培训教程（[www.dicomstandard.org/](https://www.dicomstandard.org/))。
+- en: 'The DICOM package for Python can be installed as follows:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以按照以下方式安装Python的DICOM包：
+- en: '[PRE11]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Generally, DICOM datasets are extremely large, in hundreds of gigabytes. This
+    is because the format is solely used for medical imaging, and generally consists
+    of extremely high-resolution images for segmentation, and may additionally consist
+    of layers of 3D slices per image.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，DICOM数据集非常大，达到数百个吉字节。这是因为该格式仅用于医学成像，通常包含用于分割的极高分辨率图像，并且可能还包含每张图像的3D切片层。
+- en: 'Pydicom, a Python open source package for medical images in DICOM format, provides
+    a small dataset for demonstration purposes. We will use this dataset for our coding
+    examples. Let’s start by importing the Pydicom package and getting the test dataset
+    `CT_small.dcm`:'
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pydicom是一个Python开源包，用于处理DICOM格式的医学图像，它提供了一个用于演示的小数据集。我们将使用这个数据集进行我们的编码示例。让我们首先导入Pydicom包并获取测试数据集`CT_small.dcm`：
+- en: '[PRE12]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ This Pydicom method returns a list of filenames for the demonstration datasets.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 此Pydicom方法返回演示数据集的文件名列表。
+- en: In DICOM, the labeled data also contains tabular data, such as patient information.
+    The image, label, and tabular data can be used to train a *multimodal model* (a
+    model that has two or more input layers), and each input layer has a different
+    data type (for example, image or numerical).
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在DICOM中，标记的数据还包含表格数据，如患者信息。图像、标签和表格数据可以用于训练一个*多模态模型*（具有两个或更多输入层的模型），每个输入层具有不同的数据类型（例如，图像或数值）。
+- en: 'Let’s see how the images and labels are read from a DICOM file format. We’ll
+    read in our demonstration dataset, which mimics a real-world example of a patient’s
+    medical imaging data, and start by getting some basic information about the dataset.
+    Each dataset contains a large volume of patient information, which can be accessed
+    as a dictionary. This example shows just a few of the fields, most of which have
+    been de-identified. The study date indicates when the image was taken, and the
+    modality is the type of imaging (in this case, CT scan):'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何从DICOM文件格式中读取图像和标签。我们将读取我们的演示数据集，该数据集模拟了患者医学影像数据的真实世界示例，并首先获取一些关于数据集的基本信息。每个数据集包含大量患者信息，可以作为一个字典访问。这个例子只展示了其中的一些字段，其中大部分已经被去标识化。研究日期表示图像拍摄的时间，而模态是成像类型（在这种情况下，为CT扫描）：
+- en: '[PRE13]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'Finally, we will extract the image data and display it as shown here and in
+    figure 13.5:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们将提取图像数据并按此处和图13.5所示进行显示：
+- en: '[PRE14]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: '![](Images/CH13_F05_Ferlitsch.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F05_Ferlitsch.png)'
+- en: Figure 13.5 An image extracted from a DICOM file
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.5 从DICOM文件中提取的图像
+- en: Further details on accessing and parsing DICOM images can be found in the standard
+    as well as the tutorials for Pydicom ([https://pydicom.github.io/](https://pydicom.github.io/)).
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于访问和解析DICOM图像的更多详细信息可以在规范以及Pydicom教程中找到（[https://pydicom.github.io/](https://pydicom.github.io/))。
+- en: 13.1.4 TFRecord format
+  id: totrans-143
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.1.4 TFRecord格式
+- en: '*TFRecord* is the TensorFlow standard for storing and accessing datasets for
+    training with TensorFlow. This binary format was originally designed for efficient
+    serialization of structured data using Google’s protocol buffer definitions, but
+    was further developed by the TensorFlow team for efficient serialization of unstructured
+    data, such as images, video, and text. In addition to being the TensorFlow organization’s
+    recommended format for training data, the format has been seamlessly integrated
+    across the TF ecosystem, including in `tf.data` and TFX.'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*TFRecord*是TensorFlow用于存储和访问用于TensorFlow训练的数据集的标准格式。这种二进制格式最初是为了使用Google的协议缓冲区定义高效地序列化结构化数据而设计的，但后来由TensorFlow团队进一步开发，用于高效地序列化非结构化数据，如图像、视频和文本。除了是TensorFlow组织推荐的训练数据格式外，该格式已无缝集成到TF生态系统，包括`tf.data`和TFX。'
+- en: Here, again, we’ll just get a taste for how the format can be used for images
+    for training CNNs. For the fine details and information on the standard, check
+    out the tutorials ([www.tensorflow.org/tutorials/load_data/tfrecord](http://www.tensorflow.org/tutorials/load_data/tfrecord)).
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们再次只是了解一下如何使用该格式为训练 CNN 的图像。对于详细信息和标准信息，请查看教程 ([www.tensorflow.org/tutorials/load_data/tfrecord](http://www.tensorflow.org/tutorials/load_data/tfrecord))。
+- en: 'Figure 13.6 is a pictorial overview of using TFRecords for a training dataset
+    as a hierarchy of tf.data representations. The three steps are as follows:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.6 是使用 TFRecords 作为 tf.data 表示的分层关系图。以下是三个步骤：
+- en: At the top level is `tf.data.Dataset`. This is the in-memory representation
+    of the training dataset.
+  id: totrans-147
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在最高层是 `tf.data.Dataset`。这是训练数据集的内存表示。
+- en: The next level is a sequence of one or more TFRecords. These are the on-disk
+    storage of the dataset.
+  id: totrans-148
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 下一个级别是一系列一个或多个 TFRecords。这些是数据集的磁盘存储。
+- en: At the bottom level are `tf.Example` records; each contains a single data example.
+  id: totrans-149
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在最底层是 `tf.Example` 记录；每个记录包含一个单一的数据示例。
+- en: '![](Images/CH13_F06_Ferlitsch.png)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F06_Ferlitsch.png)'
+- en: Figure 13.6 Hierarchical relationships of `tf.data`, TFRecords, and `tf.Example`
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.6 `tf.data`、TFRecords 和 `tf.Example` 的分层关系
+- en: Let’s now describe this relationship from the bottom up. We will convert every
+    data example in the training data to a `tf.Example` object. For example, if we
+    have 50,000 training images, we have 50,000 `tf.Example` records. Next we serialize
+    these records so they will have fast read access on disk as TFRecord files. These
+    files are designed for sequential access, not random access, to minimize read
+    access, since they will be written once but read many times.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们从底层开始描述这种关系。我们将把训练数据中的每一个数据示例转换为 `tf.Example` 对象。例如，如果我们有 50,000 个训练图像，我们就有
+    50,000 个 `tf.Example` 记录。接下来，我们将这些记录序列化，以便它们在磁盘上作为 TFRecord 文件具有快速的读取访问。这些文件是为了顺序访问而设计的，不是随机访问，以最小化读取访问，因为它们将只写入一次但将被多次读取。
+- en: For large amounts of data, the records are generally partitioned into multiple
+    TFRecord files to further minimize read-access times specific to the storage device.
+    While the size of each serialized `tf.Example` entry, the number of examples,
+    the storage device type, and distribution will best determine the partitioning
+    size; the TensorFlow team recommends 100 to 200 MB each as a general rule of thumb.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大量数据，记录通常被分割成多个 TFRecord 文件，以进一步最小化特定于存储设备的读取访问时间。虽然每个序列化的 `tf.Example` 条目的大小、示例数量、存储设备类型和分布将最好地决定分区大小；TensorFlow
+    团队建议每个分区的大小为 100 到 200 MB 作为一般规则。
+- en: 'tf.Example: Features'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'tf.Example: Features'
+- en: 'The format for `tf.Example` has similarities to both a Python dictionary and
+    JSON objects. An example (for instance, an image) and corresponding metadata (for
+    example, the label) are encapsulated within a `tf.Example` class object. This
+    object consists of a list of one or more `tf.train.Feature` entries. Each feature
+    entry can be one of these data types:'
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.Example` 的格式与 Python 字典和 JSON 对象都有相似之处。一个示例（例如，一个图像）及其相应的元数据（例如，标签）封装在
+    `tf.Example` 类对象中。此对象由一个或多个 `tf.train.Feature` 条目列表组成。每个特征条目可以是以下数据类型之一：'
+- en: '`tf.train.ByteList`'
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`tf.train.ByteList`'
+- en: '`tf.train.FloatList`'
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`tf.train.FloatList`'
+- en: '`tf.train.Int64List`'
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`tf.train.Int64List`'
+- en: The `tf.train.ByteList` type is used for sequences of bytes or a string. An
+    example of bytes would be the encoded or raw bytes of an image, and an example
+    of a string would be a text string for an NLP model or the class name for a label.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.train.ByteList` 类型用于字节序列或字符串。字节的例子可以是图像的编码或原始字节，字符串的例子可以是 NLP 模型的文本字符串或标签的类名。'
+- en: A `tf.train.FloatList` type is used for 32-bit (single-precision) or 64-bit
+    (double-precision) floating-point numbers. A continuous real value for a column
+    in a structured dataset is an example.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.train.FloatList` 类型用于 32 位（单精度）或 64 位（双精度）浮点数。结构化数据集中某一列的连续实值是一个例子。'
+- en: A `tf.train.Int64List` type is used for both 32-bit and 64-bit signed and unsigned
+    integers, and Booleans. For an integer, this type is used for a categorical value
+    for a column in a structured dataset, or a scalar value for a label, for example.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.train.Int64List` 类型用于 32 位和 64 位的有符号和无符号整数以及布尔值。对于整数，此类型用于结构化数据集中某一列的分类值，或标签的标量值，例如。'
+- en: 'Several common practices are used to encode image data into `tf.Example` format:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `tf.Example` 格式编码图像数据时，采用了一些常见的做法：
+- en: A feature entry for encoding the image data
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于编码图像数据的特征条目
+- en: A feature entry for the image shape (for reconstruction)
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为图像形状（用于重建）创建一个特征条目
+- en: A feature entry for the corresponding label
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为相应的标签创建一个特征条目
+- en: The following is a generic example of defining `tf.train.Example` for encoding
+    an image; `/entries here/` is a placeholder for the dictionary entries for the
+    image data and corresponding metadata, which we will discuss subsequently. Note
+    that TensorFlow refers to the format as `tf.Example`, and the data type as `tf.train.Example`.
+    This can be initially confusing.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个定义 `tf.train.Example` 以编码图像的通用示例；`/entries here/` 是图像数据和相应元数据的字典条目的占位符，我们将在后面讨论。请注意，TensorFlow
+    将此格式称为 `tf.Example`，数据类型称为 `tf.train.Example`。这可能会让人一开始感到困惑。
+- en: '[PRE15]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'tf.Example: Compressed image'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: tf.Example：压缩图像
+- en: In the next example, we create a `tf.train.Example` object for an image that
+    has not been decoded (it is in the compressed on-disk format). The benefit with
+    this approach is that we use the least amount of disk space when stored as part
+    of a TFRecord. The drawback is that each time we read a TFRecord from disk while
+    feeding the neural network during training, the image data must be uncompressed;
+    this is a tradeoff of time versus space.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个示例中，我们创建一个未解码的图像 `tf.train.Example` 对象（图像以压缩的磁盘格式存储）。这种方法的好处是，当作为 TFRecord
+    的一部分存储时，占用的磁盘空间最少。缺点是，在训练过程中，每次从磁盘读取 TFRecord 并向神经网络提供数据时，都必须解压缩图像数据；这是时间和空间之间的权衡。
+- en: 'In the following code example, we define a function for converting an on-disk
+    image file (parameter `path`) and corresponding label (parameter `label`) as follows:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下面的代码示例中，我们定义了一个函数，用于将磁盘上的图像文件（参数 `path`）和相应的标签（参数 `label`）转换为以下形式：
+- en: The on-disk image is first read in and uncompressed into a raw bitmap using
+    the OpenCV method `cv2.imread``()` to obtain the shape of the image (rows, columns,
+    channels).
+  id: totrans-171
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 首先使用 OpenCV 方法 `cv2.imread()` 读取磁盘上的图像，并将其解压缩为原始位图，以获取图像的形状（行数、列数、通道数）。
+- en: The on-disk image is read in a second time using `tf.io.gfile.GFile()` in its
+    original compressed format. Note, the `tf.io.gfile.GFile()` is equivalent to a
+    file `open``()`, but if the image is stored in a GCS bucket, the method is optimized
+    for I/O read/write performance.
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `tf.io.gfile.GFile()` 再次从磁盘读取图像，格式保持原始压缩状态。注意，`tf.io.gfile.GFile()` 等同于文件
+    `open()` 函数，但如果图像存储在 GCS 存储桶中，该方法针对 I/O 读写性能进行了优化。
+- en: 'A `tf.train.Example()` instance is instantiated with three dictionary entries
+    for the features object:'
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用三个字典条目为特征对象实例化一个 `tf.train.Example()` 实例：
+- en: '`image`—A `BytesList` for the uncompressed (original on-disk data) image data'
+  id: totrans-174
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`image` — 一个 `BytesList`，用于存储未压缩（原始磁盘数据）的图像数据'
+- en: '`label`—An `Int64List` for the label value'
+  id: totrans-175
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`label` — 一个表示标签值的 `Int64List`'
+- en: '`shape`—An `Int64List` for the tuple (rows, height, channels) shape of the
+    image'
+  id: totrans-176
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`shape` — 一个表示图像形状（行数、高度、通道数）的 `Int64List` 元组'
+- en: In our example, if we assume that the size of the on-disk image is 24,000 bytes,
+    then the size of the `tf.train.Example` entry in a TFRecord file will be about
+    25,000 bytes.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例中，如果我们假设磁盘上图像的大小为 24,000 字节，那么 TFRecord 文件中 `tf.train.Example` 条目的大小大约为
+    25,000 字节。
+- en: '[PRE16]'
+  id: totrans-178
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Uses OpenCV to obtain the shape of the image
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 OpenCV 获取图像的形状
+- en: ❷ Uses TensorFlow to read in the compressed image from a GCS bucket
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用 TensorFlow 从 GCS 存储桶中读取压缩图像
+- en: ❸ Creates a feature entry for the compressed image byte data
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 为压缩图像的字节数据创建一个特征条目
+- en: ❹ Creates a feature entry for the corresponding label
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 为相应的标签创建一个特征条目
+- en: ❺ Creates a feature entry for the corresponding shape as H × W × C
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 为相应的形状（H × W × C）创建一个特征条目
+- en: 'tf.Example: Uncompressed image'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: tf.Example：未压缩图像
+- en: In the next code example, we create a `tf.train.Example` entry for storing the
+    uncompressed version of the image in a TFRecord. This has the benefit of reading
+    the image from disk only once, and it does not need to be uncompressed each time
+    the entry is read from a TFRecord on disk during training.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的代码示例中，我们创建一个 `tf.train.Example` 条目来存储图像的未压缩版本到 TFRecord 中。这样做的好处是只需从磁盘读取一次图像，并且在训练过程中从磁盘上的
+    TFRecord 读取条目时不需要解压缩。
+- en: The drawback is that the size of the entry will be substantially larger than
+    the on-disk version of the image. In the preceding example, assuming a 95% JPEG
+    compression, the size of the entry in a TFRecord would be 500,000 bytes. Note,
+    in the `BytesList` encoding of the image data, the `np.uint8` data format is retained.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缺点是条目的大小将显著大于图像的磁盘版本。在前面的示例中，假设 95% 的 JPEG 压缩率，TFRecord 中的条目大小将是 500,000 字节。注意，在图像数据的
+    `BytesList` 编码中，保留了 `np.uint8` 数据格式。
+- en: '[PRE17]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ Uses OpenCV to read in the uncompressed image
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 OpenCV 读取未压缩的图像
+- en: ❷ Creates a feature entry for the uncompressed image byte data
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 为未压缩的图像字节数据创建一个特征条目
+- en: ❸ Creates a feature entry for the corresponding label
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 为相应的标签创建一个特征条目
+- en: ❹ Creates a feature entry for the corresponding shape as H × W × C
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 为相应的形状（H × W × C）创建一个特征条目
+- en: 'tf.Example: Machine learning ready'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: tf.Example：机器学习就绪
+- en: In our final code example, we first normalize the pixel data (by dividing by
+    255) and store the normalized image data. The advantage to this method is that
+    we do not need to normalize the pixel data each time the entry is read from a
+    TFRecord on disk during training. The drawback is that now the pixel data is stored
+    as `np.float32`, which is four times bigger than the corresponding `np.uint8`.
+    Assuming the same image example, the size of the TFRecord will now be 2 million
+    bytes.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的最后一个代码示例中，我们首先对像素数据进行归一化（通过除以 255）并存储归一化的图像数据。这种方法的优势在于，在训练过程中每次从磁盘上的 TFRecord
+    读取条目时，我们不需要对像素数据进行归一化。缺点是现在像素数据以 `np.float32` 存储的，比相应的 `np.uint8` 大四倍。假设相同的图像示例，现在
+    TFRecord 的大小将是 200 万字节。
+- en: '[PRE18]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Uses OpenCV to read in the uncompressed image and normalize the pixel data
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 OpenCV 读取未压缩的图像并对像素数据进行归一化
+- en: ❷ Creates a feature entry for the uncompressed image byte data
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 为未压缩的图像字节数据创建一个特征条目
+- en: ❸ Creates a feature entry for the corresponding label
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 为相应的标签创建一个特征条目
+- en: ❹ Creates a feature entry for the corresponding shape as H × W × C
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 为相应的形状（H × W × C）创建一个特征条目
+- en: 'TFRecord: Writing a record'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFRecord：写入记录
+- en: Now that we have constructed a `tf.train.Example` entry in memory, the next
+    step is to write it to a TFRecord file on disk. We will do this for the purpose
+    of later feeding training data from the disk when training a model.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经在内存中构建了一个 `tf.train.Example` 条目，下一步是将它写入磁盘上的 TFRecord 文件。我们将这样做是为了在训练模型时从磁盘上喂入训练数据。
+- en: To maximize the efficiency of writing to and reading back from on-disk storage,
+    the records are serialized to a string format for storing in Google’s protocol
+    buffer format. In the following code, `tf.io.TFRecordWriter` is a function that
+    will write a serialized record to a file in this format. It is also a common convention
+    when writing a TFRecord to disk to use the suffix `.tfrecord` in the filename.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了最大化写入和从磁盘存储读取的效率，记录被序列化为字符串格式以存储在 Google 的协议缓冲区格式中。在下面的代码中，`tf.io.TFRecordWriter`
+    是一个函数，它将序列化的记录写入到这种格式的文件中。在将 TFRecord 写入磁盘时，使用文件名后缀 `.tfrecord` 是一个常见的约定。
+- en: '[PRE19]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Creates a TFRecord file writer object
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个 TFRecord 文件写入对象
+- en: ❷ Writes a single serialized tf.train.Example entry to the file
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将单个序列化的 tf.train.Example 条目写入文件
+- en: 'An on-disk TFRecord file may contain multiple `tf.train.Example` entries. The
+    following code writes multiple serialized `tf.train.Example` entries to a TFRecord
+    file:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 磁盘上的 TFRecord 文件可能包含多个 `tf.train.Example` 条目。以下代码将多个序列化的 `tf.train.Example`
+    条目写入 TFRecord 文件：
+- en: '[PRE20]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Creates a TFRecord file writer object
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个 TFRecord 文件写入对象
+- en: ❷ Writes each tf.train.Example entry sequentially to TFRecord file
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将每个 tf.train.Example 条目顺序写入 TFRecord 文件
+- en: 'TFRecord: Reading a record'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFRecord：读取记录
+- en: The next code example demonstrates how to read each `tf.train.Example` entry
+    from a TFRecord file in sequential order. We assume that the file `example.tfrecord`
+    contains multiple serialized `tf.train.Example` entries.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个代码示例演示了如何按顺序从 TFRecord 文件中读取每个 `tf.train.Example` 条目。我们假设文件 `example.tfrecord`
+    包含多个序列化的 `tf.train.Example` 条目。
+- en: The `tf.compat.v1.io.record_interator()` creates an iterator object that when
+    used in a `for` statement will read into memory each serialized `tf.train.Example`
+    in sequential order. The method `ParseFromString``()` is used to deserialize the
+    data into an in-memory `tf.train.Example` format.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tf.compat.v1.io.record_interator()` 创建了一个迭代器对象，当在 `for` 语句中使用时，将按顺序读取内存中的每个序列化的
+    `tf.train.Example`。`ParseFromString()` 方法用于将数据反序列化为内存中的 `tf.train.Example` 格式。'
+- en: '[PRE21]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ Creates an iterator for iterating through tf.train.Example entries in sequential
+    order
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个迭代器以按顺序遍历 tf.train.Example 条目
+- en: ❷ Iterates through each entry and converts serialized string to tf.train.Example
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 遍历每个条目并将序列化字符串转换为 tf.train.Example
+- en: 'Alternatively, we can read and iterate through a set of `tf.train.Example`
+    entries from a TFRecord file by using the `tf.data.TFRecordDataset` class. In
+    the next code example, we do the following:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，我们可以通过使用 `tf.data.TFRecordDataset` 类来读取和迭代来自 TFRecord 文件的一组 `tf.train.Example`
+    条目。在下一个代码示例中，我们执行以下操作：
+- en: Instantiate a `tf.data.TFRecordDataset` object as an iterator for the on-disk
+    records
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实例化一个 `tf.data.TFRecordDataset` 对象作为磁盘记录的迭代器
+- en: Define the dictionary `feature_description` to specify how to deserialize the
+    serialized `tf.train.Example` entries
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义字典 `feature_description` 以指定如何反序列化序列化的 `tf.train.Example` 条目
+- en: Define the helper function `_parse_function()` for taking a serialized `tf.train
+    .Example` (`proto`) and deserializing it using the dictionary `feature_description`
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义辅助函数 `_parse_function()` 以接受一个序列化的 `tf.train .Example` (`proto`) 并使用字典 `feature_description`
+    进行反序列化
+- en: Use the `map()` method to iteratively deserialize each `tf.train.Example` entry
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `map()` 方法迭代反序列化每个 `tf.train.Example` 条目
+- en: '[PRE22]'
+  id: totrans-220
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ❶ Creates an iterator for the on-disk dataset
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为磁盘上的数据集创建一个迭代器
+- en: ❷ Creates a dictionary description for deserializing a tf.train.Example
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建一个字典描述以反序列化 `tf.train.Example`
+- en: ❸ Function for sequential parsing of tf.train.Example
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 用于 tf.train.Example 的顺序解析函数
+- en: ❹ Parses each entry in the dataset using map()
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用 `map()` 函数解析数据集的每个条目
+- en: 'If we print `parsed_dataset`, the output should be as follows:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们打印 `parsed_dataset`，输出应该如下所示：
+- en: '[PRE23]'
+  id: totrans-226
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 13.2 Data feeding
+  id: totrans-227
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.2 数据馈送
+- en: In the previous section, we discussed how data is structured and stored for
+    training, both in memory and on disk. This section covers ingesting the data into
+    a pipeline with `tf.data`, which is a TensorFlow module for constructing a dataset
+    pipeline. It can construct pipelines from a variety of sources, such as NumPy
+    and TensorFlow tensors in memory and TFRecords from on disk.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中，我们讨论了数据在内存和磁盘上的结构和存储方式，用于训练。本节介绍使用 `tf.data` 将数据摄入到管道中，`tf.data` 是 TensorFlow
+    模块，用于构建数据集管道。它可以从各种来源构建管道，例如内存中的 NumPy 和 TensorFlow 张量以及磁盘上的 TFRecords。
+- en: A dataset pipeline is created as a generator with the class `tf.data.Dataset`.
+    Thus, `tf.data` refers to the Python module, while `tf.data.Dataset` refers to
+    the dataset pipeline. The data pipeline is used for both preprocessing and feeding
+    data for training a model.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集管道是通过 `tf.data.Dataset` 类创建的生成器。因此，`tf.data` 指的是 Python 模块，而 `tf.data.Dataset`
+    指的是数据集管道。数据管道用于预处理和为训练模型提供数据。
+- en: First we’ll cover constructing a data pipeline from in-memory NumPy data and
+    then subsequently cover constructing one from on-disk TFRecords.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们将从内存中的 NumPy 数据构建数据管道，然后随后将构建一个从磁盘上的 TFRecords 构建的数据管道。
+- en: 13.2.1 NumPy
+  id: totrans-231
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.1 NumPy
+- en: 'To create an in-memory dataset generator from NumPy data, we use the `tf.data
+    .Dataset` method `from_tensor_slices``()`. The method takes as a parameter the
+    training data, which is specified as a tuple: `(images, labels)`.'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从 NumPy 数据创建一个内存中的数据集生成器，我们使用 `tf.data .Dataset` 方法 `from_tensor_slices``()`。该方法将训练数据作为参数，指定为一个元组：`(images,
+    labels)`。
+- en: 'In the following code, we create a `tf.data.Dataset` from the CIFAR-10 NumPy
+    data, which we specify as the parameter value `(x_train``, y_train)`:'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下代码中，我们使用 CIFAR-10 NumPy 数据创建一个 `tf.data.Dataset`，我们将其指定为参数值 `(x_train`, `y_train)`：
+- en: '[PRE24]'
+  id: totrans-234
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Creates a dataset generator for in-memory NumPy training data
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为内存中的 NumPy 训练数据创建一个数据集生成器
+- en: Note that the `dataset` is a generator; thus it is not subscriptable. You cannot
+    do a `dataset[0]` and expect to get the first element. That will throw an exception.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，`dataset` 是一个生成器；因此它不可索引。你不能执行 `dataset[0]` 并期望获取第一个元素。这将抛出一个异常。
+- en: Next, we will iterate through the dataset. But we want to do this in batches,
+    as we do when feeding data by using the `fit()` method in TF.Keras and we specify
+    a batch size. In the next code example, we use the method `batch()` to set the
+    batch size for the dataset to 128\. Note that `batch` is not a property. It does
+    not change the state of the existing dataset, but creates a new generator. That’s
+    why we assign `dataset .batch(128)` back to the original `dataset` variable. TensorFlow
+    refers to these types of dataset methods as *dataset transformations*.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将遍历数据集。但我们要分批进行，就像我们在使用 TF.Keras 中的 `fit()` 方法馈送数据时指定批大小一样。在下一个代码示例中，我们使用
+    `batch()` 方法将数据集的批大小设置为 128。请注意，`batch` 不是一个属性。它不会改变现有数据集的状态，而是创建一个新的生成器。这就是为什么我们将
+    `dataset .batch(128)` 赋值回原始的 `dataset` 变量。TensorFlow 将这些类型的数据集方法称为 *数据集转换*。
+- en: 'Next, we iterate through the dataset and for each batch `(x_batch,` `y_batch)`
+    we print the shape. For each batch, this will output (128, 32, 32, 3) for the
+    image data and (128, 1) for the corresponding labels:'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们遍历数据集，并对每个批次 `(x_batch,` `y_batch)` 打印其形状。对于每个批次，这将输出图像数据的形状为 (128, 32,
+    32, 3) 以及相应的标签的形状为 (128, 1)：
+- en: '[PRE25]'
+  id: totrans-239
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Transforms the dataset to iterate in batches of 128
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将数据集转换为以 128 个批次的迭代
+- en: ❷ Iterates through the dataset in batches of 128
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 以 128 个批次的批量遍历数据集
+- en: 'If we repeat the same `for` loop iteration a second time, we would get no output.
+    Why? What happened? By default, dataset generators iterate only once through a
+    dataset. To continuously repeat, as if we have multiple epochs, we use the `repeat()`
+    method as another dataset transformation. Since we want every epoch to see a different
+    random ordering of the batches, we use the `shuffle()` method as another dataset
+    transformation. This sequence of dataset transformations is demonstrated here:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们第二次重复相同的 `for` 循环迭代，我们将不会得到任何输出。为什么？发生了什么？默认情况下，数据集生成器只遍历一次数据集。为了连续重复，就像我们有多个时代一样，我们使用
+    `repeat()` 方法作为另一个数据集转换。由于我们希望每个时代都能看到不同随机顺序的批次，我们使用 `shuffle()` 方法作为另一个数据集转换。这里展示了数据集转换的顺序：
+- en: '[PRE26]'
+  id: totrans-243
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'The dataset transformation methods are also chainable. It’s common to see them
+    chained together. This single line is identical to the preceding three-line sequence:'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据集转换方法也是可链式的。通常可以看到它们被链在一起。这一行与前面的三行序列相同：
+- en: '[PRE27]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: The order that the transformations are applied is important. If we use `repeat()`
+    first and then the `shuffle()` transformation, then on the first epoch, the batches
+    would not be randomized.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用转换的顺序很重要。如果我们首先使用 `repeat()` 然后是 `shuffle()` 转换，那么在第一个时代，批次将不会被随机化。
+- en: Also note that we specify a value to the `shuffle()` transformation. This value
+    indicates the number of examples to pull from the dataset into memory and shuffle
+    at a time. For example, if we have enough memory to hold the entire dataset in
+    memory, we set this value to the total number of examples in the training data
+    (for example, 50000 for CIFAR-10). That will shuffle the entire dataset at once—a
+    complete shuffle. If we don’t, we need to calculate how much memory we can spare
+    and divide by the size of each in-memory example. Let’s say we have 2 GB to spare,
+    and each in-memory example is 200,000 bytes. In this case, we would set the size
+    to 10,000 (2 GB / 200K).
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要注意，我们为 `shuffle()` 转换指定了一个值。这个值表示每次从数据集中拉取到内存中并混洗的示例数量。例如，如果我们有足够的内存来存储整个数据集，我们将此值设置为训练数据中的示例总数（例如，CIFAR-10
+    的 50000）。这将一次性混洗整个数据集——一个完整的混洗。如果我们没有足够的内存，我们需要计算我们可以节省多少内存，并将其除以内存中每个示例的大小。假设我们有
+    2 GB 的空闲内存，每个内存中的示例是 200,000 字节。在这种情况下，我们将大小设置为 10,000（2 GB / 200K）。
+- en: In the next code example, we train a simple ConvNet with CIFAR-10 data using
+    `tf.data.Dataset` as the data pipeline. The `fit()` method is compatible with
+    `tf.data.Dataset` generators. Instead of passing the raw image data and corresponding
+    labels, we pass the dataset generator, specified by the variable `dataset`.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个代码示例中，我们使用 `tf.data.Dataset` 作为数据管道，用 CIFAR-10 数据训练一个简单的卷积神经网络。`fit()` 方法与
+    `tf.data.Dataset` 生成器兼容。我们不是传递原始图像数据和相应的标签，而是传递由变量 `dataset` 指定的数据集生成器。
+- en: 'Because it is a generator, the `fit()` method does not know how many batches
+    will be in an epoch. So we need to additionally specify the `steps_per_epoch`
+    and set it to the number of batches in the training data. In our case, we calculated
+    this as the number of examples in the training data divided by the batch size
+    `(50000 // 128)`:'
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为它是一个生成器，`fit()` 方法不知道一个时代中会有多少批次。因此，我们需要额外指定 `steps_per_epoch` 并将其设置为训练数据中的批次数量。在我们的例子中，我们将其计算为训练数据中的示例数量除以批次大小
+    `(50000 // 128)`：
+- en: '[PRE28]'
+  id: totrans-250
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: ❶ Calculates the number of batches in the dataset
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 计算数据集中的批次数量
+- en: ❷ Trains with the fit() method using the dataset generator
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用 fit() 方法通过数据集生成器进行训练
+- en: In this section, we covered constructing a data pipeline from an in-memory source
+    of data, such as in a NumPy or TensorFlow tensor format. Next, we will cover constructing
+    a data pipeline from an on-disk source of data using TFRecords.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们介绍了从内存中的数据源构建数据管道，例如在 NumPy 或 TensorFlow 张量格式中。接下来，我们将介绍使用 TFRecords
+    从磁盘上的数据源构建数据管道。
+- en: 13.2.2 TFRecord
+  id: totrans-254
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.2.2 TFRecord
+- en: To create an on-disk dataset generator from TFRecord files, we use the `tf.data`
+    method `TFRecordDataset`(). The method takes as a parameter the path to a single
+    TFRecord file or a list of paths to multiple TFRecord files. As covered in the
+    previous section, each TFRecord file may contain one or more training examples,
+    such as images, and for I/O performance purposes, the training data may span multiple
+    TFRecord files.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从 TFRecord 文件创建磁盘上的数据集生成器，我们使用 `tf.data` 方法 `TFRecordDataset()`。该方法接受单个 TFRecord
+    文件的路径或多个 TFRecord 文件路径列表作为参数。如前所述，每个 TFRecord 文件可能包含一个或多个训练示例，例如图像，并且为了 I/O 性能，训练数据可能跨越多个
+    TFRecord 文件。
+- en: 'This code creates a dataset generator for a single TFRecord file:'
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码为单个 TFRecord 文件创建数据集生成器：
+- en: '[PRE29]'
+  id: totrans-257
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'This code example creates a dataset generator for multiple TFRecord files,
+    when the dataset spans multiple TFRecord files:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码示例为多个 TFRecord 文件创建数据集生成器，当数据集跨越多个 TFRecord 文件时：
+- en: '[PRE30]'
+  id: totrans-259
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: Next, we have to tell the dataset generator how to parse each serialized entry
+    in the TFRecord file. We use the `map()` method, which allows us to define a function
+    for parsing a TFRecord-specific example, which will be applied (mapped) to each
+    example, each time the example is read from the disk.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们必须告诉数据集生成器如何解析 TFRecord 文件中的每个序列化条目。我们使用 `map()` 方法，它允许我们定义一个用于解析 TFRecord
+    特定示例的函数，该函数将在每次从磁盘读取示例时应用（映射）到每个示例。
+- en: 'In the following example, we first define the `feature_description` to describe
+    how to parse the TFRecord-specific entries. Using the earlier example, we assume
+    the layout of our entry is a byte-encoded image key/value, an integer label key/value,
+    and a three-element integer shape key/value. We then use the method `tf.io.parse_single_
+    example()` to parse the serialized example in the TFRecord file based on the feature
+    description:'
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下示例中，我们首先定义 `feature_description` 来描述如何解析 TFRecord 特定的条目。使用前面的示例，我们假设条目的布局是一个字节编码的图像键/值，一个整数标签键/值，以及一个三个元素的整数形状键/值。然后我们使用
+    `tf.io.parse_single_example()` 方法根据特征描述解析 TFRecord 文件中的序列化示例：
+- en: '[PRE31]'
+  id: totrans-262
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: ❶ Creates a dictionary description for deserializing a tf.train.Example
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为反序列化 `tf.train.Example` 创建字典描述
+- en: ❷ Function for sequential parsing of tf.train.Example
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于 `tf.train.Example` 的顺序解析函数
+- en: ❸ Parses each entry in the dataset using map()
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `map()` 函数解析数据集中的每个条目
+- en: 'Let’s now do a few more dataset transformations and then take a peek at what
+    we have when we iterate through the on-disk TFRecord. In this code example, we
+    apply the transformation to shuffle and set the batch size to 2\. We then iterate
+    through the dataset in batches of two examples, and display the corresponding
+    `label` and `shape` keys/values:'
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们现在进行一些更多的数据集转换，然后看看我们迭代磁盘上的 TFRecord 时会看到什么。在这个代码示例中，我们应用转换以打乱顺序并将批大小设置为
+    2。然后我们以两个示例为一批迭代数据集，并显示相应的 `label` 和 `shape` 键/值：
+- en: '[PRE32]'
+  id: totrans-267
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: ❶ Creates an iterator for the on-disk database
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为磁盘上的数据库创建迭代器
+- en: ❷ Iterates through the on-disk TFRecord in batches of two examples
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以两个示例为一批迭代磁盘上的 TFRecord
+- en: 'The following output shows that each batch consists of two examples, the labels
+    in the first batch are 0 and 1, and the labels in the second batch are 1 and 0,
+    and all images are of the size (512, 512, 3):'
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下输出显示每个批次包含两个示例，第一批的标签是 0 和 1，第二批的标签是 1 和 0，所有图像的大小为 (512, 512, 3)：
+- en: '[PRE33]'
+  id: totrans-271
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'TFRecord: Compressed image'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFRecord：压缩图像
+- en: 'So far, we haven’t addressed the format in which the serialized image data
+    is encoded. Generally, the image is encoded in either a compressed format (such
+    as JPEG) or uncompressed format (raw). In the next code example, we add an additional
+    step in `_parse_function()` to decode the image data from a compressed format
+    (JPEG) to an uncompressed format using `tf.io.decode_jpg()`. Thus, as each example
+    is read from disk and deserialized, now the image data is decoded:'
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们还没有解决序列化图像数据编码的格式。通常，图像以压缩格式（如 JPEG）或未压缩格式（原始）编码。在下一个代码示例中，我们在 `_parse_function()`
+    中添加一个额外的步骤，使用 `tf.io.decode_jpg()` 将图像数据从压缩格式（JPEG）解码为未压缩格式。因此，随着每个示例从磁盘读取并反序列化，现在图像数据已解码：
+- en: '[PRE34]'
+  id: totrans-274
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: ❶ Decodes the compressed JPEG image
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解码压缩的 JPEG 图像
+- en: 'TFRecord: Uncompressed image'
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFRecord：未压缩图像
+- en: In the next code example, the encoded image data is in an uncompressed format
+    in the TFRecord file. Thus, we do not need to uncompress it, but we still need
+    to decode the encoded bytelist into the raw bitmap format by using `tf.io.decode_raw()`.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个代码示例中，编码的图像数据以未压缩格式存储在 TFRecord 文件中。因此，我们不需要解压缩它，但仍然需要使用 `tf.io.decode_raw()`
+    将编码的字节数组解码为原始位图格式。
+- en: 'The raw decoded data at this point is a 1D array, so we need to reshape it
+    back into its original shape. After we get the raw decoded data, we get the original
+    shape from the key/value `shape` and then reshape the raw image data by using
+    `tf.reshape()`:'
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此阶段，原始解码数据是一个一维数组，因此我们需要将其重新调整回其原始形状。在获取原始解码数据后，我们从`shape`键/值中获取原始形状，然后使用`tf.reshape()`调整原始图像数据：
+- en: '[PRE35]'
+  id: totrans-279
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: ❶ Decodes the image data as uncompressed raw format
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将图像数据解码为未压缩的原始格式
+- en: ❷ Gets the original image shape
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 获取原始图像形状
+- en: ❸ Reshapes the decoded image back to original shape
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将解码的图像重新调整回原始形状
+- en: 13.3 Data preprocessing
+  id: totrans-283
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.3 数据预处理
+- en: So far, we’ve covered data formats, storage, and reading training data from
+    memory or disk, along with some data preprocessing. In this section, we will go
+    into more detail on preprocessing. First, we will look at how preprocessing can
+    be moved out of the upstream data pipeline and moved into the pre-stem model component,
+    and then we will look at how to set up a preprocessing pipeline using TFX.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经涵盖了数据格式、存储以及从内存或磁盘读取训练数据，以及一些数据预处理。在本节中，我们将更详细地介绍预处理。首先，我们将探讨如何将预处理从上游数据管道移出，并移动到预处理器模型组件中，然后我们将探讨如何使用TFX设置预处理管道。
+- en: 13.3.1 Preprocessing with a pre-stem
+  id: totrans-285
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.3.1 使用预处理的预处理
+- en: 'You should recall that one of the recommendations when TensorFlow 2.0 was released
+    was to move preprocessing into the graph. We could take two approaches. First,
+    we could hardwire it into the graph. Second, we could make the preprocessing independent
+    of the model but be plug-and-play such that the preprocessing occurs on the graph
+    and can be interchangeable. The benefits to this plug-and-play pre-stem approach
+    are as follows:'
+  id: totrans-286
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您应该记得，当TensorFlow 2.0发布时，其中一个建议是将预处理移动到图中。我们可以采取两种方法。首先，我们可以将其硬编码到图中。其次，我们可以使预处理独立于模型，但实现即插即用，这样预处理就会在图中进行，并且可以互换。这种即插即用预处理的优点如下：
+- en: Reusable and interchangeable component in a training and deployment pipeline
+  id: totrans-287
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在训练和部署管道中的可重用和可互换组件
+- en: Runs on the graph instead of upstream on a CPU, eliminating potentially being
+    I/O bound when feeding a model for training
+  id: totrans-288
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在图中运行，而不是在CPU的上游运行，从而在为训练提供模型时消除潜在的I/O绑定
+- en: Figure 13.7 depicts using plug-and-play pre-stems for preprocessing. This depiction
+    shows a collection of plug-and-play pre-stem components to choose from when training
+    or deploying the model. The requirement for attaching a pre-stem is that its output
+    shape must match the input shape of the model.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.7展示了使用即插即用预处理器进行预处理。这个展示显示了在训练或部署模型时可以选择的即插即用预处理器组件集合。连接预处理器的要求是它的输出形状必须与模型的输入形状匹配。
+- en: '![](Images/CH13_F07_Ferlitsch.png)'
+  id: totrans-290
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F07_Ferlitsch.png)'
+- en: Figure 13.7 Plug-and-play pre-stems can be interchanged during training and
+    deployment.
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.7 即插即用预处理器在训练和部署期间可以互换。
+- en: 'Pre-stems have two requirements to be plug-and-play with existing models, trained
+    and untrained:'
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理器要实现与现有模型（已训练和未训练）的即插即用，有两个要求：
+- en: The output from the pre-stem must match the input from the model. For example,
+    if the model takes as input (224, 224, 3)—such as a stock ResNet50—then the output
+    of the pre-stem must also be (224, 224, 3).
+  id: totrans-293
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预处理器的输出必须与模型的输入匹配。例如，如果模型以输入（224, 224, 3）为输入——例如标准的ResNet50——那么预处理器的输出也必须是（224,
+    224, 3）。
+- en: The input shape for the pre-stem must match the input source, whether for training
+    or prediction. For example, the input source may be a different size than what
+    the model was trained on, and the pre-stem has been trained to learn the optimal
+    method to resize the images.
+  id: totrans-294
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预处理输入的形状必须与输入源匹配，无论是用于训练还是预测。例如，输入源的大小可能与模型训练时的大小不同，而预处理器已经被训练来学习调整图像大小的最佳方法。
+- en: 'Plug-and-play pre-stems generally fall into two types:'
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即插即用预处理器通常分为两种类型：
+- en: Stays with the model after deployment for prediction. For example, the pre-stem
+    handles resizing and normalization of the input source, when the prediction request
+    consists of raw bytes from an uncompressed image.
+  id: totrans-296
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在部署后与模型一起用于预测。例如，预处理器处理输入源的调整大小和归一化，当预测请求由未压缩图像的原始字节组成时。
+- en: Used only during training, and not used after deployment. For example, the pre-stem
+    does random image augmentation for learning translational and scale invariance
+    during training, eliminating the need to configure the data pipeline to do image
+    augmentation.
+  id: totrans-297
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 仅在训练期间使用，部署后不使用。例如，预前缀在训练期间对图像进行随机增强，以学习平移和尺度不变性，从而消除配置数据管道进行图像增强的需要。
+- en: We will cover two methods of constructing a pre-stem for moving data preprocessing
+    into the graph. The first method adds layers to TF.Keras 2.*x* for this purpose,
+    and the second uses subclassing to create your own custom preprocessing layers.
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将介绍两种构建预前缀的方法，以将数据预处理移动到图中。第一种方法为 TF.Keras 2.*x* 添加了层，用于此目的，第二种方法使用子类化来创建自己的自定义预处理层。
+- en: TF.Keras preprocessing layers
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF.Keras 预处理层
+- en: 'To further aid and encourage moving preprocessing into the graph, TF.Keras
+    2.2 and subsequent versions introduced new layers for preprocessing. This eliminated
+    the need to use subclassing to build common preprocessing steps. This section
+    covers three of these layers: `Rescaling`, `Resizing`, and `CenterCrop`. For a
+    full list, see the TF.Keras documentation ([http://mng.bz/7jqe](https://shortener.manning.com/7jqe)).'
+  id: totrans-300
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了进一步帮助和鼓励将预处理移动到图中，TF.Keras 2.2 及后续版本引入了新的预处理层。这消除了使用子类化构建常见预处理步骤的需要。本节涵盖了这三个层：`Rescaling`、`Resizing`
+    和 `CenterCrop`。对于完整列表，请参阅 TF.Keras 文档 ([http://mng.bz/7jqe](https://shortener.manning.com/7jqe))。
+- en: 'Figure 13.8 depicts attaching a plug-and-play pre-stem to an existing model
+    by using a wrapper technique. Here, a second model instance is created, which
+    we refer to as the *wrapper model*. Using the sequential API, for example, the
+    wrapper consists of two components: first the pre-stem is added, and then the
+    existing model is added. To connect the existing model to the pre-stem, the output
+    shape of the pre-stem must match the input shape of the existing model.'
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.8 展示了通过包装技术将即插即用的预前缀附加到现有模型的过程。在这里，创建了一个第二个模型实例，我们称之为 *包装模型*。使用顺序 API，例如，包装模型由两个组件组成：首先添加预前缀，然后添加现有模型。为了将现有模型连接到预前缀，预前缀的输出形状必须匹配现有模型的输入形状。
+- en: '![](Images/CH13_F08_Ferlitsch.png)'
+  id: totrans-302
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F08_Ferlitsch.png)'
+- en: Figure 13.8 A wrapper model attaches a pre-stem to an existing model.
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.8 一个包装模型将一个预前缀附加到现有模型上。
+- en: The next code example implements a plug-and-play pre-stem that we add to an
+    existing model prior to training. First, we create an untrained ConvNet with two
+    convolutional (`Conv2D`) layers of 16 and 32 filters, respectively. We then flatten
+    (`Flatten`) the feature maps into a 1D vector, without dimensionality reduction,
+    as the bottleneck layer and then the final `Dense` layer for classification. We
+    will use this ConvNet model as the model we want to train and deploy.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个代码示例实现了一个即插即用的预前缀，我们在训练现有模型之前添加它。首先，我们创建了一个未训练的 ConvNet，包含两个 16 和 32 个过滤器的卷积
+    (`Conv2D`) 层。然后我们将特征图展平 (`Flatten`) 成一个 1D 向量，不进行降维，作为瓶颈层和最终的 `Dense` 层进行分类。我们将使用这个
+    ConvNet 模型作为我们想要训练和部署的模型。
+- en: 'Next, we instantiate another empty model, which we will call the `wrapper`
+    model. The wrapper will consist of two parts: the pre-stem, and the untrained
+    ConvNet model. For the pre-stem, we add the preprocessing layer `Rescaling` to
+    normalize the integer pixel data between floating-point values 0 and 1\. Since
+    the pre-stem will be the input layer in the wrapper model, we add the parameter
+    `(input_shape=(32, 32, 3))` to specify the input shape. Since `Rescaling` does
+    not change the size of the input, the output from the pre-stem matches that of
+    the input to the model.'
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们实例化另一个空模型，我们将称之为 `wrapper` 模型。包装模型将包含两个部分：预前缀和未训练的 ConvNet 模型。对于预前缀，我们添加预处理层
+    `Rescaling` 以将整数像素数据归一化到浮点值 0 和 1 之间。由于预前缀将是包装模型中的输入层，我们添加参数 `(input_shape=(32,
+    32, 3))` 以指定输入形状。由于 `Rescaling` 不改变输入的大小，预前缀的输出与模型输入相匹配。
+- en: Finally, we train the wrapper model and use the wrapper model for prediction.
+    Thus, for both training and prediction, the normalizing of the integer pixel data
+    is now part of the wrapper model, executed on the graph, instead of upstream on
+    the CPU.
+  id: totrans-306
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们训练包装模型并使用包装模型进行预测。因此，对于训练和预测，整数像素数据的归一化现在成为包装模型的一部分，在图上执行，而不是在 CPU 上上游执行。
+- en: '[PRE36]'
+  id: totrans-307
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: ❶ Imports the preprocessing layer for Rescaling
+  id: totrans-308
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入缩放预处理层
+- en: ❷ Constructs a simple ConvNet
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 构建一个简单的 ConvNet
+- en: ❸ Constructs a pre-stem with Rescaling
+  id: totrans-310
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用缩放构建预前缀
+- en: ❹ Adds the pre-stem to the ConvNet
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 将预前缀添加到 ConvNet
+- en: ❺ Trains and tests the ConvNet with the pre-stem
+  id: totrans-312
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 使用预预处理对 ConvNet 进行训练和测试
+- en: A plug-and-play pre-stem can have more than one preprocessing layer, as shown
+    in figure 13.9, such as a resizing of the image input followed by a rescaling
+    of the pixel data. In this depiction, since rescaling does not change the output
+    shape, the output shape from the preceding resizing layer must match the input
+    shape of the stem group.
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可即插即用的预预处理可以包含多个预处理层，如图 13.9 所示，例如图像输入的调整大小，随后是像素数据的重新缩放。在此表示中，由于缩放不会改变输出形状，因此前一个调整大小层的输出形状必须与茎组输入形状相匹配。
+- en: '![](Images/CH13_F09_Ferlitsch.png)'
+  id: totrans-314
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F09_Ferlitsch.png)'
+- en: Figure 13.9 A pre-stem with two preprocessing layers
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.9 带有两个预处理层的预预处理
+- en: 'The following code implements a plug-and-play pre-stem that performs two functions:
+    resizes the input and normalizes the pixel data. We start by creating the same
+    ConvNet as in the previous example. Next, we create the wrapper model with two
+    preprocessing layers: one to do the image resizing (`Resizing`) and one to do
+    the normalization (`Rescaling`). In this example, the input to the ConvNet is
+    of shape (28, 28, 3). We use a pre-stem to resize an input from (32, 32, 3) to
+    (28, 28, 3) to match the ConvNet and normalize the pixel data:'
+  id: totrans-316
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下代码实现了一个可插拔的预预处理，它执行两个功能：调整输入大小并归一化像素数据。我们首先创建与上一个示例相同的 ConvNet。接下来，我们创建一个包含两个预处理层的包装模型：一个用于图像调整大小（`Resizing`）和一个用于归一化（`Rescaling`）。在此示例中，ConvNet
+    的输入形状为（28, 28, 3）。我们使用预预处理将输入从（32, 32, 3）调整大小到（28, 28, 3）以匹配 ConvNet 并归一化像素数据：
+- en: '[PRE37]'
+  id: totrans-317
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: ❶ Creates the wrapper model
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建包装模型
+- en: ❷ Adds the pre-stem to the wrapper model
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将预预处理添加到包装模型中
+- en: ❸ Adds the ConvNet to the model and trains it
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将 ConvNet 添加到模型中并进行训练
+- en: 'Now that we have trained the model, we can remove the pre-stem and use the
+    model for inference. In the next example, we assume that the image test data is
+    already sized (28, 28, 3) to match our ConvNet, and we normalize the pixel data
+    upstream from the model. We know that the first two layers of the wrapper model
+    are the pre-stem, which means our underlying trained model starts at the third
+    layer; hence will we set the `model` to `wrapper.layers[2]`. Now we can do inference
+    with the underlying model without the pre-stem:'
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经训练了模型，我们可以移除预预处理并使用模型进行推理。在下一个示例中，我们假设图像测试数据已经调整为（28, 28, 3）以匹配我们的 ConvNet，并且我们在模型上游对像素数据进行归一化。我们知道包装模型的前两层是预预处理，这意味着我们的底层训练模型从第三层开始；因此我们将
+    `model` 设置为 `wrapper.layers[2]`。现在我们可以使用不带预处理的底层模型进行推理：
+- en: '[PRE38]'
+  id: totrans-322
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: ❶ Data preprocessing occurs upstream on the CPU
+  id: totrans-323
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 数据预处理在 CPU 上上游进行
+- en: ❷ Gets the underlying model w/o the pre-stem
+  id: totrans-324
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 获取不带预处理的底层模型
+- en: ❸ Does an evaluation (prediction) with the underlying model
+  id: totrans-325
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用底层模型进行评估（预测）
+- en: Chaining pre-stems
+  id: totrans-326
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预处理链式连接
+- en: 'Figure 13.10 depicts chaining together pre-stems; one pre-stem will stay with
+    the model deployment, and the other will be removed when the model is deployed.
+    Here, we create two wrapper models: an inner and outer wrapper. The inner wrapper
+    contains a preprocessing pre-stem that will stay with the model when deployed,
+    and the outer wrapper contains an image augmentation pre-stem that will be removed
+    from the model when deployed. For training, we train the outer wrapper model,
+    and for deployment, we deploy the inner wrapper model.'
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.10 描述了预预处理链式连接；一个预预处理将与模型部署一起保留，另一个将在模型部署时移除。在此，我们创建了两个包装模型：一个内部包装和一个外部包装。内部包装包含一个将在模型部署时保留的预处理预预处理，而外部包装包含一个将在模型部署时从模型中移除的图像增强预预处理。对于训练，我们训练外部包装模型，对于部署，我们部署内部包装模型。
+- en: '![](Images/CH13_F10_Ferlitsch.png)'
+  id: totrans-328
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F10_Ferlitsch.png)'
+- en: Figure 13.10 Pre-stems chained together—the inner pre-stem stays with the model
+    after deployment, and the outer pre-stem is removed.
+  id: totrans-329
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.10 预预处理链式连接——内部预预处理在部署后与模型一起保留，外部预预处理被移除。
+- en: 'In our final example, we will chain two pre-stems together. The first pre-stem
+    is used for training and then removed for inference, and the second one stays
+    with the model. In the first (inner) pre-stem, we do normalization of the integer
+    pixel data (`Rescaling`). In the second (outer) pre-stem, we do center cropping
+    (`CenterCrop`) of the input images for training. We also set the input size to
+    the second pre-stem to be any height and width: `(None, None, 3)`. As a result,
+    we can feed images of different sizes to the second pre-stem during training,
+    and it will center-crop them to `(32,` `32,` `3)`, which is then passed as the
+    input to the first pre-stem, which does the normalization.'
+  id: totrans-330
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的最终示例中，我们将两个预处理层连接在一起。第一个预处理层用于训练，然后在推理时移除，第二个层则保留在模型中。在第一个（内部）预处理层中，我们对整数像素数据进行归一化（`Rescaling`）。在第二个（外部）预处理层中，我们对输入图像进行中心裁剪（`CenterCrop`）以进行训练。我们还设置第二个预处理层的输入大小为任意高度和宽度：（`None,
+    None, 3`）。因此，我们可以在训练期间将不同大小的图像输入到第二个预处理层，它将它们裁剪为`（32, 32, 3）`，然后将其作为输入传递给第一个预处理层，该层执行归一化。
+- en: 'Finally, when trained, we remove the second (outer) pre-stem and do inference
+    without the center cropping:'
+  id: totrans-331
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，当训练完成后，我们移除第二个（外部）预处理层，并在没有中心裁剪的情况下进行推理：
+- en: '[PRE39]'
+  id: totrans-332
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: ❶ Constructs the ConvNet model
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 构建ConvNet模型
+- en: ❷ Attaches the first pre-stem for normalizing the image data during training
+    and inference
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将第一个预处理层附加到图像数据在训练和推理期间的归一化
+- en: ❸ Attaches the second pre-stem for center-cropping the image data during training
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在训练期间将第二个预处理层附加到图像数据以进行中心裁剪
+- en: ❹ Trains the model with the first and second pre-stem
+  id: totrans-336
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用第一个和第二个预处理层训练模型
+- en: ❺ Does inference with only the first pre-stem
+  id: totrans-337
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 仅使用第一个预处理层进行推理
+- en: TF.Keras subclassing layers
+  id: totrans-338
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF.Keras子类化层
+- en: Alternatively to using TF.Keras built-in preprocessing layers, we can create
+    our own custom preprocessing layers by using layer subclassing. This is useful
+    when you need a custom preprocessing step that is not prebuilt into TF.Keras preprocessing
+    layers.
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为使用TF.Keras内置预处理层的替代方案，我们可以通过层子类化创建自己的自定义预处理层。当你需要一个不是预构建在TF.Keras预处理层中的自定义预处理步骤时，这很有用。
+- en: 'All the predefined layers in TF.Keras are subclassed from the `TF.Keras.Layer`
+    class. To create your own custom layer, you need to do the following:'
+  id: totrans-340
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TF.Keras中所有预定义层都是`TF.Keras.Layer`类的子类。要创建自己的自定义层，你需要执行以下操作：
+- en: Create a class that subclasses (inherits) the `TF.Keras.Layer` class.
+  id: totrans-341
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 创建一个继承（继承自）`TF.Keras.Layer`类的类。
+- en: Override the initializer `__init__``()`, `build``()`, and `call()` methods.
+  id: totrans-342
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 覆盖`__init__()`、`build()`和`call()`方法。
+- en: 'Let’s now build our own version of the preprocessing layer `Rescaling` by using
+    subclassing. In the next example code implementation, we define the class `Rescaling`,
+    which inherits from `TF.Keras.Layer`. Next, we override the initializer `__init_``_()`.
+    In the underlying `Layer` class, the initializer takes two parameters:'
+  id: totrans-343
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们现在通过子类化来构建我们自己的预处理层`Rescaling`版本。在下一个示例代码实现中，我们定义了`Rescaling`类，它继承自`TF.Keras.Layer`。接下来，我们覆盖了初始化器`__init__()`。在底层的`Layer`类中，初始化器接受两个参数：
+- en: '`input_shape`—When used as the first layer in the model, the input shape of
+    the model input'
+  id: totrans-344
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`input_shape`—当作为模型中的第一个层使用时，模型输入的形状'
+- en: '`name`—The user-definable name for this layer instance'
+  id: totrans-345
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`name`—为这个层实例定义的用户可定义名称'
+- en: We pass these two parameters down to the underlying `Layer` initializer via
+    the `super()` call.
+  id: totrans-346
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过`super()`调用将这些两个参数传递到底层的`Layer`初始化器。
+- en: Any remaining parameters to `__init_()` are layer-specific (custom) parameters.
+    For `Rescaling`, we add the parameter `scale` and save its value in the class
+    object.
+  id: totrans-347
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何剩余的`__init__()`参数都是层特定的（自定义）参数。对于`Rescaling`，我们添加了`scale`参数并将其值保存在类对象中。
+- en: Next, we override the `build()` method. This method is called when we `compile()`
+    the model or bind one layer to another using the functional API. The underlying
+    method takes the parameter `input_shape`, which specifies the input shape to the
+    layer. The underlying parameter `self.kernel` sets the shape of the kernel for
+    the layer; the kernel shape specifies the number of parameters. If we did have
+    learnable parameters, we would set the kernel shape and how to initialize it.
+    Since `Rescaling` has no learnable parameters, we set it to `None`.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们覆盖了`build()`方法。当使用`compile()`编译模型或使用功能API将一个层绑定到另一个层时，会调用此方法。底层方法接受`input_shape`参数，该参数指定了层的输入形状。底层参数`self.kernel`设置了层的内核形状；内核形状指定了参数的数量。如果我们有可学习的参数，我们将设置内核形状及其初始化方式。由于`Rescaling`没有可学习的参数，我们将其设置为`None`。
+- en: Finally, we override the `call()` method. This method is invoked when the graph
+    is executing for training or inference. The underlying method takes as a parameter
+    `inputs`, which is the input tensor to the layer, and the method returns the output
+    tensor. In our case, we will multiply each pixel value in the input tensor by
+    the `scale` factor set when the layer was initialized, and output the rescaled
+    tensor.
+  id: totrans-349
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们覆盖了 `call()` 方法。当图在训练或推理时执行时，将调用此方法。底层方法将 `inputs` 作为参数，这是层的输入张量，并返回输出张量。在我们的情况下，我们将输入张量中的每个像素值乘以在层初始化时设置的
+    `scale` 因子，并输出缩放后的张量。
+- en: We add the decorator `@tf.function` to tell TensorFlow AutoGraph ([www.tensorflow.org/api_docs/python/tf/autograph](https://www.tensorflow.org/api_docs/python/tf/autograph))
+    to convert the Python code in this method to graph operations in the model. AutoGraph,
+    a tool introduced with TensorFlow 2.0, is a precompiler that can convert a variety
+    of Python operations into static graph operations. This allows Python code that
+    can be converted into static graph operations to be moved from executing upstream
+    on the CPU to execution in the graph. While many Python constructs are supported
+    for conversion, the conversion is limited to graph operations on non-eager tensors.
+  id: totrans-350
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们添加装饰器 `@tf.function` 来告诉 TensorFlow AutoGraph ([www.tensorflow.org/api_docs/python/tf/autograph](https://www.tensorflow.org/api_docs/python/tf/autograph))
+    将此方法中的 Python 代码转换为模型中的图操作。AutoGraph 是 TensorFlow 2.0 中引入的一个工具，它是一个预编译器，可以将各种
+    Python 操作转换为静态图操作。这允许可以将转换为静态图操作的 Python 代码从在 CPU 上执行转移到图中的执行。虽然支持许多 Python 构造进行转换，但转换仅限于非
+    eager 张量的图操作。
+- en: '[PRE40]'
+  id: totrans-351
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: ❶ Defines a custom layer using Layer subclassing
+  id: totrans-352
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用层子类化定义自定义层
+- en: ❷ Overrides the initializer and adds input parameter scale
+  id: totrans-353
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 覆盖初始化器并添加输入参数 scale
+- en: ❸ Saves the scaling factor in the layer object instance
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在层对象实例中保存缩放因子
+- en: ❹ Overrides the build() method
+  id: totrans-355
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 覆盖 build() 方法
+- en: ❺ There are no learnable (trainable) parameters.
+  id: totrans-356
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 没有可学习的（可训练）参数。
+- en: ❻ Tells AutoGraph to convert method into graph operations that are put into
+    the model
+  id: totrans-357
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 告诉 AutoGraph 将方法转换为放入模型中的图操作
+- en: ❼ Overrides the call() method
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 覆盖 call() 方法
+- en: ❽ Scales each pixel (element) in the input tensor
+  id: totrans-359
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 对输入张量中的每个像素（元素）进行缩放
+- en: For detailed information on `Layer` and `Model` subclassing, see the variety
+    of tutorials and notebook examples on subclassing from the TensorFlow team, such
+    as “Making New Layers and Models via Subclassing” ([http://mng.bz/my54](https://shortener.manning.com/my54)).
+  id: totrans-360
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于 `Layer` 和 `Model` 子类化的详细信息，请参阅 TensorFlow 团队提供的各种教程和笔记本示例，例如“通过子类化创建新的层和模型”
+    ([http://mng.bz/my54](https://shortener.manning.com/my54))。
+- en: 13.3.2 Preprocessing with TF Extended
+  id: totrans-361
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.3.2 使用 TF Extended 进行预处理
+- en: So far, we’ve discussed constructing data pipelines from low-level components.
+    Here we see how to construct data pipelines using higher-level components, which
+    encapsulate more of the steps, using TensorFlow Extended.
+  id: totrans-362
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经讨论了从底层组件构建数据管道。在这里，我们看到如何使用更高层次的组件，这些组件封装了更多的步骤，使用 TensorFlow Extended
+    来构建数据管道。
+- en: '*TensorFlow Extended* (*TFX*) is an e2e production pipeline. This section covers
+    the data pipeline portion of TFX, as depicted in figure 13.11.'
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*TensorFlow Extended* (*TFX*) 是一个端到端的生产管道。本节涵盖了 TFX 的数据管道部分，如图 13.11 所示。'
+- en: '![](Images/CH13_F11_Ferlitsch.png)'
+  id: totrans-364
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F11_Ferlitsch.png)'
+- en: Figure 13.11 TFX data pipeline
+  id: totrans-365
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 13.11 TFX 数据管道
+- en: At a high level, the `ExampleGen` component ingests data from a dataset source.
+    The `StatisticsGen` component analyzes the examples from the dataset and produces
+    statistics on the dataset distribution. The `SchemaGen` component, typically used
+    for structured data, derives a data schema from the dataset statistics. For example,
+    it may infer feature types, such as categorical or numeric, data types, ranges,
+    and set data policies such as how to handle missing data. The `ExampleValidator`
+    component monitors the training and serving data for anomalies, based on the data
+    schema. These four components collectively compose the TFX Data Validation library.
+  id: totrans-366
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在高层次上，`ExampleGen` 组件从数据集源中摄取数据。`StatisticsGen` 组件分析数据集中的示例，并生成数据集分布的统计数据。`SchemaGen`
+    组件通常用于结构化数据，从数据集统计数据中推导出数据模式。例如，它可能推断特征类型，如分类或数值，数据类型，范围，并设置数据策略，例如如何处理缺失数据。`ExampleValidator`
+    组件根据数据模式监控训练和提供数据中的异常。这四个组件共同构成了 TFX 数据验证库。
+- en: The `Transform` component does data transformations, such as feature engineering,
+    data preprocessing, and data augmentation. This component composes the TFX Transform
+    library.
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Transform` 组件执行数据转换，例如特征工程、数据预处理和数据增强。该组件由 TFX Transform 库组成。'
+- en: 'The TFX package is not part of the TensorFlow 2.*x* release, so you will need
+    to install it separately, as follows:'
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TFX 包不是 TensorFlow 2.*x* 版本的组成部分，因此您需要单独安装它，如下所示：
+- en: '[PRE41]'
+  id: totrans-369
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: The remainder of this subsection covers each of these components at a high level
+    only. For detailed references and tutorials, see the TensorFlow documentation
+    for TFX ([www.tensorflow.org/tfx](https://www.tensorflow.org/tfx)).
+  id: totrans-370
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本小节的其余部分仅从高层次概述这些组件。有关详细参考和教程，请参阅 TensorFlow 文档中的 TFX ([www.tensorflow.org/tfx](https://www.tensorflow.org/tfx))。
+- en: 'Next, let’s create a code snippet for importing modules and classes we will
+    use in all the subsequent code examples:'
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们创建一个代码片段，用于导入我们将在所有后续代码示例中使用的模块和类：
+- en: '[PRE42]'
+  id: totrans-372
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: ❶ Imports util for reading datasets from external sources
+  id: totrans-373
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入 util 以从外部源读取数据集
+- en: ❷ Imports ExampleGen component instance for TFRecords
+  id: totrans-374
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 导入 ExampleGen 组件实例用于 TFRecords
+- en: ❸ Imports remaining TFX data pipeline components
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 导入剩余的 TFX 数据管道组件
+- en: ❹ Imports TFX pipeline orchestration
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 导入 TFX 管道编排
+- en: We will use the TFX pipeline orchestration module in the subsequent code examples
+    for an interactive demonstration. These code sequences set up a pipeline, but
+    nothing happens until orchestration, when the pipeline is executed.
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在后续的代码示例中，我们将使用 TFX 管道编排模块进行交互式演示。这些代码序列设置了一个管道，但在编排执行管道之前，没有任何操作。
+- en: '[PRE43]'
+  id: totrans-378
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: ❶ Instantiates the interactive pipeline orchestration
+  id: totrans-379
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 实例化交互式管道编排
+- en: ExampleGen
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ExampleGen
+- en: The `ExampleGen` component is the entry point into the TFX data pipeline. Its
+    purpose is to draw batches of examples from a dataset. It supports a wide variety
+    of dataset formats, including CSV files, TFRecords, and Google BigQuery. The output
+    from `ExampleGen` are `tf.Example` records.
+  id: totrans-381
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ExampleGen` 组件是 TFX 数据管道的入口点。其目的是从一个数据集中抽取示例批次。它支持多种数据集格式，包括 CSV 文件、TFRecords
+    和 Google BigQuery。`ExampleGen` 的输出是 `tf.Example` 记录。'
+- en: The next code example instantiates the `ExampleGen` component for a dataset
+    on disk in TFRecord format (for example, images). It consists of two steps.
+  id: totrans-382
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个代码示例实例化了用于磁盘上 TFRecord 格式数据集（例如，图像）的 `ExampleGen` 组件。它包括两个步骤。
+- en: Let’s start with the second step. We instantiate the `ExampleGen` component
+    as subclass `ImportExampleGen`, where the initializer takes as a parameter the
+    input source for the examples `(input=examples)`.
+  id: totrans-383
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从第二个步骤开始。我们将 `ExampleGen` 组件实例化为子类 `ImportExampleGen`，其中初始化器将示例输入源（input=examples）作为参数。
+- en: 'Now let’s back up a step and define a connector to the input source. Since
+    the input source is TFRecords, we use the TFX utilities method `external_input()`
+    to map a connector between the TFRecords on disk and our instance of `ImportExampleGen`:'
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们退一步，定义一个连接到输入源的连接器。由于输入源是 TFRecords，我们使用 TFX 工具方法 `external_input()` 将连接器映射到磁盘上的
+    TFRecords 和我们的 `ImportExampleGen` 实例之间：
+- en: '[PRE44]'
+  id: totrans-385
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: ❶ Instantiates an ExampleGen where TFRecords are the input source
+  id: totrans-386
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 实例化一个以 TFRecords 为输入源的 ExampleGen
+- en: ❷ Executes the pipeline
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 执行管道
+- en: StatisticsGen
+  id: totrans-388
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 统计生成器
+- en: 'The `StatisticsGen` component generates dataset statistics from an input source
+    of examples. These examples can be either training/evaluation data or serving
+    data (the latter is not covered here). In the next code example, we generate dataset
+    statistics for the training/evaluation data. We instantiate an instance of `StatisticsGen()`,
+    and pass to the initializer the source of the examples. Here, the source for the
+    examples is the output from our `example_gen` instance in the previous code example.
+    The output is specified via the `ExampleGen` property `outputs`, which is a dictionary,
+    for the key/value pair `examples`:'
+  id: totrans-389
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StatisticsGen` 组件从示例输入源生成数据集统计信息。这些示例可以是训练/评估数据或服务数据（后者在此未涉及）。在下一个代码示例中，我们为训练/评估数据生成数据集统计信息。我们实例化一个
+    `StatisticsGen()` 实例，并将示例源传递给初始化器。在这里，示例的源是前一个代码示例中我们的 `example_gen` 实例的输出。输出通过
+    `ExampleGen` 属性 `outputs` 指定，它是一个字典，键/值对为 `examples`：'
+- en: '[PRE45]'
+  id: totrans-390
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: ❶ Instantiates a StatisticsGen with the input from the output of ExampleGen
+  id: totrans-391
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 ExampleGen 输出创建一个 StatisticsGen 实例
+- en: ❷ Executes the pipeline
+  id: totrans-392
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 执行管道
+- en: ❸ Displays interactive output of the statistics
+  id: totrans-393
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 显示统计信息的交互式输出
+- en: 'The output from the last line of code will look something like the following.
+    The `uri` property is a local directory that stores the statistics. The `split_names`
+    property indicates two sets of statistics, one for training and one for evaluation:'
+  id: totrans-394
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一条代码输出的结果将类似于以下内容。`uri` 属性是一个本地目录，用于存储统计信息。`split_names` 属性表示两组统计信息，一组用于训练，另一组用于评估：
+- en: '[PRE46]'
+  id: totrans-395
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: '| `.type` | `<class ''tfx.types.standard_artifacts.ExampleStatistics''>` |'
+  id: totrans-396
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.type` | `<class ''tfx.types.standard_artifacts.ExampleStatistics''>` |'
+- en: '| `.uri` | `/tmp/tfx-interactive-2020-05-28T19_02_20.322858-8g1v59q7/ StatisticsGen/statistics/2`
+    |'
+  id: totrans-397
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.uri` | `/tmp/tfx-interactive-2020-05-28T19_02_20.322858-8g1v59q7/StatisticsGen/statistics/2`
+    |'
+- en: '| `.span` | `0` |'
+  id: totrans-398
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.span` | `0` |'
+- en: '| `.split_names` | `["train", "eval"]` |'
+  id: totrans-399
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.split_names` | `["train", "eval"]` |'
+- en: SchemaGen
+  id: totrans-400
+  prefs: []
+  type: TYPE_NORMAL
+  zh: SchemaGen
+- en: 'The `SchemaGen` component generates a schema from the dataset statistics. In
+    the next code example, we generate a schema from the dataset statistics for the
+    training/ evaluation data. We instantiate an instance of `SchemaGen()`, and pass
+    to the initializer the source of the dataset statistics. In our example, the source
+    for the statistics is the output from our `statistics_gen` instance in the previous
+    code example. The output is specified via the `StatisticsGen` property `outputs`,
+    which is a dictionary, for the key/value pair `statistics`:'
+  id: totrans-401
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SchemaGen` 组件从数据集统计信息中生成模式。在下一个代码示例中，我们为训练/评估数据生成数据集统计信息中的模式。我们实例化了一个 `SchemaGen()`
+    对象，并将数据集统计信息的来源传递给初始化器。在我们的例子中，统计信息的来源是前一个代码示例中 `statistics_gen` 实例的输出。输出通过 `StatisticsGen`
+    属性 `outputs` 指定，该属性是一个字典，键/值对为 `statistics`：'
+- en: '[PRE47]'
+  id: totrans-402
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: ❶ Instantiates a SchemaGen with the input from the output of ExampleGen
+  id: totrans-403
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用 ExampleGen 的输出实例化一个 SchemaGen
+- en: ❷ Displays interactive output of the schema
+  id: totrans-404
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 显示模式的交互式输出
+- en: The output from the last line of code will look something like the following.
+    The `uri` property is a local directory that stores the schema. The filename for
+    the schema will be schema.pbtxt.
+  id: totrans-405
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一条代码输出的结果将类似于以下内容。`uri` 属性是一个本地目录，用于存储模式。模式的文件名将是 schema.pbtxt。
+- en: '[PRE48]'
+  id: totrans-406
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: '| `.type` | `<class ''tfx.types.standard_artifacts.Schema''>` |'
+  id: totrans-407
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.type` | `<class ''tfx.types.standard_artifacts.Schema''>` |'
+- en: '| `.uri` | `/tmp/tfx-interactive-2020-05-28T19_02_20.322858-8g1v59q7/SchemaGen/schema/4`
+    |'
+  id: totrans-408
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.uri` | `/tmp/tfx-interactive-2020-05-28T19_02_20.322858-8g1v59q7/SchemaGen/schema/4`
+    |'
+- en: 'For our example, the contents of schema.pbtxt will look like this:'
+  id: totrans-409
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的例子，schema.pbtxt 的内容将类似于以下内容：
+- en: '[PRE49]'
+  id: totrans-410
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: Example validator
+  id: totrans-411
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 示例验证器
+- en: The `ExampleValidator` component identifies anomalies in a dataset using both
+    the dataset statistics and schema as inputs. In the next code example, we identify
+    anomalies from the dataset statistics and schema for the training/evaluation data.
+    We instantiate an instance of `ExampleValidator()`, and pass to the initializer
+    the source of the dataset statistics and the schema. In our example, the sources
+    for the statistics and schema are the output from our `statistics_gen` instance
+    and `schema_gen` instances, respectively, in the previous code examples.
+  id: totrans-412
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ExampleValidator` 组件通过使用数据集统计信息和模式作为输入来识别数据集中的异常。在下一个代码示例中，我们识别了训练/评估数据的数据集统计信息和模式中的异常。我们实例化了一个
+    `ExampleValidator()` 对象，并将数据集统计信息的来源和模式传递给初始化器。在我们的例子中，统计信息和模式的来源分别是前一个代码示例中 `statistics_gen`
+    实例和 `schema_gen` 实例的输出。'
+- en: '[PRE50]'
+  id: totrans-413
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: ❶ Instantiates an ExampleValidator
+  id: totrans-414
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 实例化一个 ExampleValidator
+- en: ❷ Displays interactive output of the anomalies
+  id: totrans-415
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 显示异常的交互式输出
+- en: The output from the last line of code will look something like the following.
+    The `uri` property is a local directory that stores information on anomalies,
+    if any would be stored.
+  id: totrans-416
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一条代码输出的结果将类似于以下内容。`uri` 属性是一个本地目录，用于存储异常信息（如果有存储的话）。
+- en: '[PRE51]'
+  id: totrans-417
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: '| `.type` | `<class ''tfx.types.standard_artifacts.ExampleAnomalies''>` |'
+  id: totrans-418
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.type` | `<class ''tfx.types.standard_artifacts.ExampleAnomalies''>` |'
+- en: '| `.uri` |  |'
+  id: totrans-419
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.uri` |  |'
+- en: '| `.span` | `0` |'
+  id: totrans-420
+  prefs: []
+  type: TYPE_TB
+  zh: '| `.span` | `0` |'
+- en: Transform
+  id: totrans-421
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换
+- en: The `Transform` components perform the dataset transformations as examples are
+    drawn into batches during training or inference. Dataset transformations are typically
+    feature engineering for structured data, and data preprocessing.
+  id: totrans-422
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Transform` 组件在训练或推理过程中将数据集转换作为示例被绘制到批次中执行。数据集转换通常是结构化数据的特征工程和数据预处理。'
+- en: 'In the following code example, we transform batches of examples from the dataset.
+    We instantiate an instance of `Transform()`. The initializer takes three parameters:
+    the input source for the `examples` to transform, the data `schema`, and a custom
+    Python script to do the transformation (for example, `my_preprocessing_fn.py`).
+    We won’t cover how to write custom Python scripts for transformation; for more
+    details, review the TensorFlow tutorial on TFX components ([http://mng.bz/5Wqa](http://mng.bz/5Wqa)).'
+  id: totrans-423
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下面的代码示例中，我们将数据集的示例批次进行转换。我们实例化了一个`Transform()`实例。初始化器接受三个参数：要转换的`examples`的输入源、数据`schema`以及一个自定义Python脚本来执行转换（例如，`my_preprocessing_fn.py`）。我们不会介绍如何编写用于转换的自定义Python脚本；更多详情，请参阅TensorFlow教程中的TFX组件部分([http://mng.bz/5Wqa](http://mng.bz/5Wqa))。
+- en: '[PRE52]'
+  id: totrans-424
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: The next section covers how to incorporate image augmentation into an existing
+    data pipeline, such as one constructed using `tf.data` and/or using pre-stems.
+  id: totrans-425
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一节将介绍如何将图像增强集成到现有的数据管道中，例如使用`tf.data`和/或使用预茎构建的数据管道。
+- en: 13.4 Data augmentation
+  id: totrans-426
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 13.4 数据增强
+- en: '*Image* *(data) augmentation* has had a variety of purposes over the years.
+    At first, it was seen as a means of extending (adding) to an existing dataset
+    more images to train on by doing some random transformations on the existing images.
+    Subsequently, researchers learned that certain types of augmentation can extend
+    a model’s detection capabilities, such as for invariance and occlusion.'
+  id: totrans-427
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*图像* *(数据)增强* 在过去几年中有着各种各样的目的。最初，它被视为通过在现有图像上执行一些随机变换，将更多图像添加到现有数据集以进行训练的手段。随后，研究人员了解到某些类型的增强可以扩展模型的检测能力，例如对于不变性和遮挡。'
+- en: This section shows how to add image augmentation into your existing data pipeline.
+    We will start with the basic concepts behind image augmentation and how it helps
+    the model generalize to examples it was not trained on. Then we’ll turn to methods
+    to integrate into a `tf.data` pipeline. Finally, we’ll see how to integrate it
+    using preprocessing layers in a pre-stem that is attached to your model during
+    training, and then detached for inference.
+  id: totrans-428
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节展示了如何将图像增强添加到现有的数据管道中。我们将从图像增强背后的基本概念及其如何帮助模型泛化到未训练的示例开始。然后，我们将转向将方法集成到`tf.data`管道中的方法。最后，我们将看到如何通过在训练期间附加到模型的预茎中并随后断开连接的预处理层来集成它。
+- en: This section focuses on the common augmentation techniques and implementation
+    for extending your model’s detection capabilities for invariance. Next, we will
+    describe what invariance is and why it is important.
+  id: totrans-429
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本节重点介绍常见的增强技术和实现，以扩展模型的不变性检测能力。接下来，我们将描述不变性是什么以及为什么它很重要。
+- en: 13.4.1 Invariance
+  id: totrans-430
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.4.1 不变性
+- en: Today, we don’t view the purpose of image augmentation as simply to add more
+    examples to the training set. Instead, it’s a means to train the model to be translational,
+    scale, and viewport invariant by having a specific purpose to generate additional
+    images from existing images.
+  id: totrans-431
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 今天，我们不再将图像增强的目的视为仅仅是为了向训练集中添加更多示例。相反，它是一种通过具有特定目的来生成现有图像的额外图像，以训练模型实现平移、缩放和视口不变性的手段。
+- en: OK, so what does all that mean? It means we want to recognize objects in an
+    image (or in a video frame) regardless of the location in the image (translational),
+    the size of the object (scale), and viewing perspective (viewport). Image augmentation
+    enables us to train our models to be invariant without needing additional real-world
+    human-labeled data.
+  id: totrans-432
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好吧，这一切意味着什么呢？这意味着我们希望无论图像中的位置（平移）、对象的大小（缩放）和观看角度（视口），都能识别图像中的对象（或视频帧中的对象）。图像增强使我们能够训练模型实现不变性，而无需额外的真实世界人工标注数据。
+- en: 'Image augmentation works by randomly transforming the images in the training
+    data for different translations, scales, and viewports. In research papers, it
+    is a common practice to perform the following four image augmentation types:'
+  id: totrans-433
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图像增强通过随机变换训练数据中的图像来实现，以实现不同的平移、缩放和视口。在研究论文中，执行以下四种图像增强类型是一种常见的做法：
+- en: Random center crop
+  id: totrans-434
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随机中心裁剪
+- en: Random flip
+  id: totrans-435
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随机翻转
+- en: Random rotation
+  id: totrans-436
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随机旋转
+- en: Random shift
+  id: totrans-437
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随机平移
+- en: Let’s look at these four types in detail.
+  id: totrans-438
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们详细看看这四种类型。
+- en: Random center crop
+  id: totrans-439
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机中心裁剪
+- en: In a *crop*, we take a portion of the image. Typically, a crop is rectangular.
+    A center crop is square and is centered in the original image (figure 13.12).
+    The size of the crop randomly varies, so in some instances it’s a small portion
+    of the image, and in others, a large portion. The cropped image is then resized
+    to the input size for the model.
+  id: totrans-440
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个 *裁剪* 中，我们取图像的一部分。通常，裁剪是矩形的。中心裁剪是正方形，并且位于原始图像的中心（图13.12）。裁剪的大小随机变化，因此在某些情况下，它只是图像的一小部分，而在其他情况下，则是一大部分。然后，裁剪的图像被调整大小以适应模型的输入大小。
+- en: 'This transformation contributes to training the model for scale invariance,
+    in that we are randomly enlarging the size of the object(s) in the image. You
+    may be wondering whether these random crops may cut out all or too much of the
+    objects of interest, resulting in an image that’s not useful. Generally, this
+    is not the case for the following reasons:'
+  id: totrans-441
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种变换有助于训练模型以实现尺度不变性，因为我们正在随机放大图像中物体的大小。你可能想知道这些随机裁剪是否可能会裁剪掉所有或过多的感兴趣物体，导致图像无用。通常，这不会发生，以下是一些原因：
+- en: Foreground objects (objects of interest) tend to appear at or near the center
+    of pictures.
+  id: totrans-442
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 前景物体（感兴趣的对象）往往出现在图片的中心或附近。
+- en: We set a minimum size for the crop, preventing a crop being so small it contains
+    no usable data.
+  id: totrans-443
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们为裁剪设置一个最小尺寸，防止裁剪太小以至于不包含可用的数据。
+- en: Having the edges of an object cut out contributes to training the model for
+    occlusion, in which other objects obscure a portion of the object of interest.
+  id: totrans-444
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 物体的边缘被裁剪出来有助于训练模型进行遮挡，其中其他物体遮挡了感兴趣物体的一部分。
+- en: '![](Images/CH13_F12_Ferlitsch.png)'
+  id: totrans-445
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F12_Ferlitsch.png)'
+- en: Figure 13.12 Random center crop
+  id: totrans-446
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.12 随机中心裁剪
+- en: Random flip
+  id: totrans-447
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机翻转
+- en: In a *flip*, we flip the image on the horizontal or vertical axis. If we flip
+    on the vertical axis, we have a mirrored image. If we flip on the horizontal axis,
+    we have an upside-down image. This transformation contributes to training the
+    model for viewport invariance.
+  id: totrans-448
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个 *翻转* 中，我们在水平或垂直轴上翻转图像。如果我们沿垂直轴翻转，我们得到一个镜像图像。如果我们沿水平轴翻转，我们得到一个颠倒的图像。这种变换有助于训练模型以实现视口不变性。
+- en: You may think that in some cases, a mirror or upside-down image makes no sense
+    in a real-world application. For example, you might say a mirror image of a stop
+    sign makes no sense, or an upside-down truck. Maybe it does. Perhaps the stop
+    sign is being viewed in a rear-view mirror? Perhaps your car has flipped over,
+    and the truck is really upside down from your viewport.
+  id: totrans-449
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想，在某些情况下，镜像或颠倒的图像在现实世界的应用中可能没有意义。例如，你可能会说停车标志的镜像没有意义，或者一辆颠倒的卡车。也许它确实有意义。也许停车标志是通过后视镜看到的？也许你的车翻了，卡车从你的视角看确实是颠倒的。
+- en: Another thing that random flips contribute to is learning essential features
+    of the objects, separated from the background—regardless of the actual viewport
+    when the model is deployed for real-world predictions.
+  id: totrans-450
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机翻转还有助于学习物体的基本特征，这些特征与背景分离——无论模型在现实世界预测中部署时的实际视口如何。
+- en: Random rotation
+  id: totrans-451
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机旋转
+- en: In a *rotation,* we rotate the image along the center point. We could rotate
+    up to 360 degrees, but since the common practice for random transformations is
+    to chain them, a range of +/– 30 degrees is sufficient when combined with random
+    flips. This transformation contributes to training the model for viewport invariance.
+  id: totrans-452
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个 *旋转* 中，我们沿着中心点旋转图像。我们可以旋转最多360度，但由于随机变换的常见做法是将它们串联起来，因此与随机翻转结合时，+/- 30度的范围就足够了。这种变换有助于训练模型以实现视口不变性。
+- en: Figure 13.13 is an example of two chained random transformations. The first
+    is a random rotation, followed by a random center crop.
+  id: totrans-453
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.13是两个串联的随机变换的例子。第一个是随机旋转，然后是随机中心裁剪。
+- en: '![](Images/CH13_F13_Ferlitsch.png)'
+  id: totrans-454
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH13_F13_Ferlitsch.png)'
+- en: Figure 13.13 Chain of random transformations
+  id: totrans-455
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图13.13 随机变换链
+- en: Random shift
+  id: totrans-456
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机平移
+- en: In a *random shift*, we shift the image vertically or horizontally. If we shift
+    horizontally, we are dropping pixels from either the left or right side and replacing
+    them with the same number of black pixels (no signal) on the opposite side. If
+    we shift vertically, we are dropping pixels from either the top or bottom and
+    replacing them with the same number of black pixels (no signal) on the opposite
+    side. A general rule of thumb is to limit the shift to no more than +/–20% of
+    the image width/height to prevent cutting out too much of the object of interest.
+    This transformation contributes to training the model for translational invariance.
+  id: totrans-457
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个*随机平移*中，我们垂直或水平地移动图像。如果我们水平移动，我们就会从左侧或右侧丢弃像素，并用相同数量的黑色像素（无信号）在对面替换它们。如果我们垂直移动，我们就会从顶部或底部丢弃像素，并用相同数量的黑色像素（无信号）在对面替换它们。一个一般规则是，将平移限制在图像宽度/高度的+/-20%以内，以防止裁剪掉太多感兴趣的对象。这种变换有助于训练模型以实现平移不变性。
+- en: A vast number of other transformation techniques exist for invariance beyond
+    the four covered here.
+  id: totrans-458
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这里提到的四种之外，还有大量的其他变换技术可以用于实现不变性。
+- en: 13.4.2 Augmentation with tf.data
+  id: totrans-459
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.4.2 使用tf.data进行增强
+- en: Image transformations can be added to a `tf.data.Dataset` pipeline by using
+    the `map()` method. In this case, we code the transformation as a Python function,
+    which takes the image as input and outputs the transformed image. We then specify
+    the function as the parameter to the `map()` method, which will apply the function
+    to each element in a batch.
+  id: totrans-460
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以通过使用`map()`方法将图像变换添加到`tf.data.Dataset`管道中。在这种情况下，我们将变换编码为一个Python函数，该函数以图像为输入并输出变换后的图像。然后我们将该函数指定为`map()`方法的参数，该参数将应用于批处理中的每个元素。
+- en: 'In the next example, we define a function `flip``()` that will perform a random
+    flip translation on each image in a dataset, each time the image is drawn into
+    a batch. In the example, we create the `tf.data.Dataset` from a NumPy tuple of
+    the image training data and corresponding labels, as `(x_train, y_train)`. We
+    then apply the `flip()` function to the dataset, as `dataset.map(flip)`. Since
+    each image in the batch will be a tuple of the image and label, we need two parameters
+    for the transformation function: `(image``, label``)`. Likewise, we need to return
+    the corresponding tuple, but with the input image replaced with the transformed
+    image: `(transform, label)`:'
+  id: totrans-461
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在下一个示例中，我们定义了一个`flip()`函数，该函数将对数据集中的每个图像执行随机翻转平移，每次图像被绘制到批处理中时。在示例中，我们从一个NumPy图像训练数据元组及其相应的标签`(x_train,
+    y_train)`创建`tf.data.Dataset`。然后我们将`flip()`函数应用于数据集，即`dataset.map(flip)`。由于批处理中的每个图像都是一个图像和标签的元组，因此变换函数需要两个参数：`(image,
+    label)`。同样，我们需要返回相应的元组，但用变换后的输入图像替换：`(transform, label)`：
+- en: '[PRE53]'
+  id: totrans-462
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: ❶ Function that performs an image transformation, which takes as input the image
+    and corresponding label
+  id: totrans-463
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 执行图像变换的函数，输入图像和相应的标签
+- en: ❷ Randomly flips the input image
+  id: totrans-464
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 随机翻转输入图像
+- en: ❸ Returns the transformed image and corresponding label
+  id: totrans-465
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 返回变换后的图像和相应的标签
+- en: ❹ Applies the flip transformation function to each image/label pair
+  id: totrans-466
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 将翻转变换函数应用于每个图像/标签对
+- en: 'Next, we’ll chain multiple transformations for a `tf.data.Dataset`. In the
+    following code example, we add a second transformation function to do a random
+    crop. Note that the `tf.image.random_crop()` method is not a center crop. Unlike
+    a center crop, which has a random size and is always centered, this TensorFlow
+    method sets a fixed size, specified by `shape`, but the crop location in the image
+    is random. We then chain our two transformations to first do a random flip, followed
+    by a random crop: `dataset .map(flip).map(crop)`.'
+  id: totrans-467
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将对`tf.data.Dataset`进行多个变换。在下面的代码示例中，我们添加第二个变换函数以进行随机裁剪。请注意，`tf.image.random_crop()`方法不是一个中心裁剪。与总是居中的随机大小不同，这个TensorFlow方法设置一个固定的大小，由`shape`指定，但图像中的裁剪位置是随机的。然后我们将两个变换链在一起，首先进行随机翻转，然后进行随机裁剪：`dataset.map(flip).map(crop)`。
+- en: '[PRE54]'
+  id: totrans-468
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: ❶ Function that performs an image transformation and takes as input the image
+    and corresponding label
+  id: totrans-469
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 执行图像变换的函数，输入图像和相应的标签
+- en: ❷ Selects a crop size based on 80% of the original image size
+  id: totrans-470
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 根据原始图像大小的80%选择裁剪大小
+- en: ❸ Randomly crops the input image
+  id: totrans-471
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 随机裁剪输入图像
+- en: ❹ Applies a chain of transformations
+  id: totrans-472
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 应用一系列变换
+- en: 13.4.3 Pre-stem
+  id: totrans-473
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 13.4.3 预处理
+- en: The `TF.Keras.layers.experimental.preprocessing` module provides several preprocessing
+    layers that provide the means to perform image augmentation as a pre-stem component
+    in the model. Thus, these operations would occur on the GPU (or equivalent) instead
+    of upstream on the CPU. Since the pre-stem is plug-and-play, after training is
+    completed, this pre-stem component can be detached prior to deploying the model
+    into production.
+  id: totrans-474
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TF.Keras.layers.experimental.preprocessing`模块提供了几个预处理层，这些层提供了在模型中作为预前缀组件执行图像增强的手段。因此，这些操作将在GPU（或等效）上发生，而不是在CPU上游发生。由于预前缀是即插即用的，在训练完成后，可以在将模型部署到生产之前断开这个预前缀组件。'
+- en: 'In TensorFlow 2.2, the preprocessing layers that support translational, scale,
+    and viewport invariance are as follows:'
+  id: totrans-475
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在TensorFlow 2.2中，支持平移、缩放和视口不变性的预处理层如下：
+- en: '`CenterCrop`'
+  id: totrans-476
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`CenterCrop`'
+- en: '`RandomCrop`'
+  id: totrans-477
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RandomCrop`'
+- en: '`RandomRotation`'
+  id: totrans-478
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RandomRotation`'
+- en: '`RandomTranslation`'
+  id: totrans-479
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`随机翻译`'
+- en: '`RandomFlip`'
+  id: totrans-480
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RandomFlip`'
+- en: 'In the following example, we combine two preprocessing layers for invariance
+    as a plug-and-play pre-stem: `RandomFlip()` and `RandomTranslation()`. We create
+    an empty `wrapper` model, add the plug-and-play pre-stem, and then add the `model`.
+    For deployment, we detach the plug-and-play pre-stem, as demonstrated earlier
+    in the chapter.'
+  id: totrans-481
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在以下示例中，我们将两个预处理层`RandomFlip()`和`RandomTranslation()`作为即插即用的预前缀进行组合，以实现不变性：我们创建一个空的`wrapper`模型，添加即插即用的预前缀，然后添加`model`。对于部署，我们像本章前面所演示的那样，断开即插即用的预前缀。
+- en: '[PRE55]'
+  id: totrans-482
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE55]'
+- en: ❶ Creates wrapper model
+  id: totrans-483
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建包装模型
+- en: ❷ Adds invariance pre-stem
+  id: totrans-484
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 添加不变性预前缀
+- en: ❸ Adds the underlying model
+  id: totrans-485
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 添加基础模型
+- en: Summary
+  id: totrans-486
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: The basic components of a data pipeline are data storage, data retrieval, data
+    preprocessing, and data feeding.
+  id: totrans-487
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据管道的基本组件包括数据存储、数据检索、数据预处理和数据馈送。
+- en: For best I/O performance, use in-memory data feeding during training if the
+    entire dataset can fit into memory; otherwise, use on-disk data feeding.
+  id: totrans-488
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了获得最佳的I/O性能，如果整个数据集可以适合内存，则在训练期间使用内存中的数据馈送；否则，使用磁盘上的数据馈送。
+- en: There are additional space and time performance tradeoffs depending on whether
+    the data is stored compressed or uncompressed on disk. You may be able to balance
+    the tradeoffs using a hybrid approach based on subpopulation sampling distributions.
+  id: totrans-489
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 根据数据是否在磁盘上以压缩或未压缩的形式存储，存在额外的空间和时间性能权衡。你可能可以通过基于子群体采样分布的混合方法来平衡这些权衡。
+- en: If you work with satellite data, you will need to know the HDF5 format. If you
+    work with medical imaging data, you will need to know DICOM.
+  id: totrans-490
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你处理卫星数据，你需要了解HDF5格式。如果你处理医学影像数据，你需要了解DICOM。
+- en: A primary purpose of image augmentation is to train a model for translational,
+    scale, and viewport invariance so it can generalize better to examples not seen
+    during training.
+  id: totrans-491
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 图像增强的主要目的是训练一个模型，使其对平移、缩放和视口不变性有更好的泛化能力，以便更好地泛化到训练期间未见过的示例。
+- en: A data pipeline can be constructed upstream from the model by using `tf.data`
+    or TFX.
+  id: totrans-492
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以通过使用`tf.data`或TFX在模型上游构建数据管道。
+- en: A data pipeline can be constructed downstream in the model by using TF.Keras
+    preprocessing layers of subclassing.
+  id: totrans-493
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以通过使用子类化的TF.Keras预处理层在模型下游构建数据管道。
+- en: A pre-stem can be designed as a preprocessing plug-and-play component and stay
+    attached during training and serving.
+  id: totrans-494
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预前缀可以被设计为预处理即插即用组件，并在训练和提供期间保持附加。
+- en: A pre-stem can be designed as an augmentation plug-and-play and attached during
+    training and detached during inference.
+  id: totrans-495
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 预前缀可以被设计为增强即插即用插件，并在训练期间附加，在推理期间断开。

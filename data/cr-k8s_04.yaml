@@ -1,0 +1,1933 @@
+- en: 4 Using cgroups for processes in our Pods
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 4 在我们的 Pod 中使用 cgroups 处理进程
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Exploring the basics of cgroups
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索 cgroups 的基础知识
+- en: Identifying Kubernetes processes
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 识别 Kubernetes 进程
+- en: Learning how to create and manage cgroups
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 学习如何创建和管理 cgroups
+- en: Using Linux commands to investigate cgroup hierarchies
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 Linux 命令调查 cgroup 层次结构
+- en: Understanding cgroup v2 versus cgroup v1
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解 cgroup v2 与 cgroup v1 的区别
+- en: Installing Prometheus and looking at Pod resource usage
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 安装 Prometheus 并查看 Pod 资源使用情况
+- en: The last chapter was pretty granular, and you might have found it a little bit
+    theoretical. After all, nobody really needs to build their own Pods from scratch
+    nowadays (unless you’re Facebook). Never fear, from here on out, we will start
+    moving a little bit further up the stack.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上一章相当详细，你可能觉得它有点理论化。毕竟，现在没有人真的需要从头开始构建自己的 Pods（除非你是 Facebook）。不用担心，从现在开始，我们将开始向上移动到更高的层次。
+- en: 'In this chapter, we’ll dive a bit deeper into *cgroups*: the control structures
+    that isolate resources from one another in the kernel. In the previous chapter,
+    we actually implemented a simple cgroup boundary for a Pod that we made all by
+    ourselves. This time around, we’ll create a “real” Kubernetes Pod and investigate
+    how the kernel manages that Pod’s cgroup footprint. Along the way, we’ll go through
+    some silly, but nevertheless instructive, examples of why cgroups exist. We’ll
+    conclude with a look at Prometheus, the time-series metrics aggregator that has
+    become the de facto standard for all metrics and observation platforms in the
+    cloud native space.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将更深入地探讨 *cgroups*：内核中隔离彼此资源的控制结构。在前一章中，我们实际上实现了一个简单的 cgroup 边界，这是我们完全自己制作的
+    Pod。这一次，我们将创建一个“真实”的 Kubernetes Pod，并调查内核如何管理该 Pod 的 cgroup 脚印。在这个过程中，我们将通过一些虽然愚蠢但仍有教育意义的例子来了解
+    cgroups 存在的原因。我们将以查看 Prometheus 为结尾，Prometheus 是时间序列指标聚合器，已成为云原生空间中所有指标和观测平台的实际标准。
+- en: The most important thing to keep in mind as you follow along in this chapter
+    is that cgroups and Linux Namespaces aren’t any kind of dark magic. They are really
+    just ledgers maintained by the kernel that associates processes with IP addresses,
+    memory allocations, and so on. Because the kernel’s job provides these resources
+    to programs, it’s then quite evident why these data structures are also managed
+    by the kernel itself.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在跟随本章内容时，最重要的是记住 cgroups 和 Linux Namespaces 并不是任何黑暗魔法。它们实际上是内核维护的账本，将进程与 IP
+    地址、内存分配等关联起来。因为内核的工作是为程序提供这些资源，所以很明显，这些数据结构也由内核本身管理。
+- en: 4.1 Pods are idle until the prep work completes
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.1 Pod 在准备工作完成之前是空闲的
+- en: In the last chapter, we touched briefly on what happens when a Pod starts. Let’s
+    zoom in a little bit on that scenario and look at what the kubelet *actually*
+    needs to do to create a real Pod (figure 4.1). Note that our app is idle until
+    the pause container is added to our namespace. After that, the actual application
+    we have finally starts.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们简要地提到了 Pod 启动时会发生什么。让我们稍微深入一点，看看 kubelet *实际上*需要做什么来创建一个真正的 Pod（图 4.1）。请注意，我们的应用程序在暂停容器添加到我们的命名空间之前是空闲的。之后，我们最终拥有的实际应用程序才开始运行。
+- en: '![](../Images/CH04_F01_Love.png)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F01_Love.png)'
+- en: Figure 4.1 The processes involved in container startup
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.1 容器启动涉及到的进程
+- en: 'Figure 4.1 shows us the states of various parts of the kubelet during the creation
+    of a container. Every kubelet will have an installed CRI, responsible for running
+    containers, and a CNI, responsible for giving containers IP addresses, and will
+    run one or many *pause containers* (placeholders where the kubelet creates namespaces
+    and cgroups for a container to run inside of). In order for an app to ultimately
+    be ready for Kubernetes to begin load balancing traffic to it, several ephemeral
+    processes need to run in a highly coordinated manner:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.1 显示了 kubelet 在创建容器期间各个部分的状态。每个 kubelet 都将安装一个 CRI，负责运行容器，一个 CNI，负责为容器分配
+    IP 地址，并且将运行一个或多个 *暂停容器*（kubelet 在其中创建命名空间和 cgroup 以使容器在其中运行的地方）。为了使应用程序最终准备好 Kubernetes
+    开始向其负载均衡流量，需要以高度协调的方式运行几个短暂的进程：
+- en: If the CNI were to run before the CNI’s pause container, there would be no network
+    for it to use.
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果 CNI 在 CNI 的暂停容器之前运行，它将没有可用的网络。
+- en: If there aren’t any resources available, the kubelet won’t finish setting up
+    a place for a Pod to run, and nothing will happen.
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果没有可用资源，kubelet 将无法为 Pod 运行设置位置，因此不会发生任何事情。
+- en: Before every Pod runs, a pause container runs, which is the placeholder for
+    the Pod’s processes.
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在每个Pod运行之前，都会运行一个暂停容器，它是Pod进程的占位符。
+- en: 'The reason we chose to illustrate this intricate dance in this chapter is to
+    drive home the fact that programs need resources, and resources are finite: orchestrating
+    resources is a complex, ordered process. The more programs we run, the more complex
+    the intersection of these resource requests. Let’s look at a few example programs.
+    Each of the following programs has different CPU, memory, and storage requirements:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们选择在本章中展示这种复杂的舞蹈的原因是为了强调程序需要资源，而资源是有限的：调配资源是一个复杂、有序的过程。我们运行的程序越多，这些资源请求的交集就越复杂。让我们看看几个示例程序。以下每个程序都有不同的CPU、内存和存储需求：
+- en: '*Calculating Pi*—Calculating Pi needs access to a dedicated core for continuous
+    CPU usage.'
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*计算π*——计算π需要访问一个专用的核心以实现持续的CPU使用。'
+- en: '*Caching the contents of Wikipedia for fast look ups*—Caching Wikipedia into
+    a hash table for our Pi program needs little CPU, but it could call for about
+    100 GB or so of memory.'
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*缓存维基百科内容以实现快速查找*——将维基百科缓存到哈希表中供我们的Pi程序使用需要很少的CPU，但它可能需要大约100 GB左右的内存。'
+- en: '*Backing up a 1 TB database*—Backing up a database into cold storage for our
+    Pi program needs essentially no memory, little CPU, and a large, persistent storage
+    device, which can be a slow spinning disk.'
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*备份1 TB的数据库*——将数据库备份到冷存储供我们的Pi程序使用基本上不需要内存，很少的CPU，以及一个大型、持久的存储设备，这可以是一个慢速旋转的磁盘。'
+- en: If we have a single computer with 2 cores, 101 GB of memory, and 1.1 TB of storage,
+    we could theoretically run each program with the equivalent CPU, memory, and storage
+    access. The result would be
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一台拥有2个核心、101 GB内存和1.1 TB存储的单台计算机，理论上我们可以为每个程序分配等价的CPU、内存和存储访问。结果将是
+- en: The Pi program, if written incorrectly (if it wrote intermediate results to
+    a persistent disk, for example) could eventually overrun our database storage.
+  id: totrans-24
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果Pi程序编写不当（例如，如果它将中间结果写入持久磁盘），最终可能会超出我们的数据库存储空间。
+- en: The Wikipedia cache, if written incorrectly (if its hashing function was too
+    CPU-intensive, for example) might prevent our Pi program from rapidly doing mathematical
+    calculations.
+  id: totrans-25
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果维基百科缓存编写不当（例如，如果其哈希函数过于CPU密集型），可能会阻止我们的Pi程序快速进行数学计算。
+- en: The database program, if written incorrectly (if it did too much logging, for
+    example) might prevent the Pi program from doing its job by hogging all of the
+    CPU.
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果数据库程序编写不当（例如，如果它做了太多的日志记录），可能会通过占用所有CPU来阻止Pi程序执行其任务。
+- en: 'Instead of running all processes with complete access to all of our system’s
+    (limited) resources, we could do the following—that is, if we have the ability
+    to portion out our CPU, memory, and disk resources:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以不使用完全访问我们系统（有限的）所有资源的所有进程来运行，如果我们有能力分配我们的CPU、内存和磁盘资源的话，我们可以这样做——也就是说，如果我们有能力分配我们的CPU、内存和磁盘资源：
+- en: Run the Pi process with 1 core and 1 KB of memory
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用1个核心和1 KB的内存运行Pi进程
+- en: Run the Wikipedia caching with half a core and 99 GB of memory
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用半个核心和99 GB的内存运行维基百科缓存
+- en: Run the database backup program with 1 GB of memory and the remaining CPU with
+    a dedicated storage volume not accessible by other apps
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用1 GB的内存运行数据库备份程序，并使用剩余的CPU和一个其他应用无法访问的专用存储卷
+- en: So that this can be done in a predictable manner for all programs controlled
+    by our OS, cgroups allow us to define hierarchically separated bins for memory,
+    CPU, and other OS resources. All threads created by a program use the same pool
+    of resources initially granted to the parent process. In other words, no one can
+    play in someone else’s pool.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使所有由我们的操作系统控制的程序都能以可预测的方式进行，cgroups允许我们为内存、CPU和其他操作系统资源定义层次分级的分离容器。程序创建的所有线程最初都使用分配给父进程的相同资源池。换句话说，没有人可以在别人的池子里玩。
+- en: This is, in and of itself, the argument for having cgroups for Pods. In a Kubernetes
+    cluster, you might be running 100 programs on a single computer, many of which
+    are low-priority or entirely idle at certain times. If these programs reserve
+    large amounts of memory, they make the cost of running such a cluster unnecessarily
+    high. The creation of new nodes to provide memory to starving processes leads
+    to administrative overhead and infrastructure costs that compound over time. Because
+    the promise of containers (increased utilization of data centers) is largely predicated
+    on being able to run smaller footprints per service, careful usage of cgroups
+    is at the heart of running applications as microservices.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这本身就是为 Pod 设置 cgroups 的论据。在 Kubernetes 集群中，你可能在单台计算机上运行 100 个程序，其中许多程序在特定时间点是低优先级或完全空闲。如果这些程序预留了大量的内存，它们会使运行此类集群的成本不必要地增加。为饥饿进程提供内存而创建新节点会导致管理开销和随时间累积的基础设施成本。由于容器（提高数据中心利用率）的承诺在很大程度上取决于能够为每个服务运行更小的足迹，因此谨慎使用
+    cgroups 是以微服务形式运行应用程序的核心。
+- en: 4.2 Processes and threads in Linux
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.2 Linux 中的进程和线程
+- en: 'Every process in Linux can create one or more threads. An execution *thread*
+    is an abstraction that programs can use to create new processes that share the
+    same memory with other processes. As an example, we can inspect the use of various
+    independent scheduling threads in Kubernetes by using the `ps -T` command:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Linux 中的每个进程都可以创建一个或多个线程。一个执行 *线程* 是程序可以用来创建与其他进程共享相同内存的新进程的抽象。例如，我们可以通过使用 `ps
+    -T` 命令来检查 Kubernetes 中各种独立调度线程的使用情况：
+- en: '[PRE0]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Gets the PID of the Kubernetes scheduler Pod
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取 Kubernetes 调度器 Pod 的 PID
+- en: ❷ Finds the threads in the Pod
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 查找 Pod 中的线程
+- en: 'This query shows us parallel scheduler threads that share memory with one another.
+    These processes have their own subprocess IDs, and to the Linux kernel, they are
+    all just regular old processes. That said, they have one thing in common: a parent.
+    We can investigate this parent/child relationship by using the `pstree` command
+    in our `kind` cluster:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个查询向我们展示了共享彼此内存的并行调度线程。这些进程有自己的子进程 ID，对于 Linux 内核来说，它们都是普通的旧进程。尽管如此，它们有一个共同点：一个父进程。我们可以通过在我们的
+    `kind` 集群中使用 `pstree` 命令来调查这种父子关系：
+- en: '[PRE1]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ The scheduler has the parent container shim, so it is run as a container.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 调度器具有父容器仿真层，因此它作为容器运行。
+- en: ❷ Every scheduler thread shares the same parent thread, the scheduler itself.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 每个调度线程共享相同的父线程，即调度器本身。
+- en: containerd and Docker
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: containerd 和 Docker
+- en: We haven’t spent time contrasting containerd and Docker, but it’s good to note
+    that our `kind` clusters are *not* running Docker as their container runtime.
+    Instead, they use Docker to create nodes, and then every node uses containerd
+    as a run time. Modern Kubernetes clusters do not typically run Docker as the container
+    runtime for Linux for a variety of reasons. Docker was a great on-ramp for developers
+    to run Kubernetes, but data centers require a lighter-weight container runtime
+    solution that is more deeply integrated with the OS. Most clusters execute `runC`
+    as the container runtime at the lowest level, where `runC` is called by containerd,
+    CRI-O, or some other higher-level command-line executable that is installed on
+    your nodes. This causes systemd to be the parent of your containers rather than
+    the Docker daemon.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还没有花费时间对比 containerd 和 Docker，但值得注意的是，我们的 `kind` 集群并不是使用 Docker 作为它们的容器运行时。相反，它们使用
+    Docker 来创建节点，然后每个节点都使用 containerd 作为运行时。由于各种原因，现代 Kubernetes 集群通常不会使用 Docker 作为
+    Linux 的容器运行时。Docker 对于开发者来说是一个很好的入门工具，用于运行 Kubernetes，但数据中心需要一种更轻量级的容器运行时解决方案，该解决方案与操作系统更深入地集成。大多数集群在最低级别执行
+    `runC` 作为容器运行时，其中 `runC` 被 containerd、CRI-O 或其他一些安装在节点上的高级命令行可执行程序调用。这导致 systemd
+    成为容器的父进程而不是 Docker 守护进程。
+- en: One of the things that makes containers so popular is the fact that, especially
+    in Linux, they don’t create an artificial boundary between a program and its host.
+    Rather, they just allow for scheduling programs in a way that is lightweight and
+    easier to manage than a VM-based isolation.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器之所以如此受欢迎，其中一个原因是在 Linux 中，它们不会在程序及其宿主之间创建人工边界。相反，它们只是允许以轻量级和比基于虚拟机隔离更容易管理的方式调度程序。
+- en: 4.2.1 systemd and the init process
+  id: totrans-45
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.1 systemd 和初始化进程
+- en: 'Now that you’ve seen a process hierarchy in action, let’s take a step back
+    and ask what it *really* means to be a process. Back in our trusty `kind` cluster,
+    we ran the following command to see who started this whole charade (look at the
+    first few lines of systemd’s status log). Remember, our `kind` node (which we
+    `exec` into in order to do all of this) is really just a Docker container; otherwise,
+    the output of the following command might scare you a little:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经看到了进程层次结构的实际应用，让我们退一步思考，究竟什么是进程。在我们的可靠的 `kind` 集群中，我们运行了以下命令来查看谁启动了整个闹剧（查看
+    systemd 状态日志的前几行）。记住，我们的 `kind` 节点（我们通过 `exec` 进入以完成所有这些操作）实际上只是一个 Docker 容器；否则，以下命令的输出可能会让你有些害怕：
+- en: '[PRE2]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ This single cgroup is the parent of our kind node.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这个单独的 cgroup 是我们的 kind 节点的父进程。
+- en: ❷ The containerd service is a child of the Docker cgroup.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ containerd 服务是 Docker cgroup 的子进程。
+- en: 'If you happen to have a regular Linux machine, you can see the following output.
+    This gives you a more revealing answer:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你恰好有一台普通的 Linux 机器，你可以看到以下输出。这会给你一个更清晰的答案：
+- en: '[PRE3]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: And, under the `system.slice`, we’ll see
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 `system.slice` 下，我们会看到
+- en: '[PRE4]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: In a standard Linux machine or in a kind cluster node, the root of all cgroups
+    is /. If we really want to know what cgroup is the ultimate parent of all processes
+    in our system, it’s the `/` cgroup that is created at startup. Docker itself is
+    a child of this cgroup, and if we run a `kind` cluster, our `kind` nodes are the
+    child of this Docker process. If we run a regular Kubernetes cluster, we would
+    likely not see a Docker cgroup at all, but instead, we would see that containerd
+    itself was a child of the systemd root process. If you have a handy Kubernetes
+    node to `ssh` into, this might be a good follow-up exercise.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在标准的 Linux 机器或 kind 集群节点中，所有 cgroups 的根目录是 /。如果我们真的想了解系统中所有进程的最终父 cgroup 是什么，那就是启动时创建的
+    `/` cgroup。Docker 本身是这个 cgroup 的子进程，如果我们运行一个 `kind` 集群，我们的 `kind` 节点是这个 Docker
+    进程的子进程。如果我们运行一个常规的 Kubernetes 集群，我们可能根本看不到 Docker cgroup，相反，我们会看到 containerd 本身是
+    systemd 根进程的子进程。如果你有一个可以 `ssh` 进入的 Kubernetes 节点，这可能是一个很好的后续练习。
+- en: If we traverse down these trees far enough, we’ll find the available processes,
+    including any process started by any container, in our entire OS. Note that the
+    process IDs (PIDs), such as 3135 in the previous snippet, are actually high numbers
+    if we inspect this information in our host machine. That is because the PID of
+    a process *outside* of a container is *not* the same as the PID of a process *inside*
+    a container. If you’re wondering why, recall how we used the `unshare` command
+    in the first chapter to separate our process namespaces. This means that processes
+    started by containers have no capacity to see, identify, or kill processes running
+    in other containers. This is an important security feature of any software deployment.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们沿着这些树向下遍历足够远，我们会在整个操作系统中找到所有可用的进程，包括任何容器启动的进程。请注意，进程 ID（PID），如前一个片段中的 3135，如果我们检查主机机器上的这些信息，实际上是高数值。这是因为容器外部的进程的
+    PID 与容器内部的进程的 PID 是不同的。如果你想知道为什么，回想一下我们在第一章中如何使用 `unshare` 命令来分离我们的进程命名空间。这意味着由容器启动的进程没有能力看到、识别或杀死其他容器中运行的进程。这是任何软件部署的重要安全特性。
+- en: You may also be wondering why there are pause processes. Each of our containerd-shim
+    programs has a pause program that corresponds to it, which is initially used as
+    a placeholder for the creation of our network namespace. The pause container also
+    helps clean up processes and serves as a placeholder for our CRI to do some basic
+    process bookkeeping, helping us to avoid zombie processes.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能还在想为什么会有暂停进程。我们每个 containerd-shim 程序都有一个对应的暂停程序，它最初被用作创建我们的网络命名空间的一个占位符。暂停容器还帮助清理进程，并作为我们的
+    CRI 进行一些基本进程记录的占位符，帮助我们避免僵尸进程。
+- en: 4.2.2 cgroups for our process
+  id: totrans-57
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.2 为我们的进程设置 cgroups
+- en: 'We now have a pretty good idea of what this scheduler Pod is up to: it has
+    spawned several children, and most likely, it was created by Kubernetes because
+    it’s a child of containerd, which is the container runtime that Kubernetes uses
+    in `kind`. As a first look at how processes work, you can kill the containerd
+    process, and you’ll naturally see the scheduler and its subthreads come back to
+    life. This is done by the kubelet itself, which has a /manifests directory. This
+    directory tells the kubelet about a few processes that should always run even
+    before an API server is able to schedule containers. This, in fact, is how Kubernetes
+    installs itself via a kubelet. The life cycle of a Kubernetes installation, which
+    uses `kubeadm` (now the most common installation tool), looks something like this:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在对这个调度器 Pod 的作用有了相当好的了解：它已经生成了几个子进程，而且很可能是 Kubernetes 创建的，因为它是由 containerd
+    生成的子进程，而 containerd 是 Kubernetes 在 `kind` 中使用的容器运行时。作为对进程工作方式的第一印象，你可以杀死 containerd
+    进程，然后你会自然地看到调度器和其子线程重新活跃起来。这是由 kubelet 本身完成的，它有一个 /manifests 目录。这个目录告诉 kubelet
+    关于一些即使在 API 服务器能够调度容器之前也应该运行的进程。实际上，Kubernetes 就是通过 kubelet 以这种方式安装的。使用 `kubeadm`（现在最常用的安装工具）安装
+    Kubernetes 的生命周期看起来大致如下：
+- en: The kubelet has a manifests directory that includes the API server, scheduler,
+    and controller manager.
+  id: totrans-59
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 有一个包含 API 服务器、调度器和控制器管理器的 manifests 目录。
+- en: The kubelet is started by systemd.
+  id: totrans-60
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 由 systemd 启动。
+- en: The kubelet tells containerd (or whatever the container runtime is) to start
+    running all the processes in the manifests directory.
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 告诉 containerd（或任何容器运行时）开始运行 manifests 目录中的所有进程。
+- en: Once the API server comes up, the kubelet connects to it and then runs any containers
+    that the API server asks it to execute.
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一旦 API 服务器启动，kubelet 就会连接到它，然后运行 API 服务器请求它执行的所有容器。
+- en: Mirror Pods sneak up on the API server
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 镜像 Pod悄悄接近 API 服务器
+- en: 'The kubelet has a secret weapon: the /etc/kubernetes/manifests directory. This
+    directory is continuously scanned, and when Pods are put inside of it, they are
+    created and run by the kubelet. Because these aren’t scheduled via the Kubernetes
+    API server, they need to mirror themselves so that the API server can be aware
+    of their existence. Hence, the Pods created outside the knowledge of the Kubernetes
+    control plane are known as *mirror* Pods.'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 有一个秘密武器：/etc/kubernetes/manifests 目录。这个目录会持续扫描，当 Pod 被放入其中时，它们就会被 kubelet
+    创建和运行。因为这些不是通过 Kubernetes API 服务器调度的，所以它们需要镜像自己，以便 API 服务器能够知道它们的存在。因此，在 Kubernetes
+    控制平面不知情的情况下创建的 Pod 被称为 *镜像* Pod。
+- en: Mirror Pods can be viewed by listing them like any other Pod, via `kubectl get
+    pods -A`, but they are created and managed by a kubelet on an independent basis.
+    This allows the kubelet, alone, to bootstrap an entire Kubernetes cluster that
+    runs inside the Pods. Pretty sneaky!
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以像查看其他 Pod 一样通过列出它们来查看镜像 Pod，使用 `kubectl get pods -A`，但它们是由独立于其他 Pod 的 kubelet
+    创建和管理的。这允许 kubelet 单独引导一个运行在 Pod 内的整个 Kubernetes 集群。相当狡猾！
+- en: 'You might ask, “What does this all have to do with cgroups?” It turns out that
+    the scheduler we’ve been spelunking is actually identified as a mirror Pod, and
+    the cgroups that it is assigned to are named using this identity. The reason it
+    has this special identity is that, originally, the API server doesn’t actually
+    have any knowledge of the mirror Pod because it was created by the kubelet. To
+    be a little less abstract, let’s poke around with the following code and find
+    its identity:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会问，“这一切与 cgroups 有什么关系？”实际上，我们一直在探索的调度器被识别为镜像 Pod，分配给它的 cgroups 是使用这个身份命名的。它有这个特殊身份的原因是，最初，API
+    服务器实际上并不知道镜像 Pod，因为它是由 kubelet 创建的。为了更具体一点，让我们用以下代码探索并找到它的身份：
+- en: '[PRE5]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ The mirror Pod ID of the scheduler
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 调度器的镜像 Pod ID
+- en: 'We use the mirror Pod ID of the scheduler for finding its cgroups. You can
+    get at these Pods to view their contents by running `edit` or `get action` against
+    a control plane Pod (for example, `kubectl` `edit` `Pod` `-n` `kube-system` `kube-apiserver-calico-control-plane`).
+    Now, let’s see if we can find any cgroups associated with our processer by running
+    the following:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用调度器的镜像 Pod ID 来查找其 cgroups。你可以通过运行 `edit` 或 `get action` 对控制平面 Pod（例如，`kubectl
+    edit Pod -n kube-system kube-apiserver-calico-control-plane`）来获取这些 Pod 的内容。现在，让我们运行以下命令，看看我们能否找到与我们的进程器相关联的任何
+    cgroups：
+- en: '[PRE6]'
+  id: totrans-70
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'With this command, we used the PID we found earlier to ask the Linux kernel
+    about what cgroups exist for the scheduler. The output is pretty intimidating
+    (something like that shown in the following). Don’t worry about the burstable
+    folder; we will explain the burstable concept, which is a quality of service or
+    QoS class, later, when we look at some kubelet internals. In the meantime, a *burstable
+    Pod* is generally one that doesn’t have hard usage limits. The scheduler is an
+    example of a Pod that typically runs with the ability to use large bursts of CPU
+    when necessary (for example, in an instance where 10 or 20 Pods need to be quickly
+    scheduled to a node). Each of these entries has an extremely long identifier for
+    the cgroup and Pod identity like so:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用此命令，我们使用之前找到的 PID 来询问 Linux 内核关于调度器的 cgroups 存在情况。输出相当令人畏惧（如下所示）。不必担心 burstable
+    文件夹；我们将在查看一些 kubelet 内部结构时解释 burstable 概念，它是一种服务质量或 QoS 类别。同时，一个 *burstable Pod*
+    通常是指没有硬使用限制的 Pod。调度器是一个典型的 Pod 示例，它通常具有在必要时使用大量 CPU 的能力（例如，在需要快速将 10 或 20 个 Pod
+    部署到节点上的情况下）。每个条目都有一个非常长的 cgroup 和 Pod 标识符 ID，如下所示：
+- en: '[PRE7]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'The kernel is thus tracking all of these processes in the /proc location, and
+    we can keep digging further to see what each process is getting in terms of resources.
+    To abbreviate the entire listing of cgroups for process 631, we can `cat` the
+    cgroup file, as the following shows. Note that we’ve abbreviated the extra-long
+    IDs for readability:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，内核正在跟踪 /proc 位置中的所有这些进程，我们可以进一步挖掘以查看每个进程在资源方面的具体获取情况。为了简化进程 631 的整个 cgroups
+    列表，我们可以 `cat` cgroup 文件，如下所示。注意，为了便于阅读，我们已缩短了额外的长 ID：
+- en: '[PRE8]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'We’ll look inside these folders, one at a time, as follows. Don’t worry too
+    much about the docker folder, though. Because we’re in a `kind` cluster, the docker
+    folder is the parent of everything. But note that, actually, our containers are
+    all running in containerd:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将逐个查看这些文件夹，如下所示。不过，关于 docker 文件夹，你不必过于担心。因为我们处于一个 `kind` 集群中，docker 文件夹是所有内容的父文件夹。但请注意，实际上，我们的容器都在
+    containerd 中运行：
+- en: '*docker*—The cgroup for Docker’s daemon running on our computer, which is essentially
+    like a VM that runs a kubelet.'
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*docker*—运行在我们计算机上的 Docker 守护进程的 cgroup，本质上就像一个运行 kubelet 的虚拟机。'
+- en: '*b7a49b42 . . .*—The name of our Docker `kind` container. Docker creates this
+    cgroup for us.'
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*b7a49b42 . . .*—我们的 Docker `kind` 容器名称。Docker 为我们创建了此 cgroup。'
+- en: '*kubepods*—A division of cgroups that Kubernetes puts aside for its Pods.'
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*kubepods*—Kubernetes 为其 Pods 保留的 cgroup 分区。'
+- en: '*burstable*—A special cgroup for Kubernetes that defines the quality of service
+    the scheduler gets.'
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*burstable*—Kubernetes 的一个特殊 cgroup，定义了调度器获得的服务质量。'
+- en: '*pod1557 . . .*—Our Pod’s ID, which is reflected inside our Linux kernel as
+    its own identifier.'
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*pod1557 . . .*—我们的 Pod ID，它在我们的 Linux 内核中作为其自己的标识符。'
+- en: At the time of the writing of this book, Docker has been deprecated in Kubernetes.
+    You can think of the docker folder in the example, not as a Kubernetes concept,
+    but rather as “the VM that runs our kubelet,” because `kind` itself is really
+    just running one Docker daemon as a Kubernetes node and then putting a kubelet,
+    containerd, and so on, inside this node. Thus, continue to repeat to yourself
+    when exploring Kubernetes, “`kind` itself does not use Docker to run containers.”
+    Instead, it uses Docker to make nodes and installs containerd as the container
+    runtime inside those nodes.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书撰写时，Docker 已在 Kubernetes 中被弃用。你可以将示例中的 docker 文件夹视为“运行我们的 kubelet 的虚拟机”，因为
+    `kind` 本身实际上只是运行一个 Docker 守护进程作为 Kubernetes 节点，然后在节点内部安装 kubelet、containerd 等。因此，在探索
+    Kubernetes 时，请继续对自己重复说，“`kind` 本身并不使用 Docker 来运行容器。” 相反，它使用 Docker 来创建节点，并在这些节点内部安装
+    containerd 作为容器运行时。
+- en: 'We’ve now seen that every process Kubernetes (for a Linux machine) ultimately
+    lands in the bookkeeping tables of the proc directory. Now, let’s explore what
+    these fields mean for a more traditional Pod: the NGINX container.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到，每个进程（对于 Linux 机器的 Kubernetes）最终都会落在 proc 目录的账本表中。现在，让我们探索这些字段对于更传统的
+    Pod：NGINX 容器意味着什么。
+- en: 4.2.3 Implementing cgroups for a normal Pod
+  id: totrans-83
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.3 为普通 Pod 实现控制组
+- en: 'The scheduler Pod is a bit of a special case in that it runs on all clusters
+    and isn’t something that you might directly want to tune or investigate. A more
+    realistic scenario might be one wherein you want to confirm that the cgroups for
+    an application you’re running (like NGINX) were created correctly. In order to
+    try this out, you can create a Pod similar to our original pod.yaml, which runs
+    the NGINX web server with resource requests. The specification for this portion
+    of the Pod looks like the following (which is probably familiar to you):'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调度器Pod是一个有点特殊的情况，因为它在所有集群上运行，并不是你可能会直接想要调整或调查的东西。一个更现实的场景可能是你想要确认你正在运行的应用程序（如NGINX）的cgroups是否被正确创建。为了尝试这一点，你可以创建一个类似于我们原始的pod.yaml的Pod，该Pod运行带有资源请求的NGINX网络服务器。Pod这一部分的规范看起来如下（可能对你来说很熟悉）：
+- en: '[PRE9]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: In this case, the Pod defines a core count (1) and a memory request (1 GB).
+    These both go in to the cgroups defined under the /sys/fs directory, and the kernel
+    enforces the cgroup rules. Remember, you need to `ssh` into your node to do this
+    or, if you’re using `kind`, use `docker` `exec` `-t` `-i` `75` `/bin/sh` to access
+    the shell for the `kind` node.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，Pod定义了一个核心数（1）和内存请求（1 GB）。这两个都进入/sys/fs目录下定义的cgroups中，内核强制执行cgroup规则。记住，你需要`ssh`进入你的节点来做这件事，或者如果你使用`kind`，可以使用`docker`
+    `exec` `-t` `-i` `75` `/bin/sh`来访问`kind`节点的shell。
+- en: The result is that now your NGINX container runs with dedicated access to 1
+    core and 1 GB of memory. After creating this Pod, we can actually take a direct
+    look at its cgroup hierarchy by traversing its cgroup information for the memory
+    field (again running the `ps` `-ax` command to track it down). In doing so, we
+    can see how Kubernetes *really* responds to the memory request we give it. We’ll
+    leave it to you, the reader, to experiment with other such limits and see how
+    the OS expresses them.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是，现在你的NGINX容器以专用的方式运行，拥有1个核心和1 GB的内存访问权。在创建这个Pod之后，我们实际上可以直接通过遍历其内存字段的cgroup信息来查看其cgroup层次结构（再次运行`ps`
+    `-ax`命令来追踪它）。这样做，我们可以看到Kubernetes*真正*是如何响应我们给出的内存请求的。我们将留给你，读者，去实验其他这样的限制，看看操作系统是如何表达它们的。
+- en: 'If we now look into our kernel’s memory tables, we can see that there is a
+    marker for how much memory has been carved up for our Pod. It’s about 1 GB. When
+    we made the previous Pod, our underlying container runtime was in a cgroup with
+    a limited amount of memory. This solves the exact problem we originally discussed
+    in this chapter—isolating resources for memory and CPU:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们现在查看我们内核的内存表，我们可以看到有一个标记表示为我们的Pod划分了多少内存。大约是1 GB。当我们创建之前的Pod时，我们的底层容器运行时在一个内存有限的cgroup中。这解决了我们在本章最初讨论的精确问题——为内存和CPU隔离资源：
+- en: '[PRE10]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Thus, the magic of Kubernetes isolation really can just be viewed on a Linux
+    machine as regular old hierarchical distribution of resources that are organized
+    by a simple directory structure. There’s a lot of logic in the Kernel to “get
+    this right,” but it’s all easily accessible to anyone with the courage to peer
+    under the covers.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，Kubernetes隔离的魔力实际上可以被视为Linux机器上常规的、由简单目录结构组织的资源分层分配。内核中有大量的逻辑来“正确处理”这些，但对于任何有勇气揭开盖子的人来说，这些都是容易访问的。
+- en: 4.3 Testing the cgroups
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.3 测试cgroups
+- en: 'We now know how to confirm that our cgroups are created correctly. But how
+    do we *test* that the cgroups are being honored by our processes? It’s a well-known
+    fact that container runtimes and the Linux kernel itself may have bugs when it
+    comes to isolating things in the exact way we expect. For example, there are instances
+    where the OS might allow a container to run above its allotted CPU allocation
+    if the other processes aren’t starving for resources. Let’s run a simple process
+    with the following code to test whether our cgroups are working properly:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在知道如何确认我们的cgroups是否被正确创建。但我们是怎样*测试*cgroups是否被我们的进程所尊重的呢？这是一个众所周知的事实，容器运行时和Linux内核本身在精确隔离事物方面可能存在缺陷。例如，在某些情况下，如果其他进程没有资源饥饿，操作系统可能会允许容器在其分配的CPU配额之上运行。让我们运行一个简单的进程，使用以下代码来测试我们的cgroups是否正常工作：
+- en: '[PRE11]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Ensures our Pod has plenty of opportunity to use lots of CPU
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 确保我们的Pod有足够的机会使用大量的CPU
+- en: ❷ Ensures our Pod won’t start until it has a full core of CPU to access
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 确保我们的Pod在获得完整的CPU核心访问权之前不会启动
+- en: 'Now, we can execute into our Pod and run a (nasty) CPU usage command. We’ll
+    see in the output that the `top` command blows up:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以进入我们的Pod并运行一个（讨厌的）CPU使用率命令。我们将在输出中看到`top`命令崩溃：
+- en: '[PRE12]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Creates a shell into your container
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个进入你的容器的shell
+- en: ❷ Consumes CPU with reckless abandon by running dd
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 通过运行dd无节制地消耗CPU
+- en: ❸ Runs the top command to measure CPU usage in our Docker kind node
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在我们的Docker `kind`节点上运行top命令来测量CPU使用量
+- en: 'What happens if we fence this same process and rerun this experiment? To test
+    this, you can change the `resources` stanza to something like this:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将这个相同的进程隔离并重新运行这个实验会发生什么？为了测试这个，你可以将`resources`段落更改为以下内容：
+- en: '[PRE13]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Limits CPU usage to .1 core as a maximum
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将CPU使用量限制在最大0.1核心
+- en: ❷ Reserves the whole .1 core, guaranteeing this CPU share
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 预留了整个0.1核心，保证了这一CPU份额
+- en: 'Let’s rerun the following command. In this second example, we can actually
+    see a much less stressful scenario for our `kind` node taking place:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们重新运行以下命令。在这个第二个例子中，我们可以看到我们的`kind`节点发生了一个压力较小的场景：
+- en: '[PRE14]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ This time only 10% of the CPU is used for the node.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这次只使用了CPU的10%用于节点。
+- en: 4.4 How the kubelet manages cgroups
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.4 kubelet如何管理cgroups
+- en: Earlier in this chapter we glossed over the other cgroups like `blkio`. To be
+    sure, there are many different kinds of cgroups, and it’s worth understanding
+    what they are, even though 90% of the time, you will only be concerned about CPU
+    and memory isolation for most containers.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的早期，我们简要地提到了其他cgroups，如`blkio`。诚然，有各种各样的cgroups，了解它们是什么是有价值的，尽管90%的时间，你只会关心大多数容器对CPU和内存隔离的关注。
+- en: At a lower level, clever use of the cgroup primitives listed in /sys/fs/cgroup
+    exposes control knobs for managing how these resources are allocated to processes.
+    Some such groups are not readily useful to a Kubernetes administrator. For example,
+    the `freezer` cgroup assigns groups of related tasks to a single stoppable or
+    freezable control point. This isolation primitive allows for efficient scheduling
+    and descheduling of gang processes (and, ironically, some have criticized Kubernetes
+    for its poor handling of this type of scheduling).
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在更低的层面，通过巧妙地使用`/sys/fs/cgroup`中列出的cgroup原语，可以暴露出控制这些资源如何分配给进程的旋钮。有些这样的组对Kubernetes管理员来说并不容易使用。例如，`freezer`
+    cgroup将相关任务组分配给单个可停止或可冻结的控制点。这种隔离原语允许高效地调度和取消调度群组进程（而且，讽刺的是，有些人批评Kubernetes在处理这类调度方面做得不好）。
+- en: 'Another example is the `blkio` cgroup, which is also a lesser-known resource
+    that’s used to manage I/O. Looking into the /sys/fs/cgroup, we can see all of
+    the various quantifiable resources that can be allocated hierarchically in Linux:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个例子是`blkio` cgroup，这也是一个不太为人所知的资源，用于管理I/O。查看`/sys/fs/cgroup`，我们可以看到Linux中可以分层分配的所有各种可量化的资源：
+- en: '[PRE15]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: You can read about the original intent of cgroups at [http://mng.bz/vo8p](http://mng.bz/vo8p).
+    Some of the corresponding articles might be out of date, but they provide a lot
+    of information about how cgroups have evolved and what they are meant to do. For
+    advanced Kubernetes administrators, understanding how to interpret these data
+    structures can be valuable when it comes to looking at different containerization
+    technologies and how they affect your underlying infrastructure.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在[http://mng.bz/vo8p](http://mng.bz/vo8p)上了解cgroups的原始意图。一些相关的文章可能已经过时，但它们提供了大量关于cgroups如何演变以及它们旨在做什么的信息。对于高级Kubernetes管理员来说，理解如何解释这些数据结构在查看不同的容器化技术及其如何影响你的底层基础设施时非常有价值。
+- en: 4.5 Diving into how the kubelet manages resources
+  id: totrans-114
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.5 深入了解kubelet如何管理资源
+- en: 'Now that you understand where cgroups come from, it is worth taking a look
+    at how cgroups are used in a kubelet; namely, by the `allocatable` data structure.
+    Looking at an example Kubernetes node (again, you can do this with your `kind`
+    cluster), we can see the following stanza in the output from `kubectl` `get` `nodes`
+    `-o` `yaml`:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经了解了cgroups的来源，那么看看kubelet中如何使用cgroups就很有意义了；具体来说，是通过`allocatable`数据结构。查看一个示例Kubernetes节点（再次强调，你可以使用你的`kind`集群来做这件事），我们可以从`kubectl
+    get nodes -o yaml`的输出中看到以下段落：
+- en: '[PRE16]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Do these settings look familiar? By now, they should. These resources are the
+    amount of cgroup budget available for allocating resources to Pods. The kubelet
+    calculates this by determining the total capacity on the node. It then deducts
+    how much CPU bandwidth is required for itself as well as for the underlying node
+    and subtracts this from the amount of allocatable resources for containers. The
+    equations for these numbers are documented at [http://mng.bz/4jJR](http://mng.bz/4jJR)
+    and can be toggled with parameters, including `--system-reserved` and `--kubelet-reserved`.
+    This value is then used by the Kubernetes scheduler to decide whether to request
+    a running container on this particular node.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些设置看起来熟悉吗？到现在，它们应该很熟悉了。这些资源是可用于为 Pods 分配资源的 cgroup 预算量。kubelet 通过确定节点上的总容量来计算这个值。然后它减去自身以及底层节点所需的
+    CPU 带宽，并从可分配资源量中减去这部分。这些数字的等式在 [http://mng.bz/4jJR](http://mng.bz/4jJR) 中有记录，并且可以通过包括
+    `--system-reserved` 和 `--kubelet-reserved` 在内的参数进行切换。这个值随后被 Kubernetes 调度器用来决定是否在这个特定节点上请求运行容器。
+- en: 'Typically, you might launch `--kubelet-reserved` and `--system-reserved` with
+    half of a core each, leaving a 2-core CPU with ~ 1.5 cores free to run workloads,
+    because a kubelet is not an incredibly CPU-hungry resource (except in times of
+    burst scheduling or startup). At large scales, all of these numbers break down
+    and depend on a variety of performance factors related to workload types, hardware
+    types, network latency, and so on. As an equation, when it comes to scheduling,
+    we have the following implementation (`system-reserved` refers to the quantity
+    of resources a healthy OS needs to run):'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，你可能会用每个核心的一半来启动 `--kubelet-reserved` 和 `--system-reserved`，留下 2 个核心的 CPU，大约有
+    1.5 个核心空闲来运行工作负载，因为 kubelet 不是一个对 CPU 非常渴求的资源（除了在突发调度或启动时）。在大规模下，所有这些数字都会分解，并依赖于与工作负载类型、硬件类型、网络延迟等因素相关的各种性能因素。作为一个等式，在调度方面，我们有以下实现（`system-reserved`
+    指的是健康操作系统运行所需资源量）：
+- en: Allocatable = node capacity - kube-reserved - system-reserved
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可分配 = 节点容量 - kube-reserved - system-reserved
+- en: As an example, if you have
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，如果你有
+- en: 16 cores of CPU reserved for a node
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为节点预留的 16 个 CPU 核心
+- en: 1 CPU core reserved for a kubelet and system processes in a cluster
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 集群中为 kubelet 和系统进程预留的 1 个 CPU 核心
+- en: the amount of allocatable CPU is 15 cores. To contextualize how all of this
+    relates to a scheduled, running container
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可分配的 CPU 数量为 15 个核心。为了说明所有这些是如何与一个已调度、正在运行的容器相关联的
+- en: The kubelet creates cgroups when you run Pods to bound their resource usage.
+  id: totrans-124
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 在你运行 Pods 时创建 cgroups，以限制它们的资源使用。
+- en: Your container runtime starts a process inside the cgroups, which guarantees
+    the resource requests you gave it in the Pod specification.
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的容器运行时在 cgroups 内启动一个进程，这保证了你在 Pod 规范中给出的资源请求。
+- en: systemd usually starts a kubelet, which broadcasts the total available resources
+    to the Kubernetes API periodically.
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: systemd 通常启动 kubelet，它定期广播总可用资源到 Kubernetes API。
+- en: systemd also typically starts your container runtime (containerd, CRI-O, or
+    Docker).
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: systemd 通常也会启动你的容器运行时（containerd、CRI-O 或 Docker）。
+- en: When you start a kubelet, there is parenting logic embedded in it. This setting
+    is configured by a command-line flag (that you should leave enabled), which results
+    in the kubelet itself being a top-level cgroup parent to its children’s containers.
+    The previous equation calculates the total amount of allocatable cgroups for a
+    kubelet. It is called the *allocatable resource budget*.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你启动 kubelet 时，其中嵌入有父进程逻辑。此设置通过命令行标志（你应该保持启用）进行配置，这使得 kubelet 本身成为其子容器的高级 cgroup
+    父进程。前面的等式计算了一个 kubelet 可分配 cgroup 的总量。这被称为 *可分配资源预算*。
+- en: 4.5.1 Why can’t the OS use swap in Kubernetes?
+  id: totrans-129
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.5.1 为什么 Kubernetes 中操作系统不能使用交换空间？
+- en: To understand this, we have to dive a little deeper into the specific cgroups
+    that we saw earlier. Remember how our Pods resided under special folders, such
+    as guaranteed and burstable? If we allowed our OS to swap inactive memory to disk,
+    then an idle process might suddenly have slow memory allocation. This allocation
+    would violate the *guaranteed* access to memory that Kubernetes provides users
+    when defining Pod specifications and would make performance highly variable.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解这一点，我们必须稍微深入到我们之前看到的特定 cgroups。还记得我们的 Pods 居住在特殊文件夹中，比如保证和突发吗？如果我们允许操作系统将不活跃的内存交换到磁盘，那么一个空闲进程可能会突然遇到缓慢的内存分配。这种分配会违反
+    Kubernetes 在定义 Pod 规范时提供给用户的 *保证* 访问内存，并使性能高度可变。
+- en: Because the scheduling of large amounts of processes in a predictable manner
+    is more important than the health of any one process, we disable swapping entirely
+    on Kubernetes. To avoid any confusion around this, the Kubernetes installers,
+    such as `kubeadm`, fail instantly if you bootstrap your kubelets on machines with
+    swap enabled.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于以可预测的方式调度大量进程比任何单个进程的健康状况更重要，我们在Kubernetes上完全禁用了交换。为了避免对此有任何混淆，如果你在启用了交换的机器上引导kubelets，Kubernetes安装程序，如`kubeadm`，会立即失败。
+- en: Why not enable swap?
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么不启用交换？
+- en: In certain cases, thinly provisioning memory might benefit an end user (for
+    example, it might allow you to pack containers on a system more densely). However,
+    the semantic complexity associated with accommodating this type of memory facade
+    isn’t proportionally beneficial to most users. The maintainers of the kubelet
+    haven’t decided (yet) to support this more complex notion of memory, and such
+    API changes are hard to make in a system such as Kubernetes, which is being used
+    by millions of users.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，薄分配内存可能对最终用户有益（例如，它可能允许你在系统上更密集地打包容器）。然而，为了适应这种类型的内存外观而带来的语义复杂性，对大多数用户来说并不成比例地有益。kubelet的维护者尚未决定（目前）支持这种更复杂的内存概念，在像Kubernetes这样的系统中，这种API更改很难实现，Kubernetes被数百万用户使用。
+- en: Of course, like everything else in tech, this is rapidly evolving, and in Kubernetes
+    1.22, you’ll find that, in fact, there are ways you can run with swap memory enabled
+    ([http://mng.bz/4jY5](http://mng.bz/4jY5)). This is not recommended for most production
+    deployments, however, because it would result in highly erratic performance characteristics
+    for workloads.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，就像技术中的其他一切一样，这正在迅速发展，在Kubernetes 1.22中，你会发现实际上有方法可以在启用交换内存的情况下运行([http://mng.bz/4jY5](http://mng.bz/4jY5))。然而，这不建议用于大多数生产部署，因为它会导致工作负载的性能特征非常不稳定。
+- en: 'That said, there is a lot of subtlety at the container runtime level when it
+    comes to resource usage such as memory. For example, cgroups differentiate between
+    soft and hard limits as follows:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 话虽如此，在容器运行时级别，资源使用（如内存）方面有很多微妙之处。例如，cgroups如下区分软限制和硬限制：
+- en: A process with *soft* memory limits has varying amounts of RAM over time, depending
+    on the system load.
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 具有软内存限制的过程，随着时间的推移，其RAM的量会有所不同，这取决于系统负载。
+- en: A process with *hard* memory limits is killed if it exceeds its memory limit
+    for an extended period.
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个具有*硬*内存限制的过程，如果它在较长时间内超过了其内存限制，就会被终止。
+- en: Note that Kubernetes relays an exit code and the OOMKilled status back to you
+    in the cases where a process has to be killed for these reasons. You can increase
+    the amount of memory allocated to a high-priority container to reduce the odds
+    that a noisy neighbor causes problems on a machine. Let’s look at that next.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，在需要因为这些原因终止进程的情况下，Kubernetes会将退出代码和OOMKilled状态回传给你。你可以增加分配给高优先级容器的内存量，以降低嘈杂的邻居在机器上引起问题的可能性。让我们接下来看看这一点。
+- en: '4.5.2 Hack: The poor man’s priority knob'
+  id: totrans-139
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.5.2 技巧：穷人的优先级旋钮
+- en: '*HugePages* is a concept that initially was not supported in Kubernetes because
+    it was a web-centric technology at inception. As it moved to a core data-center
+    technology, more subtle scheduling and resource allocation strategies became relevant.
+    HugePages configuration allows a Pod to access memory pages larger than the Linux
+    kernel’s default memory page size, which is usually 4 KB.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*HugePages*是一个最初在Kubernetes中不受支持的概念，因为它最初是一个以网络为中心的技术。随着它转向核心数据中心技术，更微妙的调度和资源分配策略变得相关。HugePages配置允许Pod访问比Linux内核默认内存页面大小更大的内存页面，这通常是4
+    KB。'
+- en: 'Memory, like CPU, can be allocated explicitly for Pods and is denoted using
+    units for kilobytes, megabytes, and gigabytes (Kis, Mis, and Gis, respectively).
+    Many memory-intensive applications like Elasticsearch and Cassandra supports using
+    HugePages. If a node supports HugePages and also sustains 2048 KiB page sizes,
+    it exposes a schedulable resource: HugePages - 2 Mi. In general, it is possible
+    to schedule against HugePages in Kubernetes using a standard `resources` directive
+    as follows:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 内存，就像CPU一样，可以为Pods显式分配，并使用千字节、兆字节和吉字节（分别表示为Kis、Mis和Gis）的单位表示。许多内存密集型应用程序，如Elasticsearch和Cassandra，支持使用HugePages。如果一个节点支持HugePages并且也支持2048
+    KiB页面大小，它将暴露一个可调度的资源：HugePages - 2 Mi。一般来说，在Kubernetes中使用标准`resources`指令可以调度对HugePages的访问，如下所示：
+- en: '[PRE17]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '*Transparent HugePages* are the optimization of HugePages that can have highly
+    variable effects on Pods that need high performance. You’ll want to disable them
+    in some cases, especially for high-performance containers that need large, contiguous
+    blocks of memory at the bootloader or OS level, depending on your hardware.'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*透明 HugePages* 是对 HugePages 的优化，它可能对需要高性能的 Pods 有高度可变的影响。在某些情况下，您可能希望禁用它们，特别是对于需要在引导加载程序或操作系统级别拥有大块连续内存的高性能容器。'
+- en: '4.5.3 Hack: Editing HugePages with init containers'
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: '4.5.3 Hack: 使用 init 容器编辑 HugePages'
+- en: We’ve come full circle now. Remember how at the beginning of this chapter we
+    looked at the /sys/fs directory and how it managed various resources for containers?
+    The rigging of HugePages can be done in `init` containers if you can run these
+    as root and mount /sys using a container to edit these files.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经回到了起点。记得在本章开始时我们查看 /sys/fs 目录以及它是如何为容器管理各种资源的吗？如果可以以 root 权限运行并使用容器挂载
+    /sys 来编辑这些文件，HugePages 的配置可以在 `init` 容器中完成。
+- en: 'The configuration of HugePages can be toggled by merely writing files to and
+    from the sys directory. For example, to turn off transparent HugePages, which
+    might make a performance difference for you on specific OSs, you would typically
+    run a command such as `echo` `''never''` `>` `/sys/kernel/mm/redhat_transparent_hugepage/enabled`.
+    If you need to set up HugePages in a specific way, you could do so entirely from
+    a Pod specification as follows:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过仅向 sys 目录写入文件即可切换 HugePages 的配置。例如，要关闭透明 HugePages，这可能在某些操作系统上对您有性能影响，您通常会运行一个如
+    `echo` `'never'` `>` `/sys/kernel/mm/redhat_transparent_hugepage/enabled` 的命令。如果您需要以特定方式设置
+    HugePages，您可以从 Pod 规范中完全完成，如下所示：
+- en: Declare a Pod, which presumably has specific performance needs based around
+    HugePages.
+  id: totrans-147
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 声明一个 Pod，假设它基于 HugePages 有特定的性能需求。
+- en: Declare an `init` container with this Pod, which runs in privileged mode and
+    mounts the /sys directory using the volume type of `hostPath`.
+  id: totrans-148
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在此 Pod 中声明一个 `init` 容器，该容器以特权模式运行并使用 `hostPath` 卷类型挂载 /sys 目录。
+- en: Have the `init` container execute any Linux-specific commands (such as the previous
+    `echo` statement) as its only execution steps.
+  id: totrans-149
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 让 `init` 容器执行任何 Linux 特定命令（如前面的 `echo` 语句）作为其唯一的执行步骤。
+- en: In general, `init` containers can be used to bootstrap certain Linux features
+    that might be required for a Pod to run properly. But keep in mind that any time
+    you mount a hostPath, you need special privileges on your cluster, which an administrator
+    might not readily give you. Some distributions, such as OpenShift, deny hostPath
+    volume mounts by default.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，`init` 容器可用于启动某些可能对 Pod 正确运行所需的 Linux 功能。但请记住，每次您挂载 hostPath 时，您都需要在您的集群上拥有特殊权限，管理员可能不会轻易给您。一些发行版，如
+    OpenShift，默认拒绝 hostPath 卷挂载。
+- en: '4.5.4 QoS classes: Why they matter and how they work'
+  id: totrans-151
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.5.4 QoS 类别：为什么它们很重要以及它们是如何工作的
+- en: We’ve seen terms such as *guaranteed* and *burstable* throughout this chapter,
+    but we haven’t defined these terms yet. To define these concepts, we first need
+    to introduce QoS.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在本章中看到了诸如 *guaranteed* 和 *burstable* 等术语，但我们还没有定义这些术语。为了定义这些概念，我们首先需要介绍 QoS。
+- en: When you go to a fancy restaurant, you expect the food to be great, but you
+    also expect the wait staff to be responsive. This responsiveness is known as quality
+    of service or QoS. We hinted at QoS earlier when we looked at why swap is disabled
+    in Kubernetes to guarantee the performance of memory access. *QoS* refers to the
+    availability of resources at a moment’s notice. Any data center, hypervisor, or
+    cloud has to make a tradeoff around resource availability for applications by
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您去一家高档餐厅时，您期望食物很棒，但您也期望服务员反应迅速。这种反应速度被称为服务质量或 QoS。当我们探讨为什么 Kubernetes 中禁用交换以保证内存访问性能时，我们提到了
+    QoS。*QoS* 指的是资源的即时可用性。任何数据中心、虚拟机管理程序或云都必须在应用程序的资源可用性上进行权衡
+- en: Guaranteeing that critical services stay up, but you’re spending lots of money
+    because you have more hardware than you need
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 保证关键服务正常运行，但您花费了大量金钱，因为您拥有的硬件比所需的要多
+- en: Spending little money and risking essential services going down
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 花很少的钱，冒着关键服务中断的风险
+- en: QoS allows you to walk the fine line of having many services performing suboptimally
+    during peak times without sacrificing the quality of critical services. In practice,
+    these critical services might be payment-processing systems, machine-learning
+    or AI jobs that are costly to restart, or real-time communications processes that
+    cannot be interrupted. Keep in mind that the eviction of a Pod is heavily dependent
+    on how much above its resource limits it is. In general
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: QoS 允许您在高峰时段让许多服务表现不佳，同时不牺牲关键服务的质量。在实践中，这些关键服务可能是支付处理系统、成本高昂的重启机器学习或 AI 任务，或者不能中断的实时通信过程。请记住，Pod
+    的驱逐很大程度上取决于其资源限制以上的程度。一般来说
+- en: Nicely-behaved applications with predictable memory and CPU usage are less likely
+    to be evicted in times of duress than others.
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 表现良好且内存和 CPU 使用量可预测的应用程序在压力情况下被驱逐的可能性比其他应用程序低。
+- en: Greedy applications are more likely to get killed during times of pressure when
+    they attempt to use more CPU or memory than allocated by Kubernetes, unless these
+    apps are in the Guaranteed class.
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 贪婪的应用程序在压力期间更有可能在尝试使用比 Kubernetes 分配的更多 CPU 或内存时被终止，除非这些应用程序属于保证类别。
+- en: Applications in the BestEffort QoS class are highly likely to get killed and
+    rescheduled in times of duress.
+  id: totrans-159
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在压力情况下，尽力而为 QoS 类的应用程序很可能被终止并重新调度。
+- en: You might be wondering how we decide which QoS class to use. In general, you
+    don’t directly decide this, and instead, you influence this decision by determining
+    whether your app needs guaranteed access to resources by using the `resource`
+    stanza in your Pod specification. We’ll walk through this process in the following
+    section.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能想知道我们如何决定使用哪种 QoS 类。一般来说，您不会直接决定这一点，而是通过确定您的应用程序是否需要通过 Pod 规范中的 `resource`
+    段落保证对资源的访问来影响这一决定。我们将在下一节中介绍这一过程。
+- en: 4.5.5 Creating QoS classes by setting resources
+  id: totrans-161
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.5.5 通过设置资源创建 QoS 类
+- en: 'Burstable, Guaranteed, and BestEffort are the three QoS classes that are created
+    for you, depending on how you define a Pod. These settings can increase the number
+    of containers that you can run on your cluster, where some may die off at times
+    of high utilization and can be rescheduled later. It’s tempting to make global
+    policies for how much CPU or memory you should allocate to end users but, be warned,
+    rarely does one size fit all:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据您如何定义 Pod，系统为您创建了三种 QoS 类：可突发、保证和尽力而为。这些设置可以增加您在集群上可以运行的容器数量，其中一些可能在高负载时停止运行，但可以在稍后重新调度。制定全局策略来决定为最终用户分配多少
+    CPU 或内存可能很有吸引力，但请注意，很少有一种方案适合所有人：
+- en: If all the containers on your system have a Guaranteed QoS, your ability to
+    handle dynamic workloads with modulating resources needs is hampered.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您系统上的所有容器都具有保证 QoS，那么您处理具有调节资源需求动态工作负载的能力将受到阻碍。
+- en: If no containers on your servers have a Guaranteed QoS, then a kubelet won’t
+    be able to make certain critical processes stay up.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果您的服务器上没有容器具有保证 QoS，那么 kubelet 将无法确保某些关键进程保持运行。
+- en: 'The rules for QoS determination are as follows (these are calculated and displayed
+    as a `status` field in your Pod):'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: QoS 确定的规则如下（这些是在您的 Pod 中计算并显示为 `status` 字段的）：
+- en: '*BestEffort Pods are those that have no CPU or memory requests.* They are easily
+    killed and displaced (and are likely to pop up on a new node) when resources are
+    tight.'
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*尽力而为 Pod 是那些没有 CPU 或内存请求的 Pod。当资源紧张时，它们很容易被终止和替换（并且很可能出现在新的节点上）。*'
+- en: '*Burstable Pods are those that have memory or CPU requests but do not have
+    limits defined for all classes.* These are less likely to be displaced than BestEffort
+    Pods.'
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*可突发 Pod 是那些具有内存或 CPU 请求但没有为所有类别定义限制的 Pod。与尽力而为 Pod 相比，它们不太可能被替换。*'
+- en: '*Guaranteed Pods are those that have both CPU and memory requests.* These are
+    less likely to be displaced than Burstable Pods.'
+  id: totrans-168
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*保证 Pod 是那些具有 CPU 和内存请求的 Pod。与可突发 Pod 相比，它们不太可能被替换。*'
+- en: 'Let’s see this in action. Create a new deployment by running `kubectl` `create`
+    `ns` `qos; kubectl` `-n` `qos` `run` `--image=nginx myapp`. Then, edit the deployment
+    to include a container specification that states a request but does not define
+    a limit. For example:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看实际效果。通过运行 `kubectl create ns qos; kubectl -n qos run --image=nginx myapp`
+    创建一个新的部署。然后，编辑部署以包含一个容器规范，该规范声明了请求但没有定义限制。例如：
+- en: '[PRE18]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: You will now see that when you run `kubectl` `get` `Pods` `-n` `qos` `-o` `yaml`,
+    you will have a Burstable class assigned to the `status` field of your Pod, as
+    the following code snippet shows. In crunch time, you might use this technique
+    to ensure that the most critical processes for your business all have a Guaranteed
+    or Burstable status.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行 `kubectl get Pods -n qos -o yaml` 时，你会看到你的 Pod 的 `status` 字段被分配了一个 Burstable
+    类，如下面的代码片段所示。在关键时刻，你可能使用这种技术来确保你业务中最关键的过程都具有保证或 Burstable 状态。
+- en: '[PRE19]'
+  id: totrans-172
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 4.6 Monitoring the Linux kernel with Prometheus, cAdvisor, and the API server
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.6 使用 Prometheus、cAdvisor 和 API 服务器监控 Linux 内核
+- en: We’ve looked at a lot of low-level Kubernetes concepts and mapped them to the
+    OS in this chapter, but in the real world, you won’t be manually curating this
+    data. Instead, for system metrics and overall trends, people typically aggregate
+    container and system-level OS information in a single, time-series dashboard so
+    that, in case of emergencies, they can ascertain the timescale of a problem and
+    drill into it from various perspectives (application, OS, and so forth).
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在本章中探讨了大量的低级 Kubernetes 概念，并将它们映射到操作系统上，但在现实世界中，你不会手动管理这些数据。相反，为了系统指标和整体趋势，人们通常会在单个时间序列仪表板上汇总容器和系统级别的操作系统信息，这样在紧急情况下，他们可以确定问题的规模并从不同的角度（应用、操作系统等）深入调查。
+- en: 'To conclude this chapter, we’ll up-level things a little bit and use Prometheus,
+    the industry standard for monitoring cloud native applications, as well as monitoring
+    Kubernetes itself. We’ll look at how Pod resource usage can be quantified by direct
+    inspection of cgroups. This has several advantages when it comes to an end-to-end
+    system visibility:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了结束本章，我们将稍微提升一下层次，使用 Prometheus，这是云原生应用的行业标准监控工具，以及 Kubernetes 自身的监控工具。我们将探讨如何通过直接检查
+    cgroups 来量化 Pod 资源使用情况。这有几个在端到端系统可见性方面的优势：
+- en: It can see sneaky processes that might overrun your cluster that aren’t visible
+    to Kubernetes.
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它可以看到可能超出你的集群范围且对 Kubernetes 不可见的隐蔽进程。
+- en: You can directly map resources that Kubernetes is aware of with kernel-level
+    isolation tools, which might uncover bugs in the way your cluster is interacting
+    with your OS.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以直接将 Kubernetes 所知的资源映射到内核级别的隔离工具，这可能会揭示你的集群与操作系统交互方式中的错误。
+- en: It’s a great tool for learning more about how containers are implemented at
+    scale by the kubelet and your container runtime.
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 这是一个了解 kubelet 和你的容器运行时如何大规模实现容器的绝佳工具。
+- en: Before we get into Prometheus, we need to talk about metrics. In theory, a *metric*
+    is a quantifiable value of some sort; for example, how many cheeseburgers you
+    ate in the last month. In the Kubernetes universe, the myriad of containers coming
+    online and offline in a data center makes application metrics important for administrators
+    as an objective and app-independent model for measuring the overall health of
+    a data center’s services.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们讨论 Prometheus 之前，我们需要谈谈指标。在理论上，*指标*是某种可量化值；例如，你上个月吃了多少个汉堡。在 Kubernetes 的世界里，数据中心中在线和离线的容器众多，这使得应用指标对于管理员来说非常重要，因为它提供了一个客观且与应用无关的模型来衡量数据中心服务的整体健康状况。
+- en: 'Sticking with the cheeseburger metaphor, you might have a collection of metrics
+    that look something like the following code snippet, which you can jot down in
+    a journal. There are three fundamental types of metrics that we’ll concern ourselves
+    with—histograms, gauges, and counters:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续使用汉堡的隐喻，你可能有一组看起来像以下代码片段的指标，你可以将其记在日记本上。我们将关注三种基本的指标类型——直方图、仪表盘和计数器：
+- en: '*Gauges*: Indicate how many requests you get per second at any given time.'
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*仪表盘*：指示在任何给定时间每秒接收到的请求数量。'
+- en: '*Histograms*: Show bins of timing for different types of events (e.g., how
+    many requests completed in under 500 ms).'
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*直方图*：显示不同类型事件的时序区间（例如，在500毫秒内完成的请求数量）。'
+- en: '*Counters*: Specify continuously increasing counts of events (e.g., how many
+    total requests you’ve seen).'
+  id: totrans-183
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*计数器*：指定连续增加的事件计数（例如，你总共看到了多少请求）。'
+- en: 'As a concrete example that might be a little closer to home, we can output
+    Prometheus metrics about our daily calorie consumption. The following code snippet
+    shows this output:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为可能更贴近我们日常生活的具体例子，我们可以输出 Prometheus 关于我们每日卡路里消耗的指标。下面的代码片段显示了这一输出：
+- en: '[PRE20]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ The total number of meals you had today
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 你今天总共吃了多少顿饭
+- en: ❷ The number of cheeseburgers you’ve eaten today
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 你今天吃了多少个汉堡
+- en: ❸ The amount of calories you’ve had, binned into buckets of 2, 4, 8, 16, and
+    so on, up to 2,048
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 你摄入的卡路里，被分入2、4、8、16等桶中，最高可达2,048
+- en: You might publish the total number of meals once a day. This is known as a *gauge*,
+    as it goes up and down and is updated periodically. The amount of cheeseburgers
+    you’ve eaten today would be a *counter*, which continually gets incremented over
+    time. With the amount of calories you’ve had, the metric says you had one meal
+    with less than 1,024 calories. This gives you a discrete way to bin how much you
+    ate without getting bogged down in details (anything above 2,048 is probably too
+    much and anything below 1,024 is most likely too few).
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会每天发布一次总餐数。这被称为*度量*，因为它会上下波动，并定期更新。你今天吃的汉堡包数量将是一个*计数器*，随着时间的推移会不断递增。对于你摄入的卡路里，这个度量数据表示你吃了一顿少于1,024卡路里的餐。这为你提供了一种离散的方式来分类你吃了多少，而不会陷入细节（任何超过2,048的都可能是太多了，任何低于1,024的都可能是太少了）。
+- en: 'Note that buckets like this are commonly used to monitor etcd over long time
+    periods. The amount of writes above 1 second are important for predicting etcd
+    outages. Over time, if we aggregated the daily journal entries that you made,
+    you might be able to make some interesting correlations as long as you logged
+    the time of these metrics. For example:'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，这样的桶通常用于长期监控etcd。超过1秒的写入量对于预测etcd故障很重要。随着时间的推移，如果我们汇总了你每天记录的日记条目，只要记录了这些度量数据的时间，你可能会发现一些有趣的关联。例如：
+- en: '[PRE21]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: If you plotted these metrics on their own individual y-axes with the x-axis
+    being time, you might be able to see that
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你将这些度量数据分别绘制在各自的y轴上，x轴为时间，你可能能够看到
+- en: Days where you ate cheeseburgers were inversely correlated to days you ate breakfast.
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 吃汉堡包的日子与吃早餐的日子成反比。
+- en: The amount of cheeseburgers you’ve been eating is increasing steadily.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你吃汉堡包的数量正在稳步增加。
+- en: 4.6.1 Metrics are cheap to publish and extremely valuable
+  id: totrans-195
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.1 度量数据的发布成本低，价值极高
+- en: 'Metrics are important for containerized and cloud-based applications, but they
+    need to be managed in a lightweight and decoupled manner. *Prometheus* gives us
+    the tools to enable metrics at scale without creating any unnecessary boilerplate
+    or frameworks that get in our way. It is designed to fulfill the following requirements:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 度量数据对于容器化和基于云的应用程序非常重要，但它们需要以轻量化和解耦的方式进行管理。*Prometheus*为我们提供了工具，使我们能够在不创建任何不必要的样板代码或框架的情况下，实现大规模的度量数据。它旨在满足以下要求：
+- en: Hundreds or thousands of different processes might publish similar metrics,
+    which means that a given metric needs to support metadata labels to differentiate
+    these processes.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数百或数千个不同的进程可能会发布类似的度量数据，这意味着给定的度量数据需要支持元数据标签来区分这些进程。
+- en: Applications should publish metrics in a language-independent manner.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序应以语言无关的方式发布度量数据。
+- en: Applications should publish metrics without being aware of how those metrics
+    are being consumed.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序应该发布度量数据，而无需了解这些度量数据是如何被消费的。
+- en: It should be easy for any developer to publish metrics for a service, regardless
+    of the language they use.
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于任何开发者来说，无论他们使用什么语言，发布服务的度量数据都应该很容易。
+- en: 'Programmatically, if we were to journal our diet choices in the previous analogy,
+    we would declare instances of `cheeseburger`, `meals_today`, and `calories_total`
+    that would be of the type `counter`, `gauge`, and `histogram`, respectively. These
+    types would be Prometheus API types, supporting operations that automatically
+    store local values to memory, which could be scraped as a CSV file from a local
+    endpoint. Typically, this is done by adding a Prometheus handler to a REST API
+    server, and this handler serves only one meaningful endpoint: metrics/. To manage
+    this data, we might use a Prometheus API client like so:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在程序上，如果我们要在之前的类比中记录饮食选择，我们会声明`cheeseburger`、`meals_today`和`calories_total`的实例，这些实例分别属于`counter`、`gauge`和`histogram`类型。这些类型将是Prometheus
+    API类型，支持将本地值自动存储到内存中的操作，这些操作可以从本地端点作为CSV文件抓取。通常，这是通过向REST API服务器添加Prometheus处理器来完成的，该处理器仅服务于一个有意义的端点：metrics/。为了管理这些数据，我们可能会使用像这样的Prometheus
+    API客户端：
+- en: Periodically, to observe a value for how many `meals_today` we’ve had as that
+    is a Gauge API call
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定期观察我们今天吃了多少顿饭的值，因为这是一个度量API调用
+- en: Periodically, to increment a value for the `cheeseburger` right after lunch
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定期，在午餐后立即增加`cheeseburger`的值
+- en: Daily, to aggregate the value of `calories_total`, which can be fed in from
+    a different data source
+  id: totrans-204
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每日，汇总`calories_total`的值，这些值可以从不同的数据源中获取
+- en: Over time, we could possibly correlate whether eating cheeseburgers related
+    to a higher total calorie consumption on a per day basis, and we might also be
+    able to tie in other metrics (for example, our weight) to these values. Although
+    any time-series database could enable this, Prometheus, as a lightweight metrics
+    engine, works well well in containers because it is entirely published by processes
+    in a way that is independent and stateless, and it’s emerged as the modern standard
+    for adding metrics to any application.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间的推移，我们可能会关联吃汉堡与每天总热量摄入量增加之间的关系，我们也许还能将这些其他指标（例如，我们的体重）与这些值联系起来。尽管任何时间序列数据库都能实现这一点，但作为轻量级指标引擎的Prometheus，在容器中表现良好，因为它完全由进程以独立和无状态的方式发布，并且已经成为向任何应用程序添加指标的现代标准。
+- en: Don’t wait to publish metrics
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要等待发布指标
+- en: Prometheus is often mistakenly thought of as a heavyweight system that needs
+    to be centrally installed to be useful. Actually, it’s really just an open source
+    *counting tool* and an API that can be embedded in any application. The fact that
+    a Prometheus master can scrape and integrate this information is obviously central
+    to that story, but it’s not a requirement to begin publishing and collecting metrics
+    for your app.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人们常常错误地认为Prometheus是一个重量级系统，需要集中安装才能发挥作用。实际上，它仅仅是一个开源的*计数工具*和一个可以嵌入任何应用程序的API。Prometheus主节点能够抓取和整合这些信息的事实显然是这一故事的核心，但并不是开始为您的应用程序发布和收集指标的要求。
+- en: Any microservice can publish metrics on an endpoint by importing a Prometheus
+    client. Although your cluster may not consume these metrics, there’s no reason
+    not to make these available on the container side, if for no other reason than
+    that you can use this endpoint to manually inspect counts of various quantifiable
+    aspects of your application, and you can spin up an ad hoc Prometheus master if
+    you want to observe it in the wild.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何微服务都可以通过导入Prometheus客户端在端点上发布指标。尽管您的集群可能不会消费这些指标，但没有理由不在容器侧提供这些指标，至少可以手动检查应用程序各种可量化方面的计数，如果您想观察它，还可以启动一个临时的Prometheus主节点。
+- en: There are Prometheus clients for all major programming languages. Thus, for
+    any microservice, it is simple and cheap to journal the daily goings-on of various
+    events as a Prometheus metric.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有主要编程语言都有Prometheus客户端。因此，对于任何微服务，将各种事件的日常活动记录为Prometheus指标既简单又便宜。
+- en: 4.6.2 Why do I need Prometheus?
+  id: totrans-210
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.2 为什么我需要Prometheus？
+- en: 'In this book, we focus on Prometheus because it is the de facto standard in
+    the cloud native landscape, but we’ll try to convince you that it deserves this
+    status with a simple, powerful example of how to quickly do a health check on
+    the inner workings of your API server. As an example, you can take a look at whether
+    requests for Pods has put a lot of strain on your Kubernetes API server by running
+    the following commands in your terminal (assuming that you have your `kind` cluster
+    up and running). In a separate terminal, run a `kubectl` `proxy` command, and
+    then `curl` the API server’s metrics endpoint like so:'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这本书中，我们专注于Prometheus，因为它在云原生领域中是事实上的标准，但我们将通过一个简单而强大的示例来说服您，这个示例展示了如何快速检查API服务器内部的工作情况。例如，您可以在终端中运行以下命令来查看Pod请求是否对您的Kubernetes
+    API服务器造成了很大压力（假设您的`kind`集群已经启动并运行）。在另一个终端中运行`kubectl proxy`命令，然后按照如下方式`curl` API服务器的指标端点：
+- en: '[PRE22]'
+  id: totrans-212
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ❶ Allows you to access the Kubernetes API server on localhost:8001
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 允许您访问localhost:8001上的Kubernetes API服务器
+- en: ❷ curls the API server’s metrics endpoint
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 卷曲API服务器的指标端点
+- en: Anyone with a `kubectl` client can immediately use the `curl` command to ingest
+    real-time metrics about the response times for a certain API endpoint. In the
+    previous snippet, we can see that almost all `get` calls to the Pod’s API endpoint
+    return in less than .025 seconds, which is generally considered as reasonable
+    performance. For the remainder of this chapter, we’ll set up a Prometheus monitoring
+    system for your `kind` cluster from scratch.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何拥有`kubectl`客户端的人都可以立即使用`curl`命令来获取特定API端点的响应时间实时指标。在前面的代码片段中，我们可以看到几乎所有的对Pod
+    API端点的`get`调用都在不到.025秒内返回，这通常被认为是合理的性能。在本章的剩余部分，我们将从头开始为您`kind`集群设置Prometheus监控系统。
+- en: 4.6.3 Creating a local Prometheus monitoring service
+  id: totrans-216
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.3 创建本地Prometheus监控服务
+- en: 'We can use a Prometheus monitoring service to inspect the way cgroups and system
+    resources are utilized under duress. The architecture of a Prometheus monitoring
+    system (figure 4.2) on `kind` includes the following:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 Prometheus 监控服务来检查在压力下 cgroup 和系统资源的利用情况。在 `kind` 上的 Prometheus 监控系统架构（图
+    4.2）包括以下内容：
+- en: A Prometheus master
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Prometheus 主节点
+- en: A Kubernetes API server that the master monitors
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 主节点监控的 Kubernetes API 服务器
+- en: Many kubelets (in our case, 1), each a source of metric information for the
+    API server to aggregate
+  id: totrans-220
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 许多 kubelet（在我们的例子中为 1 个），每个都是 API 服务器聚合指标信息的数据源
+- en: '![](../Images/CH04_F02_Love.png)'
+  id: totrans-221
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F02_Love.png)'
+- en: Figure 4.2 Architecture of a Prometheus monitoring deployment
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 4.2 Prometheus 监控部署架构
+- en: Note that, in general, a Prometheus master might be scraping metrics from many
+    different sources, including API servers, hardware nodes, standalone databases,
+    and even standalone applications. Not all services conveniently get aggregated
+    into the Kubernetes API server for use, however. In this simple example, we want
+    to look at how to use Prometheus for the specific purpose of monitoring cgroup
+    resource usage on Kubernetes, and conveniently, we can do this by simply scraping
+    data from all of our nodes directly from the API server. Also, note that our `kind`
+    cluster in this example has only one node. Even if we had more nodes, we could
+    still scrape all of this data directly from the API server by adding more `target`
+    fields to our scrape YAML file (which we will introduce shortly).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，通常情况下，Prometheus 主节点可能会从许多不同的来源抓取指标，包括 API 服务器、硬件节点、独立数据库，甚至是独立的应用程序。然而，并非所有服务都能方便地聚合到
+    Kubernetes API 服务器上以供使用。在这个简单的例子中，我们想看看如何使用 Prometheus 来监控 Kubernetes 上的 cgroup
+    资源使用情况，而且方便的是，我们可以通过直接从 API 服务器抓取所有节点的数据来实现这一点。此外，请注意，我们这个例子中的 `kind` 集群只有一个节点。即使我们有更多的节点，我们也可以通过在
+    scrape YAML 文件（我们将在稍后介绍）中添加更多的 `target` 字段来直接从 API 服务器抓取所有这些数据。
+- en: 'We will launch Prometheus with the configuration file that follows. Then we
+    can store the configuration file as prometheus.yaml:'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用以下配置文件启动 Prometheus。然后我们可以将配置文件存储为 prometheus.yaml：
+- en: '[PRE23]'
+  id: totrans-225
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'The kubelet uses the cAdvisor library to monitor cgroups and to collect quantifiable
+    data about them (for example, how much CPU and memory a Pod in particular group
+    uses). Because you already know how to browse through cgroup filesystem hierarchies,
+    reading the output of a kubelet collected by cAdvisor metrics will yield an “aha”
+    moment for you (in terms of your understanding how Kubernetes itself connects
+    to the lower-level kernel resource accounting). To scrape up these metrics, we’ll
+    tell Prometheus to query the API server every 3 seconds like so:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: kubelet 使用 cAdvisor 库来监控 cgroup 并收集有关它们的可量化数据（例如，特定组中的 Pod 使用了多少 CPU 和内存）。因为您已经知道如何浏览
+    cgroup 文件系统层次结构，所以阅读由 cAdvisor 指标收集的 kubelet 输出将为您带来“啊哈”的时刻（在理解 Kubernetes 本身如何连接到底层内核资源会计方面）。为了抓取这些指标，我们将告诉
+    Prometheus 每 3 秒查询 API 服务器一次，如下所示：
+- en: '[PRE24]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ The kind control plane node is the only node in our cluster.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ kind 控制平面节点是我们集群中唯一的节点。
+- en: ❷ Add more nodes in our cluster or more things to scrape in subsequent jobs
+    here.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在我们的集群中添加更多节点或在此处后续作业中抓取更多内容。
+- en: Real-world Prometheus configurations have to account for real-world constraints.
+    These include data size, security, and alerting protocols. Note that time-series
+    databases are notoriously greedy when it comes to disk usage and that metrics
+    can reveal a lot about a threat model for your organization. These may not be
+    important in your initial prototyping, as we noted earlier, but it’s better to
+    start by publishing your metrics at the application level and to then add the
+    complexity of managing a heavy-weight Prometheus installation later. For our simple
+    example, this will be all we need to configure Prometheus to explore our cgroups.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现实世界的 Prometheus 配置必须考虑现实世界的限制。这包括数据大小、安全性和警报协议。请注意，时间序列数据库在磁盘使用方面非常贪婪，而且指标可以揭示很多关于您组织威胁模型的信息。这些可能在您早期的原型设计阶段并不重要，正如我们之前提到的，但最好是先从应用程序级别发布您的指标，然后稍后添加管理重型
+    Prometheus 安装的复杂性。对于我们的简单示例，这将是我们配置 Prometheus 以探索 cgroup 所需要的一切。
+- en: Again, remember that the API server receives data from the kubelet periodically,
+    which is why this strategy of only needing to scrape one endpoint works. If this
+    was not the case, we could collect this data directly from the kubelet itself
+    or even run our own cAdvisor service. Now, let’s take a look at the *container
+    CPU user seconds total* metric. We’ll make it spike by running the following command.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次提醒，API服务器定期从kubelet接收数据，这就是为什么只需要抓取一个端点就能工作的原因。如果不是这样，我们可以直接从kubelet本身收集这些数据，甚至运行我们自己的cAdvisor服务。现在，让我们看一下*容器CPU用户秒数总计*指标。我们将通过运行以下命令使其激增。
+- en: Warning This command immediately creates a lot of network and CPU traffic on
+    your computer.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：此命令会立即在您的计算机上创建大量的网络和CPU流量。
+- en: '[PRE25]'
+  id: totrans-233
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: This command launches a series of resource-intensive containers that suck up
+    network assets, memory, and CPU cycles in your cluster. If you’re on a laptop,
+    the giant swarm container produced by running this command will probably cause
+    a lot of CPU spiking, and you might hear some fan noise.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令启动了一系列资源密集型的容器，这些容器消耗了集群的网络资源、内存和CPU周期。如果您在使用笔记本电脑，运行此命令产生的巨型swarm容器可能会引起大量的CPU峰值，您可能会听到一些风扇噪音。
+- en: 'In figure 4.3, you’ll see what our `kind` cluster looks like under duress.
+    We’ll leave it as an exercise for you to map the various container cgroups and
+    metadata (found by hovering your mouse over the Prometheus metrics) back to processes
+    and containers that are running in your system. In particular, it’s worth looking
+    at the following metrics to get a feel for CPU-level monitoring in Prometheus.
+    Exploring these metrics, along with the hundreds of other metrics in your system
+    when running your favorite workloads or containers, gives you a good way to create
+    important monitoring and forensics protocols for your internal systems engineering
+    pipelines:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图4.3中，您将看到我们的`kind`集群在压力下的样子。我们将把它留给你作为练习，将各种容器cgroups和元数据（通过将鼠标悬停在Prometheus指标上找到）映射回您系统中运行的进程和容器。特别是，以下指标值得一看，以了解Prometheus中的CPU级监控。探索这些指标，以及当运行您喜欢的负载或容器时系统中的数百个其他指标，为您创建重要的监控和取证协议提供了良好的方式：
+- en: '`container_memory_usage_bytes`'
+  id: totrans-236
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`container_memory_usage_bytes`'
+- en: '`container_fs_writes_total`'
+  id: totrans-237
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`container_fs_writes_total`'
+- en: '`container_memory_cache`'
+  id: totrans-238
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`container_memory_cache`'
+- en: '![](../Images/CH04_F03_Love.png)'
+  id: totrans-239
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F03_Love.png)'
+- en: Figure 4.3 Plotting metrics in a busy cluster
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.3 在繁忙的集群中绘制指标
+- en: 4.6.4 Characterizing an outage in Prometheus
+  id: totrans-241
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.4 在Prometheus中描述故障
+- en: 'Let’s look in more detail at the three metric types before closing up shop
+    for this chapter, just for good measure. In figure 4.4, we compare the general
+    topology of how these three metrics give you different perspectives on the same
+    situation in your data center. Specifically, we can see that the gauge gives us
+    a Boolean value indicating whether our cluster is up. Meanwhile, the histogram
+    shows us fine-grained information on how requests are trending until we lose our
+    application entirely. Finally, the counters show us the overall number of transactions
+    leading to an outage:'
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在结束本章之前，让我们更详细地查看三种指标类型，以确保万无一失。在图4.4中，我们比较了这三种指标在数据中心相同情况下提供不同视角的一般拓扑结构。具体来说，我们可以看到仪表给我们一个布尔值，指示我们的集群是否运行。同时，直方图显示了请求趋势的细粒度信息，直到我们完全失去应用程序。最后，计数器显示了导致故障的整体事务数：
+- en: The gauge readout would be most valuable to someone who might be on pager duty
+    for application up time.
+  id: totrans-243
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 仪表读数对于可能负责应用程序正常运行时间的值班人员来说最有价值。
+- en: The histogram readout may be most valuable to an engineer doing “day after”
+    forensics on why a microservice went down for an extended time.
+  id: totrans-244
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 直方图读数可能对进行“事后”取证调查为什么微服务长时间停机的一名工程师最有价值。
+- en: The counter metric would be a good way to determine how many successful requests
+    were served before an outage. For example, in case of a memory leak, we might
+    find that after a certain number of requests (say, 15,000 or 20,000), a web server
+    predictably fails.
+  id: totrans-245
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 计数器指标是一个很好的方法来确定在故障之前有多少成功的请求被服务。例如，在内存泄漏的情况下，我们可能会发现，在一定的请求次数（比如，15,000或20,000）之后，一个网络服务器会可预测地失败。
+- en: '![](../Images/CH04_F04_Love.png)'
+  id: totrans-246
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH04_F04_Love.png)'
+- en: Figure 4.4 Comparing how gauge, histogram, and counter metrics look in the same
+    scenario cluster
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图4.4 比较在相同场景集群中仪表、直方图和计数器指标的外观
+- en: It’s ultimately up to you to decide which metrics you want to use to make decisions,
+    but in general, it’s good to keep in mind that your metrics should not just be
+    a dumping ground for information. Rather, they should help you tell a story about
+    how your services behave and interact with each other over time. Generic metrics
+    are rarely useful for debugging intricate problems, so take the time to embed
+    the Prometheus client into your applications and collect some interesting, quantifiable
+    application metrics. Your administrators will thank you! We’ll look back at metrics
+    again in our etcd chapter, so don’t worry—there will be more Prometheus to come!
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终决定使用哪些度量来做出决策的是你，但一般来说，记住你的度量不应仅仅是一个信息堆放的地方。相反，它们应该帮助你讲述一个关于你的服务如何随时间行为和相互交互的故事。通用的度量很少对调试复杂问题有用，所以请花时间将
+    Prometheus 客户端嵌入到你的应用程序中，收集一些有趣、可量化的应用程序度量。你的管理员会感谢你的！我们将在 etcd 章节中再次回顾度量，所以不用担心——还有更多的
+    Prometheus 等着你！
+- en: Summary
+  id: totrans-249
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: The kernel expresses cgroup limitations for containers.
+  id: totrans-250
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 内核表达了容器对 cgroup 的限制。
+- en: A kubelet starts the scheduler processes and mirrors it for the API server.
+  id: totrans-251
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 启动调度进程，并将其镜像到 API 服务器。
+- en: We can use simple containers to inspect how cgroups implement a memory limitation.
+  id: totrans-252
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用简单的容器来检查 cgroups 如何实现内存限制。
+- en: The kubelet has QoS classes that nuance the quota for process resources in your
+    Pods.
+  id: totrans-253
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: kubelet 有 QoS 类别，这些类别细化了你的 Pods 中进程资源的配额。
+- en: We can use Prometheus to view real-time metrics of a cluster under duress.
+  id: totrans-254
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用 Prometheus 来查看集群在压力下的实时度量。
+- en: 'Prometheus expresses three core metric types: gauges, histograms, and counters.'
+  id: totrans-255
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Prometheus 表达了三种核心度量类型：仪表盘、直方图和计数器。

@@ -1,0 +1,1811 @@
+- en: 7 Handling blockingwork with threads
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 7 使用线程处理阻塞工作
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: Reviewing the multithreading library
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 检查多线程库
+- en: Creating thread pools to handle blocking I/O
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建线程池以处理阻塞 I/O
+- en: Using `async` and `await` to manage threads
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `async` 和 `await` 管理线程
+- en: Handling blocking I/O libraries with thread pools
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用线程池处理阻塞 I/O 库
+- en: Handling shared data and locking with threads
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用线程处理共享数据和锁定
+- en: Handling CPU-bound work in threads
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在线程中处理 CPU 密集型工作
+- en: When developing a new I/O-bound application from scratch, asyncio may be a natural
+    technology choice. From the beginning, you’ll be able to use non-blocking libraries
+    that work with asyncio, such as asyncpg and aiohttp, as you begin development.
+    However, greenfields (a project lacking constraints imposed by prior work) development
+    is a luxury that many software developers don’t have. A large portion of our work
+    may be managing existing code using blocking I/O libraries, such as requests for
+    HTTP requests, psycopg for Postgres databases, or any number of blocking libraries.
+    We may also be in a situation where an asyncio-friendly library does not yet exist.
+    Is there a way to get the performance gains of concurrency while still using asyncio
+    APIs in these cases?
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当从头开始开发一个新的 I/O 密集型应用程序时，asyncio 可能是一个自然的技术选择。从一开始，你就可以使用与 asyncio 兼容的非阻塞库，例如
+    asyncpg 和 aiohttp，开始开发。然而，绿色字段（缺乏先前工作强加的约束的项目）开发是一种许多软件开发者没有的奢侈。我们的大部分工作可能是使用阻塞
+    I/O 库管理现有代码，例如 HTTP 请求的 requests，Postgres 数据库的 psycopg，或任何数量的阻塞库。我们可能还处于一个没有 asyncio
+    兼容库的情况。在这些情况下，有没有一种方法可以在使用 asyncio API 的同时获得并发性能的提升？
+- en: '*Multithreading* is the solution to this question. Since blocking I/O releases
+    the global interpreter lock, this enables the possibility to run I/O concurrently
+    in separate threads. Much like the multiprocessing library, asyncio exposes a
+    way for us to utilize pools of threads, so we can get the benefits of threading
+    while still using the asyncio APIs, such as `gather` and `wait`.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*多线程* 是这个问题的解决方案。由于阻塞 I/O 释放了全局解释器锁，这使我们在不同的线程中并发运行 I/O 成为可能。与 multiprocessing
+    库类似，asyncio 提供了一种让我们利用线程池的方法，这样我们就可以在仍然使用 asyncio API（如 `gather` 和 `wait`）的同时获得线程的优势。'
+- en: In this chapter, we’ll learn how to use multithreading with asyncio to run blocking
+    APIs, such as requests, in threads. In addition, we’ll learn how to synchronize
+    shared data like we did in the last chapter and examine more advanced locking
+    topics such as *reentrant locks* and *deadlocks*. We’ll also see how to combine
+    asyncio with synchronous code by building a responsive GUI to run a HTTP stress
+    test. Finally, we’ll look at the few exceptions for which threading can be used
+    for CPU-bound work.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将学习如何使用 asyncio 进行多线程，以在线程中运行阻塞 API，如 requests。此外，我们还将学习如何同步共享数据，就像我们在上一章中所做的那样，并探讨更高级的锁定主题，如
+    *可重入锁* 和 *死锁*。我们还将看到如何通过构建响应式 GUI 来结合 asyncio 和同步代码，以运行 HTTP 压力测试。最后，我们将探讨一些可以使用线程进行
+    CPU 密集型工作的例外情况。
+- en: 7.1 Introducing the threading module
+  id: totrans-11
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.1 介绍 threading 模块
+- en: Python lets developers create and manage threads via the threading module. This
+    module exposes the `Thread` class, which, when instantiated, accepts a function
+    to run in a separate thread. The Python interpreter runs single-threaded within
+    a process, meaning that only one piece of Python bytecode can be running at one
+    time even if we have code running in multiple threads. The global interpreter
+    lock will only allow one thread to execute code at a time.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Python 允许开发者通过 threading 模块创建和管理线程。此模块公开了 `Thread` 类，当实例化时，接受一个在单独线程中运行的函数。Python
+    解释器在进程内以单线程方式运行，这意味着即使我们在多个线程中运行代码，一次也只有一个 Python 字节码可以运行。全局解释器锁将只允许一次一个线程执行代码。
+- en: This seems like Python limits us from using multithreading to any advantage,
+    but there are a few cases in which the global interpreter lock is released, the
+    primary one being during I/O operations. Python can release the GIL in this case
+    because, under the hood, Python is making low-level operating system calls to
+    perform I/O. These system calls are outside the Python interpreter, meaning that
+    no Python bytecode needs to run while we’re waiting for I/O to finish.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这似乎表明 Python 限制了我们对多线程的使用优势，但实际上有一些情况下会释放全局解释器锁，其中最主要的是在 I/O 操作期间。Python 在这种情况下可以释放
+    GIL，因为底层 Python 正在调用操作系统级别的调用以执行 I/O。这些系统调用在 Python 解释器之外，意味着在我们等待 I/O 完成时不需要运行任何
+    Python 字节码。
+- en: To get a better sense of how to create and run threads in the context of blocking
+    I/O, we’ll revisit our example of an echo server from chapter 3\. Recall that
+    to handle multiple connections, we needed to switch our sockets to non-blocking
+    mode and use the `select` module to watch for events on the sockets. What if we
+    were working with a legacy codebase where non-blocking sockets weren’t an option?
+    Could we still build an echo server that can handle more than one client at a
+    time?
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了更好地了解如何在阻塞I/O的上下文中创建和运行线程，我们将回顾第3章中的回显服务器示例。回想一下，为了处理多个连接，我们需要将套接字切换到非阻塞模式，并使用`select`模块来监视套接字上的事件。如果我们正在处理一个不支持非阻塞套接字的遗留代码库，我们还能构建一个可以同时处理多个客户端的回显服务器吗？
+- en: Since a socket’s `recv` and `sendall` are I/O-bound methods, and therefore release
+    the GIL, we should be able to run them in separate threads concurrently. This
+    means that we can create one thread per each connected client and read and write
+    data in that thread. This model is a common paradigm in web servers such as Apache
+    and is known as a *thread-per-connection* model. Let’s give this idea a try by
+    waiting for connections in our main thread and then creating a thread to echo
+    for each client that connects.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于套接字的`recv`和`sendall`是I/O绑定方法，因此它们会释放GIL，我们应该能够在不同的线程中并发运行它们。这意味着我们可以为每个已连接的客户端创建一个线程，并在该线程中读取和写入数据。这种模式是Apache等Web服务器中常见的范式，称为*线程-连接*模式。让我们通过在主线程中等待连接，然后为每个连接的客户端创建一个回显线程来尝试这个想法。
+- en: Listing 7.1 A multithreaded echo server
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.1 多线程回显服务器
+- en: '[PRE0]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Block waiting for a client to connect.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 阻塞等待客户端连接。
+- en: ❷ Once a client connects, create a thread to run our echo function.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 一旦客户端连接，创建一个线程来运行我们的回显函数。
+- en: ❸ Start running the thread.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 启动线程。
+- en: In the preceding listing, we enter an infinite loop listening for connections
+    on our server socket. Once we have a client connected, we create a new thread
+    to run our `echo` function. We supply the thread with a `target` that is the `echo`
+    function we want to run and `args`, which is a tuple of arguments passed to `echo`.
+    This means that we’ll call `echo(connection)` in our thread. Then, we start the
+    thread and loop again, waiting for a second connection. Meanwhile, in the thread
+    we created, we loop forever listening for data from our client, and when we have
+    it, we echo it back.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们进入一个无限循环，监听服务器套接字上的连接。一旦我们有一个客户端连接，我们创建一个新的线程来运行我们的`echo`函数。我们向线程提供一个`target`，即我们想要运行的`echo`函数，以及`args`，它是一个传递给`echo`的参数元组。这意味着我们将在我们的线程中调用`echo(connection)`。然后，我们启动线程并再次循环，等待第二个连接。同时，在我们创建的线程中，我们无限循环地监听来自客户端的数据，并且当我们有数据时，我们将它回显。
+- en: You should be able to connect an arbitrary amount of telnet clients concurrently
+    and have messages echo properly. Since each `recv` and `sendall` operates in a
+    separate thread per client, these operations never block each other; they only
+    block the thread they are running in.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你应该能够同时连接任意数量的telnet客户端，并且消息能够正确地回显。由于每个`recv`和`sendall`操作都在每个客户端的单独线程中运行，因此这些操作永远不会相互阻塞；它们只会阻塞它们运行的线程。
+- en: This solves the problem of multiple clients being unable to connect at the same
+    time with blocking sockets, although the approach has some issues unique to threads.
+    What happens if we try to kill this process with CTRL-C while we have clients
+    connected? Does our application shut down the threads we created cleanly?
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这解决了多个客户端无法同时使用阻塞套接字连接的问题，尽管这种方法有一些特定于线程的问题。如果我们尝试在客户端连接时使用CTRL-C来终止此进程，会发生什么？我们的应用程序是否会干净地关闭我们创建的线程？
+- en: It turns out that things don’t shut down quite so cleanly. If you kill the application,
+    you should see a `KeyboardInterrupt` exception thrown on `server.accept()`, but
+    your application will hang as the background thread will keep the program alive.
+    Furthermore, any connected clients will still be able to send and receive messages!
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果表明，事情并没有那么干净地关闭。如果你终止应用程序，你应该在`server.accept()`上看到抛出的`KeyboardInterrupt`异常，但你的应用程序将挂起，因为后台线程将保持程序运行。此外，任何已连接的客户端仍然能够发送和接收消息！
+- en: Unfortunately, user-created threads in Python do not receive `KeyboardInterrupt`
+    exceptions; only the main thread will receive them. This means that our threads
+    will keep running, happily reading from our clients and preventing our application
+    from exiting.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，Python中用户创建的线程不会接收到`KeyboardInterrupt`异常；只有主线程会接收到它们。这意味着我们的线程将继续运行，愉快地读取客户端数据，并阻止我们的应用程序退出。
+- en: There are a couple approaches to handle this; specifically, we can use what
+    are called *daemon* threads (pronounced *demon*), or we can come up with our own
+    way of canceling or “interrupting” a running thread. Daemon threads are a special
+    kind of thread for long-running background tasks. These threads won’t prevent
+    an application from shutting down. In fact, when only daemon threads are running,
+    the application will shut down automatically. Since Python’s main thread is not
+    a daemon thread, this means that, if we make all our connection threads daemonic,
+    our application will terminate on a `KeyboardInterrupt`. Adapting our code from
+    listing 7.1 to use daemonic threads is easy; all we need to do is set `thread.daemon`
+    `=` `True` before we run `thread.start()`. Once we make that change, our application
+    will terminate properly on CTRL-C.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种处理这种问题的方法；具体来说，我们可以使用所谓的 *守护线程*（发音为 *demon*），或者我们可以想出我们自己的取消或“中断”正在运行的线程的方法。守护线程是用于长时间运行的后台任务的特殊线程。这些线程不会阻止应用程序关闭。事实上，当只有守护线程在运行时，应用程序将自动关闭。由于
+    Python 的主线程不是守护线程，这意味着如果我们使所有我们的连接线程成为守护线程，我们的应用程序将在 `KeyboardInterrupt` 时终止。将我们的代码从列表
+    7.1 修改为使用守护线程很容易；我们只需要在运行 `thread.start()` 之前将 `thread.daemon` 设置为 `True`。一旦我们做出这个改变，我们的应用程序将在
+    CTRL-C 时正确终止。
+- en: The problem with this approach is we have no way to run any cleanup or shutdown
+    logic when our threads stop, since daemon threads terminate abruptly. Let’s say
+    that on shutdown we want to write out to each client that the server is shutting
+    down. Is there a way we can have some type of exception interrupt our thread and
+    cleanly shut down the socket? If we call a socket’s `shutdown` method, any existing
+    calls to `recv` will return `zero`, and `sendall` will throw an exception. If
+    we call `shutdown` from the main thread, this will have the effect of interrupting
+    our client threads that are blocking a `recv` or `sendall` call. We can then handle
+    the exception in the client thread and perform any cleanup logic we’d like.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法的缺点是我们没有方法在线程停止时运行任何清理或关闭逻辑，因为守护线程会突然终止。假设我们在关闭时想要向每个客户端写入服务器正在关闭的消息。我们有没有方法让某种类型的异常中断我们的线程并干净地关闭套接字？如果我们调用套接字的
+    `shutdown` 方法，任何现有的 `recv` 调用将返回 `zero`，而 `sendall` 将引发异常。如果我们从主线程调用 `shutdown`，这将具有中断正在阻塞
+    `recv` 或 `sendall` 调用的客户端线程的效果。然后我们可以在客户端线程中处理这个异常并执行我们想要的任何清理逻辑。
+- en: To do this, we’ll create threads slightly differently than before, by subclassing
+    the `Thread` class itself. This will let us define our own thread with a `cancel`
+    method, inside of which we can shut down the client socket. Then, our calls to
+    `recv` and `sendall` will be interrupted, allowing us to exit our `while` loop
+    and close out the thread.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做到这一点，我们将以不同于之前的方式创建线程，通过子类化 `Thread` 类本身。这将使我们能够定义自己的线程，其中包含一个 `cancel` 方法，在其中我们可以关闭客户端套接字。然后，我们的
+    `recv` 和 `sendall` 调用将被中断，允许我们退出 `while` 循环并关闭线程。
+- en: The `Thread` class has a `run` method that we can override. When we subclass
+    `Thread`, we implement this method with the code that we want the thread to run
+    when we start it. In our case, this is the `recv` and `sendall` echo loop.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Thread` 类有一个可以重写的 `run` 方法。当我们对 `Thread` 进行子类化时，我们使用我们想要线程在启动时运行的代码来实现这个方法。在我们的例子中，这是
+    `recv` 和 `sendall` 的回声循环。'
+- en: Listing 7.2 Subclassing the thread class for a clean shutdown
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.2 通过子类化线程类实现干净的关闭
+- en: '[PRE1]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ If there is no data, raise an exception. This happens when the connection
+    was closed by the client or the connection was shut down.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果没有数据，则引发异常。这发生在客户端关闭连接或连接被关闭时。
+- en: ❷ When we have an exception, exit the run method. This terminates the thread.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当我们遇到异常时，退出 `run` 方法。这将终止线程。
+- en: ❸ Shut down the connection if the thread is alive; the thread may not be alive
+    if the client closed the connection.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果线程正在运行，则关闭连接；如果客户端关闭了连接，线程可能不会运行。
+- en: ❹ Shut down the client connection for reads and writes.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 关闭客户端连接的读写。
+- en: ❺ Call the close method on our threads to shut down each client connection on
+    keyboard interrupt.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 在键盘中断时，调用我们线程的 `close` 方法来关闭每个客户端连接。
+- en: 'We first create a new class, `ClientEchoThread`, that inherits from `Thread`.
+    This class overrides the `run` method with the code from our original `echo` function,
+    but with a few changes. First, we wrap everything in a `try` `catch` block and
+    intercept `OSError` exceptions. This type of exception is thrown from methods
+    such as `sendall` when we close the client socket. We also check to see if the
+    data from `recv` is `0`. This happens in two cases: if the client closes the connection
+    (someone quits telnet, for example) or when we shut down the client connection
+    ourselves. In this case we throw a `BrokenPipeError` ourselves (a subclass of
+    `OSError`), execute the print statement in the except block, and exit the `run`
+    method, which shuts down the thread.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先创建了一个新的类`ClientEchoThread`，该类从`Thread`继承。这个类用我们的原始`echo`函数中的代码覆盖了`run`方法，但做了一些修改。首先，我们将一切包裹在一个`try`
+    `catch`块中，并拦截`OSError`异常。这种异常在关闭客户端套接字时由`sendall`等方法抛出。我们还检查`recv`的数据是否为`0`。这发生在两种情况下：如果客户端关闭了连接（例如，有人退出telnet）或者当我们自己关闭客户端连接时。在这种情况下，我们自行抛出一个`BrokenPipeError`（`OSError`的子类），执行异常块中的打印语句，并退出`run`方法，这将关闭线程。
+- en: We also define a `close` method on our `ClientEchoThread` class. This method
+    first checks to see if the thread is alive before shutting down the client connection.
+    What does it mean for a thread to be “alive,” and why do we need to do this? A
+    thread is alive if its `run` method is executing; in this case this is true if
+    our run method does not throw any exceptions. We need this check because the client
+    itself may have closed the connection, resulting in a `BrokenPipeError` exception
+    in the `run` method before we call `close`. This means that calling `sendall`
+    would result in an exception, as the connection is no longer valid.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还在我们的`ClientEchoThread`类上定义了一个`close`方法。该方法首先检查线程是否存活，然后再关闭客户端连接。线程“存活”意味着什么，为什么我们需要这样做？如果线程的`run`方法正在执行，则线程是存活的；在这种情况下，如果我们的`run`方法没有抛出任何异常，则这是真的。我们需要这个检查，因为客户端本身可能已经关闭了连接，在我们调用`close`之前，在`run`方法中引发了`BrokenPipeError`异常。这意味着调用`sendall`会导致异常，因为连接已不再有效。
+- en: Finally, in our main loop, which listens for new incoming connections, we intercept
+    `KeyboardInterrupt` exceptions. Once we have one, we call the `close` method on
+    each thread we’ve created. This will send a message to the client, assuming the
+    connection is still active and shut down the connection.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在我们的主循环中，该循环监听新的传入连接，我们拦截`KeyboardInterrupt`异常。一旦我们捕获到异常，我们就在我们创建的每个线程上调用`close`方法。这会向客户端发送消息，假设连接仍然活跃，并关闭连接。
+- en: Overall, canceling running threads in Python, and in general, is a tricky problem
+    and depends on the specific shutdown case you’re trying to handle. You’ll need
+    to take special care that your threads do not block your application from exiting
+    and to figure out where to put in appropriate interrupt points to exit your threads.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体来说，在Python中取消正在运行的线程，在一般情况下，是一个棘手的问题，并且取决于你试图处理的特定关闭情况。你需要特别注意确保你的线程不会阻止应用程序退出，并找出在哪里放置适当的中断点以退出线程。
+- en: We’ve now seen a couple ways to manage threads manually ourselves, creating
+    a thread object with a `target` function and subclassing `Thread` and overriding
+    the `run` method. Now that we understand threading basics, let’s see how to use
+    them with asyncio to work with popular blocking libraries.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到了几种手动管理线程的方法，创建一个带有`target`函数的线程对象，以及通过继承`Thread`并覆盖`run`方法。现在我们了解了线程的基础知识，让我们看看如何使用它们与asyncio一起工作，以使用流行的阻塞库。
+- en: 7.2 Using threads with asyncio
+  id: totrans-42
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.2 使用asyncio中的线程
+- en: We now know how to create and manage multiple threads to handle blocking work.
+    The drawback of this approach is that we must individually create and keep track
+    of threads. We’d like to be able to use all the asyncio-based APIs we’ve learned
+    to wait for results from threads without having to manage them ourselves. Like
+    process pools from chapter 6, we can use *thread pools* to manage threads in this
+    manner. In this section, we’ll introduce a popular blocking HTTP client library
+    and see how to use threads with asyncio to run web requests concurrently.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在知道了如何创建和管理多个线程来处理阻塞工作。这种方法的缺点是我们必须单独创建并跟踪线程。我们希望能够使用我们学到的所有基于asyncio的API来等待线程的结果，而无需自己管理它们。就像第6章中的进程池一样，我们可以使用*线程池*以这种方式管理线程。在本节中，我们将介绍一个流行的阻塞HTTP客户端库，并看看如何使用asyncio中的线程来并发运行Web请求。
+- en: 7.2.1 Introducing the requests library
+  id: totrans-44
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.1 介绍requests库
+- en: 'The *requests library* is a popular HTTP client library for Python, self-described
+    as “HTTP for humans.” You can view the latest documentation for the library at
+    [https://requests.readthedocs.io/en/master/](https://requests.readthedocs.io/en/master/).
+    Using it, you can make HTTP requests to web servers much like we did with aiohttp.
+    We’ll use the latest version (as of this writing, version 2.24.0). You can install
+    this library by running the following `pip` command:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`*requests 库*` 是一个流行的 Python HTTP 客户端库，自称是“为人类设计的 HTTP”。您可以在 [https://requests.readthedocs.io/en/master/](https://requests.readthedocs.io/en/master/)
+    查看该库的最新文档。使用它，您可以像使用 aiohttp 一样向 Web 服务器发送 HTTP 请求。我们将使用最新版本（截至本文撰写时，版本 2.24.0）。您可以通过运行以下
+    `pip` 命令来安装此库：'
+- en: '[PRE2]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Once we’ve installed the library, we’re ready to make some basic HTTP requests.
+    Let’s start out by making a couple of requests to example.com to retrieve the
+    status code, as we did earlier with aiohttp.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安装库后，我们就可以开始进行一些基本的 HTTP 请求了。让我们先向 example.com 发送几个请求，以获取状态码，就像我们之前使用 aiohttp
+    一样。
+- en: Listing 7.3 Basic usage of requests
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.3 requests 的基本用法
+- en: '[PRE3]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The preceding listing executes two `HTTP` `GET` requests in series. Running
+    this, you should see two `200` outputs. We didn’t create a HTTP session here,
+    as we did with aiohttp, but the library does support this as needed to keep cookies
+    persistent across different requests.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述列表执行了两个 `HTTP` `GET` 请求。运行此代码，你应该看到两个 `200` 输出。我们没有在这里创建 HTTP 会话，就像我们使用 aiohttp
+    一样，但该库根据需要支持此功能，以在不同请求之间保持 cookie 的持久性。
+- en: The requests library is blocking, meaning that each call to `requests.get` will
+    stop any thread from executing other Python code until the request finishes. This
+    has implications for how we can use this library in asyncio. If we try to use
+    this library in a coroutine or a task by itself, it will block the entire event
+    loop until the request finishes. If we had a HTTP request that took 2 seconds,
+    our application wouldn’t be able to do anything other than wait for those 2 seconds.
+    To properly use this library with asyncio, we must run these blocking operations
+    inside of a thread.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`requests` 库是阻塞的，这意味着每次调用 `requests.get` 都会阻止任何线程执行其他 Python 代码，直到请求完成。这对我们在
+    asyncio 中使用此库的方式有影响。如果我们尝试在协程或任务中使用此库，它将阻塞整个事件循环，直到请求完成。如果我们有一个需要 2 秒的 HTTP 请求，我们的应用程序除了等待这
+    2 秒之外，什么都不能做。为了正确地使用此库与 asyncio 一起，我们必须在线程中运行这些阻塞操作。'
+- en: 7.2.2 Introducing thread pool executors
+  id: totrans-52
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.2 介绍线程池执行器
+- en: Much like process pool executors, the `concurrent.futures` library provides
+    an implementation of the `Executor` abstract class to work with threads named
+    `ThreadPoolExecutor`. Instead of maintaining a pool of worker processes like a
+    process pool does, a thread pool executor will create and maintain a pool of threads
+    that we can then submit work to.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与进程池执行器类似，`concurrent.futures` 库提供了一个名为 `ThreadPoolExecutor` 的 `Executor` 抽象类的实现，用于与线程一起工作。与进程池不同，线程池执行器会创建并维护一个线程池，我们可以将工作提交给这个线程池。
+- en: While a process pool will by default create one worker process for each CPU
+    core our machine has available, determining how many worker threads to create
+    is a bit more complicated. Internally, the formula for the default number of threads
+    is `min(32,` `os.cpu_count()` `+` `4)`. This causes the maximum (upper) bound
+    of worker threads to be 32 and the minimum (lower) bound to be 5\. The upper bound
+    is set to 32 to avoid creating a surprising number of threads on machines with
+    large amounts of CPU cores (remember, threads are resource-expensive to create
+    and maintain). The lower bound is set to 5 because on smaller 1–2 core machines,
+    spinning up only a couple of threads isn’t likely to improve performance much.
+    It often makes sense to create a few more threads than your available CPUs for
+    I/O-bound work. For example, on an 8-core machine the above formula means we’ll
+    create 12 threads. While only 8 threads can run concurrently, we can have other
+    threads paused waiting for I/O to finish, letting our operating resume them when
+    I/O is done.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然进程池默认会为机器上每个可用的CPU核心创建一个工作进程，但确定要创建多少个工作线程要复杂一些。内部，默认线程数的公式是`min(32, os.cpu_count()
+    + 4)`。这导致工作线程的最大（上限）值为32，最小（下限）值为5。上限设置为32是为了避免在拥有大量CPU核心的机器上创建出人意料的线程数量（记住，线程的创建和维护成本较高）。下限设置为5是因为在较小的1-2核心机器上，仅启动几个线程不太可能显著提高性能。对于I/O密集型工作，通常有道理创建比可用CPU更多的线程。例如，在8核心机器上，上述公式意味着我们将创建12个线程。虽然只有8个线程可以并发运行，但我们可以有其他线程暂停等待I/O完成，让操作系统在I/O完成后恢复它们。
+- en: Let’s adapt our example from listing 7.3 to run 1,000 HTTP requests concurrently
+    with a thread pool. We’ll time the results to get an understanding of what the
+    benefit is.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们将7.3列表中的示例修改为使用线程池并发运行1,000个HTTP请求。我们将计时结果以了解其好处。
+- en: Listing 7.4 Running requests with a thread pool
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.4 使用线程池运行请求
+- en: '[PRE4]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'On an 8-core machine with a speedy internet connection, this code can execute
+    in as little as 8–9 seconds with the default number of threads. It is easy to
+    write this synchronously to understand the impact that threading has by doing
+    something, as in the following:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在具有快速互联网连接的8核心机器上，此代码可以在默认线程数的情况下以8-9秒的时间执行。很容易将此同步编写出来，通过做一些事情来理解线程的影响，如下所示：
+- en: '[PRE5]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Running this code can take upwards of 100 seconds! This makes our threaded code
+    a bit more than 10 times faster than our synchronous code, giving us a pretty
+    big performance bump.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行此代码可能需要超过100秒！这使得我们的线程代码比同步代码快10多倍，给我们带来了相当大的性能提升。
+- en: 'While this is clearly an improvement, you may remember from chapter 4, on aiohttp,
+    that we were able to make 1,000 requests concurrently in less than 1 second. Why
+    is this so much slower than our threading version? Remember that our maximum number
+    of worker threads is limited to 32 (that is, the number of CPUs plus 4), meaning
+    that by default we can only run a maximum of 32 requests concurrently. We can
+    try to get around this by passing in `max_workers=1000` when we create our thread
+    pool, as in the following:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这显然是一个改进，但你可能还记得在第4章中关于aiohttp的内容，我们能够在不到1秒的时间内并发发送1,000个请求。为什么这比我们的线程版本慢这么多？记住，我们的最大工作线程数限制为32（即CPU数量加4），这意味着默认情况下我们只能并发运行最多32个请求。我们可以在创建线程池时传递`max_workers=1000`来尝试解决这个问题，如下所示：
+- en: '[PRE6]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This approach can yield some improvements, as we now have one thread per each
+    request we make. However, this still won’t come very close to our coroutine-based
+    code. This is due to the resource overhead associated with threads. Threads are
+    created at the operating-system level and are more expensive to create than coroutines.
+    In addition, threads have a context-switching cost at the OS level. Saving and
+    restoring thread state when a context switch happens eats up some of the performance
+    gains obtained by using threads.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法可以带来一些改进，因为我们现在为每个请求都分配了一个线程。然而，这仍然远远达不到我们基于协程的代码的效果。这是因为线程与资源开销相关。线程在操作系统级别创建，其创建成本比协程高。此外，线程在操作系统级别还有上下文切换的成本。当发生上下文切换时，保存和恢复线程状态会消耗一些使用线程获得的成绩。
+- en: When you’re determining the number of threads to use for a particular problem,
+    it is best to start small (the amount of CPU cores plus a few is a good starting
+    point), test it, and benchmark it, gradually increasing the number of threads.
+    You’ll usually find a “sweet spot,” after which the run time will plateau and
+    may even degrade, no matter how many more threads you add. This sweet spot is
+    usually a fairly low number relative to the requests you want to make (to make
+    it clear, creating 1,000 threads for 1,000 requests probably isn’t the best use
+    of resources).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你确定要为特定问题使用多少线程时，最好从小规模开始（CPU核心数加上几个作为起始点），进行测试，并对其进行基准测试，逐渐增加线程数。你通常会找到一个“最佳点”，在此之后，运行时间将趋于平稳，甚至可能下降，无论你添加多少线程。这个最佳点通常相对于你想要发起的请求数量来说是一个相当低的数字（为了说明，为1,000个请求创建1,000个线程可能并不是资源利用的最佳方式）。
+- en: 7.2.3 Thread pool executors with asyncio
+  id: totrans-65
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.3 使用asyncio的线程池执行器
+- en: Using thread pool executors with the asyncio event loop isn’t much different
+    than using `ProcessPoolExecutors`. This is the beauty of having the abstract `Executor`
+    base class in that we can use the same code to run threads or processes by only
+    having to change one line of code. Let’s adapt our example of running 1,000 HTTP
+    requests to use `asyncio.gather` instead of `pool.map`.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用线程池执行器与asyncio事件循环并没有太大的不同，这得益于我们有一个抽象的`Executor`基类，我们可以通过只更改一行代码来使用相同的代码运行线程或进程。让我们修改我们的示例，将运行1,000个HTTP请求的例子改为使用`asyncio.gather`而不是`pool.map`。
+- en: Listing 7.5 Using a thread pool executor with asyncio
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.5 使用线程池执行器与asyncio
+- en: '[PRE7]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: We create the thread pool as we did before, but instead of using `map` we create
+    a list of tasks by calling our `get_status_code` function with `loop.run_in_executor`.
+    Once we have a list of tasks, we can wait for them to finish with `asyncio.gather`
+    or any of the other asyncio APIs we learned earlier.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们创建线程池的方式与之前相同，但不是使用`map`，而是通过调用`loop.run_in_executor`来调用我们的`get_status_code`函数，创建一个任务列表。一旦我们有了任务列表，我们就可以使用`asyncio.gather`或我们之前学到的其他asyncio
+    API来等待它们完成。
+- en: Internally, `loop.run_in_executor` calls the thread pool executor’s `submit`
+    method. This will put each function we pass in onto a queue. Worker threads in
+    the pool then pull from the queue, running each work item until it completes.
+    This approach does not yield any performance benefits over using a pool without
+    asyncio, but while we’re waiting for `await` `asyncio.gather` to finish, other
+    code can run.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内部，`loop.run_in_executor`调用线程池执行器的`submit`方法。这将把每个我们传递进去的函数放入队列中。池中的工作线程然后从队列中取出，运行每个工作项直到完成。这种方法在使用没有asyncio的池时并不会带来任何性能上的好处，但当我们等待`await`
+    `asyncio.gather`完成时，其他代码可以运行。
+- en: 7.2.4 Default executors
+  id: totrans-71
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.4 默认执行器
+- en: Reading the asyncio documentation, you may notice that the `run_in_executor`
+    method’s `executor` parameter can be `None`. In this case, `run_in_executor` will
+    use the event loop’s *default executor*. What is a default executor? Think of
+    it as a reusable singleton executor for your entire application. The default executor
+    will always default to a `ThreadPoolExecutor` unless we set a custom one with
+    the `loop.set_default_executor` method. This means that we can simplify the code
+    from listing 7.5, as shown in the following listing.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阅读asyncio文档时，你可能注意到`run_in_executor`方法的`executor`参数可以是`None`。在这种情况下，`run_in_executor`将使用事件循环的*默认执行器*。什么是默认执行器？可以将其视为适用于整个应用程序的可重用单例执行器。默认执行器将始终默认为`ThreadPoolExecutor`，除非我们使用`loop.set_default_executor`方法设置一个自定义的执行器。这意味着我们可以简化列表7.5中的代码，如下所示。
+- en: Listing 7.6 Using the default executor
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.6 使用默认执行器
+- en: '[PRE8]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: In the preceding listing, we eliminate creating our own `ThreadPoolExecutor`
+    and using it in a context manager as we did before and, instead, pass in `None`
+    as the executor. The first time we call `run_in_executor`, asyncio creates and
+    caches a default thread pool executor for us. Each subsequent call to `run_in_executor`
+    reuses the previously created default executor, meaning the executor is then global
+    to the event loop. Shutdown of this pool is also different from what we saw before.
+    Previously, the thread pool executor we created was shut down when we exited a
+    context manager’s `with` block. When using the default executor, it won’t shut
+    down until the event loop closes, which usually happens when our application finishes.
+    Using the default thread pool executor when we want to use threads simplifies
+    things, but can we make this even easier?
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们消除了创建自己的`ThreadPoolExecutor`并在上下文管理器中使用它，就像我们之前做的那样，相反，我们将`None`作为执行器传入。第一次调用`run_in_executor`时，asyncio为我们创建并缓存了一个默认的线程池执行器。随后的每次调用`run_in_executor`都会重用之前创建的默认执行器，这意味着执行器随后对事件循环全局有效。此池的关闭方式也与之前不同。之前，我们创建的线程池执行器在我们退出上下文管理器的`with`块时关闭。当使用默认执行器时，它不会关闭，直到事件循环关闭，这通常发生在我们的应用程序完成时。当我们想使用线程时使用默认线程池执行器简化了事情，但我们能否使这更加简单？
+- en: In Python 3.9, the `asyncio.to_thread` coroutine was introduced to further simplify
+    putting work on the default thread pool executor. It takes in a function to run
+    in a thread and a set of arguments to pass to that function. Previously, we had
+    to use `functools.partial` to pass in arguments, so this makes our code a little
+    cleaner. It then runs the function with its arguments in the default thread pool
+    executor and the currently running event loop. This lets us simplify our threading
+    code even more. Using the `to_thread` coroutine eliminates using `functools.partial`
+    and our call to `asyncio.get_running_loop`, cutting down our total lines of code.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Python 3.9中，引入了`asyncio.to_thread`协程，以进一步简化将工作放在默认线程池执行器上。它接受一个要在线程中运行的函数以及传递给该函数的参数集。之前，我们必须使用`functools.partial`来传递参数，这使得我们的代码更加简洁。然后，它在默认线程池执行器和当前运行的事件循环中运行该函数及其参数。这使得我们可以进一步简化我们的线程代码。使用`to_thread`协程消除了使用`functools.partial`和我们的`asyncio.get_running_loop`调用，减少了我们的总代码行数。
+- en: Listing 7.7 Using the to_thread coroutine
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.7 使用to_thread协程
+- en: '[PRE9]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: So far, we’ve only seen how to run blocking code inside of threads. The power
+    of combining threads with asyncio is that we can run other code while we’re waiting
+    for our threads to finish. To see how to run other code while threads are running,
+    we’ll revisit our example from chapter 6 of periodically outputting the status
+    of a long-running task.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们只看到了如何在线程中运行阻塞代码。结合线程与asyncio的力量在于，我们可以在等待线程完成时运行其他代码。为了了解如何在线程运行时运行其他代码，我们将回顾第6章中的示例，该示例定期输出长时间运行任务的状态。
+- en: 7.3 Locks, shared data, and deadlocks
+  id: totrans-80
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.3 锁、共享数据和死锁
+- en: Much like multiprocessing code, multithreaded code is also susceptible to race
+    conditions when we have shared data, as we do not control the order of execution.
+    Any time you have two threads or processes that could modify a shared piece of
+    non-thread-safe data, you’ll need to utilize a lock to properly synchronize access.
+    Conceptually, this is no different from the approach we took with multiprocessing;
+    however, the memory model of threads changes the approach slightly.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与多进程代码类似，多线程代码在存在共享数据时也容易受到竞态条件的影响，因为我们无法控制执行顺序。任何时候，如果你有两个或多个线程或进程可能修改同一非线程安全数据的共享部分，你都需要利用锁来正确同步访问。从概念上讲，这与我们在多进程中采取的方法没有不同；然而，线程的内存模型略微改变了这种方法。
+- en: Recall that with multiprocessing, by default the processes we create do not
+    share memory. This meant we needed to create special shared memory objects and
+    properly initialize them so that each process could read from and write to that
+    object. Since threads *do* have access to the same memory of their parent process,
+    we no longer need to do this, and threads can access shared variables directly.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，在使用多进程时，我们创建的进程默认不共享内存。这意味着我们需要创建特殊的共享内存对象并正确初始化它们，以便每个进程都可以从这个对象中读取和写入。由于线程*确实*可以访问其父进程的相同内存，我们不再需要这样做，线程可以直接访问共享变量。
+- en: This simplifies things a bit, but since we won’t be working with shared `Value`
+    objects that have locks built in, we’ll need to create them ourselves. To do this,
+    we’ll need to use the threading module’s `Lock` implementation, which is different
+    from the one we used with multiprocessing. This is as easy as importing `Lock`
+    from the threading module and calling its `acquire` and `release` methods around
+    critical sections of code or using it in a context manager.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这简化了事情，但由于我们不会使用内置锁的共享 `Value` 对象，我们需要自己创建它们。为此，我们需要使用线程模块的 `Lock` 实现，这与我们在多进程中使用的不一样。这就像从线程模块导入
+    `Lock` 并在代码的关键部分调用其 `acquire` 和 `release` 方法，或者在使用上下文管理器时使用它一样简单。
+- en: To see how to use locks with threading, let’s revisit our task from chapter
+    6 of keeping track and displaying the progress of a long task. We’ll take our
+    previous example of making thousands of web requests and use a shared counter
+    to keep track of how many requests we’ve completed so far.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解如何使用锁进行线程操作，让我们回顾一下第6章中的任务，即跟踪和显示长时间任务的进度。我们将使用我们之前的例子，即发出数千个网络请求，并使用一个共享计数器来跟踪到目前为止我们已经完成了多少请求。
+- en: Listing 7.8 Printing status of requests
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.8 打印请求状态
+- en: '[PRE10]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'This should look familiar, as it is like the code we wrote to output progress
+    of our `map` operation in chapter 6\. We create a global `counter` variable as
+    well as a `counter_lock` to synchronize access to it in critical sections. In
+    our `get_status_code` function we acquire the lock when we increment the counter.
+    Then, in our main coroutine we kick off a reporter background task that outputs
+    how many requests we’ve finished every 500 milliseconds. Running this, you should
+    see output similar to the following:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这应该看起来很熟悉，因为它就像我们在第6章中编写以输出 `map` 操作进度的代码一样。我们创建了一个全局 `counter` 变量以及一个 `counter_lock`，以在关键部分同步对其的访问。在我们的
+    `get_status_code` 函数中，我们在增加计数器时获取锁。然后，在我们的主协程中，我们启动一个后台任务报告器，每500毫秒输出我们已经完成的请求数量。运行此代码，你应该会看到类似以下内容的输出：
+- en: '[PRE11]'
+  id: totrans-88
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: We now know the basics around locks with both multithreading and multiprocessing,
+    but there is still quite a bit to learn about locking. Next, we’ll look at the
+    concept of *reentrancy*.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经了解了多线程和多进程中使用锁的基本知识，但关于锁还有很多东西要学习。接下来，我们将探讨 *可重入性* 的概念。
+- en: 7.3.1 Reentrant locks
+  id: totrans-90
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.1 可重入锁
+- en: Simple locks work well for coordinating access to a shared variable across multiple
+    threads, but what happens when a thread tries to acquire a lock it has already
+    acquired? Is this even safe? Since the same thread is acquiring the lock, this
+    should be okay since this is single-threaded by definition and, therefore, thread-safe.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简单的锁对于协调多个线程对共享变量的访问很有效，但当线程尝试获取它已经获取的锁时会发生什么？这是否甚至安全？由于是同一线程获取锁，根据定义这是单线程的，因此应该是线程安全的。
+- en: While this access should be okay, it does cause problems with the locks we have
+    been using so far. To illustrate this, let’s imagine we have a recursive sum function
+    that takes a list of integers and produces the sum of the list. The list we want
+    to sum can be modified from multiple threads, so we need to use a lock to ensure
+    the list we’re summing does not get modified during our sum operation. Let’s try
+    implementing this with a normal lock to see what happens. We’ll also add some
+    console output to see how our function is executing.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这种访问应该是没有问题的，但它确实会与迄今为止我们使用的锁产生问题。为了说明这一点，让我们想象我们有一个递归求和函数，它接受一个整数列表并产生该列表的总和。我们想要求和的列表可以从多个线程中修改，因此我们需要使用锁来确保我们在求和操作期间所求和的列表不会被修改。让我们尝试使用一个普通的锁来实现这一点，看看会发生什么。我们还会添加一些控制台输出，以查看我们的函数是如何执行的。
+- en: Listing 7.9 Recursion with locks
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.9 使用锁的递归
+- en: '[PRE12]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'If you run this code, you’ll see the following few messages and then the application
+    will hang forever:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你运行此代码，你会看到以下几条消息，然后应用程序将永远挂起：
+- en: '[PRE13]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Why is this happening? If we walk through this, we acquire `list_lock` the first
+    time perfectly fine. We then unpack the list and recursively call `sum_list` on
+    the remainder of the list. This then causes us to attempt to acquire `list_lock`
+    a second time. This is where our code hangs because, since we already acquired
+    the lock, we block forever trying to acquire the lock a second time. This also
+    means we never exit the first `with` block and can’t release the lock; we’re waiting
+    for a lock that will never be released!
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么会出现这种情况？如果我们逐步分析，第一次获取`list_lock`是完全没有问题的。然后我们解包列表，并递归地调用`sum_list`方法处理列表的剩余部分。这导致我们尝试第二次获取`list_lock`。这就是我们的代码挂起的地方，因为我们已经获取了锁，所以我们永远阻塞在尝试第二次获取锁。这也意味着我们永远不会退出第一个`with`块，无法释放锁；我们正在等待一个永远不会释放的锁！
+- en: 'Since this recursion is coming from the same thread that originated it, acquiring
+    the lock more than once shouldn’t be a problem as this won’t cause race conditions.
+    To support these use cases, the threading library provides *reentrant* locks.
+    A reentrant lock is a special kind of lock that can be acquired by the same thread
+    more than once, allowing that thread to “reenter” critical sections. The threading
+    module provides reentrant locks in the `RLock` class. We can take our above code
+    and fix the problem by modifying only two lines of code—the `import` statement
+    and the creation of the `list_lock`:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于这个递归是从发起它的同一个线程中来的，因此获取锁多次不应该有问题，因为这不会导致竞态条件。为了支持这些用例，线程库提供了可重入锁。可重入锁是一种特殊的锁，可以被同一个线程多次获取，允许该线程“重新进入”关键部分。线程模块在`RLock`类中提供了可重入锁。我们可以通过修改上述代码的两行来修复问题——导入语句和`list_lock`的创建：
+- en: '[PRE14]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: If we modify these lines our code will work properly, and a single thread will
+    be able to acquire the lock multiple times. Internally, reentrant locks work by
+    keeping a recursion count. Each time we acquire the lock from the thread that
+    first acquired the lock, the count increases, and each time we release the lock
+    it decreases. When the count is 0, the lock is finally released for other threads
+    to acquire it.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们修改这些行，我们的代码将正常工作，并且单个线程将能够多次获取锁。内部，可重入锁通过保持递归计数来工作。每次我们从第一次获取锁的线程获取锁时，计数增加，每次我们释放锁时，计数减少。当计数为0时，锁最终被释放，以便其他线程获取它。
+- en: Let’s examine a more real-world application to truly understand the concept
+    of recursion with locks. Imagine we’re trying to build a thread-safe integer list
+    class with a method to find and replace all elements of a certain value with a
+    different value. This class will contain a normal Python list and a lock we use
+    to prevent race conditions. We’ll pretend our existing class already has a method
+    called `indices_of(to_ find:` `int)` that takes in an integer and returns all
+    the indices in the list that match `to_find`. Since we want to follow the DRY
+    (don’t repeat yourself) rule, we’ll reuse this method when we define our find-and-replace
+    method (note this is not the technically the most efficient way to do this, but
+    we’ll do it to illustrate the concept). This means our class and method will look
+    something like the following listing.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '让我们考察一个更贴近现实世界的应用，以真正理解使用锁的递归概念。想象一下，我们正在尝试构建一个线程安全的整数列表类，该类包含一个方法，用于查找并替换列表中所有特定值的元素。这个类将包含一个普通的Python列表和一个我们用来防止竞态条件的锁。我们将假装现有的类已经有一个名为`indices_of(to_find:
+    int)`的方法，该方法接受一个整数并返回列表中所有匹配`to_find`的索引。由于我们想要遵循DRY（不要重复自己）原则，我们将在定义我们的查找和替换方法时重用这个方法（注意这实际上并不是最有效的方法，但我们这样做是为了说明概念）。这意味着我们的类和方法将类似于以下列表。'
+- en: Listing 7.10 A thread-safe list class
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.10 线程安全的列表类
+- en: '[PRE15]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: If someone from another thread modifies the list during our `indices_of` call,
+    we could obtain an incorrect return value, so we need to acquire the lock before
+    we search for matching indices. Our `find_and_replace` method must acquire the
+    lock for the same reason. However, with a normal lock we wind up hanging forever
+    when we call `find_and_replace`. The find-and-replace method first acquires the
+    lock and then calls another method, which tries to acquire the same lock. Switching
+    to an `RLock` in this case will fix this problem because one call to `find_and_replace`
+    will always acquire any locks from the same thread. This illustrates a generic
+    formula for when you need to use reentrant locks. If you are developing a thread-safe
+    class with a method A, which acquires a lock, and a method B that also needs to
+    acquire a lock *and* call method A, you likely need to use a reentrant lock.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在调用`indices_of`方法期间，来自另一个线程的人修改了列表，我们可能会得到一个错误的返回值，因此在我们搜索匹配索引之前，我们需要获取锁。我们的`find_and_replace`方法也必须出于相同的原因获取锁。然而，使用正常的锁，当我们调用`find_and_replace`时，我们最终会永远挂起。查找和替换方法首先获取锁，然后调用另一个方法，该方法尝试获取相同的锁。在这种情况下，切换到`RLock`将解决这个问题，因为`find_and_replace`的任何调用都将始终从同一线程获取任何锁。这说明了何时需要使用可重入锁的通用公式。如果你正在开发一个具有方法A的线程安全类，该方法获取锁，并且还有一个方法B也需要获取锁*并且*调用方法A，你很可能需要使用可重入锁。
+- en: 7.3.2 Deadlocks
+  id: totrans-105
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.2 死锁
+- en: You may be familiar with the concept of *deadlock* from political negotiations
+    on the news, where one party makes a demand of the other side, and the other side
+    makes a counter-demand. Both sides disagree on the next step and negotiation reaches
+    a standstill. The concept in computer science is similar in that we reach a state
+    where there is contention over a shared resource with no resolution, and our application
+    hangs forever.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能从新闻中关于政治谈判的概念中熟悉了*死锁*，其中一方对另一方提出要求，而另一方则提出反要求。双方对下一步行动意见不一，谈判陷入僵局。在计算机科学中，这个概念类似，我们达到一个状态，其中对共享资源存在竞争但没有解决方案，我们的应用程序将永远挂起。
+- en: 'The issue we saw in the previous section, where non-reentrant locks can cause
+    our program to hang forever, is one example of a deadlock. In that case, we reach
+    a state where we’re stuck in a standstill negotiation with ourselves, demanding
+    to acquire a lock that is never released. This situation can also arise when we
+    have two threads using more than one lock. Figure 7.1 illustrates this scenario:
+    if thread `A` asks for a lock that thread `B` has acquired, and thread `B` is
+    asking for a lock that `A` has acquired, we reach a standstill and a deadlock.
+    In that instance, using reentrant locks won’t help, as we have multiple threads
+    stuck waiting on a resource the other thread holds.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中我们看到的问题，即非可重入锁可能导致我们的程序永远挂起，是死锁的一个例子。在这种情况下，我们陷入了一种与自己陷入僵局的谈判状态，要求获取永远不会释放的锁。这种情况也可能发生在我们有两个线程使用多个锁时。图
+    7.1 阐述了这种情况：如果线程`A`请求线程`B`已获取的锁，而线程`B`正在请求线程`A`已获取的锁，我们将陷入僵局并发生死锁。在这种情况下，使用可重入锁不会有所帮助，因为我们有多个线程卡在等待其他线程持有的资源上。
+- en: '![07-01](Images/07-01.png)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_IMG
+  zh: '![07-01](Images/07-01.png)'
+- en: Figure 7.1 Threads 1 and 2 acquire locks A and B at roughly the same time. Then,
+    thread 1 waits for lock B, which thread 2 holds; meanwhile, thread 2 is waiting
+    for A, which thread 1 holds. This circular dependency causes a deadlock and will
+    hang the application.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.1 线程 1 和 2 大约同时获取锁 A 和 B。然后，线程 1 等待获取锁 B，而该锁被线程 2 持有；同时，线程 2 正在等待获取 A，而该锁被线程
+    1 持有。这种循环依赖导致死锁，并将使应用程序挂起。
+- en: Let’s look at how to create this type of deadlock in code. We’ll create two
+    locks, lock `A` and `B`, and two methods which need to acquire both locks. One
+    method will acquire `A` first and then `B` and another will acquire `B` first
+    and then `A`.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何在代码中创建这种类型的死锁。我们将创建两个锁，锁`A`和`B`，以及两个需要获取这两个锁的方法。一个方法将首先获取`A`然后获取`B`，另一个方法将首先获取`B`然后获取`A`。
+- en: Listing 7.11 A deadlock in code
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.11 代码中的死锁
+- en: '[PRE16]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Acquire lock A.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取锁 A。
+- en: ❷ Sleep for 1 second; this ensures we create the right conditions for deadlock.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 睡眠 1 秒；这确保我们创建了产生死锁的正确条件。
+- en: ❸ Acquire lock B.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 获取锁 B。
+- en: 'When we run this code, we’ll see the following output, and our application
+    will hang forever:'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行此代码时，我们将看到以下输出，并且我们的应用程序将永远挂起：
+- en: '[PRE17]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: We first call method `A` and acquire lock `A`, then we introduce an artificial
+    delay to give method `B` a chance to acquire lock `B`. This leaves us in a state
+    where method `A` holds lock `A` and method `B` holds lock `B`. Next, method `A`
+    attempts to acquire lock `B`, but method `B` is holding that lock. At the same
+    time, method `B` tries to acquire lock `A`, but method `A` is holding it, stuck
+    waiting for `B` to release its lock. Both methods are stuck waiting on one another
+    to release a resource, and we reach a standstill.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先调用方法 `A` 并获取锁 `A`，然后引入一个人工延迟，给方法 `B` 获取锁 `B` 的机会。这使得我们处于一个状态，其中方法 `A` 持有锁
+    `A`，方法 `B` 持有锁 `B`。接下来，方法 `A` 尝试获取锁 `B`，但方法 `B` 正在持有那个锁。同时，方法 `B` 尝试获取锁 `A`，但方法
+    `A` 正在持有它，陷入等待 `B` 释放锁的状态。两种方法都陷入等待对方释放资源的状态，我们达到了僵局。
+- en: How do we handle this situation? One solution is the so-called “ostrich algorithm,”
+    named for the situation (although ostriches don’t *actually* behave this way)
+    where an ostrich sticks its head in the sand whenever it senses danger. With this
+    strategy, we ignore the problem and devise a strategy to restart our application
+    when we encounter the issue. The driving idea behind this approach is if the issue
+    happens rarely enough, investing in a fix isn’t worth it. If you remove the `sleep`
+    from the above code, you’ll only rarely see deadlock occur, as it relies on a
+    very specific sequence of operations. This isn’t really a fix and isn’t ideal
+    but is a strategy used with deadlocks that rarely occur.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何处理这种情况？一个解决方案是所谓的“鸵鸟算法”，这个名字来源于这种情况（尽管鸵鸟实际上并不这样行为）。在这种策略中，我们忽略问题，并制定一个策略，在遇到问题时重新启动我们的应用程序。这种方法的驱动思想是，如果问题发生的频率足够低，投资于修复是不值得的。如果你从上面的代码中移除
+    `sleep`，你很少会看到死锁发生，因为它依赖于一个非常特定的操作序列。这并不是真正的修复，也不是理想的解决方案，但是一种用于很少发生的死锁的策略。
+- en: However, in our situation there is an easy fix, where we change the locks in
+    both methods to always be acquired in the same order. For instance, both methods
+    `A` and `B` can acquire lock `A` first then lock `B`. This resolves the issue,
+    as we’ll never acquire locks in an order where a deadlock could occur. The other
+    option would be to refactor the locks so we use only one instead of two. It is
+    impossible to have a deadlock with one lock (excluding the reentrant deadlock
+    we saw earlier). Overall, when dealing with multiple locks that you need to acquire,
+    ask yourself, “Am I acquiring these locks in a consistent order? Is there a way
+    I can refactor this to use only one lock?”
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在我们的情况下有一个简单的解决方案，即我们改变两种方法中的锁，使其总是以相同的顺序获取。例如，方法 `A` 和 `B` 都可以先获取锁 `A`，然后获取锁
+    `B`。这样就能解决问题，因为我们永远不会以可能导致死锁的顺序获取锁。另一种选择是将锁重构，以便我们只使用一个而不是两个。只有一个锁的情况下不可能发生死锁（不包括我们之前看到的可重入死锁）。总的来说，当处理需要获取的多个锁时，问问自己，“我是不是以一致的顺序获取这些锁？有没有一种方法可以重构它以只使用一个锁？”
+- en: We’ve now seen how to use threads effectively with asyncio and have investigated
+    more complex locking scenarios. Next, let’s see how to use threads to integrate
+    asyncio into existing synchronous applications that may not work smoothly with
+    asyncio.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在已经看到了如何有效地使用线程与 asyncio 结合，并研究了更复杂的锁定场景。接下来，让我们看看如何使用线程将 asyncio 集成到可能无法与
+    asyncio 畅通合作的现有同步应用程序中。
+- en: 7.4 Event loops in separate threads
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.4 在单独的线程中事件循环
+- en: We have mainly focused on building applications that are completely implemented
+    from the bottom up with coroutines and asyncio. When we’ve had any work that does
+    not fit within a single-threaded concurrency model, we have run it inside of threads
+    or processes. Not all applications will fit into this paradigm. What if we’re
+    working in an existing synchronous application and we want to incorporate asyncio?
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们主要关注构建完全从底层使用协程和 asyncio 实现的应用程序。当我们有任何不适合单线程并发模型的工作时，我们就在线程或进程中运行它。并非所有应用程序都适合这种范式。如果我们正在一个现有的同步应用程序中工作，并希望集成
+    asyncio 呢？
+- en: One such situation where we can run into this scenario is building desktop user
+    interfaces. The frameworks to build GUIs usually run their own event loop, and
+    the event loop blocks the main thread. This means that any long-running operations
+    can cause the user interface to freeze. In addition, this UI event loop will block
+    us from creating an asyncio event loop. In this section, we’ll learn how to use
+    multithreading to run multiple event loops at the same time by building a responsive
+    HTTP stress-testing user interface in Tkinter.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能遇到这种情况的一种情况是构建桌面用户界面。构建 GUI 的框架通常运行它们自己的事件循环，并且事件循环会阻塞主线程。这意味着任何长时间运行的操作都可能使用户界面冻结。此外，这个
+    UI 事件循环会阻止我们创建 asyncio 事件循环。在本节中，我们将学习如何通过在 Tkinter 中构建一个响应式的 HTTP 压力测试用户界面来使用多线程同时运行多个事件循环。
+- en: 7.4.1 Introducing Tkinter
+  id: totrans-125
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.4.1 Tkinter 简介
+- en: Tkinter is a platform-independent desktop graphical user interface (GUI) toolkit
+    provided in the default Python installation. Short for “Tk interface,” it is an
+    interface to the low-level Tk GUI toolkit that is written in the tcl language.
+    With the creation of the Tkinter Python library, Tk has grown into a popular way
+    for Python developers to build desktop user interfaces.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tkinter 是默认 Python 安装中提供的一个平台无关的桌面图形用户界面（GUI）工具包。简称为“Tk 接口”，它是 tcl 语言编写的低级 Tk
+    GUI 工具包的接口。随着 Tkinter Python 库的创建，Tk 已经成为 Python 开发者构建桌面用户界面的流行方式。
+- en: Tkinter has a set of “widgets,” such as labels, text boxes, and buttons, that
+    we can place in a desktop window. When we interact with a widget, such as entering
+    text or pressing a button, we can trigger a function to execute code. The code
+    that runs in response to a user action could be as simple as updating another
+    widget or triggering another operation.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tkinter 有一些“小部件”，例如标签、文本框和按钮，我们可以将它们放置在桌面窗口中。当我们与一个小部件交互，比如输入文本或按按钮时，我们可以触发一个函数来执行代码。响应用户操作运行的代码可能非常简单，比如更新另一个小部件或触发另一个操作。
+- en: Tkinter, and many other GUI libraries, draw their widgets and handle widget
+    interactions through their own event loops. The event loop is constantly redrawing
+    the application, processing events, and checking to see if any code should run
+    in response to a widget event. To get familiar with Tkinter and its event loop,
+    let’s create a basic `hello` `world` application. We’ll create an application
+    with a “say hello” button that will output “Hello there!” to the console when
+    we click on it.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tkinter 以及许多其他 GUI 库，通过它们自己的事件循环绘制小部件和处理小部件交互。事件循环不断重绘应用程序，处理事件，并检查是否有代码应该在小部件事件响应时运行。为了熟悉
+    Tkinter 和其事件循环，让我们创建一个基本的 `hello` `world` 应用程序。我们将创建一个带有“说你好”按钮的应用程序，当我们点击它时，它将在控制台输出“Hello
+    there！”
+- en: Listing 7.12 “Hello world” with Tkinter
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.12 使用 Tkinter 的“Hello world”
+- en: '[PRE18]'
+  id: totrans-130
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: This code first creates a Tkinter window (see figure 7.2) and sets the application
+    title and window size. We then place a button on the window and set its command
+    to the `say_hello` function. When a user presses this button, the `say_hello`
+    function executes, printing out our message. We then call `window.mainloop()`
+    that starts the Tk event loop, running our application.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码首先创建一个 Tkinter 窗口（见图 7.2），并设置应用程序标题和窗口大小。然后我们在窗口上放置一个按钮，并将其命令设置为 `say_hello`
+    函数。当用户按下此按钮时，`say_hello` 函数执行，打印出我们的消息。然后我们调用 `window.mainloop()`，这启动了 Tk 事件循环，运行我们的应用程序。
+- en: '![07-02](Images/07-02.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![07-02](Images/07-02.png)'
+- en: Figure 7.2 The “hello world” application from listing 7.12
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.2 列表 7.12 的“Hello world”应用程序
+- en: 'One thing to note here is that our application will block on `window.mainloop()`.
+    Internally, this method runs the Tk event loop. This is an infinite loop that
+    is checking for window events and constantly redrawing the window until we close
+    it. The Tk event loop has interesting parallels to the asyncio event loop. For
+    example, what happens if we try to run blocking work in our button’s command?
+    If we add a 10-second delay to the `say_hello` function with `time.sleep(10)`,
+    we’ll start to see a problem: our application will freeze for 10 seconds!'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里需要注意的是，我们的应用程序将在 `window.mainloop()` 上阻塞。内部，这个方法运行 Tk 事件循环。这是一个无限循环，它会检查窗口事件并不断重绘窗口，直到我们关闭它。Tk
+    事件循环与 asyncio 事件循环有有趣的相似之处。例如，如果我们尝试在我们的按钮的命令中运行阻塞工作会怎样？如果我们使用 `time.sleep(10)`
+    给 `say_hello` 函数添加 10 秒的延迟，我们就会开始看到问题：我们的应用程序将冻结 10 秒！
+- en: Much like asyncio, Tkinter runs *everything* in its event loop. This means that
+    if we have a long-running operation, such as making a web request or loading a
+    large file, we’ll block the tk event loop until that operation finishes. The effect
+    on the user is that the UI hangs and becomes unresponsive. The user can’t click
+    on any buttons, we can’t update any widgets with status or progress, and the operating
+    system will likely display a spinner (like the example in figure 7.3) to indicate
+    the application is hanging. This is clearly an undesirable, unresponsive user
+    interface.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 asyncio 类似，Tkinter 在其事件循环中运行 *所有* 内容。这意味着如果我们有一个长时间运行的操作，比如发送网络请求或加载大文件，我们将阻塞
+    tk 事件循环，直到该操作完成。对用户的影响是 UI 挂起并且变得无响应。用户无法点击任何按钮，我们无法更新任何带有状态或进度的控件，操作系统可能会显示一个旋转器（如图
+    7.3 中的示例）来指示应用程序挂起。这显然是一个不希望看到的、无响应的用户界面。
+- en: '![07-03](Images/07-03.png)'
+  id: totrans-136
+  prefs: []
+  type: TYPE_IMG
+  zh: '![07-03](Images/07-03.png)'
+- en: Figure 7.3 The dreaded “beach ball of doom” occurs as we block the event loop
+    on a Mac.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.3 当我们在 Mac 上阻塞事件循环时，会出现令人恐惧的“厄运沙滩球”。
+- en: This is an instance where asynchronous programming can, in theory, help us out.
+    If we can make asynchronous requests that don’t block the tk event loop, we can
+    avoid this problem. This is trickier than it may seem as Tkinter is not asyncio-aware,
+    and you can’t pass in a coroutine to run on a button click. We could try running
+    two event loops at the same time in the same thread, but this won’t work. Both
+    Tkinter and asyncio are single-threaded—this idea is the same as trying to run
+    two infinite loops in the same thread at the same time, which can’t be done. If
+    we start the asyncio event loop before the Tkinter event loop, the asyncio event
+    loop will block the Tkinter loop from running, and vice versa. Is there a way
+    for us to run an asyncio application alongside a single-threaded application?
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个异步编程理论上可以帮助我们的例子。如果我们可以发出不会阻塞 tk 事件循环的异步请求，我们可以避免这个问题。这比看起来要复杂，因为 Tkinter
+    并不了解 asyncio，你不能传递一个协程在按钮点击时运行。我们可以尝试在同一个线程中同时运行两个事件循环，但这不会起作用。Tkinter 和 asyncio
+    都是单线程的——这个想法与尝试在同一个线程中同时运行两个无限循环是一样的，这是不可能的。如果我们先启动 asyncio 事件循环，那么 asyncio 事件循环将阻止
+    Tkinter 循环运行，反之亦然。我们有没有办法在单线程应用程序旁边运行 asyncio 应用程序？
+- en: We can in fact combine these two event loops to create a functioning application
+    by running the asyncio event loop in a separate thread. Let’s look at how to do
+    this with an application that will responsively update the user on the status
+    of a long-running task with a progress bar.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，我们可以通过在一个单独的线程中运行 asyncio 事件循环来组合这两个事件循环，创建一个功能性的应用程序。让我们看看如何通过一个应用程序来实现这一点，该应用程序将使用进度条响应用户关于长时间运行任务状态的更新。
+- en: 7.4.2 Building a responsive UI with asyncio and threads
+  id: totrans-140
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.4.2 使用 asyncio 和线程构建响应式 UI
+- en: First, let’s introduce our application and sketch out a basic UI. We’ll build
+    a URL stress test application. This application will take a URL and many requests
+    to send as input. When we press a submit button, we’ll use aiohttp to send out
+    web requests as fast as we can, delivering a predefined load to the web server
+    we choose. Since this may take a long time, we’ll add a progress bar to visualize
+    how far along we are in the test. We’ll update the progress bar after every 1%
+    of total requests are finished to show progress. Further, we’ll let the user cancel
+    the request if they’d like. Our UI will have a few widgets, including a text input
+    for the URL to test, a text input for the number of requests we wish to issue,
+    a start button, and a progress bar. We’ll design a UI that looks like the illustration
+    in figure 7.4.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们介绍我们的应用程序并绘制一个基本的用户界面。我们将构建一个 URL 压力测试应用程序。该应用程序将接受一个 URL 和许多要发送的请求作为输入。当我们按下提交按钮时，我们将使用
+    aiohttp 尽快发送网络请求，向所选的 web 服务器提供预定义的负载。由于这可能需要很长时间，我们将添加一个进度条来可视化测试的进度。我们将在完成总请求的每
+    1% 后更新进度条以显示进度。此外，如果用户想要的话，我们可以让他们取消请求。我们的用户界面将包含一些小部件，包括用于测试 URL 的文本输入框、用于输入我们希望发出的请求数量的文本输入框、一个开始按钮和一个进度条。我们将设计一个类似于图
+    7.4 中插图的用户界面。
+- en: '![07-04](Images/07-04.png)'
+  id: totrans-142
+  prefs: []
+  type: TYPE_IMG
+  zh: '![07-04](Images/07-04.png)'
+- en: Figure 7.4 The URL requester GUI
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.4 URL 请求器 GUI
+- en: Now that we have our UI sketched out, we need to think through how to have two
+    event loops running alongside one another. The basic idea is that we’ll have the
+    Tkinter event loop running in the main thread, and we’ll run the asyncio event
+    loop in a separate thread. Then, when the user clicks “Submit,” we’ll submit a
+    coroutine to the asyncio event loop to run the stress test. As the stress test
+    is running, we’ll issue commands from the asyncio event loop back to the Tkinter
+    event loop to update our progress. This gives us an architecture that looks like
+    the drawing in figure 7.5.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经绘制了我们的UI草图，我们需要思考如何让两个事件循环并行运行。基本想法是，Tkinter事件循环将在主线程中运行，而我们将异步事件循环在单独的线程中运行。然后，当用户点击“提交”时，我们将协程提交给异步事件循环以运行压力测试。当压力测试运行时，我们将从异步事件循环向Tkinter事件循环发出命令以更新我们的进度。这给我们提供了一个类似于图7.5所示的架构。
+- en: '![07-05](Images/07-05.png)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_IMG
+  zh: '![07-05](Images/07-05.png)'
+- en: Figure 7.5 The tk event loop submits a task to the asyncio event loop, which
+    runs in a separate thread.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.5 tk事件循环将任务提交给异步事件循环，该循环在单独的线程中运行。
+- en: This new architecture includes communication across threads. We need to be careful
+    about race conditions in this situation, especially since the asyncio event loop
+    is *not* thread-safe! Tkinter is designed with thread safety in mind, so there
+    are fewer concerns with calling it from a separate thread (in Python 3+ at least;
+    we’ll look more closely at this soon).
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种新的架构包括线程间的通信。在这种情况下，我们需要小心处理竞态条件，尤其是由于异步事件循环**不是**线程安全的！Tkinter的设计考虑了线程安全，因此从单独的线程中调用它（至少在Python
+    3+中）时，我们较少担心。
+- en: We may be tempted to submit coroutines from Tkinter using `asyncio.run`, but
+    this function blocks until the coroutine we pass in finishes and will cause the
+    Tkinter application to hang. We’ll need a function which submits a coroutine to
+    the event loop without any blocking. There are a few new asyncio functions to
+    learn that are both non-blocking and have thread safety built in to submit this
+    kind of work properly. The first is a method on the asyncio event loop named `call_soon_threadsafe`.
+    This function takes in a Python function (not a coroutine) and schedules it to
+    execute it in a thread-safe manner at the next iteration of the asyncio event
+    loop. The second function is `asyncio.run_ coroutine_threadsafe`. This function
+    takes in a coroutine and submits it to run in a thread-safe manner, immediately
+    returning a future that we can use to access a result of the coroutine. Importantly,
+    and confusingly, this future is *not* an asyncio future but rather from the `concurrent.futures`
+    module. The logic behind this is that asyncio futures are not thread-safe, but
+    `concurrent.futures` futures are. This `future` class does however have the same
+    functionality as the future from the asyncio module.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能会倾向于使用`asyncio.run`从Tkinter提交协程，但这个函数会阻塞，直到我们传递的协程完成，这将导致Tkinter应用程序挂起。我们需要一个函数，可以将协程提交给事件循环而不产生任何阻塞。有几个新的异步函数需要学习，这些函数既是非阻塞的，又内置了线程安全性，以便正确地提交此类工作。第一个是在异步事件循环上的一个名为`call_soon_threadsafe`的方法。这个函数接受一个Python函数（不是一个协程），并安排它在异步事件循环的下一个迭代中以线程安全的方式执行。第二个函数是`asyncio.run_coroutine_threadsafe`。这个函数接受一个协程，并以线程安全的方式提交它，立即返回一个我们可以用来访问协程结果的future。重要的是，并且令人困惑的是，这个future**不是**异步future，而是来自`concurrent.futures`模块。背后的逻辑是，异步future不是线程安全的，但`concurrent.futures`
+    future是。然而，这个`future`类具有与异步模块中的future相同的功能。
+- en: Let’s start defining and implementing a few classes to build our stress test
+    application based on what we described above. The first thing we’ll build is a
+    stress test class. This class will be responsible for starting and stopping one
+    stress test and keeping track of how many requests have completed. Its constructor
+    will take in a URL, an asyncio event loop, the number of desired requests to make,
+    and a progress updater callback. We’ll call this callback when we want to trigger
+    a progress bar update. When we get to implementing the UI, this callback will
+    trigger an update to the progress bar. Internally, we’ll calculate a refresh rate,
+    which is the rate at which we’ll execute the callback. We’ll default this rate
+    to every 1% of the total requests we plan to send.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们开始定义和实现一些类，以构建基于上述描述的压力测试应用程序。我们将首先构建一个压力测试类。这个类将负责启动和停止一个压力测试，并跟踪完成请求的数量。它的构造函数将接受一个
+    URL、一个 asyncio 事件循环、要发起的请求数量以及一个进度更新回调函数。当我们想要触发进度条更新时，我们将调用这个回调函数。当我们实现 UI 时，这个回调函数将触发进度条的更新。内部，我们将计算一个刷新率，这是我们执行回调的速率。我们将默认这个速率为计划发送的总请求的
+    1%。
+- en: Listing 7.13 The stress test class
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.13 压力测试类
+- en: '[PRE19]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Start making the requests, and store the future, so we can later cancel if
+    needed.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 开始发起请求，并存储未来，以便在需要时可以稍后取消。
+- en: ❷ If we want to cancel, call the cancel function on the load test future.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果我们要取消，请在负载测试未来上调用取消函数。
+- en: ❸ Once we’ve completed 1% of requests, call the callback with the number of
+    completed requests and the total requests.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 一旦完成 1% 的请求，就使用完成请求的数量和总请求数量调用回调函数。
+- en: In our `start` method, we call `run_coroutine_threadsafe` with `_make_requests`
+    that will start making requests on the asyncio event loop. We also keep track
+    of the future this returns in `_load_test_future`. Keeping track of this future
+    lets us cancel the load test in our `cancel` method. In our `_make_requests` method
+    we create a list coroutines to make all our web requests, passing them into `asyncio.gather`
+    to run them. Our `_get_url` coroutine makes the request, increments the`_completed_requests`
+    counter, and calls the callback with the total number of completed requests if
+    necessary. We can use this class by simply instantiating it and calling the `start`
+    method, optionally canceling by calling the `cancel` method.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的 `start` 方法中，我们使用 `_make_requests` 调用 `run_coroutine_threadsafe`，这将开始在 asyncio
+    事件循环上发起请求。我们还在 `_load_test_future` 中跟踪这个返回的未来。跟踪这个未来让我们可以在 `cancel` 方法中取消负载测试。在我们的
+    `_make_requests` 方法中，我们创建一个协程列表来发起所有的网络请求，并将它们传递给 `asyncio.gather` 来运行。我们的 `_get_url`
+    协程发起请求，增加 `_completed_requests` 计数器，并在必要时调用回调函数以提供完成请求的总数。我们可以通过简单地实例化这个类并调用 `start`
+    方法来使用这个类，也可以通过调用 `cancel` 方法来取消。
+- en: One interesting thing to note is that we didn’t use any locking around the`_
+    completed` `requests` counter despite updates happening to it from multiple coroutines.
+    Remember that asyncio is single-threaded, and the asyncio event loop only runs
+    a piece of Python code at any given time. This has the effect of making incrementing
+    the counter atomic when used with asyncio, despite it being non-atomic when happening
+    between multiple threads. asyncio saves us from many kinds of race conditions
+    that we see with multithreading but not all. We’ll examine this more in a later
+    chapter.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得注意的是，尽管多个协程会更新 `_completed_requests` 计数器，但我们没有在它周围使用任何锁定。记住，asyncio 是单线程的，并且
+    asyncio 事件循环在任何给定时间只运行一段 Python 代码。这导致在使用 asyncio 时，即使它在多个线程之间发生时是非原子的，增加计数器也是原子的。asyncio
+    保存我们免受许多在多线程中看到的竞争条件，但并非所有。我们将在后面的章节中进一步探讨这一点。
+- en: Next, let’s implement our Tkinter GUI to use this load tester class. For code
+    cleanliness, we’ll subclass the `TK` class directly and initialize our widgets
+    in the constructor. When a user clicks the start button, we’ll create a new `StressTest`
+    instance and start it. The question now becomes what do we pass in as a callback
+    to our `StressTest` instance? Thread safety becomes an issue here as our callback
+    will be called in the worker thread. If our callback modifies shared data from
+    the worker thread that our main thread can also modify, this could cause race
+    conditions. In our case, since Tkinter has thread safety built in and all we’re
+    doing is updating the progress bar, we should be okay. But what if we needed to
+    do something with shared data? Locking is one approach, but if we could run our
+    callback in the main thread, we’d avoid any race conditions. We’ll use a generic
+    pattern to demonstrate how to do this, though updating the progress bar directly
+    should be safe.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们实现我们的Tkinter GUI以使用这个负载测试类。为了代码的整洁性，我们将直接从`TK`类派生并初始化我们的小部件在构造函数中。当用户点击开始按钮时，我们将创建一个新的`StressTest`实例并启动它。现在的问题是我们将什么传递给`StressTest`实例作为回调？由于我们的回调将在工作线程中被调用，因此线程安全性成为一个问题。如果我们从工作线程修改共享数据，而主线程也可以修改这些数据，这可能会导致竞态条件。在我们的情况下，由于Tkinter内置了线程安全性，并且我们只是更新进度条，我们应该没问题。但如果我们需要处理共享数据呢？锁定是一种方法，但如果我们能在主线程中运行回调，我们将避免任何竞态条件。我们将使用一个通用模式来演示如何做到这一点，尽管直接更新进度条应该是安全的。
+- en: One common pattern to accomplish this is to use a shared thread-safe queue from
+    the `queue` module. Our asyncio thread can put progress updates into this queue.
+    Then, our Tkinter thread can check this queue for updates in its thread, updating
+    the progress bar in the correct thread. We’ll need to tell Tkinter to poll the
+    queue in the main thread to do this.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现这一点的常见模式是使用`queue`模块中的共享线程安全队列。我们的asyncio线程可以将进度更新放入这个队列。然后，我们的Tkinter线程可以在其线程中检查这个队列以获取更新，并在正确的线程中更新进度条。我们需要告诉Tkinter在主线程中轮询队列以做到这一点。
+- en: Tkinter has a method that lets us queue up a function to run after a specified
+    time increment in the main thread called `after`. We’ll use this to run a method
+    that asks the queue if it has a new progress update (listing 7.14). If it does,
+    we can update the progress bar safely from the main thread. We’ll poll the queue
+    every 25 milliseconds to ensure we get updates with reasonable latency.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tkinter有一个方法允许我们在主线程中按指定的时间增量排队运行一个函数，这个方法叫做`after`。我们将使用这个方法来运行一个询问队列是否有新的进度更新的方法（列表7.14）。如果有，我们可以从主线程安全地更新进度条。我们将每25毫秒轮询队列一次，以确保我们以合理的延迟获得更新。
+- en: Is Tkinter really thread-safe?
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tkinter真的线程安全吗？
+- en: If you search for Tkinter and thread safety, you'll find a lot of conflicting
+    information. The threading situation in Tkinter is quite complicated. This is
+    in part because, for several years, Tk and Tkinter lacked proper thread support.
+    Even when threaded mode was added, it had several bugs that have since been fixed.
+    Tk supports both non-threaded and threaded modes. In non-threaded mode, there
+    is no thread safety; and using Tkinter from anything other than the main thread
+    is inviting a crash. In older versions of Python, Tk thread safety was not turned
+    on; however, in versions of Python 3 and later, thread safety is turned on by
+    default and we have thread-safe guarantees. In threaded mode, if an update is
+    issued from a worker thread, Tkinter acquires a mutex and writes the update event
+    to a queue for the main thread to later process. The relevant code where this
+    happens is in CPython in the `Tkapp_Call` function in `Modules/_tkinter.c`.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你搜索Tkinter和线程安全性，你会找到很多相互矛盾的信息。Tkinter的线程情况相当复杂。这在一定程度上是因为，在过去的几年里，Tk和Tkinter缺乏适当的线程支持。即使在添加了线程模式之后，它也有几个后来被修复的bug。Tk支持非线程模式和线程模式。在非线程模式下，没有线程安全性；并且从除了主线程之外的其他线程中使用Tkinter可能会导致崩溃。在Python的旧版本中，Tk线程安全性没有被打开；然而，在Python
+    3及以后的版本中，线程安全性默认开启，我们有线程安全的保证。在线程模式下，如果从工作线程发出更新，Tkinter会获取互斥锁并将更新事件写入主线程的队列以供稍后处理。发生这种情况的相关代码在CPython的`Modules/_tkinter.c`中的`Tkapp_Call`函数中。
+- en: Listing 7.14 The Tkinter GUI
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.14 Tkinter GUI
+- en: '[PRE20]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ In our constructor, we set up the text inputs, labels, submit button, and
+    progress bar.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在我们的构造函数中，我们设置了文本输入、标签、提交按钮和进度条。
+- en: ❷ When clicked, our submit button will call the _start method.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当点击时，我们的提交按钮将调用_start方法。
+- en: ❸ The update bar method will set the progress bar to a percentage complete value
+    from 0 to 100\. This method should only be called in the main thread.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 更新条方法将进度条设置为从0到100的完成百分比。此方法应仅在主线程中调用。
+- en: ❹ This method is the callback we pass to the stress test; it adds a progress
+    update to the queue.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 此方法是我们传递给压力测试的回调；它将进度更新添加到队列中。
+- en: ❺ Try to get a progress update from the queue; if we have one, update the progress
+    bar.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 尝试从队列中获取进度更新；如果我们有更新，则更新进度条。
+- en: ❻ Start the load test, and start polling every 25 milliseconds for queue updates.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 启动负载测试，并开始每25毫秒轮询队列更新。
+- en: In our application’s constructor, we create all the widgets we need for the
+    user interface. Most notably, we create `Entry` widgets for the URL to test and
+    the number of requests to run, a submit button, and a horizontal progress bar.
+    We also use the `grid` method to arrange these widgets in the window appropriately.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们应用程序的构造函数中，我们创建了用户界面所需的所有小部件。最值得注意的是，我们创建了用于测试URL和要运行的请求数的`Entry`小部件，一个提交按钮和一个水平进度条。我们还使用`grid`方法适当地排列这些小部件在窗口中。
+- en: When we create the submit button widget, we specify the command as the `_start`
+    method. This method will create a `StressTest` object and starts running it unless
+    we already have a load test running, in which case we will cancel it. When we
+    create a `StressTest` object, we pass in the `_queue_update` method as a callback.
+    The `StressTest` object will call this method whenever it has a progress update
+    to issue. When this method runs, we calculate the appropriate percentage and put
+    this into the queue. We then use Tkinter’s `after` method to schedule the `_poll_queue`
+    method to run every 25 milliseconds.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们创建提交按钮小部件时，我们将命令指定为`_start`方法。此方法将创建一个`StressTest`对象并开始运行它，除非我们已经在运行负载测试，在这种情况下我们将取消它。当我们创建一个`StressTest`对象时，我们将`_queue_update`方法作为回调传递。`StressTest`对象将在有进度更新要发布时调用此方法。当此方法运行时，我们计算适当的百分比并将其放入队列。然后我们使用Tkinter的`after`方法安排每25毫秒运行一次`_poll_queue`方法。
+- en: Using the queue as a shared communication mechanism instead of directly calling
+    `_update_bar` will ensure that our `_update_bar` method runs in the Tkinter event
+    loop thread. If we don’t do this, the progress bar update would happen in the
+    asyncio event loop as the callback is run within that thread.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用队列作为共享通信机制而不是直接调用`_update_bar`将确保我们的`_update_bar`方法在Tkinter事件循环线程中运行。如果我们不这样做，进度条更新将在asyncio事件循环中发生，因为回调是在该线程中运行的。
+- en: Now that we’ve implemented the UI application, we can glue these pieces all
+    together to create a fully working application. We’ll create a new thread to run
+    the event loop in the background and then start our newly created `LoadTester`
+    application.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经实现了UI应用程序，我们可以将这些组件全部粘合在一起以创建一个完整工作的应用程序。我们将创建一个新的线程在后台运行事件循环，然后启动我们新创建的`LoadTester`应用程序。
+- en: Listing 7.15 The load tester app
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.15 负载测试器应用程序
+- en: '[PRE21]'
+  id: totrans-175
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ We create a new thread class to run the asyncio event loop forever.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 我们创建一个新的线程类来永久运行asyncio事件循环。
+- en: ❷ Start the new thread to run the asyncio event loop in the background.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动新的线程在后台运行asyncio事件循环。
+- en: ❸ Create the load tester Tkinter application, and start its main event loop.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建负载测试器Tkinter应用程序，并启动其主事件循环。
+- en: We first define a `ThreadedEventLoopClass` that inherits from `Thread` to run
+    our event loop. In this class’s constructor, we take in an event loop and set
+    the thread to be a daemon thread. We set the thread to be daemon because the asyncio
+    event loop will block and run forever in this thread. This type of infinite loop
+    would prevent our GUI application from shutting down if we ran in non-daemon mode.
+    In the thread’s `run` method, we call the event loop’s `run_forever` method. This
+    method is well named, as it quite literally just starts the event loop running
+    forever, blocking until we stop the event loop.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先定义一个继承自`Thread`的`ThreadedEventLoopClass`来运行我们的事件循环。在这个类的构造函数中，我们接受一个事件循环并将线程设置为守护线程。我们将线程设置为守护线程，因为asyncio事件循环将在这个线程中阻塞并永久运行。这种无限循环将防止我们的GUI应用程序在非守护模式下运行时关闭。在线程的`run`方法中，我们调用事件循环的`run_forever`方法。这个方法的名字起得很好，因为它确实只是开始无限运行事件循环，直到我们停止事件循环。
+- en: Once we’ve created this class, we create a new asyncio event loop with the `new_event_loop`
+    method. We then create a `ThreadedEventLoop` instance, passing in the loop we
+    just created and start it. This creates a new thread with our event loop running
+    inside of it. Finally, we create an instance of our `LoadTester` app and call
+    the `mainloop` method, kicking off the Tkinter event loop.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们创建了这个类，我们就使用`new_event_loop`方法创建一个新的asyncio事件循环。然后我们创建一个`ThreadedEventLoop`实例，传入我们刚刚创建的循环并启动它。这创建了一个新的线程，我们的事件循环在其中运行。最后，我们创建`LoadTester`应用的实例并调用`mainloop`方法，启动Tkinter事件循环。
+- en: When we run a stress test with this application, we should see the progress
+    bar update smoothly without freezing the user interface. Our application remains
+    responsive, and we can click cancel to stop the load test whenever we please.
+    This technique of running the asyncio event loop in a separate thread is useful
+    for building responsive GUIs, but also is useful for any synchronous legacy applications
+    where coroutines and asyncio don’t fit smoothly.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个应用的压力测试时，我们应该看到进度条平滑更新而不会冻结用户界面。我们的应用保持响应，并且我们可以随时点击取消来停止负载测试。在单独的线程中运行asyncio事件循环的技术对于构建响应式GUI非常有用，同时也适用于任何同步的遗留应用程序，在这些应用程序中协程和asyncio无法顺利运行。
+- en: We’ve now seen how to utilize threads for various I/O-bound workloads, but what
+    about CPU-bound workloads? Recall that the GIL prevents us from running Python
+    bytecode concurrently in threads, but there are a few notable exceptions to this
+    that let us do some CPU-bound work in threads.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了如何利用线程处理各种I/O密集型工作负载，但对于CPU密集型工作负载又该如何呢？回想一下，GIL阻止我们在线程中并发运行Python字节码，但有一些值得注意的例外，这让我们可以在线程中执行一些CPU密集型工作。
+- en: 7.5 Using threads for CPU-bound work
+  id: totrans-183
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.5 使用线程处理CPU密集型工作
+- en: 'The global interpreter lock is a tricky subject in Python. The rule of thumb
+    is multithreading only makes sense for blocking I/O work, as I/O will release
+    the GIL. This is true in most cases but not all. To properly release the GIL and
+    avoid any concurrency bugs, the code that is running needs to avoid interacting
+    with Python objects (dictionaries, lists, Python integers, and so on). This can
+    happen when a large portion of our libraries’ work is done in low-level C code.
+    There are a few notable libraries, such as hashlib and NumPy, that perform CPU-intensive
+    work in pure C and release the GIL. This enables us to use multithreading to improve
+    the performance of certain CPU-bound workloads. We’ll examine two such instances:
+    hashing sensitive text for security and solving a data analysis problem with NumPy.'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Python中，全局解释器锁是一个复杂的话题。一般来说，多线程只适用于阻塞I/O工作，因为I/O操作会释放GIL。这在大多数情况下是正确的，但并非所有情况。为了正确释放GIL并避免任何并发错误，正在运行的代码需要避免与Python对象（字典、列表、Python整数等）交互。这可能会发生在我们库的大部分工作都在低级别的C代码中完成时。有一些值得注意的库，如hashlib和NumPy，它们在纯C中执行CPU密集型工作并释放GIL。这使得我们可以使用多线程来提高某些CPU密集型工作负载的性能。我们将检查两个这样的实例：为安全目的对敏感文本进行散列和用NumPy解决数据分析问题。
+- en: 7.5.1 Multithreading with hashlib
+  id: totrans-185
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.5.1 使用hashlib进行多线程
+- en: In today’s world, security has never been more important. Ensuring that data
+    is not read by hackers is key to avoiding leaking sensitive customer data, such
+    as passwords or other information that can be used to identify or harm them.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在当今世界，安全性从未如此重要。确保数据不被黑客读取是避免泄露敏感客户数据（如密码或其他可用于识别或伤害他们的信息）的关键。
+- en: Hashing algorithms solve this problem by taking a piece of input data and creating
+    a new piece of data that is unreadable and unrecoverable (if the algorithm is
+    secure) to a human. For example, the password “password” may be hashed to a string
+    that looks more like `'a12bc21df'`. While no one can read or recover the input
+    data, we’re still able to check if a piece of data matches a hash. This is useful
+    for scenarios such as validating a user’s password on login or checking if a piece
+    of data has been tampered with.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 散列算法通过取一段输入数据并创建一个新的数据块来解决此问题，该数据块对人类来说是不可读和不可恢复的（如果算法是安全的）。例如，密码“password”可能被散列成一个看起来更像是
+    `'a12bc21df'` 的字符串。虽然没有人可以读取或恢复输入数据，但我们仍然能够检查数据是否与散列匹配。这在验证用户登录时的密码或检查数据是否被篡改的场景中非常有用。
+- en: There are many different hashing algorithms today, such as SHA512, BLAKE2, and
+    scrypt, though SHA is not the best choice for storing passwords, as it is susceptible
+    to brute-force attacks. Several of these algorithms are implemented in Python’s
+    `hashlib` library. Many functions in this library release the GIL when hashing
+    data greater than 2048 bytes, so multithreading is an option to improve this library’s
+    performance. In addition, the `scrypt` function, used for hashing passwords, always
+    releases the GIL.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 今天有许多不同的散列算法，例如SHA512、BLAKE2和scrypt，尽管SHA不是存储密码的最佳选择，因为它容易受到暴力攻击。这些算法中的几个在Python的`hashlib`库中得到了实现。这个库中的许多函数在散列大于2048字节的
+    数据时会释放GIL，因此多线程是一个提高此库性能的选项。此外，用于散列密码的`scrypt`函数始终释放GIL。
+- en: Let’s introduce a (hopefully) hypothetical scenario to see when multithreading
+    might be useful with `hashlib`. Imagine you’ve just started a new job as principal
+    software architect at a successful organization. Your manager assigns you your
+    first bug to get started learning the company’s development process—a small issue
+    with the login system. To debug this issue, you start to look at a few database
+    tables, and to your horror you notice that all your customers’ passwords are stored
+    in plaintext! This means that if your database is compromised, attackers could
+    get all your customers’ passwords and log in as them, potentially exposing sensitive
+    data such as saved credit card numbers. You bring this to your manager’s attention,
+    and they ask you to find a solution to the problem as soon as possible.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们引入一个（希望是）假设的场景，看看在什么情况下多线程可能对`hashlib`有用。想象一下，你刚刚开始在一家成功组织担任首席软件架构师的新工作。你的经理分配给你第一个错误，让你开始学习公司的开发流程——登录系统的一个小问题。为了调试这个问题，你开始查看几个数据库表，令你惊讶的是，你注意到所有客户的密码都是以明文存储的！这意味着如果您的数据库被入侵，攻击者可以获取所有客户的密码并以他们的身份登录，可能暴露敏感数据，如保存的信用卡号码。你将这个问题带到经理的注意，他们要求你尽快找到解决问题的方案。
+- en: Using the `scrypt` algorithm to hash the plaintext passwords is a good solution
+    for this kind of problem. It is secure and the original password is unrecoverable,
+    as it introduces a *salt*. A salt is a random number that ensures that the hash
+    we get for the password is unique. To test out using scrypt, we can quickly write
+    a synchronous script to create random passwords and hash them to get a sense of
+    how long things will take. For this example, we’ll test on 10,000 random passwords.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`scrypt`算法散列明文密码是解决这类问题的良好解决方案。它是安全的，原始密码无法恢复，因为它引入了*盐*。盐是一个随机数，确保我们得到的密码散列是唯一的。为了测试使用scrypt，我们可以快速编写一个同步脚本来创建随机密码并散列它们，以了解事情将花费多长时间。在这个例子中，我们将测试10,000个随机密码。
+- en: Listing 7.16 Hashing passwords with scrypt
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.16 使用scrypt散列密码
+- en: '[PRE22]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: We first write a function to create random lowercase passwords and then use
+    that to create 10,000 random passwords of 10 characters each. We then hash each
+    password with the `scrypt` function. We’ll gloss over the details (n, p, and r
+    parameters of the `scrypt` function), but these are used to tune how secure we’d
+    like our hash to be and memory/CPU usage.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先编写一个函数来创建随机的小写密码，然后使用该函数创建10,000个10个字符的随机密码。然后我们使用`scrypt`函数散列每个密码。我们将省略细节（`scrypt`函数的n、p和r参数），但它们用于调整我们希望我们的散列有多安全以及内存/CPU的使用情况。
+- en: Running this on the servers you have, which are 2.4 Ghz 8-core machines, this
+    code completes in just over 40 seconds, which is not too bad. The issue is that
+    you have a large user base, and you need to hash 1,000,000,000 passwords. Doing
+    the calculation based on this test, it will take a bit over 40 days to hash the
+    entire database! We could split up our data set and run this procedure on multiple
+    machines, but we’d need a lot of machines to do that, given how slow this is.
+    Can we use threading to improve the speed and therefore cut down on the time and
+    machines we need to use? Let’s apply what we know about multithreading to give
+    this a shot. We’ll create a thread pool and hash passwords in multiple threads.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您拥有的服务器上运行此代码，这些服务器是2.4 GHz 8核心的机器，此代码只需超过40秒即可完成，这并不算太糟糕。问题是您拥有庞大的用户群，您需要散列1,000,000,000个密码。根据这个测试计算，散列整个数据库将需要超过40天！我们可以将数据集拆分并在多台机器上运行此程序，但考虑到速度如此之慢，我们需要很多机器来做这件事。我们能使用多线程来提高速度，从而减少所需的时间和机器吗？让我们应用我们关于多线程的知识来尝试一下。我们将创建一个线程池，并在多个线程中散列密码。
+- en: Listing 7.17 Hashing with multithreading and asyncio
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.17 使用多线程和asyncio进行散列
+- en: '[PRE23]'
+  id: totrans-196
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: This approach involves us creating a thread pool executor and creating a task
+    for each password we want to hash. Since `hashlib` releases the GIL we realize
+    some decent performance gains. This code runs in about 5 seconds as opposed to
+    the 40 we got earlier. We’ve just cut our runtime down from 47 days to a bit over
+    5! As a next step, we could take this application and run it concurrently on different
+    machines to further cut runtime, or we could get a machine with more CPU cores.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法涉及我们创建一个线程池执行器，并为每个我们想要散列的密码创建一个任务。由于`hashlib`释放了GIL，我们实现了相当不错的性能提升。这段代码大约运行了5秒，而之前我们得到了40秒。我们刚刚将运行时间从47天减少到略超过5天！作为下一步，我们可以将这个应用程序在不同的机器上并行运行，以进一步减少运行时间，或者我们可以获得一个具有更多CPU核心的机器。
+- en: 7.5.2 Multithreading with NumPy
+  id: totrans-198
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.5.2 使用NumPy进行多线程
+- en: NumPy is an extremely popular Python library, widely used in data science and
+    machine learning projects. It has a multitude of mathematical functions common
+    to arrays and matrices that tend to outperform plain Python arrays. This increased
+    performance is because much of the underlying library is implemented in C and
+    Fortran that are low-level languages and tend to be more performant than Python.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: NumPy是一个非常流行的Python库，在数据科学和机器学习项目中广泛使用。它包含了许多常见的数学函数，这些函数适用于数组和矩阵，并且通常比纯Python数组表现更好。这种性能提升是因为底层库的大部分是用C和Fortran实现的，这两种语言都是底层语言，通常比Python更高效。
+- en: Because many of this library’s operations are in low-level code outside of Python,
+    this opens the opportunity for NumPy to release the GIL and allow us to multithread
+    some of our code. The caveat here is this functionality is not well-documented,
+    but it is generally safe to assume matrix operations can potentially be multithreaded
+    for a performance win. That said, depending on how the `numpy` function is implemented,
+    the win could be large or small. If the code directly calls C functions and releases
+    the GIL there is a potential bigger win; if there is a lot of supporting Python
+    code around any low-level calls, the win will be smaller. Given that this is not
+    well documented, you may have to try adding multithreading to specific bottlenecks
+    in your application (you can determine where the bottlenecks are with profiling)
+    and benchmarking what gains you get. You’ll then need to decide if the extra complexity
+    is worth any potential gains you get.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为这个库的许多操作都在Python之外的底层代码中，这为NumPy释放GIL并允许我们多线程部分代码提供了机会。这里的限制是这种功能没有很好地记录，但通常可以假设矩阵操作可能被多线程以提高性能。话虽如此，根据`numpy`函数的实现方式，这种提升可能是大或小的。如果代码直接调用C函数并释放GIL，那么可能获得更大的提升；如果围绕任何底层调用有很多支持Python代码，那么提升将较小。鉴于这一点没有很好地记录，你可能不得不尝试在你的应用程序中特定的瓶颈处添加多线程（你可以通过分析来确定瓶颈所在），并基准测试你获得的收益。然后你需要决定额外的复杂性是否值得你获得的任何潜在收益。
+- en: To see this in practice, we’ll create a large matrix of 4,000,000,000 data points
+    in 50 rows. Our task will be to obtain the mean for reach row. NumPy has an efficient
+    function, `mean`, to compute this. This function has an axis parameter which lets
+    us calculate all the means across an axis without having to write a loop. In our
+    case, an axis of 1 will calculate the mean for every row.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了在实践中看到这一点，我们将创建一个包含50行、40亿个数据点的大型矩阵。我们的任务将是获取每一行的平均值。NumPy有一个高效的函数`mean`来计算这个值。这个函数有一个轴参数，它允许我们在一个轴上计算所有平均值，而无需编写循环。在我们的例子中，轴1将计算每一行的平均值。
+- en: Listing 7.18 Means of a large matrix with NumPy
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.18 使用NumPy计算大型矩阵的平均值
+- en: '[PRE24]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: This script first creates an array with 4,000,000,000 integer data points, ranging
+    from 1,000,000,000-4,000,000,000 (note that this takes quite a bit of memory;
+    if your application crashes with an out-of-memory error, lower this number). We
+    then “reshape” the array into a matrix with 50 rows. Finally, we call NumPy’s
+    `mean` function with an axis of 1, calculating the mean for each individual row.
+    All told, this script runs in about 25–30 seconds on an 8-core 2.4 Ghz CPU. Let’s
+    adapt this code slightly to work with threads. We’ll run the median for each row
+    in a separate thread and use `asyncio.gather` to wait for all the median of all
+    rows.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个脚本首先创建一个包含40亿个整数数据点的数组，范围从10亿到40亿（请注意，这需要相当多的内存；如果你的应用程序因为内存不足而崩溃，请降低这个数字）。然后我们将数组“重塑”成一个有50行的矩阵。最后，我们调用NumPy的`mean`函数，轴为1，计算每一行的平均值。总的来说，这个脚本在一个8核心2.4
+    GHz CPU上大约运行了25-30秒。让我们稍微修改一下这段代码，使其能够使用线程。我们将为每一行的中值运行一个单独的线程，并使用`asyncio.gather`等待所有行的中值。
+- en: Listing 7.19 Threading with NumPy
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.19 使用NumPy进行多线程
+- en: '[PRE25]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: First, we create a `mean_for_row` function that calculates the mean for one
+    row. Since our plan is to calculate the mean for every row in a separate thread,
+    we can no longer use the `mean` function with an axis as we did before. We then
+    create a main coroutine with a thread pool executor and create a task to calculate
+    the mean for each row, waiting for all the calculations to finish with `gather`.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们创建了一个 `mean_for_row` 函数，用于计算单行的平均值。由于我们的计划是在单独的线程中计算每一行的平均值，因此我们不能再像以前那样使用带有轴的
+    `mean` 函数。然后，我们使用线程池执行器创建一个主协程，并创建一个任务来计算每一行的平均值，使用 `gather` 等待所有计算完成。
+- en: On the same machine, this code runs in roughly 9–10 seconds, nearly a 3× boost
+    in performance! Multithreading can help us in certain cases with NumPy, although
+    the documentation for what can benefit from threads is lacking at the time of
+    writing. When in doubt, if threading will help a CPU-bound workload, the best
+    way to see if it will help is to test it out and benchmark.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在同一台机器上，此代码大约运行了 9-10 秒，性能提升了近 3 倍！在某些情况下，多线程可以帮助我们使用 NumPy，尽管在撰写本文时，关于哪些内容可以从线程中受益的文档是缺乏的。如果有疑问，如果线程可以帮助
+    CPU 密集型工作负载，最好的方法是测试它并对其进行基准测试。
+- en: In addition, keep in mind that your NumPy code should be as vectorized as possible
+    before trying threading or multiprocessing to improve performance. This means
+    avoiding things like Python loops or functions like NumPy’s `apply_along_axis`,
+    which just hides a loop. With NumPy, you will often see much better performance
+    by pushing as much computation as you can to the library’s low-level implementations.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，请注意，在尝试多线程或多进程以提升性能之前，你的 NumPy 代码应该尽可能地向量化。这意味着要避免像 Python 循环或 NumPy 的 `apply_along_axis`
+    函数这样的东西，因为它们只是隐藏了一个循环。使用 NumPy 时，你通常会看到通过尽可能地将计算推送到库的低级实现而获得更好的性能。
+- en: Summary
+  id: totrans-210
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: We’ve learned how to run I/O-bound work using the threading module.
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用 threading 模块来运行 I/O 密集型工作。
+- en: We’ve learned how to cleanly terminate threads on application shutdown.
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何在应用程序关闭时干净地终止线程。
+- en: We’ve learned how to use thread pool executors to distribute work to a pool
+    of threads. This allows us to use asyncio API methods like `gather` to wait for
+    results from threads.
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用线程池执行器将工作分配给线程池。这允许我们使用 asyncio API 方法，如 `gather`，来等待线程的结果。
+- en: We’ve learned how to take existing blocking I/O APIs, such as requests, and
+    run them in threads with thread pools and asyncio for performance wins.
+  id: totrans-214
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用线程池和 asyncio 来运行 I/O 密集型工作，从而提高性能。
+- en: We’ve learned how to avoid race conditions with locks from the threading module.
+    We’ve also learned how to avoid deadlocks with reentrant locks.
+  id: totrans-215
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用 threading 模块中的锁来避免竞争条件。我们还学会了如何使用可重入锁来避免死锁。
+- en: We’ve learned how to run the asyncio event loop in a separate thread and send
+    coroutines to it in a thread-safe manner. This lets us build responsive user interfaces
+    with frameworks such as Tkinter.
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何在单独的线程中运行 asyncio 事件循环，并以线程安全的方式向其中发送协程。这使得我们可以使用 Tkinter 等框架构建响应式的用户界面。
+- en: We’ve learned how to use multithreading with `hashlib` and `numpy`. Low-level
+    libraries will sometimes release the GIL, which lets us use threading for CPU-bound
+    work.
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用 `hashlib` 和 `numpy` 进行多线程。底层库有时会释放 GIL，这让我们可以使用线程来执行 CPU 密集型工作。

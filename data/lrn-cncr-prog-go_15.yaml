@@ -1,0 +1,1551 @@
+- en: 12 Atomics, spin locks, and futexes
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 12 原子操作、自旋锁和 futex
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Synchronizing with atomic variables
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用原子变量进行同步
+- en: Developing mutexes with spin locks
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用自旋锁开发互斥锁
+- en: Improving spin locks with futexes
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 futex 提升自旋锁
+- en: In previous chapters, we have used mutexes to synchronize access to shared variables
+    amongst threads. We have also seen how to use mutexes as primitives to build more
+    complex concurrent tools, such as semaphores and channels. We haven’t yet explored
+    how these mutexes are built.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们使用了互斥锁来同步线程对共享变量的访问。我们还看到了如何使用互斥锁作为原语来构建更复杂的并发工具，如信号量和通道。我们尚未探讨这些互斥锁是如何构建的。
+- en: 'In this chapter, we’ll cover the most primitive of the synchronization tools:
+    the atomic variable. We’ll then explore how we can use it to build a mutex using
+    a technique called *spin locking*. Later, we’ll see how we can optimize the mutex
+    implementation by making use of a futex—an operating system call allowing us to
+    reduce the CPU cycles while waiting for a lock to become free. Finally, we’ll
+    focus on how Go implements the bundled mutex.'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将介绍同步工具中最基础的：原子变量。然后，我们将探讨如何使用它通过称为 *自旋锁* 的技术来构建互斥锁。稍后，我们将看到如何通过使用 futex（一个操作系统调用，允许我们在等待锁变为空闲时减少
+    CPU 循环次数）来优化互斥锁的实现。最后，我们将关注 Go 如何实现捆绑的互斥锁。
+- en: 12.1 Lock-free synchronization with atomic variables
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.1 使用原子变量进行无锁同步
+- en: Mutexes ensure that critical sections of our concurrent code are executed by
+    only one goroutine at a time. They are used to prevent race conditions. However,
+    mutexes have the effect of turning parts of our concurrent programming into sequential
+    bottlenecks. If we are just updating the value of a simple variable, such as an
+    integer, we can make use of an atomic variable to keep it consistent amongst goroutines
+    without needing to rely on mutexes that turn our code into a sequential block.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 互斥锁确保我们的并发代码的关键部分一次只由一个 goroutine 执行。它们用于防止竞态条件。然而，互斥锁的效果是将我们的并发编程的部分转变为顺序瓶颈。如果我们只是更新一个简单的变量，例如一个整数，我们可以使用原子变量来在
+    goroutines 之间保持一致性，而无需依赖于将我们的代码转变为顺序块的互斥锁。
+- en: 12.1.1 Sharing variables with atomic numbers
+  id: totrans-9
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.1 使用原子数共享变量
+- en: In previous chapters, we looked at an example with two goroutines, named Stingy
+    and Spendy, that were sharing an integer variable representing their bank account.
+    Access to the shared variable was protected with a mutex. Every time we wanted
+    to update the variable, we would acquire the mutex lock. Once we were finished
+    with the update, we would release it.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们查看了一个名为 Stingy 和 Spendy 的两个 goroutine 的示例，它们共享一个表示其银行账户的整数变量。对共享变量的访问是通过互斥锁保护的。每次我们想要更新变量时，我们都会获取互斥锁。一旦我们完成更新，我们就会释放它。
+- en: Atomic variables allow us to perform certain operations that execute without
+    interruption. For example, we can add to the value of an existing shared variable
+    in a single atomic operation, which guarantees that concurrent add operations
+    do not interfere with each other. Once the operation is executed, it is fully
+    applied to the value of the variable without interruption. We can use atomic variables
+    to replace mutexes in certain scenarios.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 原子变量允许我们执行某些不会中断的操作。例如，我们可以在单个原子操作中向现有共享变量的值中添加，这保证了并发添加操作不会相互干扰。一旦操作执行，它就会完全应用到变量的值上，而不会中断。我们可以在某些场景下使用原子变量来替换互斥锁。
+- en: As an example, we can easily change our Stingy and Spendy program to use these
+    atomic variable operations. Instead of using mutexes, we will simply call the
+    atomic `add()` operation on our shared money variable. This guarantees that the
+    goroutines do not produce race conditions that produce inconsistent results (see
+    figure 12.1).
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们可以轻松地将我们的 Stingy 和 Spendy 程序更改为使用这些原子变量操作。我们不会使用互斥锁，而是简单地在我们的共享金钱变量上调用原子
+    `add()` 操作。这保证了 goroutines 不会产生导致不一致结果的竞态条件（见图 12.1）。
+- en: '![](../../OEBPS/Images/CH12_F01_Cutajar.png)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH12_F01_Cutajar.png)'
+- en: Figure 12.1 Using atomic variables on Stingy and Spendy
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.1 在 Stingy 和 Spendy 上使用原子变量
+- en: 'In Go, the atomic operations are in the `sync/atomic` package. All calls in
+    this package accept a pointer to a variable on which the atomic operation is to
+    be performed. Here’s a list of functions (from the `sync/atomic` package) that
+    can be applied to 32-bit integers:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Go 中，原子操作位于 `sync/atomic` 包中。该包中的所有调用都接受一个指向要执行原子操作的变量的指针。以下是从 `sync/atomic`
+    包中可以应用于 32 位整数的函数列表：
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: NOTE The same `atomic` package contains similar operations for other datatypes,
+    such as Booleans and unsigned integers.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：相同的`atomic`包包含其他数据类型（如布尔型和无符号整数）的类似操作。
+- en: For our Stingy and Spendy application, we can replace the mutex locks and instead
+    use the `AddInt32()` operation every time we want to add to or subtract from the
+    shared variable, as shown in the following listing. In addition to changing the
+    addition and subtraction to use atomic operations, we also remove the need to
+    use any mutexes.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于我们的Stingy和Spendy应用程序，我们可以在每次想要向或从共享变量中添加或减去时使用`AddInt32()`操作，如以下列表所示。除了将加法和减法更改为使用原子操作外，我们还消除了使用任何互斥锁的需要。
+- en: Listing 12.1 Stingy and Spendy using atomic operations
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.1 使用原子操作的Stingy和Spendy
+- en: '[PRE1]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Imports the atomic package
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 导入原子包
+- en: ❷ Adds $10 atomically to the shared money variable
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 原子地将10美元添加到共享的金钱变量中
+- en: ❸ Subtracts $10 atomically from the shared money variable
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 原子地从共享的金钱变量中减去10美元
+- en: NOTE The `AddInt32()` function returns the new value after we add the delta.
+    However, in our Stingy and Spendy goroutines, we’re not making use of the return
+    value.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：`AddInt32()`函数在添加delta后返回新值。然而，在我们的Stingy和Spendy goroutines中，我们没有使用返回值。
+- en: We can modify our `main()` function to read the atomic variable’s value by using
+    the `LoadInt32()` function call. The following listing uses a waitgroup to wait
+    for the goroutines to complete, and then it reads the shared `money` variable.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用`LoadInt32()`函数调用来修改我们的`main()`函数，以便读取原子变量的值。以下列表使用waitgroup等待goroutines完成，然后读取共享的`money`变量。
+- en: Listing 12.2 `main()` function using atomic variables
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.2 使用原子变量的`main()`函数
+- en: '[PRE2]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Creates a 32-bit integer with a value of 100
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个值为100的32位整数
+- en: ❷ Waits on the waitgroup until both goroutines are done
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待waitgroup直到两个goroutines都完成
+- en: ❸ Reads the value of the shared money variable and outputs it on the console
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 读取共享金钱变量的值并在控制台上输出
+- en: 'As expected, when we run listings 12.1 and 12.2 together, we don’t get any
+    race conditions, and the final value of the shared `money` variable is $100:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如预期的那样，当我们一起运行列表12.1和12.2时，我们没有得到任何竞争条件，共享的`money`变量的最终值是100美元：
+- en: '[PRE3]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 12.1.2 Performance penalty when using atomics
+  id: totrans-33
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.2 使用原子时的性能惩罚
+- en: Why don’t we just use atomic operations for everything to eliminate the risk
+    of sharing a variable and accidentally forgetting to use synchronization techniques?
+    Unfortunately, there is a performance penalty to pay whenever we use these atomic
+    variables. Updating a variable in a normal way is quite a bit faster than updating
+    variables with atomic operations.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么我们不直接使用原子操作来消除共享变量和意外忘记使用同步技术的风险呢？不幸的是，每次我们使用这些原子变量时，都需要付出性能代价。以正常方式更新变量比使用原子操作更新变量要快得多。
+- en: Let’s look at this performance difference. Listing 12.3 uses Go’s built-in benchmarking
+    tools to test how fast it is to update a variable atomically compared with a normal
+    update. In Go, we can write a benchmark unit test by prefixing the function signature
+    with `Benchmark` and making the function accept a `testing.B` type. Listing 12.3
+    shows an example of this. In the first benchmark function, we update the `total`
+    64-bit integer using a normal read and update operation, and in the second, we
+    update it using an atomic `AddInt64()` operation. When using Go’s benchmark functions,
+    `bench.N` is the number of iterations that our benchmark will execute. This value
+    changes dynamically to ensure that the test runs for the specific duration (1
+    second by default).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看这个性能差异。列表12.3使用Go的内置基准测试工具来测试原子更新变量与普通更新相比有多快。在Go中，我们可以通过在函数签名前缀添加`Benchmark`并使函数接受`testing.B`类型来编写基准单元测试。列表12.3展示了这个例子。在第一个基准函数中，我们使用正常的读取和更新操作更新`total`
+    64位整数，而在第二个中，我们使用原子的`AddInt64()`操作来更新它。当使用Go的基准函数时，`bench.N`是我们基准将执行的迭代次数。此值会动态变化，以确保测试运行特定的时间（默认为1秒）。
+- en: Listing 12.3 Micro-benching the atomic addition operator
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.3 微基准测试原子加法运算符
+- en: '[PRE4]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Creates a 64-bit integer
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个64位整数
+- en: ❷ Adds to the total variable using the normal add operator
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用普通加法运算符向总变量中添加
+- en: ❸ Adds to the total variable using the atomic operation function
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用原子操作函数向总变量中添加
+- en: 'We can now run this benchmark by adding the `-bench` flag to the `go test`
+    command. This test will tell us the performance difference between an atomic and
+    a normal variable operation. Here’s the output:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以通过在`go test`命令中添加`-bench`标志来运行这个基准测试。这个测试将告诉我们原子变量操作和普通变量操作之间的性能差异。以下是输出结果：
+- en: '[PRE5]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The results of our micro-benchmark indicate that the atomic addition on 64-bit
+    integers is more than three times slower than using the normal operator. These
+    results will vary on different systems and architectures, but on all systems,
+    there is a substantial difference in performance. This is because when using atomics,
+    we are forfeiting many compiler and system optimizations. For example, when we
+    access the same variable repeatedly, like we do in listing 12.3, the system keeps
+    the variable in the processor’s cache, making access to the variable faster, but
+    it might periodically flush the variable back to main memory, especially if it’s
+    running out of cache space. When using atomics, the system needs to ensure that
+    any other execution running in parallel sees the update to the variable. Thus,
+    whenever atomic operations are used, the system needs to maintain the cached variables
+    consistently. This can be done by flushing to main memory and invalidating any
+    other caches. Having to keep various caches consistent ends up reducing our program
+    performance.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的微基准测试结果表明，在64位整数上进行原子加法比使用正常操作慢三倍以上。这些结果会因不同的系统和架构而异，但在所有系统中，性能差异都是显著的。这是因为当使用原子时，我们放弃了编译器和系统的大量优化。例如，当我们像列表12.3中那样重复访问相同的变量时，系统会将变量保存在处理器的缓存中，使访问变量更快，但可能会定期将变量刷新回主内存，尤其是在缓存空间不足时。当使用原子时，系统需要确保任何并行运行的执行都能看到变量的更新。因此，每当使用原子操作时，系统都需要保持缓存的变量一致性。这可以通过刷新到主内存并使任何其他缓存无效来实现。需要保持各种缓存一致性最终会导致我们的程序性能降低。
+- en: 12.1.3 Counting using atomic numbers
+  id: totrans-44
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.1.3 使用原子数计数
+- en: A typical application of using atomic variables is when you need to count occurrences
+    of the same thing from multiple executions. In chapter 3, we developed a program
+    that used multiple goroutines to download web pages and count the frequencies
+    of English alphabet letters. The total count of each letter was maintained in
+    a shared slice data structure. Later, in chapter 4, we added a mutex to ensure
+    that the updates to the shared slice were consistent.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用原子变量的典型应用场景是在需要从多次执行中计数相同事物的出现次数时。在第3章中，我们开发了一个程序，该程序使用了多个goroutine来下载网页并计算英语字母的频率。每个字母的总计数保存在一个共享的切片数据结构中。后来，在第4章中，我们添加了一个互斥锁来确保对共享切片的更新是一致的。
+- en: We can change the implementation to use atomic updates every time we need to
+    increment the count of a letter in the slice. Figure 12.2 shows that we’re still
+    using memory sharing, but this time, we’re simply sending atomic updates to the
+    variables. The previous approach used the two steps of reading the value and then
+    writing the update, forcing us to use a mutex. By using an atomic update, we do
+    not have to wait for another goroutine to release the mutex if we need to update
+    a count. Our goroutines will run without any blocking interruptions from other
+    goroutines. Even if two goroutines try to apply an atomic update at exactly the
+    same time, the two updates are applied sequentially without conflicting.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将实现方式改为每次需要增加切片中字母的计数时都使用原子更新。图12.2显示我们仍然在使用内存共享，但这次我们只是向变量发送原子更新。之前的方法使用了读取值然后写入更新的两个步骤，迫使我们使用互斥锁。通过使用原子更新，如果我们需要更新计数，就不必等待另一个goroutine释放互斥锁。我们的goroutine将无任何阻塞中断地运行。即使两个goroutine试图同时应用原子更新，这两个更新也会顺序执行，不会发生冲突。
+- en: '![](../../OEBPS/Images/CH12_F02_Cutajar.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH12_F02_Cutajar.png)'
+- en: Figure 12.2 Using atomic operations for our letter-frequency program
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.2 使用原子操作进行我们的字母频率程序
+- en: Listing 12.4 modifies the previous implementation of the `countLetters()` function
+    by removing the mutex lock and unlock and instead uses the atomic variable operation.
+    In the listing, we use the reference of the integer contained in the slice directly
+    and increment the count by `1` every time we encounter a letter.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.4通过移除互斥锁的锁定和解锁操作，修改了`countLetters()`函数的先前实现，并改用原子变量操作。在列表中，我们直接使用切片中包含的整数的引用，并在遇到字母时每次增加计数`1`。
+- en: Listing 12.4 Atomic variables in `countLetters()` (imports omitted)
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.4 `countLetters()` 中的原子变量（省略了导入）
+- en: '[PRE6]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Reads the body of the web page
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 读取网页正文
+- en: ❷ Iterates over every letter contained in the body of the document
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 遍历文档正文中的每个字母
+- en: ❸ Checks to see if the letter is part of the English alphabet
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 检查字母是否是英语字母表的一部分
+- en: ❹ Uses an atomic add operation to increment the count of the letter
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用原子加操作来增加字母的计数
+- en: Next, we need to slightly modify the `main()` function so that the slice data
+    structure uses 32-bit integers. This is required since atomic operations only
+    work on specific data types such as `int32` or `int64`. In addition, we need to
+    read the results by using the atomic function `LoadInt32()`. The following listing
+    shows a `main()` function with these changes and uses a waitgroup to wait for
+    all goroutines to complete.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要稍微修改 `main()` 函数，以便切片数据结构使用 32 位整数。这是必需的，因为原子操作仅在特定的数据类型上工作，例如 `int32`
+    或 `int64`。此外，我们需要使用原子函数 `LoadInt32()` 来读取结果。以下列表显示了一个经过这些更改的 `main()` 函数，并使用等待组等待所有协程完成。
+- en: Listing 12.5 `main()` function for atomic letter counter
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.5 原子字母计数器的 `main()` 函数
+- en: '[PRE7]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Creates a slice with size 26 of type 32-bit integers
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个大小为 26 的 32 位整数切片
+- en: ❷ Waits until all goroutines are complete
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待直到所有协程完成
+- en: ❸ Loads the value of each count from the frequency slice and outputs them on
+    the console
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 从频率切片中加载每个计数值并在控制台上输出它们
+- en: NOTE Using the `LoadInt32()` function is not strictly necessary in the preceding
+    listing because all the goroutines are finished by the time we read the results.
+    However, it’s good practice to use atomic load operations when working with atomics
+    to ensure that we read the latest value from main memory and not an outdated cached
+    value.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在上面的列表中，使用 `LoadInt32()` 函数并不是严格必要的，因为所有协程都已完成，我们读取结果时。然而，当与原子一起工作时，使用原子加载操作是一种好习惯，以确保我们从主内存中读取最新的值，而不是过时的缓存值。
+- en: 'In chapter 3, when we ran our letter-frequency application without any mutex
+    locks (listings 3.2 and 3.4), it produced inconsistent results. Using the atomic
+    variables has the same effect as eliminating the race condition by using a mutex.
+    However, this time, our goroutines are not blocking each other. Here is the output
+    when we run listings 12.4 and 12.5 together:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 3 章，当我们没有使用任何互斥锁运行字母频率应用程序时（列表 3.2 和 3.4），它产生了不一致的结果。使用原子变量与使用互斥锁消除竞争条件的效果相同。然而，这次，我们的协程并没有互相阻塞。以下是当我们一起运行列表
+    12.4 和 12.5 时的输出：
+- en: '[PRE8]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 12.2 Implementing a mutex with spin locks
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.2 使用自旋锁实现互斥锁
+- en: In the previous scenario, we modified the letter-frequency program to use atomic
+    variables. The changes were simple because we only needed to update one variable
+    at a time. What about when we have an application that requires us to update multiple
+    variables together? In the previous chapter, we had one such scenario—the ledger
+    application needed to subtract money from one account and add it to another. In
+    that example, we used mutexes to protect multiple accounts. We have used mutexes
+    throughout this book, but we’ve never looked at the details of how they’re implemented.
+    Let’s pick a different scenario where we must use mutexes and then use atomic
+    operations so we can build our own implementation of a mutex using a technique
+    called *spin locking*.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一个场景中，我们修改了字母频率程序以使用原子变量。这些更改很简单，因为我们只需要一次更新一个变量。那么，当我们有一个需要同时更新多个变量的应用程序时怎么办呢？在上一章中，我们有一个这样的场景——账本应用程序需要从一个账户中减去钱并添加到另一个账户中。在那个例子中，我们使用了互斥锁来保护多个账户。我们在整本书中使用了互斥锁，但从未查看过它们的实现细节。让我们选择一个必须使用互斥锁的不同场景，然后使用原子操作，这样我们就可以使用称为
+    *自旋锁* 的技术来构建自己的互斥锁实现。
+- en: Imagine that we’re developing flight-booking software for an airline. When booking
+    flights, customers want to purchase tickets for either their entire route or none
+    at all if parts of the route are not available. Figure 12.3 shows the problem
+    we’re trying to solve. When we show a user that the full route has seats available
+    and someone else books the last seats for part of the route in the meantime, the
+    full purchase needs to be canceled. Otherwise, we risk irking customers by having
+    them buy useless tickets that don’t take them to their intended destinations.
+    Even worse, we might end up stranding passengers at their destination if the outward
+    booking was successful but the return flight booking failed when seats filled
+    up. The flight-booking software needs to have controls to avoid these types of
+    race conditions.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们正在为一家航空公司开发航班预订软件。当预订航班时，客户希望购买整个航线的机票，或者如果航线的一部分不可用，则根本不购买。图12.3显示了我们要解决的问题。当我们向用户展示整个航线有座位可用，而在此期间有人预订了部分航线的最后一张座位，整个购买就需要取消。否则，我们可能会让客户购买无用的机票，而这些机票并不能带他们到达他们想要的目的地。更糟糕的是，如果外程预订成功，但回程航班预订失败（因为座位已满），乘客可能会在目的地滞留。航班预订软件需要具备控制措施来避免这类竞争条件。
+- en: '![](../../OEBPS/Images/CH12_F03_Cutajar.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH12_F03_Cutajar.png)'
+- en: Figure 12.3 A poorly written concurrent program for a flight-booking system
+    results in race conditions.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.3 一个编写不良的航班预订系统并发程序会导致竞争条件。
+- en: To implement such a booking system, we can model each flight as a separate entity
+    containing details such as point of origin and destination, remaining seats on
+    the flight, departure time, flight time, and so on. Using atomic operations to
+    update the remaining seats on a flight will not solve the race condition outlined
+    in figure 12.3 because when a customer books multiple flights together, we need
+    to ensure that we update all the remaining seat variables on the flights booked
+    together in an atomic unit. Atomic variables only guarantee atomic updates to
+    one variable at a time.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现这样一个预订系统，我们可以将每趟航班建模为一个独立的实体，包含诸如出发地、目的地、航班剩余座位数、出发时间、飞行时间等详细信息。使用原子操作来更新航班剩余座位数并不能解决图12.3中概述的竞争条件，因为当客户同时预订多趟航班时，我们需要确保我们以原子单元更新所有预订航班上的剩余座位变量。原子变量只能保证一次只对一个变量进行原子更新。
+- en: 'To solve this problem, we can adopt the same approach we adopted for the ledger
+    application, that of having a lock on each account. In this case, before adjusting
+    each flight, we will obtain locks on each flight that is in the customer’s booking.
+    Listing 12.6 shows how we can model the details of each flight using a `struct`
+    type. In this implementation, we’re keeping things simple and only storing the
+    flight’s origin and destination and the seats left on the flight. We also use
+    the `Locker` interface, which contains just two functions: `Lock()` and `Unlock()`.
+    This is the same interface that a mutex implements.'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这个问题，我们可以采用与账本应用相同的方法，即对每个账户加锁。在这种情况下，在调整每趟航班之前，我们将对客户预订的每趟航班获取锁。列表12.6展示了我们如何使用结构类型来建模每趟航班的详细信息。在这个实现中，我们保持简单，只存储航班的出发地和目的地以及航班剩余的座位数。我们还使用了`Locker`接口，该接口只包含两个函数：`Lock()`和`Unlock()`。这正是互斥锁实现的接口。
+- en: Listing 12.6 Struct type representing a flight
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.6 表示航班的结构类型
+- en: '[PRE9]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Provides an interface containing lock and unlock functions
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 提供一个包含锁定和解锁功能的接口
+- en: We can now develop a function that adjusts the `SeatsLeft` variable when given
+    a booking containing a list of flights. Listing 12.7 implements this function,
+    returning `true` only if all flights on the input slice contain enough seats for
+    the booking request. The implementation starts by sorting the input list of flights
+    in alphabetical order using the origin and destination. This ordering is done
+    to avoid deadlocks (see chapter 11). The function proceeds by locking all the
+    requested flights so that the number of seats remaining on each flight does not
+    change while we’re updating them. Then we check to see if each flight contains
+    enough seats to fulfill the requested booking. If they all do, we reduce the seats
+    on each flight by the number of seats the customer wants to buy.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们可以开发一个函数，当给定包含航班列表的预订时，调整`SeatsLeft`变量。列表12.7实现了这个函数，只有在输入切片中的所有航班都包含足够的座位来满足预订请求时才返回`true`。实现从使用起点和终点对输入航班列表进行字母排序开始。这种排序是为了避免死锁（见第11章）。然后函数通过锁定所有请求的航班，以确保在更新它们时每个航班的剩余座位数不会改变。然后我们检查每个航班是否包含足够的座位来满足预订请求。如果它们都满足，我们将每个航班的座位数减少客户想要购买的座位数。
+- en: Listing 12.7 Flight-booking function
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.7 航班预订函数
+- en: '[PRE10]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Sorts flights in alphabetical order based on their origin and destination
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 根据起点和目的地对航班进行字母排序
+- en: ❷ Locks all the requested flights
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 锁定所有请求的航班
+- en: ❸ Checks to see that all the requested flights have enough seats
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 检查所有请求的航班是否有足够的座位
+- en: ❹ Subtracts the seats from each flight only if there are enough seats for the
+    entire booking
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 仅在预订所需的所有座位都足够的情况下，从每个航班中减去座位数
+- en: ❺ Unlocks all the locked flights
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 解锁所有已锁定的航班
+- en: ❻ Returns the result of the booking
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 返回预订的结果
+- en: We could use Go’s `sync.mutex`, as this gives us both the `Lock()` and `Unlock()`
+    functions, but instead, let’s take this opportunity to implement our own `sync.Locker`
+    implementation. In doing so, we’ll learn how mutexes can be implemented.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用Go的`sync.mutex`，因为这为我们提供了`Lock()`和`Unlock()`函数，但相反，让我们利用这个机会来实现我们自己的`sync.Locker`实现。通过这样做，我们将学习如何实现互斥锁。
+- en: 12.2.1 Comparing and swapping
+  id: totrans-85
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.2.1 比较和交换
+- en: Can any of the operations on the atomic variable help us to implement our mutex?
+    The `CompareAndSwap()` function can be used to check and set a flag indicating
+    that a resource is locked. This function works by accepting a value pointer and
+    `old` and `new` parameters. If the `old` parameter is equal to the value stored
+    at the pointer, the value is updated to match that of the `new` parameter. This
+    operation (like all operations in the `atomic` package) is atomic and thus cannot
+    be interrupted by another execution.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 原子变量的任何操作能帮助我们实现互斥锁吗？`CompareAndSwap()`函数可以用来检查并设置一个标志，指示资源已被锁定。这个函数通过接受一个值指针和`old`和`new`参数来工作。如果`old`参数等于指针存储的值，则值被更新为与`new`参数匹配。这个操作（就像`atomic`包中的所有操作一样）是原子的，因此不能被其他执行中断。
+- en: Figure 12.4 shows the `CompareAndSwap()` function when used in two scenarios.
+    On the left side of the figure, the value of the variable is what we expect, equal
+    to the `old` parameter. When this happens, the value is updated to that of the
+    `new` parameter, and the function returns `true`. The right side of the figure
+    shows what happens when we call the function on a value not equal to the `old`
+    parameter. In this case, the update is not applied, and the function returns `false`.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.4显示了`CompareAndSwap()`函数在两种场景下的使用。图中的左侧，变量的值是我们预期的，等于`old`参数。在这种情况下，值被更新为`new`参数的值，并且函数返回`true`。图中的右侧显示了当我们对一个不等于`old`参数的值调用函数时会发生什么。在这种情况下，更新不会被应用，函数返回`false`。
+- en: '![](../../OEBPS/Images/CH12_F04_Cutajar.png)'
+  id: totrans-88
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH12_F04_Cutajar.png)'
+- en: Figure 12.4 The `CompareAndSwap()` function operating in two scenarios
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.4 `CompareAndSwap()`函数在两种场景下的操作
+- en: The two scenarios can be seen in action in listing 12.8\. We call the same function
+    twice with the same parameters. For the first call, we set the variable to have
+    the same value as the old parameter, and for the second call, we change the value
+    of the variable to be different.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两种情况可以在列表12.8中看到实际操作。我们使用相同的参数调用同一个函数两次。对于第一次调用，我们将变量设置为与旧参数相同的值，而对于第二次调用，我们改变变量的值使其与旧参数不同。
+- en: Listing 12.8 Applying the `CompareAndSwap()` function
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.8 应用`CompareAndSwap()`函数
+- en: '[PRE11]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Sets the variable to have the same value as the old parameter on CompareAndSwap()
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在CompareAndSwap()中将变量设置为与旧参数相同的值
+- en: ❷ Changes the value of the variable and returns true
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 更改变量的值并返回 true
+- en: ❸ Sets the variable to have a different value than the old parameter on CompareAndSwap()
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在 CompareAndSwap() 上设置变量为与旧参数不同的值
+- en: ❹ Compares and fails, leaving the value of the variable unchanged, and returns
+    false
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 比较失败，变量值保持不变，并返回 false
+- en: 'When we run the preceding listing, the first call succeeds, updating the variable
+    and returning `true`. After we change the value of the variable, the second call
+    fails, and the `CompareAndSwap()` function returns `false`, leaving the variable
+    unchanged. Here is the output:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行前面的代码列表时，第一次调用成功，更新了变量并返回 `true`。在更改变量的值之后，第二次调用失败，`CompareAndSwap()` 函数返回
+    `false`，变量保持不变。以下是输出：
+- en: '[PRE12]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Now that we know how the `CompareAndSwap()` function works, let’s see how it
+    can help us to implement our `Locker` interface.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们知道了 `CompareAndSwap()` 函数的工作原理，让我们看看它是如何帮助我们实现 `Locker` 接口的。
+- en: 12.2.2 Building a mutex
+  id: totrans-100
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.2.2 构建互斥锁
+- en: We can use the `CompareAndSwap()` function to implement a mutex completely in
+    user space without having to rely on the operating system. We’ll start by using
+    an atomic variable as an indicator showing whether the mutex is locked. We can
+    then use the `CompareAndSwap()` function to check and update the value of the
+    indicator whenever we need to lock the mutex. To unlock the mutex, we can call
+    the `Store()` function on the atomic variable. Figure 12.5 shows this concept.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 `CompareAndSwap()` 函数在用户空间中完全实现互斥锁，而无需依赖于操作系统。我们将首先使用原子变量作为指示器，显示互斥锁是否被锁定。然后我们可以使用
+    `CompareAndSwap()` 函数在需要锁定互斥锁时检查和更新指示器的值。要解锁互斥锁，我们可以调用原子变量的 `Store()` 函数。图 12.5
+    展示了这一概念。
+- en: '![](../../OEBPS/Images/CH12_F05_Cutajar.png)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH12_F05_Cutajar.png)'
+- en: Figure 12.5 Implementing spin locks
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.5 实现自旋锁
+- en: If the indicator is showing as free, `CompareAndSwap(unlocked, locked)` will
+    succeed, and the indicator will be updated to locked. If the indicator is showing
+    as locked, the `CompareAndSwap(unlocked,` `locked)` operation will fail, returning
+    `false`. At this point, we can keep retrying until the indicator changes value
+    and becomes unlocked. This type of mutex is called a spin lock.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果指示器显示为空闲，`CompareAndSwap(unlocked, locked)` 将成功，并将指示器更新为锁定。如果指示器显示为锁定，`CompareAndSwap(unlocked,
+    locked)` 操作将失败，返回 `false`。在这种情况下，我们可以继续重试，直到指示器值改变并变为解锁。这种类型的互斥锁称为自旋锁。
+- en: Definition A *spin lock* is a type of lock in which an execution will go into
+    a loop to try to get hold of a lock repeatedly until the lock becomes available.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 A *自旋锁* 是一种锁，其中执行将进入循环以重复尝试获取锁，直到锁变为可用。
+- en: To implement our spin lock’s indicator, we can make use of an integer variable.
+    The integer can have a value of `0` it the lock is free and a value of `1` if
+    it’s locked. In listing 12.9, we use a 32-bit integer as our indicator.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现我们的自旋锁指示器，我们可以使用一个整型变量。该整型变量可以具有 `0` 的值，表示锁是空闲的，如果它被锁定，则具有 `1` 的值。在列表 12.9
+    中，我们使用 32 位整数作为我们的指示器。
+- en: The listing also shows how we can implement both the `lock()` and `Unlock()`
+    functions, fully implementing the `Locker` interface. In the `lock()` function,
+    the `CompareAndSwap()` operation is called in a loop until the call returns successfully
+    and the atomic variable is updated to `1`. This is the spinning part of our lock.
+    The goroutine locking the spin lock will continue looping until the lock is free.
+    In the `Unlock()` function, we simply call the atomic `Store()` function to set
+    the value of the indicator to `0`, signifying that the lock is free.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表还展示了如何实现 `lock()` 和 `Unlock()` 函数，完全实现 `Locker` 接口。在 `lock()` 函数中，循环调用 `CompareAndSwap()`
+    操作，直到调用成功并原子变量更新为 `1`。这是我们锁的自旋部分。锁定自旋锁的 goroutine 将继续循环，直到锁变为空闲。在 `Unlock()` 函数中，我们只需调用原子的
+    `Store()` 函数将指示器的值设置为 `0`，表示锁是空闲的。
+- en: Listing 12.9 Spin lock implementation
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.9 自旋锁实现
+- en: '[PRE13]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ A value of 0 indicates that the lock is free, while 1 indicates that the lock
+    is locked.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 值为 0 表示锁是空闲的，而值为 1 表示锁已被锁定。
+- en: ❷ Loops until CompareAndSwap() succeeds and sets the value to 1
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 循环直到 CompareAndSwap() 成功并将值设置为 1
+- en: ❸ Calls the Go scheduler to give execution time to other goroutines
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 调用 Go 调度器以给其他 goroutines 分配执行时间
+- en: ❹ Updates the integer value to 0, marking the lock as free
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 更新整数值为 0，标记锁为空闲
+- en: In our spin lock implementation, we are calling the Go scheduler every time
+    the goroutine finds that the lock is already being used by another goroutine.
+    This call is not strictly necessary, but it should give other goroutines a chance
+    to execute and possibly unlock the spin lock. In technical speak, we can say that
+    the goroutine is *yielding* its execution.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的自旋锁实现中，每次 goroutine 发现锁已被另一个 goroutine 使用时，我们都会调用 Go 调度器。这个调用不是严格必要的，但它应该给其他
+    goroutines 一个执行的机会，并可能解锁自旋锁。用技术术语来说，我们可以说是 goroutine 正在 *让步* 它的执行。
+- en: Listing 12.9 includes a function to create our spin lock, returning a pointer
+    to the `Locker` interface. We can use this implementation in our flight-booking
+    program. The following listing shows the implementation for creating a new, empty
+    flight using the spin locks.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.9 包含一个创建我们的自旋锁的函数，返回 `Locker` 接口的指针。我们可以在我们的航班预订程序中使用这个实现。以下列表展示了使用自旋锁创建一个新的、空的航班的实现。
+- en: Listing 12.10 Creating a new flight using spin locks
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.10 使用自旋锁创建新的航班
+- en: '[PRE14]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ Creates a new spin lock
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的自旋锁
+- en: Definition *Resource contention* is when an execution (such as a thread, process,
+    or goroutine) uses a resource in a way that blocks and slows down another execution.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*资源竞争* 的定义是当一个执行（如线程、进程或 goroutine）以阻止和减慢另一个执行的方式使用资源。'
+- en: The problem with implementing mutexes using spin locks is that when we have
+    high resource contention, such as a goroutine hogging a lock for a long time,
+    other executions will be wasting valuable CPU cycles while spinning and waiting
+    for the lock to be released. In our implementation, the goroutines will be stuck
+    in the loop, executing `CompareAndSwap()` repeatedly until another goroutine calls
+    `unlock()`. This waiting in a loop wastes valuable CPU time that could be used
+    to execute other tasks.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用自旋锁实现互斥锁的问题在于，当我们有高资源竞争，例如一个 goroutine 长时间占用锁时，其他执行将浪费宝贵的 CPU 周期，在自旋和等待锁释放。在我们的实现中，goroutines
+    将陷入循环，反复执行 `CompareAndSwap()`，直到另一个 goroutine 调用 `unlock()`。这种循环等待浪费了本可以用来执行其他任务的宝贵
+    CPU 时间。
+- en: 12.3 Improving on spin locking
+  id: totrans-121
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.3 改进自旋锁定
+- en: How can we improve our `Locker` implementation so that we don’t have to loop
+    continuously when the lock is not available? In our implementation, we called
+    `runtime.Gosched()` to provide the opportunity for other goroutines to execute
+    instead. This is known as *yielding* the execution, and in certain other languages
+    (such as Java), the operation is called `yield``()`.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何改进 `Locker` 实现以避免在锁不可用时连续循环？在我们的实现中，我们调用 `runtime.Gosched()` 以提供其他 goroutines
+    执行的机会。这被称为 *让步* 执行，在某些其他语言（如 Java）中，这个操作被称为 `yield()`。
+- en: The problem with yielding is that the runtime (or operating system) doesn’t
+    know that the current execution is waiting for a lock to become available. It
+    is likely that the execution waiting for the lock will be resumed multiple times
+    before the lock is released, wasting valuable CPU time. To help with this, operating
+    systems provide a concept known as a futex.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让步的问题在于，运行时（或操作系统）不知道当前执行正在等待锁变得可用。在锁释放之前，等待锁的执行可能会被多次恢复，浪费宝贵的 CPU 时间。为了解决这个问题，操作系统提供了一个称为
+    futex 的概念。
+- en: 12.3.1 Locking with futexes
+  id: totrans-124
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.3.1 使用 futex 锁定
+- en: '*Futex* is short for *fast userspace mutex.* However, this definition is misleading,
+    as futexes are not mutexes at all. A *futex* is a wait queue primitive that we
+    can access from user space. It gives us the ability to suspend and awaken an execution
+    on a specific address. Futexes come in handy when we need to implement efficient
+    concurrency primitives such as mutexes, semaphores, and condition variables.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*Futex* 是 *fast userspace mutex* 的缩写。然而，这个定义是误导性的，因为 futex 实际上根本不是互斥锁。*futex*
+    是一个我们可以从用户空间访问的等待队列原语。它赋予我们挂起和唤醒特定地址上执行的能力。当我们需要实现如互斥锁、信号量和条件变量等高效的并发原语时，futex
+    非常有用。'
+- en: When using futexes, we might use several system calls. The names and parameters
+    vary on each operating system, but most operating systems provide similar functionality.
+    For simplicity’s sake, let’s assume we have two system calls named `futex``_ wait(address,`
+    `value)` and `futex_wake(address,` `count)`.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用 futex 时，我们可能会使用几个系统调用。每个操作系统的名称和参数都不同，但大多数操作系统都提供了类似的功能。为了简化起见，让我们假设我们有两个名为
+    `futex_wait(address, value)` 和 `futex_wake(address, count)` 的系统调用。
+- en: Implementations of futexes on different operating systems
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不同操作系统中 futex 的实现
+- en: On Linux, `futex_wait()` and `futex_wake()` can both be implemented with the
+    system call `syscall(SYS_futex, ...)`. For the wait and wake functionality, we
+    can use the `FUTEX_WAIT` and `FUTEX_WAKE` parameters respectively.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Linux 上，`futex_wait()` 和 `futex_wake()` 都可以通过系统调用 `syscall(SYS_futex, ...)`
+    实现。对于等待和唤醒功能，我们可以分别使用 `FUTEX_WAIT` 和 `FUTEX_WAKE` 参数。
+- en: On Windows, for `futex_wait()`, we can use the `WaitOnAddress()` system call.
+    The `futex_wake()` call can be implemented by using either `WakeByAddressSingle()`
+    or `WakeByAddressAll()`.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Windows 上，对于 `futex_wait()`，我们可以使用 `WaitOnAddress()` 系统调用。`futex_wake()` 调用可以通过使用
+    `WakeByAddressSingle()` 或 `WakeByAddressAll()` 实现。
+- en: When we call `futex``_wait(addr, value)`, we specify a memory address and a
+    value. If the value at the memory address is equal to the specified parameter
+    `value`, the execution of the caller is suspended and placed at the back of a
+    queue. The queue parks all the executions that have called `futex_wait()` on the
+    same address value. The operating system models a different queue for each memory
+    address value.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们调用 `futex_wait(addr, value)` 时，我们指定一个内存地址和一个值。如果内存地址处的值等于指定的参数 `value`，调用者的执行将被挂起并放置在队列的末尾。队列停放所有在相同地址值上调用
+    `futex_wait()` 的执行。操作系统为每个内存地址值建模不同的队列。
+- en: When we call `futex``_wait(addr, value)` and the value of the memory address
+    is different from the parameter value, the function returns immediately, and the
+    execution continues. These two outcomes are shown in figure 12.6.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们调用 `futex_wait(addr, value)` 并且内存地址的值与参数值不同时，函数将立即返回，执行继续。这两个结果在图 12.6 中展示。
+- en: '![](../../OEBPS/Images/CH12_F06_Cutajar.png)'
+  id: totrans-132
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH12_F06_Cutajar.png)'
+- en: Figure 12.6 Calling `futex_wait()` with two different outcomes
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.6 使用两种不同结果调用 `futex_wait()`
+- en: The `futex``_wake(addr, count)` wakes up suspended executions (threads and processes)
+    that are waiting on the address specified. The operating system resumes a total
+    of `count` executions, and it picks up the executions from the front of the queue.
+    If the count parameter is `0`, all the suspended executions are resumed.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`futex_wake(addr, count)` 唤醒在指定地址上等待的挂起执行（线程和进程）。操作系统恢复总共 `count` 个执行，并从队列的前端获取执行。如果计数参数为
+    `0`，则所有挂起的执行都将恢复。'
+- en: These two functions can be used to implement a user space mutex that only switches
+    to the kernel when it needs to suspend the execution. This is when our atomic
+    variable, representing the lock, is not free. The idea is that when an execution
+    finds the lock marked as locked, the current execution can go to sleep by calling
+    `futex_wait()`. The kernel takes over and places the execution at the back of
+    the futex wait queue. When the lock becomes available again, we can call `futex_wake()`,
+    and the kernel resumes one execution from the wait queue so that it can obtain
+    the lock. This simple algorithm is shown in listing 12.11.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这两个函数可以用来实现一个用户空间互斥锁，它仅在需要挂起执行时切换到内核。这就是我们的原子变量，代表锁，不是空闲的时候。想法是当一个执行发现锁被标记为锁定时，当前执行可以通过调用
+    `futex_wait()` 去睡觉。内核接管并将执行放置在 futex 等待队列的末尾。当锁再次可用时，我们可以调用 `futex_wake()`，内核从等待队列中恢复一个执行，以便它能够获得锁。这个简单的算法在列表
+    12.11 中展示。
+- en: Note In Go, we have no access to the futex system calls. The next code listings
+    are pseudocode in Go to illustrate how runtimes can use the futexes to implement
+    efficient locking libraries.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在 Go 中，我们没有访问 futex 系统调用的权限。下面的代码列表是 Go 的伪代码，以说明运行时如何使用 futex 实现高效的锁定库。
+- en: 'Listing 12.11 Locking and unlocking using futexes, attempt #1 (pseudo Go)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '列表 12.11 使用 futex 锁定和解锁，尝试 #1（伪 Go）'
+- en: '[PRE15]'
+  id: totrans-138
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Tries to mark the atomic variable as locked by setting it to 1 if it is 0
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 尝试将原子变量标记为锁定，如果它是 0 则将其设置为 1
+- en: ❷ If the lock is not available, waits, but only if the lock variable has a value
+    of 1
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果锁不可用，则等待，但只有当锁变量值为 1 时
+- en: ❸ Updates the atomic variable to have a value of 0, freeing the lock
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 更新原子变量使其值为0，释放锁
+- en: ❹ Wakes up 1 execution
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 唤醒 1 个执行
+- en: Passing a value of `1` to `futex_wait()` ensures we avoid a race condition where
+    the lock is released just after we call `CompareAndSwap()` but before `futex_wait()`.
+    If this happens, since `futex_wait()` is expecting a value of `1` but finds `0`,
+    it will return immediately, and we’ll go back to check again if the lock is free.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将值 `1` 传递给 `futex_wait()` 确保我们避免了一个竞争条件，即锁在我们调用 `CompareAndSwap()` 之后但 `futex_wait()`
+    之前被释放。如果发生这种情况，由于 `futex_wait()` 期望一个值为 `1` 但找到 `0`，它将立即返回，然后我们会再次检查锁是否空闲。
+- en: Our mutex implementation in the previous listing is an improvement on the spin
+    lock implementation. When there is resource contention, the executions will not
+    loop needlessly, wasting CPU cycles. Instead, they will wait on a futex. They
+    will be queued until the lock becomes available again.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在之前的列表中，我们的互斥锁实现是对自旋锁实现的改进。当有资源竞争时，执行不会无谓地循环，浪费CPU周期。相反，它们会在futex上等待。它们将被排队，直到锁再次可用。
+- en: Although we have made the implementation more efficient in scenarios when we
+    have contention, we have slowed it down in the reverse case. When there is no
+    contention, such as when we are using a single execution, our `Unlock()` function
+    is slower than the spin lock version. This is because we are always making an
+    expensive system call in `futex_wakeup()`, even when no other executions are waiting
+    on the futex.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我们在有竞争的场景中使实现更高效，但在反向情况下我们减慢了速度。当没有竞争时，例如当我们使用单个执行时，我们的`Unlock()`函数比自旋锁版本慢。这是因为我们总是在`futex_wakeup()`中进行昂贵的系统调用，即使没有其他执行在futex上等待。
+- en: System calls are expensive because they interrupt the current execution, switch
+    context to the operating system, and then, once the call completes, switch back
+    to the user space. Ideally, we want to find a way to avoid calling `futex_wakeup()`
+    when nothing else is waiting on the futex.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统调用很昂贵，因为它们会中断当前执行，切换上下文到操作系统，然后，一旦调用完成，再切换回用户空间。理想情况下，我们希望找到一种方法来避免在futex上没有其他执行等待时调用`futex_wakeup()`。
+- en: 12.3.2 Reducing system calls
+  id: totrans-147
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.3.2 减少系统调用
+- en: We can further improve the performance of our mutex implementation if we change
+    the meaning of our atomic variable that stands for the lock and instead have it
+    tell us if there is an execution waiting for the lock. We can take the value of
+    `0` as meaning unlocked, `1` as locked, and `2` as telling us that it is locked
+    with executions waiting for the lock. In this way, we will only call `futex_wakeup()`
+    when we have a value of `2`, and we’ll save time whenever there is no contention.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们改变代表锁的原子变量的含义，使其告诉我们是否有执行正在等待锁，我们可以进一步改进我们互斥锁的实现性能。我们可以将`0`的值视为未锁定，`1`视为锁定，`2`表示告诉我们它已锁定且执行正在等待锁。这样，我们只有在值为`2`时才调用`futex_wakeup()`，并且在没有竞争时节省时间。
+- en: Listing 12.12 shows the unlocking function using this new system. In this listing,
+    we unlock the mutex by first updating the atomic variable to `0`, and then, if
+    its previous value was `2`, we wake up any waiting execution by calling `futex_wakeup()`.
+    In this way, we will make this system call only when it’s needed.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.12展示了使用这个新系统的解锁函数。在这个列表中，我们首先更新原子变量为`0`来解锁互斥锁，然后，如果其前一个值是`2`，我们通过调用`futex_wakeup()`唤醒任何等待的执行。这样，我们只有在需要时才进行系统调用。
+- en: Listing 12.12 Waking up a futex only when it’s needed
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.12 仅在需要时唤醒futex
+- en: '[PRE16]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Marks the lock as unlocked, storing the old value
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将锁标记为未锁定，并存储旧值
+- en: ❷ If the old value was 2, it means executions are waiting.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果旧值是2，这意味着执行正在等待。
+- en: ❸ Wakes up one execution
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 唤醒一个执行
+- en: To implement the `lock ()` function, we can use both the `CompareAndSwap()`
+    and `Swap()` functions working together. Figure 12.7 shows the idea. In this example,
+    the execution on the left first does a normal `CompareAndSwap()` and marks the
+    atomic variable as locked. Once it’s done with the lock, it calls `Swap()` with
+    a value of `0` to unlock. Since the `Swap()` function returns `2`, it calls `futex_wakeup()`.
+    On the right, after another execution finds that the atomic variable is already
+    locked, it swaps the value of `2`, and since the `Swap()` function returned a
+    non-zero value, we call `futex_wait()`. In this way, while we’re marking the variable
+    as locked with waiters (a value of `2`), we also check again that the lock didn’t
+    become free in the meantime. This `Swap()` step is repeated until it returns `0`,
+    signifying that we have acquired the lock.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现`lock()`函数，我们可以使用`CompareAndSwap()`和`Swap()`函数共同工作。图12.7展示了这个想法。在这个例子中，左侧的执行首先执行正常的`CompareAndSwap()`并将原子变量标记为锁定。一旦完成锁定，它就调用带有`0`值的`Swap()`来解锁。由于`Swap()`函数返回`2`，它调用`futex_wakeup()`。在右侧，另一个执行发现原子变量已经被锁定后，交换值为`2`，由于`Swap()`函数返回了非零值，我们调用`futex_wait()`。这样，当我们标记变量为锁定且带有等待者（值为`2`）时，我们也会再次检查锁在此期间是否变为空闲。这个`Swap()`步骤会重复进行，直到它返回`0`，表示我们已经获得了锁。
+- en: '![](../../OEBPS/Images/CH12_F07_Cutajar.png)'
+  id: totrans-156
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图12.7 使用futexes仅在有竞争时](../../OEBPS/Images/CH12_F07_Cutajar.png)'
+- en: Figure 12.7 Using futexes only when there is contention
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.7 仅在有竞争时使用futexes
+- en: Listing 12.13 shows the `Lock()` function. The function first tries to acquire
+    the lock by doing a normal `CompareAndSwap()`. If the lock is not available, it
+    goes into a loop where it tries to acquire the lock and at the same time marks
+    it as locked with waiters. It does this by using the `Swap()` function. If the
+    `Swap()` function returns a non-zero result, it calls `futex_wait()` to suspend
+    the execution.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.13 展示了 `Lock()` 函数。该函数首先尝试通过执行正常的 `CompareAndSwap()` 来获取锁。如果锁不可用，它进入一个循环，尝试获取锁并同时在等待者上标记它为已锁定。它是通过使用
+    `Swap()` 函数来做到这一点的。如果 `Swap()` 函数返回非零结果，它将调用 `futex_wait()` 来挂起执行。
+- en: Listing 12.13 Marking the lock variable as locked with waiters
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.13 标记锁变量为已锁定并带有等待者
+- en: '[PRE17]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ Swaps 1 when the lock’s value is 0\. If the swap succeeds, there is nothing
+    else to do.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当锁的值为 0 时交换 1。如果交换成功，就没有其他事情要做了。
+- en: ❷ Otherwise, tries again to obtain the lock while marking the lock with a value
+    of 2
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 否则，在将锁标记为值 2 的同时，再次尝试获取锁
+- en: ❸ If it’s not successful in obtaining a lock, waits on a futex only when lock
+    has a value of 2
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果在获取锁时失败，只有当锁的值为 2 时才在 futex 上等待
+- en: Note After the execution wakes up from `futex_wait()`, it will always set the
+    variable to a value of `2`. This is because there is no way of knowing if there
+    is another execution waiting. For this reason, we play it safe and set it to `2`
+    at the cost of occasionally doing an unnecessary `futex_wakeup()` system call.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在执行从 `futex_wait()` 唤醒后，它总是会将该变量设置为值 `2`。这是因为没有办法知道是否还有其他执行在等待。因此，我们采取安全起见，将其设置为
+    `2`，尽管这偶尔会导致不必要的 `futex_wakeup()` 系统调用。
+- en: 12.3.3 Go’s mutex implementation
+  id: totrans-165
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 12.3.3 Go 的互斥锁实现
+- en: Since we now know how to implement an efficient mutex, it’s worth investigating
+    Go’s mutex implementation to understand how it works. Calling a wait on a futex
+    results in the operating system suspending the kernel-level thread. Since Go uses
+    a user-level threading model, Go’s mutex does not use futexes directly, as this
+    would result in the underlying kernel-level thread being suspended.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 既然我们现在知道了如何实现一个高效的互斥锁，那么研究 Go 的互斥锁实现以了解其工作原理就很有价值。在 futex 上调用等待会导致操作系统挂起内核级线程。由于
+    Go 使用用户级线程模型，Go 的互斥锁不直接使用 futex，因为这会导致底层的内核级线程被挂起。
+- en: The use of user-level threads in Go means that a queuing system, similar to
+    our implementation using futexes, can be implemented completely in the user space.
+    Go’s runtime queues goroutines just as the operating system would do for kernel-level
+    threads. This means we save time by not switching to kernel mode every time we
+    need to wait for a locked mutex. Whenever a goroutine requests a mutex that is
+    already locked, Go’s runtime can put that goroutine into a waiting queue to wait
+    for the mutex to become available. The runtime can then pick up another goroutine
+    to execute. Once the mutex is unlocked, the runtime can pick up the first goroutine
+    from the waiting queue, resume it, and make it attempt to acquire the mutex again.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go 中使用用户级线程意味着可以完全在用户空间中实现一个类似于我们使用 futex 实现的排队系统。Go 的运行时将 goroutines 排队，就像操作系统为内核级线程所做的那样。这意味着我们通过不需要每次等待被锁定的互斥锁时切换到内核模式来节省时间。每当
+    goroutine 请求一个已经锁定的互斥锁时，Go 的运行时可以将该 goroutine 放入等待队列中等待互斥锁变为可用。然后运行时可以选取另一个 goroutine
+    来执行。一旦互斥锁被解锁，运行时可以从等待队列中选取第一个 goroutine，恢复其执行，并让它再次尝试获取互斥锁。
+- en: 'To do all of this, the implementation of `sync.mutex` in Go makes use of a
+    semaphore. This semaphore implementation takes care of queuing goroutines in cases
+    when the lock is not available. This semaphore is part of the internals of Go
+    and cannot be accessed directly, but we can explore it to understand how it works.
+    The source code can be found here: [https://github.com/golang/go/blob/master/src/runtime/sema.go](https://github.com/golang/go/blob/master/src/runtime/sema.go).'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要完成所有这些，Go 中 `sync.mutex` 的实现使用了信号量。这个信号量实现负责在锁不可用的情况下排队 goroutines。这个信号量是 Go
+    内部的一部分，不能直接访问，但我们可以探索它以了解其工作原理。源代码可以在以下位置找到：[https://github.com/golang/go/blob/master/src/runtime/sema.go](https://github.com/golang/go/blob/master/src/runtime/sema.go)。
+- en: Just like our mutex, the implementation of this semaphore uses an atomic variable
+    to store the permits available. It first does a `CompareAndSwap()` on the atomic
+    variable representing the permit available to reduce the permits by one. When
+    it finds that there aren’t enough permits (acting like a locked mutex), it puts
+    the goroutine on an internal queue and parks the goroutine, suspending its execution.
+    At this point, Go’s runtime is free to pick up another goroutine from its run
+    queues and execute it without the need to switch to kernel mode.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像我们的互斥锁一样，这个信号量的实现使用一个原子变量来存储可用的许可证。它首先对表示可用许可证的原子变量执行 `CompareAndSwap()`，以减少一个许可证。当它发现许可证不足（就像被锁定的互斥锁一样），它就会将
+    goroutine 放入一个内部队列，并挂起 goroutine，暂停其执行。此时，Go 的运行时可以自由地从其运行队列中选取另一个 goroutine 并执行它，而无需切换到内核模式。
+- en: The code in Go’s semaphore implementation is hard to follow because there is
+    extra functionality to make it work with Go’s runtime and deal with numerous edge
+    cases. To help us understand how the semaphore works, the following listing shows
+    pseudocode that implements a semaphore acquire function using atomic variables.
+    The listing shows the core functionality of the `semacquire1()` function in Go’s
+    source code.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go 的信号量实现中的代码难以理解，因为它有额外的功能，使其能够与 Go 的运行时一起工作并处理许多边缘情况。为了帮助我们理解信号量的工作原理，以下列表显示了使用原子变量实现信号量获取函数的伪代码。列表显示了
+    Go 源代码中 `semacquire1()` 函数的核心功能。
+- en: Listing 12.14 Semaphore acquire using atomic variables (pseudocode)
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.14 使用原子变量实现信号量获取（伪代码）
+- en: '[PRE18]'
+  id: totrans-172
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Reads the value of the atomic variable
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 读取原子变量的值
+- en: ❷ If the value of the atomic variable is not 0, tries to atomically decrease
+    the value by 1
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果原子变量的值不是 0，则尝试原子性地将值减少 1
+- en: ❸ Exits the loop if we have acquired the semaphore
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果我们获取了信号量，则退出循环
+- en: ❹ Queues and suspends the goroutine at the back or front only when permits is
+    0
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 只有当许可证为 0 时，才在队列的后面或前面排队和挂起 goroutine
+- en: In addition, this semaphore implementation has functionality to prioritize a
+    goroutine by placing it at the front of the queue instead of at the back. This
+    can be used when we want to give a higher priority to a goroutine so that it’s
+    picked up first when a permit becomes available. We will see that this comes in
+    handy in the full `sync.mutex` implementation.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，这个信号量实现还具有通过将其放置在队列的前面而不是后面来优先处理 goroutine 的功能。当我们想要给 goroutine 更高的优先级，以便在许可证可用时首先被选中时，可以使用此功能。我们将看到，这在完整的
+    `sync.mutex` 实现中非常有用。
+- en: The `sync.mutex` acts as a wrapper to the semaphore and, in addition, adds another
+    level of sophistication on top with the aim of improving performance. Just like
+    a normal spin lock, Go’s mutex attempts first to grab hold of the lock by doing
+    a simple `CompareAndSwap()` on an atomic variable. If it fails, it falls back
+    on the semaphore to put the goroutine to sleep until the unlock is called. In
+    this way, it’s using the internal semaphore to implement the functionality of
+    the futex we saw in previous sections. This concept is shown in figure 12.8.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`sync.mutex` 作为信号量的包装器，并且，它还添加了另一层复杂性，目的是提高性能。就像一个普通的自旋锁一样，Go 的互斥锁首先尝试通过在原子变量上执行简单的
+    `CompareAndSwap()` 来获取锁。如果失败，它就会回退到信号量，让 goroutine 睡眠，直到解锁被调用。这样，它就使用内部信号量来实现我们在前几节中看到的
+    futex 的功能。这个概念在图 12.8 中展示。'
+- en: '![](../../OEBPS/Images/CH12_F08_Cutajar.png)'
+  id: totrans-179
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH12_F08_Cutajar.png)'
+- en: Figure 12.8 The internals of Go’s mutex
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.8 Go 的互斥锁内部结构
+- en: 'This is still not the full story. The `sync.mutex` has an additional layer
+    of complexity—it has two modes of operation: normal and starvation mode. In normal
+    mode, when the mutex is locked, goroutines are queued up normally to the back
+    of the semaphore queue. Go’s runtime resumes the first waiting goroutine in this
+    queue whenever a lock is released.'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这还不是全部的故事。`sync.mutex` 有一个额外的复杂层——它有两种操作模式：正常模式和饥饿模式。在正常模式下，当互斥锁被锁定时，goroutines
+    会正常排队到信号量队列的后面。每当释放锁时，Go 的运行时会从这个队列中恢复第一个等待的 goroutine。
+- en: 'A mutex running in normal mode has a problem: a waiting goroutine, whenever
+    resumed, has to compete with new arriving goroutines. These are goroutines that
+    have just called the `lock` `()` function and haven’t yet been placed into the
+    waiting queue. The newly arriving goroutines have an advantage over the resumed
+    goroutine: since they are already running, they are more likely to acquire the
+    lock than a goroutine that is being taken out of the queue and resumed. This can
+    create a situation where the first goroutine in the waiting queue is resumed in
+    vain because by the time it tries to perform the `CompareAndSwap()`, it will find
+    the mutex already taken by the newly arrived goroutine. This can happen multiple
+    times, making the mutex prone to starvation; the goroutines will remain stuck
+    in the queue for as long as we have newly arriving goroutines acquiring the lock
+    (see figure 12.9).'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正常模式下运行的互斥锁有一个问题：等待的goroutine，无论何时恢复，都必须与刚到达的goroutine竞争。这些是刚刚调用`lock` `()`函数并且尚未被放入等待队列的goroutine。新到达的goroutine相对于恢复的goroutine有优势：因为它们已经在运行，所以它们获得锁的可能性比从队列中取出并恢复的goroutine要大。这可能导致等待队列中的第一个goroutine恢复是徒劳的，因为当它尝试执行`CompareAndSwap()`时，它会发现互斥锁已经被新到达的goroutine占用。这种情况可能会发生多次，使互斥锁容易发生饥饿；goroutine将一直停留在队列中，直到有新的goroutine获得锁（见图12.9）。
+- en: '![](../../OEBPS/Images/CH12_F09_Cutajar.png)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH12_F09_Cutajar.png)'
+- en: Figure 12.9 Newly arriving goroutines have an advantage over waiting ones.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.9 新到达的goroutine相对于等待的goroutine有优势。
+- en: In the implementation of `sync.mutex`, when a resumed goroutine fails to acquire
+    the mutex, the same goroutine is suspended again, but this time it is placed at
+    the front of the queue. This ensures that the next time the mutex is unlocked,
+    the goroutine is picked up first. If this repeats for a while and the goroutine
+    fails to acquire the lock after a certain period (set to 1 ms), the mutex switches
+    to starvation mode.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`sync.mutex`的实现中，当一个恢复的goroutine未能获得互斥锁时，同一个goroutine再次被挂起，但这次它被放置在队列的前端。这确保了下次互斥锁被解锁时，goroutine首先被选中。如果这种情况持续一段时间（设置为1毫秒），并且goroutine在一段时间后（设置为1毫秒）未能获得锁，互斥锁将切换到饥饿模式。
+- en: When the mutex is in starvation mode, the mutex acts in a fairer manner. As
+    soon as the mutex is unlocked, it is passed to the goroutine at the front of the
+    waiting queue. Newly arriving goroutines do not try to acquire the mutex, but
+    instead go directly to the tail of the queue and get suspended until it’s their
+    turn. The mutex switches back to normal mode once the queue is empty or a waiting
+    goroutine spends less than 1 ms acquiring the lock.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当互斥锁处于饥饿模式时，互斥锁的行为更加公平。一旦互斥锁被解锁，它就被传递给等待队列前端的goroutine。新到达的goroutine不会尝试获得互斥锁，而是直接移动到队列的尾部并挂起，直到轮到它们。一旦队列变空或等待的goroutine在不到1毫秒内获得锁，互斥锁将切换回正常模式。
+- en: Note The source for Go’s `mutex` can be found at [https://go.dev/src/sync/mutex.go](https://go.dev/src/sync/mutex.go).
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：Go的`mutex`源代码可以在[https://go.dev/src/sync/mutex.go](https://go.dev/src/sync/mutex.go)找到。
+- en: The purpose of this extra complexity is to improve performance while avoiding
+    goroutine starvation. In normal mode, when we have low contention, the mutex is
+    very efficient, as goroutines can acquire the mutex quickly, without having to
+    wait on the queue. When we have high contention and we switch to starvation mode,
+    the mutex ensures that goroutines do not get stuck on the wait queue.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这额外复杂性的目的是在避免goroutine饥饿的同时提高性能。在正常模式下，当我们有低竞争时，互斥锁非常高效，因为goroutine可以快速获得互斥锁，而无需在队列上等待。当我们有高竞争并切换到饥饿模式时，互斥锁确保goroutine不会在等待队列上卡住。
+- en: 12.4 Exercises
+  id: totrans-189
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.4 练习
+- en: NOTE Visit [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    to see all the code solutions.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：访问[http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)以查看所有代码解决方案。
+- en: In listing 12.9, we implemented a spin lock by using integers. Can you change
+    this implementation so that it uses the atomic Boolean type found in the `sync/atomic`
+    Go package? Just like in listing 12.9, the implementation needs to provide the
+    `Lock()` and `Unlock()` functions found in `sync.Locker`.
+  id: totrans-191
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表12.9中，我们通过使用整数实现了自旋锁。你能修改这个实现，使其使用`sync/atomic` Go包中找到的原子布尔类型吗？就像在列表12.9中一样，实现需要提供`sync.Locker`中找到的`Lock()`和`Unlock()`函数。
+- en: 'Go’s mutex implementation also includes a `TryLock()` function. Use the previous
+    implementation of the spin lock with an atomic Boolean to include this extra `TryLock()`
+    function. This function should attempt to acquire the mutex and immediately return
+    `true` if the mutex was acquired and `false` otherwise. Here is the full function
+    signature:'
+  id: totrans-192
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Go的互斥锁实现还包括一个`TryLock()`函数。使用之前的自旋锁实现和原子布尔值来包含这个额外的`TryLock()`函数。此函数应尝试获取互斥锁，并在获取成功时立即返回`true`，否则返回`false`。以下是完整的函数签名：
+- en: '[PRE19]'
+  id: totrans-193
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'Atomic variables can also be used to implement spinning semaphores. Write an
+    implementation of a semaphore that can be initialized with a specified number
+    of permits. The semaphore can use atomic variables to implement the following
+    function signatures:'
+  id: totrans-194
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 原子变量也可以用来实现自旋信号量。编写一个可以初始化为指定许可数量的信号量实现。该信号量可以使用原子变量来实现以下函数签名：
+- en: '[PRE20]'
+  id: totrans-195
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'The `Acquire()` function reduces the number of permits available by `1`. If
+    no more permits are available, it will spin on the atomic variable until one is
+    available:'
+  id: totrans-196
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`Acquire()` 函数将可用许可的数量减少 `1`。如果没有更多许可可用，它将自旋在原子变量上，直到有一个可用：'
+- en: '[PRE21]'
+  id: totrans-197
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'The `Release()` function increments the number of permits available by `1`:'
+  id: totrans-198
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`Release()` 函数将可用许可的数量增加 `1`：'
+- en: '[PRE22]'
+  id: totrans-199
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: The `NewSpinSemaphore()` function creates a new semaphore with the specified
+    number of permits.
+  id: totrans-200
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`NewSpinSemaphore()` 函数创建一个具有指定许可数量的新信号量。'
+- en: Summary
+  id: totrans-201
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Atomic variables provide the ability to perform atomic updates on various data
+    types, such as atomically incrementing an integer.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 原子变量提供了对各种数据类型执行原子更新的能力，例如原子地增加一个整数。
+- en: Atomic operations cannot be interrupted by other executions.
+  id: totrans-203
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 原子操作不能被其他执行中断。
+- en: Applications in which multiple goroutines are updating and reading a variable
+    at the same time can use atomic variables instead of mutexes to avoid race conditions.
+  id: totrans-204
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在多个goroutines同时更新和读取变量的应用程序中，可以使用原子变量而不是互斥锁来避免竞态条件。
+- en: Updating an atomic variable is slower than updating a normal variable.
+  id: totrans-205
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 更新原子变量比更新普通变量要慢。
+- en: Atomic variables work on only one variable at a time. If we need to protect
+    updates to multiple variables together, we need to use mutexes or other synchronization
+    tools.
+  id: totrans-206
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 原子变量一次只处理一个变量。如果我们需要保护多个变量的同时更新，我们需要使用互斥锁或其他同步工具。
+- en: The `CompareAndSwap()` function atomically checks to see whether the value of
+    the atomic variable has a specified value and, if it does, updates the variable
+    with another value.
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`CompareAndSwap()` 函数原子地检查原子变量的值是否具有指定的值，如果是，则使用另一个值更新变量。'
+- en: The `CompareAndSwap()` function returns `true` only when the swap succeeds.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`CompareAndSwap()` 函数仅在交换成功时返回 `true`。'
+- en: A spin lock is an implementation of a mutex completely in the user space.
+  id: totrans-209
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自旋锁是完全在用户空间中实现的互斥锁。
+- en: Spin locks use a flag to indicate whether a resource is locked.
+  id: totrans-210
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 自旋锁使用一个标志来指示资源是否被锁定。
+- en: If the flag is already locked by another execution, the spin lock will repeatedly
+    try to use the `CompareAndSwap()` function to determine whether the flag is unlocked.
+    Once the flag indicates that the lock is free, it can then be marked as locked
+    again.
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果标志已被其他执行锁定，自旋锁将反复尝试使用`CompareAndSwap()`函数来确定标志是否解锁。一旦标志指示锁是空闲的，它就可以再次被标记为锁定。
+- en: When there is high contention, spin locks waste CPU cycles by looping until
+    the lock becomes available.
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当存在高竞争时，自旋锁通过循环直到锁变得可用来浪费CPU周期。
+- en: Instead of endlessly looping on the atomic variable to implement a spin lock,
+    a futex can be used to suspend and queue the execution until the lock becomes
+    available.
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与不断循环在原子变量上实现自旋锁不同，可以使用futex来挂起和排队执行，直到锁变得可用。
+- en: 'To implement a mutex with an atomic variable and a futex, we can have the atomic
+    variable store three states: unlocked, locked, and locked with waiting executions.'
+  id: totrans-214
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要使用原子变量和futex实现互斥锁，我们可以让原子变量存储三种状态：未锁定、锁定和带有等待执行的锁定。
+- en: Go’s mutexes implement a queuing system in the user space to suspend goroutines
+    that are waiting to acquire a lock.
+  id: totrans-215
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Go的互斥锁在用户空间中实现了一个排队系统，以挂起等待获取锁的goroutines。
+- en: The mutexes in the `sync` package wrap around a semaphore implementation that
+    queues and suspends goroutines when no more permits are available.
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`sync` 包中的互斥锁围绕一个信号量实现，当没有更多许可可用时，它会排队并挂起goroutines。'
+- en: The mutex implementation in Go switches from normal to starvation mode in situations
+    where newly arriving goroutines are blocking queuing goroutines from acquiring
+    the lock.
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Go 中的互斥锁实现，在出现新到达的 goroutine 阻塞排队中的 goroutine 获取锁的情况下，会从正常模式切换到饥饿模式。

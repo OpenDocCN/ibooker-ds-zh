@@ -1,0 +1,1850 @@
+- en: 19 An introduction to message-passing concurrency
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 19 基于消息传递的并发简介
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了
+- en: Why shared mutable state is sometimes required
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为什么有时需要共享可变状态
+- en: Understanding message-passing concurrency
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解基于消息传递的并发
+- en: Programming with agents in C#
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用C#进行代理编程
+- en: Hiding agent-based implementations behind conventional APIs
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将基于代理的实现隐藏在传统的API后面
+- en: Every seasoned developer has some first-hand experience of how difficult it
+    can be to deal with problems such as deadlocks and race conditions. These are
+    the hard problems that can arise in concurrent programs that involve shared mutable
+    state (“shared,” that is, between processes that execute concurrently).
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个经验丰富的开发者都有一些亲身经历，了解处理死锁和竞态条件等问题的难度。这些是可能在涉及共享可变状态（即，在并发执行的进程之间）的并发程序中出现的难题。
+- en: This is why, throughout this book, you’ve seen many examples of how to solve
+    problems *without* making recourse to shared mutable state. Indeed, my recommendation
+    is to avoid shared mutable state *whenever possible*, and FP provides an excellent
+    paradigm for doing so.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是为什么，在这本书的整个过程中，你已经看到了许多如何在不依赖共享可变状态的情况下解决问题的例子。实际上，我的建议是尽可能避免共享可变状态，而函数式编程（FP）提供了一个很好的范式来实现这一点。
+- en: 'In this chapter, you’ll see why it’s not always possible to avoid shared mutable
+    state, and what strategies there are to synchronize access to shared mutable state.
+    We’ll then concentrate on one of these strategies: *agent-based concurrency*,
+    a style of concurrent programming that relies on message-passing between agents
+    that “own” some state that they access in a single-threaded way. Programming with
+    agents is popular with F# programmers, but you’ll see that it’s perfectly doable
+    in C#.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你将了解为什么有时无法避免共享可变状态，以及有哪些策略可以同步对共享可变状态的访问。然后我们将专注于这些策略之一：*基于代理的并发*，这是一种依赖于代理之间消息传递的并发编程风格，这些代理“拥有”一些它们以单线程方式访问的状态。使用代理编程在F#程序员中很受欢迎，但你将看到它在C#中也是完全可以实现的。
+- en: 19.1 The need for shared mutable state
+  id: totrans-9
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.1 需要共享可变状态
+- en: It’s generally possible to avoid shared mutable state when designing parallel
+    algorithms. For instance, if you have a computationally intensive problem that
+    you’d like to parallelize, you can usually break the data set or the tasks down
+    in such a way that several threads compute an intermediate result *independently*.
+    Hence, these threads can do their work without the need to share any state. Another
+    thread may compute the final result by combining all the intermediate results.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设计并行算法时，通常可以避免共享可变状态。例如，如果你有一个计算密集型问题，你希望并行化，你通常可以将数据集或任务分解成这样的方式，即几个线程独立地计算一个中间结果。因此，这些线程可以在不需要共享任何状态的情况下完成他们的工作。另一个线程可以通过组合所有中间结果来计算最终结果。
+- en: 'The problem, however, is that avoiding shared mutable state isn’t always possible.
+    Although it can generally be achieved in the case of parallel computations, it’s
+    much more difficult if the source of concurrency is multithreading. For example,
+    imagine a multithreaded application, such as a server handling requests on multiple
+    threads, that needs to do the following:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，避免共享可变状态并不总是可能的。尽管在并行计算的情况下通常可以实现，但如果并发源是多线程，那就困难得多。例如，想象一个多线程应用程序，比如一个在多个线程上处理请求的服务器，它需要执行以下操作：
+- en: Keep an application-wide counter so that unique, *sequential* account numbers
+    can be generated.
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 保持一个应用程序范围内的计数器，以便可以生成唯一的、*顺序的*账户号码。
+- en: Cache some resources in memory to improve efficiency.
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在内存中缓存一些资源以提高效率。
+- en: Represent real-world entities like items for sale, trades, contracts, and so
+    on, ensuring that you don’t sell the same (unique, real-world) item twice if two
+    concurrent requests to buy it are received.
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 表示现实世界中的实体，如待售的商品、交易、合同等，确保在收到两个购买同一（唯一、现实世界）商品的并发请求时，不会重复出售。
+- en: In such scenarios, it’s essentially a requirement to share mutable state between
+    the many threads that the server application uses to more efficiently handle requests.
+    To prevent concurrent access from leading to data inconsistencies, you need to
+    ensure the state can’t be accessed (or, at least, updated) concurrently by different
+    threads. That is, you need to *synchronize* access to shared mutable state.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，对于服务器应用程序使用的许多线程之间共享可变状态基本上是必需的。为了防止并发访问导致数据不一致，你需要确保状态不能被不同线程同时访问（或者至少，不能被更新）。也就是说，你需要对共享可变状态进行*同步*访问。
+- en: 'In mainstream programming, this synchronization is usually achieved using locks.
+    *Locks* define critical sections of the code that can only be entered by one thread
+    at a time. When one thread enters a critical section, it blocks other threads
+    from entering it. Functional programmers tend to avoid using locks and resort,
+    instead, to alternative techniques:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在主流编程中，这种同步通常是通过锁来实现的。*锁*定义了代码的关键部分，一次只能由一个线程进入。当一个线程进入关键部分时，它会阻止其他线程进入。函数式程序员倾向于避免使用锁，而转而采用替代技术：
+- en: '*Compare-and-swap (CAS)*—CAS allows you to atomically read and update a single
+    value, which can be done in C# using the `Interlocked.CompareExchange` methods.'
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*比较并交换（CAS）*——CAS允许你原子地读取和更新单个值，这可以在C#中使用`Interlocked.CompareExchange`方法完成。'
+- en: '*Software transactional memory (STM)*—STM allows you to update mutable state
+    within transactions, which offers some interesting guarantees about how these
+    updates take place:'
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*软件事务内存（STM）*——STM允许你在事务中更新可变状态，这为这些更新如何发生提供了一些有趣的保证：'
+- en: '*Each thread performs a transaction in isolation.* It sees a view of the program
+    state that is unaffected by transactions that occur concurrently on other threads.'
+  id: totrans-19
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*每个线程都在隔离中执行事务。* 它看到的是一个不受其他线程上并发发生的事务影响的程序状态视图。'
+- en: '*Transactions are then committed atomically.* Either all changes in the transaction
+    are saved or none.[¹](#pgfId-1161599)'
+  id: totrans-20
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*然后事务原子性地提交。* 要么将事务中的所有更改保存，要么一个都不保存。[¹](#pgfId-1161599)'
+- en: '*Conflicting transactions don’t necessarily fail.* If a transaction fails because
+    of conflicting changes made in another, concurrent transaction, it can be retried
+    with a fresh view of the data.'
+  id: totrans-21
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*冲突的事务不一定失败。* 如果一个事务因为另一个并发事务中做出的冲突更改而失败，它可以带着对数据的全新视图重新尝试。'
+- en: '*Message-passing concurrency*—The idea of this approach is that you set up
+    lightweight processes that have exclusive ownership of some mutable state. Communication
+    between processes is via message-passing, and processes handle messages sequentially,
+    hence preventing concurrent access to their state. There are two main embodiments
+    of this approach:'
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*消息传递并发*——这种方法的理念是设置轻量级进程，它们拥有某些可变状态的独占所有权。进程之间的通信是通过消息传递进行的，进程按顺序处理消息，从而防止对它们状态的并发访问。这种方法的两种主要实现是：'
+- en: '*The actor model*—This was most famously implemented at Ericsson in conjunction
+    with the Erlang language, but implementations for other languages, including C#,
+    abound. In this model, processes are called *actors*, and they can be distributed
+    across different processes and machines.'
+  id: totrans-23
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*actor模型*——这种模型最著名的是在爱立信与Erlang语言结合下实现的，但其他语言，包括C#，也有许多实现。在这个模型中，进程被称为*actor*，它们可以分布在不同进程和机器上。'
+- en: '*Agent-based concurrency*—This is inspired by the actor model, but it’s much
+    simpler because processes, called *agents*, only exist within one application.'
+  id: totrans-24
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*基于代理的并发*——这是受到actor模型的启发，但它要简单得多，因为称为*代理*的进程只存在于一个应用程序中。'
+- en: CAS only allows you to deal with a single value, so it provides an effective
+    solution for a very limited number of scenarios.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CAS只允许你处理单个值，因此它为非常有限数量的场景提供了一个有效的解决方案。
+- en: STM is an important paradigm for in-process concurrency, and it’s particularly
+    popular among Clojure and Haskell developers because these languages come with
+    a compelling and battle-tested implementation of STM. If you want to explore this
+    paradigm in C#, language-ext contains an implementation of `Atom` and `Ref`, the
+    primitives allowing you to atomically update data shared between threads.[²](#pgfId-1169010)
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: STM是进程内并发的 重要范式，它在Clojure和Haskell开发者中尤其受欢迎，因为这些语言提供了引人注目且经过实战检验的STM实现。如果你想在C#中探索这个范式，language-ext
+    包含了 `Atom` 和 `Ref` 的实现，这些是允许你原子地更新线程间共享数据的原语。[²](#pgfId-1169010)
+- en: In the rest of this chapter, I’ll concentrate on message-passing concurrency,
+    especially agent-based concurrency. You’ll later see how agents and actors differ
+    in more detail. Let’s begin by looking at message-passing concurrency as a programming
+    model.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章的其余部分，我将专注于消息传递并发，特别是基于代理的并发。你将在以后看到代理和actor在更多细节上的区别。让我们首先从将消息传递并发作为一个编程模型来探讨。
+- en: 19.2 Understanding message-passing concurrency
+  id: totrans-28
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.2 理解消息传递并发
+- en: You can think of an agent (or actor; the fundamental idea is the same) as a
+    process that has exclusive ownership of some mutable state. Communication between
+    actors is via message passing so that the state can never be accessed from outside
+    of the actor. Furthermore, incoming messages are processed sequentially so that
+    concurrent state updates can never take place.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将代理（或演员；基本思想是相同的）视为一个拥有某些可变状态的独占所有权的进程。演员之间的通信是通过消息传递进行的，这样状态就永远不会从代理外部被访问。此外，传入的消息是顺序处理的，这样就不会发生并发状态更新。
+- en: 'Figure 19.1 illustrates an agent: a process that runs in a loop. It has an
+    inbox in which messages are queued, and it has some state. When a message is dequeued
+    and processed, the agent typically does some of the following:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.1说明了代理：一个在循环中运行的进程。它有一个消息队列，其中消息被排队，它还有一些状态。当消息被出队并处理时，代理通常会执行以下操作之一：
+- en: Performs side effects
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行副作用
+- en: Sends messages to other agents
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 向其他代理发送消息
+- en: Creates other agents
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 创建其他代理
+- en: Computes its new state
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 计算其新状态
+- en: '![](Images/CH19_F01_Buonanno2.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH19_F01_Buonanno2.png)'
+- en: Figure 19.1 An agent consists of a message inbox and a processing loop.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.1 一个代理由一个消息收件箱和一个处理循环组成。
+- en: The new state will be used as the current state at the next iteration, when
+    the following message is processed.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新状态将在下一次迭代中用作当前状态，当处理以下消息时。
+- en: Let’s begin with an idealized, almost pseudocode implementation of an agent
+    as I just described. Look at the code in the following listing in detail and see
+    how each part corresponds to what’s depicted in figure 19.1.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从我刚才描述的理想化、几乎是伪代码的代理实现开始。仔细查看以下列表中的代码，看看每个部分如何对应于图19.1中的描述。
+- en: Listing 19.1 Idealized implementation of an agent
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.1 代理的理想化实现
+- en: '[PRE0]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Uses a concurrent queue as a message inbox
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用并发队列作为消息收件箱
+- en: ❷ Telling a message to the agent simply enqueues the message.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将消息告诉代理只是将消息入队。
+- en: ❸ Creates an agent by providing an initial state and a processing function
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 通过提供初始状态和处理函数创建代理
+- en: ❹ Dequeues a message as soon as it’s available
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 一旦可用就出队消息
+- en: ❺ Processes the message, determining the new state of the agent
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 处理消息，确定代理的新状态
+- en: ❻ Loops with the new state
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 使用新状态进行循环
+- en: ❼ The actor runs in its own process.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 演员在自己的进程中运行。
+- en: 'There are several interesting things to point out here. First, notice that
+    there are only two public members, so only two interactions with an agent are
+    allowed:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一些有趣的事情要注意。首先，请注意，只有两个公共成员，因此只能允许与代理进行两种交互：
+- en: You can create (or *start*) an agent.
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以创建（或*启动*）一个代理。
+- en: You can tell it a message, which simply enqueues the message in the agent’s
+    inbox.
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以告诉它一个消息，这只是在代理的收件箱中入队消息。
+- en: You can define more complex interactions from these primitive operations.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以从这些原始操作定义更复杂的交互。
+- en: Let’s now look at the processing loop, encoded in the `Loop` function. This
+    dequeues the first message from the inbox (or waits until a message becomes available)
+    and processes it using the agent’s processing function and its current state.
+    This yields the agent’s new state, which is used in the next execution of the
+    loop.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们现在看看处理循环，它在`Loop`函数中编码。这从收件箱中取出第一条消息（或等待直到有消息可用）并使用代理的处理函数及其当前状态进行处理。这产生了代理的新状态，该状态用于下一次循环的执行。
+- en: Notice that the implementation is side-effect free, apart from any side effects
+    that may occur when calling the given processing function. The way changes in
+    state are captured is by always passing the state as an argument to the `Loop`
+    function (a technique you already saw in chapter 15).
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，除了在调用给定的处理函数时可能发生的任何副作用之外，实现是无副作用的。状态变化是通过始终将状态作为`Loop`函数的参数传递来捕获的（这是您在15章中已经看到的技术）。
+- en: Notice also that this implementation assumes that `State` must be an immutable
+    type; otherwise, it could be shared by the `process` function and updated arbitrarily
+    outside of the scope of the agent’s processing loop. As a result, the state only
+    “appears” to be mutable because a new version of the state is used with each invocation
+    of `Loop`.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，此实现假定`State`必须是一个不可变类型；否则，它可能被`process`函数共享并在代理处理循环的范围之外任意更新。因此，状态只“看起来”是可变的，因为每次调用`Loop`时都使用状态的新版本。
+- en: Finally, take a moment to look at the signature for the constructor. Does it
+    remind you of anything? Compare it with `Enumerable.Aggregate`. Can you see that
+    it’s essentially the same? The current state of an agent is the result of reducing
+    all the messages it’s received so far, using the initial state as an accumulator
+    value and the processing function as a reducer. It’s a fold in time over the stream
+    of messages received by the agent.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，花点时间看看构造函数的签名。它让你想起了什么吗？与 `Enumerable.Aggregate` 进行比较。你能看出它基本上是相同的吗？代理的当前状态是它迄今为止接收到的所有消息的归约结果，使用初始状态作为累加器值，处理函数作为归约器。这是对代理接收到的消息流进行的时间折叠。
+- en: This implementation is elegant, and it would work well in a language with tail-call
+    elimination. This is not featured in C#, so we’ll need to make some changes for
+    a stack-safe implementation. Furthermore, we can also dispense with many of the
+    low-level details by using existing functionality in .NET. We’ll look at this
+    next.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种实现是优雅的，并且在一个具有尾调用消除的语言中会工作得很好。但在 C# 中，这个特性并不存在，因此我们需要做一些修改以实现栈安全。此外，我们还可以通过使用
+    .NET 中的现有功能来放弃许多底层细节。我们将在下一部分查看这一点。
+- en: 19.2.1 Implementing agents in C#
+  id: totrans-57
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.2.1 在 C# 中实现代理
+- en: .NET includes an implementation of agents called `MailboxProcessor`, but it
+    was designed for use from F# and is awkward to use from C#. And, although the
+    preceding implementation is useful for understanding the idea, it’s not optimal.
+    Instead, in the coming examples, I’ll use a more practical implementation of an
+    agent, which is included in `LaYumba.Functional` and shown in the following listing.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: .NET 包含一个名为 `MailboxProcessor` 的代理实现，但它是为 F# 设计的，从 C# 使用起来有些尴尬。尽管前面的实现对于理解这个想法很有用，但它并不是最优的。相反，在接下来的示例中，我将使用一个更实用的代理实现，它包含在
+    `LaYumba.Functional` 中，并在下面的列表中展示。
+- en: Listing 19.2 Implementation of an agent that builds on `Dataflow.ActionBlock`
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 19.2 基于 `Dataflow.ActionBlock` 的代理实现
+- en: '[PRE1]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Processes the message with the current state
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用当前状态处理消息
+- en: ❷ Assigns the result to the stored state
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将结果分配给存储的状态
+- en: ❸ Queueing and processing messages is managed by the `ActionBlock`.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 消息的排队和处理由 `ActionBlock` 管理。
+- en: Here I’ve replaced the recursive call (which could lead to stack overflow) with
+    a single mutable variable `state` that keeps track of the agent’s state and is
+    reassigned as each message is processed. Although this is a side effect, messages
+    are processed sequentially, therefore preventing concurrent writes.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我已经将递归调用（可能导致栈溢出）替换为一个单例可变变量 `state`，它跟踪代理的状态，并在处理每个消息时重新分配。尽管这是一个副作用，但消息是顺序处理的，因此防止了并发写入。
+- en: I’ve also dispensed with the details of managing the queue and process by using
+    `ActionBlock`, one of the building blocks in .NET’s `Dataflow` library. An `ActionBlock`
+    contains a buffer (by default, unbounded in size) that acts as the agent’s inbox
+    and that only allows a fixed number of threads to enter the block (by default,
+    a single thread), ensuring messages are processed sequentially.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我还通过使用 .NET 的 `Dataflow` 库中的构建块之一 `ActionBlock` 来放弃了管理队列和过程的细节。`ActionBlock`
+    包含一个缓冲区（默认情况下，大小无界），充当代理的收件箱，并且只允许固定数量的线程进入该块（默认情况下，单个线程），确保消息顺序处理。
+- en: '`State` should still be an immutable type (otherwise, as previously pointed
+    out, it could be shared by the `process` function and mutated outside the scope
+    of the `ActionBlock`). If this is observed, the code is thread-safe.'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`State` 应仍然是一个不可变类型（否则，如前所述，它可能被 `process` 函数共享并在 `ActionBlock` 的作用域之外被修改）。如果观察到这一点，代码是线程安全的。'
+- en: 'From the point of view of the client code, nothing has changed: we still only
+    have two public members with the same signatures as before. The reason for the
+    `Agent<Msg>` interface is twofold:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从客户端代码的角度来看，没有任何变化：我们仍然只有两个具有与之前相同签名的公共成员。`Agent<Msg>` 接口的原因有两个：
+- en: From the point of view of the client code consuming an agent, you can only tell
+    it messages, so by using the interface, we avoid exposing the type parameter for
+    the state. After all, the type of the state is an implementation detail of the
+    agent.
+  id: totrans-68
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从客户端代码消耗代理的角度来看，你只能向它传递消息，因此通过使用接口，我们避免了暴露状态的类型参数。毕竟，状态类型是代理的实现细节。
+- en: You can envisage other implementations such as stateless agents or agents that
+    persist their state.
+  id: totrans-69
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以设想其他实现，例如无状态代理或持久化状态的代理。
+- en: 'Finally, here are some convenience methods for easily creating agents:'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，这里有一些方便的方法，可以轻松创建代理：
+- en: '[PRE2]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'The first overload simply creates an agent with the given arguments. The second
+    takes an action and is used to create a *stateless agent*: an agent that processes
+    messages sequentially but doesn’t keep any state. (The implementation is trivial,
+    as it just creates an `ActionBlock` with the given `Action`). We can also define
+    agents with an asynchronous processing function/action; I’ve omitted the overloads
+    for brevity, but the full implementation is in the code samples. Next, we’ll get
+    started using agents.'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个重载简单地使用给定的参数创建一个代理。第二个接受一个动作并用于创建一个*无状态代理*：一个按顺序处理消息但不保留任何状态的代理。（实现是微不足道的，因为它只是创建了一个带有给定`Action`的`ActionBlock`）。我们还可以定义具有异步处理函数/动作的代理；为了简洁起见，我省略了重载，但完整的实现可以在代码示例中找到。接下来，我们将开始使用代理。
+- en: 19.2.2 Getting started with agents
+  id: totrans-73
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.2.2 开始使用代理
+- en: Let’s look at some simple examples of using agents. We’ll build a couple of
+    simple agents that interact as figure 19.2 shows.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看一些使用代理的简单示例。我们将构建几个简单的代理，它们以图19.2所示的方式交互。
+- en: '![](Images/CH19_F02_Buonanno2.png)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH19_F02_Buonanno2.png)'
+- en: Figure 19.2 Simple interaction between agents by exchanging messages
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.2 通过交换消息的代理之间的简单交互
+- en: 'We’ll start with a really simple, stateless agent that takes a message of type
+    `string` and just prints it out. You can follow along in the REPL:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从一个非常简单、无状态的代理开始，该代理接收类型为`string`的消息并将其打印出来。你可以在REPL中跟随：
+- en: '[PRE3]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Next, let’s define the `ping` and `pong` agents that interact with the `logger`
+    and with each other:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，让我们定义与`logger`和彼此交互的`ping`和`pong`代理：
+- en: '[PRE4]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Here, we define two additional agents. `ping` is stateless; it sends a message
+    to the `logger` agent and a PING message to the `pong` agent, unless the message
+    it’s told is STOP, in which case, it does nothing. It’s quite common for an agent
+    to have different behavior depending on the message, that is, to interpret the
+    message as a command.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们定义了两个额外的代理。`ping`是无状态的；它向`logger`代理发送消息，并向`pong`代理发送PING消息，除非它被告知的消息是STOP，在这种情况下，它什么都不做。代理根据消息有不同的行为是很常见的，也就是说，将消息解释为命令。
+- en: 'Now let’s see a stateful agent: `pong`. The implementation is quite similar
+    to `ping`. It sends PONG to `ping`, but it also keeps a counter as state. The
+    counter is incremented with every message, and after five messages, the agent
+    sends a STOP message instead.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们看看一个有状态的代理：`pong`。实现与`ping`非常相似。它向`ping`发送PONG，但它还保持一个计数器作为状态。计数器在每次消息后递增，并在五条消息后，代理发送一个STOP消息。
+- en: 'The whole ping-pong is set in motion when we send the initial START message
+    to `ping` on the last line. Running the program causes the following to be printed:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在最后一行向`ping`发送初始的START消息时，整个ping-pong过程就开始了。运行程序会导致以下内容被打印出来：
+- en: '[PRE5]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Now that you’ve seen some simple agents interact, it’s time to move on to something
+    closer to real-world requirements.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经看到了一些简单的代理交互，是时候转向更接近现实世界需求的内容了。
+- en: 19.2.3 Using agents to handle concurrent requests
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.2.3 使用代理处理并发请求
+- en: Let’s revisit the scenario of a service that provides exchange rates. The service
+    should retrieve rates from the Rates API and cache them. We saw a simple implementation
+    in section 15.1, but there the interaction was via the command line so that requests
+    necessarily came in one by one.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一下提供汇率的服务场景。该服务应从汇率API检索汇率并将其缓存。我们在第15.1节中看到了一个简单的实现，但那里的交互是通过命令行进行的，因此请求必然是一个接一个地到来。
+- en: Let’s change that. Let’s imagine that the service is part of a larger system
+    and that other components may request rates via a message broker, as figure 19.3
+    illustrates.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们改变一下。让我们想象该服务是更大系统的一部分，并且其他组件可能通过消息代理请求汇率，如图19.3所示。
+- en: '![](Images/CH19_F03_Buonanno2.png)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH19_F03_Buonanno2.png)'
+- en: Figure 19.3 A system in which several requests may be received concurrently
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.3 一个可能同时接收多个请求的系统
+- en: 'Components communicate with each other by sending messages via the message
+    broker. To communicate with the currency lookup service, the following messages
+    are defined:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组件通过通过消息代理发送消息来相互通信。要与货币查找服务通信，定义了以下消息：
+- en: '[PRE6]'
+  id: totrans-92
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ The currency pair whose rate is being requested
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 正在请求汇率的货币对
+- en: ❷ The sender and recipient fields allow the message broker to correctly route
+    messages.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 发送者和接收者字段允许消息代理正确路由消息。
+- en: We’ll assume that the message broker is multithreaded, so that our service may
+    receive multiple requests on different threads at exactly the same time.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们假设消息代理是多线程的，因此我们的服务可以在同一时间接收来自不同线程的多个请求。
+- en: 'In this case, sharing state between threads is a requirement: if we had a different
+    cache for every thread, that would be suboptimal. So we need some synchronization
+    to ensure that we don’t perform unnecessary remote lookups and that cache updates
+    don’t cause race conditions.'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，线程间共享状态是一个要求：如果我们为每个线程有一个不同的缓存，那将是不理想的。因此，我们需要一些同步来确保我们不执行不必要的远程查找，并且缓存更新不会导致竞争条件。
+- en: Next, we’ll see how we can use agents to achieve this. First, we’ll need a bit
+    of setup code, defining the interaction with the message broker. This is shown
+    in listing 19.3\. Note that the code isn’t specific to any particular message
+    broker; we just need to be able to subscribe to it to receive requests and to
+    use it to send responses. (The code samples include an implementation of `MessageBroker`
+    that uses Redis as its underlying transport.)
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将看到如何使用代理来实现这一点。首先，我们需要一些设置代码，定义与消息代理的交互。这显示在列表19.3中。请注意，代码并不特定于任何特定的消息代理；我们只需要能够订阅它以接收请求并使用它来发送响应。（代码示例包括一个使用Redis作为其底层传输的`MessageBroker`实现。）
+- en: Listing 19.3 Setting up the interaction with the message broker
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.3 设置与消息代理的交互
+- en: '[PRE7]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ An agent that sends the responses
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 发送响应的代理
+- en: ❷ An agent that processes the requests and uses the previously defined agent
+    to send the response
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 处理请求并使用先前定义的代理发送响应的代理
+- en: ❸ When a request is received, passes it to the processing agent
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 当收到请求时，将其传递给处理代理
+- en: Starting at the bottom, we subscribe to receive requests broadcast on the “FxRates”
+    channel, providing a callback to handle the request. This callback (which will
+    be called on multiple threads) simply passes the request to the processing agent,
+    defined on the previous line. Hence, although requests are received on multiple
+    threads, they’ll be immediately queued up in the processing agent’s inbox and
+    processed sequentially.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从底部开始，我们订阅接收在“FxRates”频道上广播的请求，提供一个回调来处理请求。这个回调（将在多个线程上调用）只是简单地将请求传递给上一行定义的处理代理。因此，尽管请求是在多个线程上接收的，但它们将立即排队在处理代理的收件箱中并按顺序处理。
+- en: 'Does this mean that processing is now single-threaded, and we lose any benefit
+    of multithreading? Not necessarily! If the processing agent did *all* the processing,
+    that would indeed be the case. Instead, let’s take a more granular approach: we
+    can have an agent for each currency pair in charge of fetching and storing the
+    rate for its particular pair. The request-processing agent will just be in charge
+    of managing these per-currency-pair agents and delegating the work to them, as
+    figure 19.4 shows.'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是否意味着处理现在是单线程的，我们就失去了多线程的任何好处？不一定！如果处理代理做了所有的处理，那确实是这样。相反，让我们采取更细粒度的方法：我们可以为每个货币对有一个代理负责获取和存储其特定对的汇率。请求处理代理将只负责管理这些按货币对划分的代理并将工作委托给它们，如图19.4所示。
+- en: '![](Images/CH19_F04_Buonanno2.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/CH19_F04_Buonanno2.png)'
+- en: Figure 19.4 Breaking up the work between agents that can run concurrently
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.4 显示代理之间并行工作的分解
+- en: Let’s now look at the definitions of the agents. The following listing shows
+    the higher-level agent, which handles incoming requests and starts the lower-level
+    per-currency-pair agents, delegating work to them.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看代理的定义。以下列表显示了高级代理，它处理传入的请求并启动低级的按货币对划分的代理，将工作委托给它们。
+- en: Listing 19.4 A coordinating agent routes requests to a per-currency-pair agent
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.4 一个协调代理将请求路由到每个货币对的代理
+- en: '[PRE8]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ If required, starts a new agent for the requested currency pair
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果需要，为请求的货币对启动一个新的代理
+- en: ❷ Passes the request to the agent in charge of the pair
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将请求传递给负责该对的代理
+- en: As you can see, the request-processing agent holds not a cache of values, but
+    of agents—one for each currency pair. It starts those agents as needed and forwards
+    the requests to them.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，请求处理代理持有的是代理的缓存，而不是值，每个货币对一个代理。它根据需要启动这些代理，并将请求转发给它们。
+- en: The benefit of this solution is that requests for one currency, say GBPUSD,
+    won’t impact requests for another, say EURUSD. On the other hand, if you get several
+    requests for GBPUSD at the same time, only one remote request is made to fetch
+    that rate while other requests are queued.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种解决方案的好处是，对于一种货币的请求，例如GBPUSD，不会影响另一种货币的请求，例如EURUSD。另一方面，如果你同时收到多个GBPUSD的请求，只有一次远程请求会被用来获取该汇率，而其他请求将被排队。
+- en: Finally, the following listing provides the definition of the agent that manages
+    the rate for a single currency pair.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，以下列表提供了管理单一货币对汇率的代理的定义。
+- en: Listing 19.5 An agent managing the FX rate for a single currency pair
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.5 管理单一货币对汇率的代理
+- en: '[PRE9]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ If necessary, fetches the rate from the remote API
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果需要，从远程API获取速率
+- en: ❷ Sends the response
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 发送响应
+- en: ❸ The agent’s new state
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 代理的新状态
+- en: This agent’s state is the rate for a single pair; it’s wrapped in an `Option`
+    because, when the agent is first created, it has no rate available yet. Upon receiving
+    a request, the agent decides whether a remote lookup is required (you could easily
+    improve this to fetch the rate if the cached value is expired).
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个代理的状态是单一对的汇率；它被包裹在一个`Option`中，因为当代理首次创建时，它还没有可用的汇率。在收到请求后，代理决定是否需要远程查找（你可以轻松地改进这一点，如果缓存的值已过期，则获取汇率）。
+- en: To keep the example simple, I’ve avoided the question of expiry as well as error
+    handling. I’m also assuming that sending the request to the message broker is
+    a fire-and-forget operation with minimal latency so that it’s OK to have a single
+    agent performing it.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使例子简单，我避免了过期问题和错误处理的问题。我还假设向消息代理发送请求是一个具有最小延迟的“发送并忘记”操作，因此可以有一个单独的代理执行它。
+- en: The main point of the example is that using agents with their sequential processing
+    of messages can be quite efficient. It does, however, require a mental shift,
+    both from the functional approach we’ve been pursuing in this book and from the
+    traditional approach of using locks.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例子中的主要观点是，使用具有消息顺序处理的代理可以非常高效。然而，这确实需要从我们在本书中追求的函数式方法以及传统的使用锁的方法进行思维上的转变。
+- en: 19.2.4 Agents vs. actors
+  id: totrans-123
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.2.4 代理与演员
+- en: 'Agents and actors are closely related. In both cases, a single thread processes
+    messages sequentially and communicates with other actors/agents by sending them
+    messages. There are also important differences:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代理和演员密切相关。在两种情况下，单个线程按顺序处理消息并与其他演员/代理通过发送消息进行通信。也存在一些重要的区别：
+- en: '*Agents run within a single process, whereas actors are designed for distributed
+    systems.* In the examples we’ve looked at so far, a reference to an agent refers
+    to a specific instance in the current process. References to actors, on the other
+    hand, are location-transparent; when you have a reference to an actor, that actor
+    may be running in the same process or in another process, possibly on a remote
+    machine. A reference to an agent is a pointer, whereas a reference to an actor
+    is an ID that the actor model implementation uses to route messages across processes
+    as appropriate.'
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*代理在单个进程中运行，而演员是为分布式系统设计的。在我们迄今为止看到的例子中，对代理的引用指的是当前进程中的特定实例。另一方面，对演员的引用是位置透明的；当你有一个演员的引用时，该演员可能正在同一进程中运行，也可能在另一个进程中运行，可能在远程机器上。代理的引用是一个指针，而演员的引用是演员模型实现用来在进程间路由消息的ID。*'
+- en: '*Actor model implementations are designed to be fault-tolerant.* For example,
+    Erlang includes *supervisors*: actors that monitor supervised actors and take
+    action when they fail. Regular actors handle the happy path, whereas supervisors
+    take care of recovery, ultimately improving the robustness of the system. There’s
+    no counterpart to this with agents.'
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*演员模型实现旨在具有容错性。例如，Erlang包括*监督者*：监控受监督演员并在他们失败时采取行动的演员。常规演员处理快乐路径，而监督者负责恢复，从而提高系统的鲁棒性。代理没有这样的对应物。*'
+- en: '*The state of an agent (or an actor) should be immutable and never shared outside
+    the scope of the agent.* In our agent implementation, however, there’s nothing
+    stopping an inexperienced developer from creating an agent whose state is mutable
+    and from passing that mutable state to other components, thus allowing that state
+    to be changed from outside the scope of the agent. With actors, messages are serialized,
+    so this should never occur.'
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*代理（或演员）的状态应该是不可变的，并且永远不会在代理的作用域之外共享。然而，在我们的代理实现中，没有任何阻止一个缺乏经验的开发者创建一个状态可变的代理并将该可变状态传递给其他组件，从而允许从代理的作用域之外改变该状态。对于演员，消息是序列化的，因此这种情况不应发生。*'
+- en: As you can see, although the fundamental idea behind agents and actors is the
+    same, the actor model is richer and more complex. You should only consider using
+    the actor model if you require coordination of concurrent operations across different
+    applications or machines; otherwise, the operational and setup cost would be unjustified,
+    and you should rely on agents instead.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，尽管代理和演员背后的基本思想相同，但演员模型更为丰富和复杂。您只有在需要跨不同应用程序或机器协调并发操作时才应考虑使用演员模型；否则，运营和设置成本将是不合理的，您应该依靠代理。
+- en: 'Although I was able to implement an actor with just a few lines of code, implementing
+    the actor model is much more complex. So if you want to use actors, you’ll probably
+    use one of several implementations of the actor model for .NET:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然我能够用几行代码实现一个演员，但实现演员模型要复杂得多。因此，如果您想使用演员，您可能会使用几个 .NET 演员模型实现之一：
+- en: '*Orleans* ([https://github.com/dotnet/orleans](https://github.com/dotnet/orleans))
+    is Microsoft’s take on the actor model. It has a distinctly object-oriented feel.
+    The underlying philosophy is that less experienced developers can interact with
+    actors (called *grains*) as though they were local objects, without being exposed
+    to any additional complexities specific to the actor model. Orleans takes care
+    of managing the grains’ lifecycle, meaning that their state is kept in memory
+    or persisted to storage automatically. Persistence can be to a variety of media
+    including SQL Server and cloud storage on Azure.'
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*奥尔良* ([https://github.com/dotnet/orleans](https://github.com/dotnet/orleans))
+    是微软对演员模型的实现。它具有明显的面向对象的感觉。其背后的哲学是，经验较少的开发者可以像与本地对象交互一样与演员（称为 *grains*）交互，而无需接触任何特定于演员模型的额外复杂性。奥尔良负责管理粒子的生命周期，这意味着其状态自动保存在内存中或持久化到存储中。持久化可以到各种媒体，包括
+    SQL Server 和 Azure 上的云存储。'
+- en: '*Akka.NET* ([http://getakka.net/](http://getakka.net/)) is a community-driven
+    port of the Akka framework popular with Scala developers. It predates Orleans
+    and is much more explicit about its message-driven nature, so the barrier to entry
+    is higher. A variety of options are available for message transport and persistence
+    of the actors’ state.'
+  id: totrans-131
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*Akka.NET* ([http://getakka.net/](http://getakka.net/)) 是 Scala 开发者中流行的 Akka
+    框架的社区驱动移植。它早于奥尔良，并且对其消息驱动特性更为明确，因此入门门槛更高。为演员的状态传输和持久化提供了各种选项。'
+- en: '*echo* ([https://github.com/louthy/echo-process](https://github.com/louthy/echo-process))
+    is the .NET implementation closest to Erlang, and was developed by Paul Louth.
+    It’s the most lightweight option, both in terms of syntax and configuration: you
+    can create an actor (called a *process*) with a function like we did with agents,
+    or you can use an interface-based approach (which reads more naturally if you
+    need to handle different kinds of messages). Out of the box, echo only supports
+    messaging across application domains and persistence via Redis, but you can implement
+    adapters to target different infrastructure.'
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*echo* ([https://github.com/louthy/echo-process](https://github.com/louthy/echo-process))
+    是最接近 Erlang 的 .NET 实现，由保罗·劳斯开发。它在语法和配置方面都是最轻量级的选项：您可以使用与代理相同的函数创建一个演员（称为 *process*），或者您可以使用基于接口的方法（如果您需要处理不同类型的消息，这种方法读起来更自然）。开箱即用，echo
+    只支持跨应用程序域的消息传递和通过 Redis 的持久化，但您可以实现适配器以针对不同的基础设施。'
+- en: All these actor model implementations differ both in terminology and in important
+    technical details, so it’s difficult to offer a description of *the* actor model
+    without being somewhat specific to one implementation. This is one of the reasons
+    why I’ve opted to illustrate the fundamental ideas of message-passing concurrency
+    with a simple implementation of agents instead. You can carry these principles
+    over to actor-based programming, but you’ll need to learn other principles such
+    as error handling with supervisors and the guarantees for message delivery offered
+    by the specific implementation you’re using.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些演员模型实现不仅在术语上不同，而且在重要的技术细节上也有所不同，因此很难提供一个对 *演员模型* 的描述而不针对某个特定实现。这就是我选择用一个简单的代理实现来展示消息传递并发基本思想的原因之一。您可以将这些原则应用到基于演员的编程中，但您需要学习其他原则，例如使用监督器进行错误处理以及特定实现提供的消息传递保证。
+- en: 19.3 Functional APIs, agent-based implementations
+  id: totrans-134
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.3 功能性 API，基于代理的实现
+- en: 'Is agent-based programming even functional? Although agents and actors were
+    developed in the context of functional languages (remember, in our idealized implementation
+    an agent was side-effect free), agent-based programming differs starkly from the
+    functional techniques you’ve seen throughout this book:'
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于代理的编程甚至是函数式编程吗？尽管代理和演员是在函数式语言的环境中开发的（记住，在我们的理想化实现中，代理是无副作用的），但基于代理的编程与你在本书中看到的函数式技术截然不同：
+- en: You tell an agent a message, and this is usually interpreted as a command, so
+    the semantics are rather imperative.
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你告诉代理一个消息，这通常被解释为命令，因此语义是命令式的。
+- en: An agent often performs a side effect or tells a message to another agent, which
+    will, in turn, perform a side effect.
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代理通常会对另一个代理执行副作用或发送消息，而这个代理随后会执行副作用。
+- en: Most importantly, telling an agent a message returns no data, so you can’t compose
+    tell operations into pipelines the way you can with functions.
+  id: totrans-138
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最重要的是，告诉代理一个消息不会返回数据，因此你不能像使用函数那样将告诉操作组合成管道。
+- en: FP separates logic from data; agents contain data and at least some logic in
+    the processing function.
+  id: totrans-139
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: FP 将逻辑与数据分离；代理包含数据以及在处理函数中至少一些逻辑。
+- en: As a result, agent-based programming “feels” different from FP as you’ve seen
+    it so far, so it’s debatable whether or not agent-based concurrency is actually
+    a functional technique. If you think it’s not (as I’m inclined to), then you must
+    conclude that FP is not good at certain types of concurrency (where shared mutable
+    state can’t be avoided), and it needs to be complemented with a different paradigm
+    such as agent-based programming or the actor model.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，基于代理的编程“感觉”与你在本书中看到的FP不同，因此关于基于代理的并发是否实际上是函数式技术是有争议的。如果你认为它不是（正如我倾向于认为的那样），那么你必须得出结论，FP
+    在某些类型的并发（共享可变状态无法避免）方面并不擅长，并且需要用不同的范式来补充，如基于代理的编程或演员模型。
+- en: 'With agents, it’s easy to program *unidirectional data flows*: the data always
+    flows forward (to the next agent), and no data is ever returned. In the face of
+    this, we have two choices:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用代理，可以轻松地编程**单向数据流**：数据始终向前流动（流向下一个代理），并且永远不会返回数据。面对这种情况，我们有两种选择：
+- en: '*Embrace the idea of unidirectional data flow, and write your applications
+    in this style.* In this approach, if you had clients connecting to a server, you
+    wouldn’t use a request-response model like HTTP but rather a message-based protocol
+    such as WebSockets or a message broker. This is a viable approach, especially
+    if your domain is event-driven enough that you already have a messaging infrastructure
+    in place.'
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**接受单向数据流的理念，并以这种方式编写应用程序**。在这种方法中，如果你有客户端连接到服务器，你不会使用像HTTP这样的请求-响应模型，而是使用基于消息的协议，如WebSockets或消息代理。这是一个可行的方案，特别是如果你的领域足够以事件驱动，你已经有了一个消息基础设施。'
+- en: '*Hide the agent-specific details behind a more conventional API.* This implies
+    that agents should be able to return a response to a message sender. In this approach,
+    agents are used as concurrency primitives that are implementation details (just
+    as locks are) and that should not dictate the program’s design. We’ll explore
+    this approach next.'
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**在更传统的API后面隐藏代理特定的细节**。这表明代理应该能够对消息发送者返回响应。在这种方法中，代理被用作并发原语，是实现细节（就像锁一样），并且不应该决定程序的设计。我们将在下一节探讨这种方法。'
+- en: 19.3.1 Agents as implementation details
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.3.1 代理作为实现细节
+- en: The first thing we need is a way to get a reply from an agent, a “return value”
+    of sorts. Imagine that a sender creates a message that includes a handle that
+    it can wait on. It then tells the message to an agent, which signals a result
+    on that handle, making it available to the sender. With this, we can effectively
+    have two-way communication on top of the fire-and-forget `Tell` protocol.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先需要的是从代理那里获得回复的方法，一种“返回值”的形式。想象一下，发送者创建了一个包含它可以等待的处理器的消息。然后，它将消息告诉代理，代理在该处理器上发出信号，使其对发送者可用。有了这个，我们就可以在“一次性发送”的`Tell`协议之上实现双向通信。
+- en: '`TaskCompletionSource` provides a suitable handle for this purpose: the sender
+    can create a `TaskCompletionSource`, add it to the message payload, and await
+    its `Task`. The agent will do its work and set the result on the `TaskCompletionSource`
+    when ready. Doing this manually for every message for which you want a response
+    would be tedious, so instead, I’ve included in my `LaYumba.Functional` library
+    a beefed-up agent that takes care of all this wiring. I won’t include the implementation
+    details here, but the interface definition is as follows:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TaskCompletionSource` 提供了适合此目的的句柄：发送者可以创建一个 `TaskCompletionSource`，将其添加到消息负载中，并等待其
+    `Task`。代理将在准备好时完成其工作并在 `TaskCompletionSource` 上设置结果。对于每个你想要响应的消息手动做这件事将是繁琐的，所以相反，我在我的
+    `LaYumba.Functional` 库中包含了一个增强的代理，它负责所有这些连接。我不会在这里包含实现细节，但接口定义如下：'
+- en: '[PRE10]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'Notice that this is a completely new interface with not one but two generic
+    arguments: the type of messages that the agent accepts and the type that it replies
+    with. Telling a message of type `Msg` to this agent returns a `Task<Reply>`. To
+    start an agent of this type, we’ll use a processing function of type'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，这是一个全新的接口，它有两个通用参数：代理接受的消息类型以及它回复的类型。向这个代理发送类型为 `Msg` 的消息将返回一个 `Task<Reply>`。要启动这种类型的代理，我们将使用一个类型为
+- en: '[PRE11]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: or its asynchronous version
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者它的异步版本
+- en: '[PRE12]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: which is a function that, given the agent’s current state and the received message,
+    computes not only the agent’s new state, but also a reply to be returned to the
+    sender.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个函数，它根据代理的当前状态和接收到的消息，不仅计算代理的新状态，还计算要返回给发送者的回复。
+- en: 'Let’s look at a simple example—an agent that keeps a counter and can be told
+    to increment the counter, and also returns the counter’s new value:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看一个简单的例子——一个保持计数器并可以被指示增加计数器的代理，它还返回计数器的新的值：
+- en: '[PRE13]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Returns the new state to be stored and the reply to the sender
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 返回要存储的新状态和回复给发送者
+- en: 'You can now consume this agent like this:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你现在可以这样消费这个代理：
+- en: '[PRE14]'
+  id: totrans-157
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Notice that `Tell` returns a `Task<int>`, so the caller can just await the
+    reply, as with any asynchronous function. Essentially, you can use this agent
+    as a thread-safe, stateful, asynchronous version of a function of type `Msg` `→`
+    `Reply`:'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，`Tell` 返回一个 `Task<int>`，所以调用者可以像任何异步函数一样等待回复。本质上，你可以使用这个代理作为线程安全、有状态、异步的
+    `Msg` `→` `Reply` 类型的函数版本：
+- en: '*Thread safe* because it internally uses an `ActionBlock` that processes one
+    message at a time'
+  id: totrans-159
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*线程安全* 因为它内部使用一个 `ActionBlock`，一次处理一个消息'
+- en: '*Stateful* because the state kept by the agent can change as a result of processing
+    a message'
+  id: totrans-160
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*有状态的* 因为代理保持的状态可能会因为处理消息而改变'
+- en: '*Asynchronous* because your message may have to wait while the agent processes
+    other messages in its queue'
+  id: totrans-161
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*异步* 因为你的消息可能需要等待代理处理其队列中的其他消息'
+- en: This means that, compared to using locks, you’re not only gaining in safety
+    (no deadlocks) but also in performance (locks block the current thread, whereas
+    `await` frees the thread to do other work).
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着，与使用锁相比，你不仅获得了安全性（没有死锁），还获得了性能（锁会阻塞当前线程，而 `await` 则释放线程去做其他工作）。
+- en: 19.3.2 Hiding agents behind a conventional API
+  id: totrans-163
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.3.2 在传统 API 后面隐藏代理
+- en: Now that we have a mechanism for two-way communication in place, we can improve
+    the API by hiding the specifics of agent-based programming. For example, in the
+    case of a counter, we could define a `Counter` class as the following listing
+    shows.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经建立了一种双向通信机制，我们可以通过隐藏基于代理编程的细节来改进 API。例如，在计数器的例子中，我们可以定义一个 `Counter` 类，如下所示。
+- en: Listing 19.6 Hiding an agent-based implementation behind a public API
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 19.6 在公共 API 后面隐藏基于代理的实现
+- en: '[PRE15]'
+  id: totrans-166
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ The agent is an implementation detail.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 代理是实现细节。
+- en: ❷ Public interface of the `Counter`
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ `Counter` 的公共接口
+- en: 'Now a consumer of `Counter` can be blissfully unaware of its agent-based implementation.
+    A typical interaction would look like this:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，`Counter` 的消费者可以无忧无虑地不知道其基于代理的实现。典型的交互方式如下：
+- en: '[PRE16]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 19.4 Message-passing concurrency in LOB applications
+  id: totrans-171
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.4 LOB 应用中的消息传递并发
+- en: In LOB applications, the need to synchronize access to some shared state usually
+    arises from the fact that entities in the application represent real-world entities,
+    and we need to ensure that concurrent access doesn’t leave them in an invalid
+    state or otherwise break business rules. For example, two concurrent requests
+    to purchase a particular item shouldn’t result in that item being sold twice.
+    Similarly, concurrent moves in a multiplayer game shouldn’t lead to an invalid
+    state of the game.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在LOB应用程序中，需要同步访问某些共享状态通常是由于应用程序中的实体代表现实世界实体，我们需要确保并发访问不会使它们处于无效状态或以其他方式破坏业务规则。例如，对特定商品的两次并发购买请求不应导致该商品被卖两次。同样，多人游戏中的并发移动不应导致游戏处于无效状态。
+- en: Let’s see how this would play out in our banking scenario. We need to ensure
+    that when different transactions (debits, credits, transfers) happen concurrently,
+    they don’t leave the account in an invalid state. Does this mean we need to synchronize
+    access to the account data? Not necessarily! Let’s see what happens if we don’t
+    take any special measures with respect to concurrency.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看这在我们的银行场景中会如何展开。我们需要确保当不同的交易（借记、贷记、转账）同时发生时，它们不会使账户处于无效状态。这意味着我们需要同步对账户数据的访问吗？不一定！让我们看看如果我们不对并发采取任何特殊措施会发生什么。
+- en: 'Imagine an account with a balance of 1,000\. An automated direct debit payment
+    occurs causing 800 to be debited from the account. Concurrently, a transfer of
+    200 is requested so that the amount of 200 is also debited. If we use the event-sourced
+    approach shown so far in this book, we get the following result:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一个余额为1,000元的账户。一个自动的直接借记付款发生，导致账户被扣除800元。同时，请求转账200元，以便200元的金额也被扣除。如果我们使用本书中迄今为止所示的事件溯源方法，我们得到以下结果：
+- en: The direct debit request causes the creation of an event, capturing a debit
+    of 800, and the caller will receive an updated state with a balance of 200.
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 直接借记请求导致事件的创建，记录了800元的借记，调用者将收到一个余额为200元的更新状态。
+- en: The transfer request likewise causes the creation of an event, capturing a debit
+    of 200, and the caller will receive an updated state with a balance of 800.
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 转账请求同样导致事件的创建，记录了200元的借记，调用者将收到一个余额为800元的更新状态。
+- en: When the account is loaded next, its state is computed from all past events
+    so that its state will correctly have a balance of 0.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当账户下次加载时，其状态是从所有过去的事件中计算出来的，以确保其状态将正确地有一个余额为0。
+- en: As new events are published, any clients that subscribe to updates can reflect
+    those changes in state. (For example, the client device on which the transfer
+    request was made can be notified when the direct debit has taken place so that
+    the account balance shown to the user is always up to date.)
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 随着新事件的发布，任何订阅更新的客户端都可以反映这些状态变化。（例如，在发起转账请求的客户端设备上，当直接借记发生时，可以通知用户账户余额始终是最新的。）
+- en: In short, if you use immutable objects and event sourcing, you don’t get inconsistent
+    data as a result of concurrent updates; this is an important benefit of event
+    sourcing.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简而言之，如果你使用不可变对象和事件溯源，你不会因为并发更新而导致不一致的数据；这是事件溯源的一个重要好处。
+- en: 'Let’s now enrich this scenario with a new business requirement. Each account
+    is assigned a maximum allowed overdraft, meaning that an account’s balance can
+    never go below a certain amount. Now imagine that we have the following:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们用一个新的业务需求丰富这个场景。每个账户都分配了一个最大允许的透支额，这意味着账户余额永远不会低于一定金额。现在想象我们有以下情况：
+- en: An account with a balance of 1,000 and a maximum overdraft of 500
+  id: totrans-181
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 余额为1,000元，最大透支额为500元的账户
+- en: A direct debit payment of 800
+  id: totrans-182
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 800元的直接借记付款
+- en: Concurrently, a transfer request also for 800
+  id: totrans-183
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 同时，还有一个800元的转账请求
+- en: If you don’t synchronize access to the account data, both requests will succeed,
+    leading to the account having an overdraft of 600, which violates our business
+    requirement that the overdraft should never exceed 500\. To enforce the maximum
+    allowed overdraft, we need to synchronize the execution of actions that modify
+    the account balance, as a result of which one of the concurrent requests in this
+    scenario should fail. Next, you’ll see how to achieve this using actors.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你没有同步对账户数据的访问，两个请求都将成功，导致账户透支600元，这违反了我们的业务要求，即透支额不应超过500元。为了强制执行最大允许的透支额，我们需要同步修改账户余额的操作执行，因此在这种情况下，并发请求中的一个应该失败。接下来，你将看到如何使用actor来实现这一点。
+- en: 19.4.1 Using an agent to synchronize access to account data
+  id: totrans-185
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.4.1 使用代理同步访问账户数据
+- en: To ensure that the account data can’t be affected concurrently by different
+    requests, we can associate an agent with each account. Notice that agents are
+    lightweight enough that it’s OK to have thousands or even millions of them. Also
+    notice that I’m assuming there’s a single server process through which accounts
+    can be affected. If this weren’t the case, you’d need to use an implementation
+    of the actor model instead, but the gist of the following implementation would
+    still be valid.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了确保账户数据不会被不同的请求同时影响，我们可以为每个账户关联一个代理。请注意，代理足够轻量级，因此可以拥有数千甚至数百万个。另外请注意，我假设有一个单独的服务器进程，通过该进程可以影响账户。如果不是这种情况，您需要使用actor模型实现，但以下实现的精髓仍然有效。
+- en: 'To associate an agent with an account, we’ll define an `AccountProcess` class
+    with an agent-based implementation. This means we’re now using three classes to
+    represent accounts:'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将代理与账户关联，我们将定义一个具有基于代理实现的`AccountProcess`类。这意味着我们现在使用三个类来表示账户：
+- en: '`AccountState`—A record that represents the state of an account at a given
+    moment in time'
+  id: totrans-188
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`AccountState`—一个记录，表示在特定时间点账户的状态'
+- en: '`Account`—A static class that only contains pure functions used to calculate
+    state transitions'
+  id: totrans-189
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Account`—一个只包含用于计算状态转换的纯函数的静态类'
+- en: '`AccountProcess`—An agent-based implementation that tracks the current state
+    of an account and handles any commands that affect the account’s state'
+  id: totrans-190
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`AccountProcess`—一个基于代理的实现，用于跟踪账户的当前状态并处理影响账户状态的任何命令'
+- en: You saw implementations of `Account` and `AccountState` in chapter 13, and those
+    don’t need to change. The following listing shows the implementation of `AccountProcess`.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您在第13章中看到了`Account`和`AccountState`的实现，这些不需要更改。下面的列表显示了`AccountProcess`的实现。
+- en: Listing 19.7 Sequential processing of commands that affect an account
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.7顺序处理影响账户的命令
+- en: '[PRE17]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ Uses pure functions to calculate the result of the command
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用纯函数来计算命令的结果
+- en: ❷ Persists the event within the block so that the agent doesn’t process new
+    messages in a nonpersisted state
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在块内持久化事件，这样代理就不会在未持久化的状态下处理新的消息
+- en: ❸ All commands are queued and processed sequentially.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 所有命令都排队并顺序处理。
+- en: 'Each instance of `AccountProcess` internally holds an agent, so that all commands
+    affecting an account can be processed sequentially. Let’s look at the body of
+    the agent: first, we calculate the result of the command, given the command and
+    the current state. This is done using pure, static functions only.'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`AccountProcess`的每个实例内部都包含一个代理，这样就可以顺序处理影响账户的所有命令。让我们看看代理的主体：首先，我们根据命令和当前状态计算命令的结果。这是使用纯、静态函数完成的。'
+- en: The result, remember, is a `Validation` with an inner value including the resulting
+    `Event` and the new account state. If the result is `Valid`, we proceed to save
+    and publish the created event (the check is done as part of `Traverse`).
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，结果是包含结果`Event`和新的账户状态的`Validation`。如果结果是`Valid`，我们继续保存和发布创建的事件（检查作为`Traverse`的一部分进行）。
+- en: It’s important to note that persistence happens *within* the processing function.
+    That is, the agent shouldn’t update its state and start processing new messages
+    before it has successfully persisted the event representing its current state
+    transition. (Otherwise, persisting the event could fail, leading to a mismatch
+    between the agent’s state and the state captured by the persisted events.)
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，持久化发生在处理函数内部。也就是说，代理在成功持久化代表其当前状态转换的事件之前，不应更新其状态并开始处理新的消息。（否则，持久化事件可能会失败，导致代理的状态与持久化事件捕获的状态不匹配。）
+- en: Finally, we return the account’s updated state (which is used when processing
+    subsequent commands) and the result of the command. This result includes both
+    the new state and the created event, wrapped in a `Validation`. This makes it
+    easy to send back to the client the details of the success and result of this
+    request.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们返回账户的更新状态（用于处理后续命令）和命令的结果。这个结果包括新的状态和创建的事件，封装在一个`Validation`中。这使得将请求的成功和结果细节发送回客户端变得容易。
+- en: Notice how agents (and actors) complect state, behavior, and persistence (as
+    such, they have been labeled “more object-oriented than objects”). In this implementation,
+    I’m injecting a function for persisting the events, whereas most implementations
+    of the actor model include some configurable mechanism for persisting an actor’s
+    state.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意代理（和actor）如何结合状态、行为和持久性（因此，它们被标记为“比对象更面向对象”）。在这个实现中，我注入了一个用于持久化事件的函数，而大多数actor模型的实现包括一些可配置的机制来持久化actor的状态。
+- en: 19.4.2 Keeping a registry of accounts
+  id: totrans-202
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.4.2 维护账户注册表
+- en: We now have an `AccountProcess` that can process commands applicable to a specific
+    account in a thread-safe manner. But how does the code in an API endpoint get
+    the instance of `AccountProcess` for the relevant account? And how do we ensure
+    that we never accidentally create two `AccountProcess`es for the same account?
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有一个可以以线程安全的方式处理特定账户命令的`AccountProcess`。但是API端点的代码如何获取相关账户的`AccountProcess`实例？我们如何确保我们不会意外地为同一账户创建两个`AccountProcess`？
+- en: What we need is a single, application-wide registry that holds all live `AccountProcess`es.
+    It needs to manage their creation and serve them by ID so that the code handling
+    client requests can get an `AccountProcess` simply by providing the account ID
+    included in the request.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要一个单一的应用程序范围注册表，用于存储所有活动的`AccountProcess`。它需要管理它们的创建并通过ID提供服务，以便处理客户端请求的代码可以通过提供请求中包含的账户ID简单地获取一个`AccountProcess`。
+- en: Actor model implementations have such a registry built in, allowing you to register
+    any particular actor against an arbitrary ID. In our case, we’ll build our own
+    simple registry. The following listing shows a first attempt at doing this.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Actor模型实现中内置了这样的注册表，允许你将任何特定的actor注册到任意ID。在我们的案例中，我们将构建自己的简单注册表。以下列表展示了第一次尝试这样做的方法。
+- en: Listing 19.8 Storing and managing the creation of `AccountProcess`es
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.8 存储和管理`AccountProcess`的创建
+- en: '[PRE18]'
+  id: totrans-207
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ If the requested `AccountProcess` is not in the cache, loads the current state
+    from the DB
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果请求的`AccountProcess`不在缓存中，则从数据库加载当前状态
+- en: ❷ Creates an `AccountProcess` with the retrieved state
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用检索到的状态创建`AccountProcess`
+- en: In this implementation, we have a single agent that manages a cache where all
+    live instances of `AccountProcess` are kept. If no `AccountProcess` is found for
+    the given ID, the account’s current state is retrieved from the DB and used to
+    create a new `AccountProcess`, which is added to the cache. Notice that, as usual,
+    the `loadState` function returns a `Task<Option<AccountState>>` to acknowledge
+    that the operation is asynchronous and that it’s possible that no data is found
+    for a given ID.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个实现中，我们有一个单独的代理来管理一个缓存，其中保存了所有活动的`AccountProcess`实例。如果找不到给定ID的`AccountProcess`，则从数据库中检索账户的当前状态，用于创建一个新的`AccountProcess`，并将其添加到缓存中。请注意，像往常一样，`loadState`函数返回一个`Task<Option<AccountState>>`，以承认该操作是异步的，并且可能找不到给定ID的数据。
+- en: 'Before you read on, go through the implementation again. Can you see any problems
+    with this approach? Let’s see: loading the account state from the DB is done *within*
+    the agent body; is that warranted? This means that reading the state for account
+    *x* will block another thread that’s interested in account *y*. That’s certainly
+    suboptimal!'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在继续阅读之前，再次审视一下实现。你能看到这种方法的任何问题吗？让我们看看：在代理体内部完成从数据库加载账户状态；这是有必要的吗？这意味着读取账户*x*的状态将阻塞对账户*y*感兴趣的另一个线程。这肯定不是最优的！
+- en: 19.4.3 An agent is not an object
+  id: totrans-212
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.4.3 代理不是对象
+- en: This is the kind of schoolboy error that’s common when you’re getting used to
+    programming with agents or actors. Although agents and actors are similar to objects,
+    you can’t think of them as such. The error in listing 19.8 is that we’re conceptually
+    giving the agent the responsibility of providing the caller with the requested
+    `AgentProcess`, and this gives us a suboptimal solution.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一种常见的学校男孩错误，当你开始习惯使用代理或actor进行编程时。尽管代理和actor类似于对象，但你不能把它们当作对象来考虑。列表19.8中的错误是我们从概念上赋予代理提供请求的`AgentProcess`的责任，这导致了一个次优解。
+- en: Instead, agents should only have the responsibility of managing some state.
+    The agent in question manages a dictionary, so we can call it to look up an item,
+    or to add a new item, but going to the DB to retrieve data is a relatively slow
+    operation that’s not directly pertinent to managing the cache of `AgentProcess`es.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，代理应该只负责管理一些状态。所讨论的代理管理一个字典，因此我们可以调用它来查找一个条目，或者添加一个新条目，但前往数据库检索数据是一个相对较慢的操作，这与直接管理`AgentProcess`的缓存无关。
+- en: 'With this in mind, let’s think of an alternative solution. A thread that wants
+    to get hold of an `AgentProcess` for an account ID should do the following:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到这一点，让我们考虑一个替代方案。一个想要获取账户ID的`AgentProcess`的线程应该做以下事情：
+- en: Ask the agent to look up the ID.
+  id: totrans-216
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 要求代理查找ID。
+- en: If no `AgentProcess` is stored, retrieve the state of the account from the DB
+    (this time-consuming operation will be done in the calling thread, therefore without
+    affecting the agent).
+  id: totrans-217
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果没有存储`AgentProcess`，则从数据库中检索账户的状态（这次耗时操作将在调用线程上完成，因此不会影响代理）。
+- en: Ask the agent to create and register a new `AgentProcess` with the given state
+    and ID.
+  id: totrans-218
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 要求代理使用给定的状态和ID创建并注册一个新的`AgentProcess`。
+- en: This means that we may need to go to the agent twice, so we need two different
+    message types to specify what we want the agent to do. The following listing shows
+    that different types of messages can be defined to convey the caller’s intention.
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着我们可能需要访问代理两次，因此我们需要两种不同的消息类型来指定我们想要代理做什么。下面的列表显示了可以定义不同类型的消息来传达调用者的意图。
+- en: Listing 19.9 Different message types convey the caller’s intention
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.9 不同的消息类型传达调用者的意图
+- en: '[PRE19]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: I’ve defined these message types as inner classes because they’re only used
+    within the `AccountRegistry` class to communicate with its agent.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我将这些消息类型定义为内部类，因为它们仅在`AccountRegistry`类内部使用，用于与其代理通信。
+- en: 'We can now define the `Lookup` method, which constitutes the `AccountRegistry`’s
+    public API (and is, therefore, executed on the caller’s thread), as follows:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以定义`Lookup`方法，它构成了`AccountRegistry`的公共API（因此，在调用者的线程上执行），如下所示：
+- en: '[PRE20]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Tells the agent to look up the given ID
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 告诉代理查找给定的ID
+- en: ❷ If the lookup fails, the state is loaded in the calling thread.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果查找失败，则在调用线程中加载状态。
+- en: ❸ Tells the agent to register a new process with the given state and ID
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 告诉代理使用给定的状态和ID注册一个新的进程
+- en: It first asks the agent to look up the ID; if the lookup fails, then the state
+    is retrieved from the DB. Note that this is done on the calling thread, leaving
+    the agent free to handle other messages. Finally, a second message is sent to
+    the agent asking it to create and register an `AccountProcess` with the given
+    account state and ID.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 它首先要求代理查找ID；如果查找失败，则从数据库中检索状态。请注意，这是在调用线程上完成的，这样代理就可以自由地处理其他消息。最后，向代理发送第二条消息，要求它使用给定的账户状态和ID创建并注册一个`AccountProcess`。
+- en: Notice that everything happens within the `Task<Option<>>` stack because this
+    is the type returned both by `loadState` and by `Tell`. Even `OrElse` here resolves
+    to an overload I’ve defined on `Task<Option<T>>`, which executes the given fallback
+    function if the `Task` has faulted or if the inner `Option` is `None`.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，所有操作都在`Task<Option<>>`堆栈内发生，因为这是`loadState`和`Tell`返回的类型。即使是这里的`OrElse`也会解析为我在`Task<Option<T>>`上定义的重载，如果`Task`失败或内部`Option`为`None`，则执行给定的回退函数。
+- en: All that’s left to show is the revised definition of the agent, which is started
+    in the `AccountRegistry`’s constructor. The following listing shows this.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要展示的只剩下代理的修订版定义，该定义在`AccountRegistry`的构造函数中开始。下面的列表展示了这一点。
+- en: Listing 19.10 An agent storing a registry of `AccountProcess`es
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.10 存储账户`AccountProcess`注册表的代理
+- en: '[PRE21]'
+  id: totrans-232
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ The agent uses pattern matching to perform different actions depending on
+    the message it’s sent.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 代理使用模式匹配根据发送给它的消息执行不同的操作。
+- en: ❷ An edge case in which two concurrent requests have both loaded the account
+    state
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 一个边缘情况，其中两个并发请求都加载了账户状态
+- en: ❸ Creates and registers a new `AccountProcess`
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 创建并注册一个新的`AccountProcess`
+- en: 'This implementation is slightly more complex but more efficient, and this example
+    has given us the chance to see a common pitfall when programming with agents:
+    namely, performing an expensive operation in the body of an agent that doesn’t
+    strictly require synchronized access to the agent’s state.'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个实现稍微复杂一些，但更高效，这个例子给了我们机会看到使用代理编程时的一个常见陷阱：即在不需要严格同步访问代理状态的情况下，在代理的主体中执行昂贵的操作。
+- en: 'On the other hand, in both proposed implementations, once an `AccountProcess`
+    is created, it’s never terminated; it will persist events to the DB to keep the
+    stored version in sync with the in-memory state, but we read from the DB at most
+    once. Is this a good thing or bad? It depends on how much data you’ll eventually
+    have in memory and how much memory you have available. It’s potentially a huge
+    optimization because access to in-memory data is orders of magnitude faster than
+    access to the DB. The ability to keep all your data in memory is one of the big
+    draws of the actor model: because actors can be distributed across machines, there’s
+    no effective limit on the amount of memory you can use, and accessing memory (even
+    over the network) is much faster than accessing even a local DB.'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，在两种提出的实现中，一旦创建了`AccountProcess`，它就永远不会终止；它将事件持久化到数据库中，以保持存储版本与内存状态同步，但我们最多只从数据库中读取一次。这是好事还是坏事？这取决于你最终在内存中会有多少数据以及你有多少可用内存。这可能是巨大的优化，因为访问内存数据比访问数据库快得多。将所有数据保持在内存中是actor模型的一个大优势：因为actor可以跨机器分布，你可以使用的内存量没有实际限制，并且访问内存（即使是通过网络）比访问本地数据库要快得多。
+- en: 19.4.4 Putting it all together
+  id: totrans-238
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 19.4.4 将所有内容组合在一起
+- en: 'With the previous building blocks in place, let’s see how our implementation
+    for the API endpoint changes:'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在放置了之前的构建块之后，让我们看看我们的API端点实现是如何变化的：
+- en: '[PRE22]'
+  id: totrans-240
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ❶ Required to get an `AccountProcess` by account ID
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 通过账户ID获取`AccountProcess`是必需的
+- en: ❷ Changes from `Task<Option<>>` to `Task<Validation<>>`
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从`Task<Option<>`到`Task<Validation<>`的变化
+- en: ❸ The `AccountProcess` handles the command, updating the account state and persisting/publishing
+    the corresponding event.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ `AccountProcess`处理命令，更新账户状态并持久化/发布相应的事件。
+- en: The endpoint implementation depends on a `Validator` for validating the command
+    and on the `AccountRegistry` for retrieving an `AccountProcess` for the relevant
+    account.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 端点实现依赖于`Validator`来验证命令，并依赖于`AccountRegistry`来检索相关账户的`AccountProcess`。
+- en: The main change, compared to the version in chapter 13, is that the `result`
+    tuple is only returned for feedback, whereas persisting and publishing the event
+    happens in the `AccountProcess`’s `Handle` method. This, as you’ve seen, is required
+    to prevent concurrent modifications to the account’s state, which could violate
+    business rules such as limiting the account’s maximal overdraft.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与第13章中的版本相比，主要的变化是，`result`元组仅用于反馈，而持久化和发布事件发生在`AccountProcess`的`Handle`方法中。正如你所看到的，这是防止对账户状态进行并发修改所必需的，这可能会违反诸如限制账户最大透支等业务规则。
+- en: I’m not including the implementation for the functions that read and write events
+    to storage because they’re so technology-specific and don’t entail any particularly
+    interesting logic.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我没有包括读取和写入存储中事件的功能实现，因为它们非常特定于技术，并且不涉及任何特别有趣的逻辑。
+- en: You’ve now seen all the main components of an end-to-end solution for handling
+    a money transfer with the added constraints of synchronized access to the account
+    state.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你现在已经看到了处理货币转移的端到端解决方案的所有主要组件，这些解决方案增加了对账户状态同步访问的约束。
+- en: Summary
+  id: totrans-248
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Shared mutable state that’s accessed concurrently can cause difficult problems.
+  id: totrans-249
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 同时访问的共享可变状态可能会引起困难的问题。
+- en: For this reason, you should avoid shared mutable state entirely whenever possible.
+    This is often the case in parallel processing scenarios.
+  id: totrans-250
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 因此，在可能的情况下，你应该完全避免共享可变状态。在并行处理场景中，这通常是这种情况。
+- en: In other types of concurrency, notably in multithreaded applications that need
+    to model real-world entities, shared mutable state is often required.
+  id: totrans-251
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在其他类型的并发中，特别是在需要模拟现实世界实体的多线程应用程序中，通常需要共享可变状态。
+- en: Access to shared mutable state must be serialized to avoid inconsistent changes
+    to the data. This can be achieved using locks but also using lock-free techniques.
+  id: totrans-252
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 访问共享可变状态必须进行序列化，以避免对数据进行不一致的更改。这可以通过使用锁来实现，也可以通过使用无锁技术来实现。
+- en: Message-passing concurrency is a technique that avoids locks by restricting
+    state mutation to processes (actors/agents) that have exclusive ownership of some
+    state, which they can access single-threadedly in reaction to messages they’re
+    sent.
+  id: totrans-253
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 消息传递并发是一种技术，通过限制状态修改到拥有某些状态独占所有权的进程（actor/agents）来避免使用锁，他们可以单线程地访问这些状态，以响应发送给他们的消息。
+- en: An actor/agent is a lightweight process featuring
+  id: totrans-254
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个actor/agent是一个轻量级进程，具有
+- en: An inbox in which messages sent to it are queued up
+  id: totrans-255
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个收件箱，其中发送给它的消息会被排队
+- en: Some state of which it has exclusive ownership
+  id: totrans-256
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它具有排他所有权的某些状态
+- en: A processing loop in which it processes messages sequentially, taking actions
+    such as creating and communicating with other agents, changing its state, and
+    performing side effects
+  id: totrans-257
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个处理循环，在其中它按顺序处理消息，采取诸如创建与其他代理通信、改变其状态和执行副作用等行动
+- en: 'Agents and actors are fundamentally similar, but there are important differences:'
+  id: totrans-258
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代理和演员在本质上相似，但存在重要的区别：
+- en: Actors are distributed, whereas agents are local to a single process.
+  id: totrans-259
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 演员（Actors）是分布式的，而代理（Agents）是局部于单个进程的。
+- en: Unlike with agents, the actor model includes error handling provisions such
+    as *supervisors*, which take action if the supervised actor fails.
+  id: totrans-260
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与代理不同，演员模型包括错误处理机制，如*监督者*（supervisors），当被监督的演员失败时，它们会采取行动。
+- en: Message-passing concurrency feels quite different from other FP techniques,
+    mainly because FP works by composing functions, whereas actors/agents tend to
+    work in a fire-and-forget fashion.
+  id: totrans-261
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 消息传递并发与其他FP技术感觉相当不同，主要是因为FP通过组合函数工作，而演员/代理倾向于以“发射并遗忘”的方式工作。
+- en: It’s possible to write high-level functional APIs with underlying agent-based
+    or actor-based implementations.
+  id: totrans-262
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以使用基于代理或演员的底层实现来编写高级功能API。
+- en: '* * *'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '* * *'
+- en: ¹ In fact, there are several different strategies for implementing STM with
+    different characteristics. Some implementations also enforce *consistency*, meaning
+    that it’s possible to enforce invariants that a transaction can’t violate. Do
+    the properties atomicity, consistency, and isolation sound familiar? That’s because
+    they are three of the ACID properties guaranteed by many databases—the last one
+    being *durability*, which, of course, does not apply to STM as it specifically
+    pertains to in-memory data.
+  id: totrans-264
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹ 实际上，有几种不同的策略可以用来实现具有不同特性的STM。一些实现还强制执行*一致性*，这意味着可以强制执行事务不能违反的守恒性。原子性、一致性和隔离性听起来熟悉吗？这是因为它们是许多数据库保证的ACID属性中的三个——最后一个属性是*持久性*，当然，它不适用于STM，因为它专门涉及内存数据。
+- en: ² I already mentioned language-ext, a functional library for C#, in the front
+    matter. The code is available at [https://github.com/louthy/language-ext](https://github.com/louthy/language-ext),
+    and for some basic code samples showing how to use the STM features, see [https://github.com/louthy/language-ext/wiki/Concurrency](https://github.com/louthy/language-ext/wiki/Concurrency).
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ² 我已经在前言中提到了language-ext，这是一个C#的功能库。代码可在[https://github.com/louthy/language-ext](https://github.com/louthy/language-ext)找到，并且对于一些展示如何使用STM特性的基本代码示例，请参阅[https://github.com/louthy/language-ext/wiki/Concurrency](https://github.com/louthy/language-ext/wiki/Concurrency)。

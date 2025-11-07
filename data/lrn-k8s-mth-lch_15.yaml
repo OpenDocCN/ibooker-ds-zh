@@ -1,0 +1,1142 @@
+- en: 12 Empowering self-healing apps
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 12 激活自我修复的应用程序
+- en: Kubernetes models your application with abstractions over the compute and networking
+    layers. The abstractions allow Kubernetes to control network traffic and container
+    lifetimes, so it can take corrective action if parts of your app fail. If you
+    have enough detail in your specifications, the cluster can find and fix temporary
+    problems and keep applications online. These are self-healing applications, which
+    ride out any transient issues without needing a human to guide them. In this chapter,
+    you’ll learn how to model that in your own apps, using container probes to test
+    for health and imposing resource limits so apps don’t soak up too much compute.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes通过计算和网络层的抽象来对应用程序进行建模。这些抽象允许Kubernetes控制网络流量和容器生命周期，因此它可以在应用程序的部分失败时采取纠正措施。如果你在规范中有足够的细节，集群可以找到并修复临时问题，并保持应用程序在线。这些是自我修复的应用程序，它们可以应对任何短暂的问题，而无需人工引导。在本章中，你将学习如何在自己的应用程序中实现这一点，使用容器探测来测试健康状态，并施加资源限制，以防止应用程序消耗过多的计算资源。
+- en: There are limits to Kubernetes’s healing powers, and you’ll learn those in this
+    chapter, too. We’re mainly going to look at how you keep your apps running without
+    manual administration, but we’ll also look again at application updates. Updates
+    are the most likely cause of downtime, and we’ll look at some additional features
+    of Helm that can keep your apps healthy during update cycles.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes的自我修复能力是有限的，你将在本章中了解到这些限制。我们将主要探讨如何在不进行手动管理的情况下保持应用程序的运行，但也会再次讨论应用程序的更新。更新是最可能导致停机的原因，我们将探讨Helm的一些附加功能，这些功能可以在更新周期中保持应用程序的健康状态。
+- en: 12.1 Routing traffic to healthy Pods using readiness probes
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.1 使用就绪性探测将流量路由到健康的Pod
+- en: Kubernetes knows if your Pod container is running, but it doesn’t know if the
+    application inside the container is healthy. Every app will have its own idea
+    of what “healthy” means—it might be a 200 OK response to an HTTP request—and Kubernetes
+    provides a generic mechanism for testing health using *container probes*. Docker
+    images can have healthchecks configured, but Kubernetes ignores them in favor
+    of its own probes. Probes are defined in the Pod spec, and they execute on a fixed
+    schedule, testing some aspect of the application and returning an indicator to
+    say if the app is still healthy.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes知道你的Pod容器是否正在运行，但它不知道容器内的应用程序是否健康。每个应用程序都会有自己的“健康”定义——它可能是对HTTP请求的200
+    OK响应——Kubernetes提供了一个通用的机制来测试健康状态，即使用*容器探测*。Docker镜像可以配置健康检查，但Kubernetes会忽略它们，转而使用自己的探测。探测在Pod规范中定义，并按照固定的时间表执行，测试应用程序的某些方面，并返回一个指示器，表示应用程序是否仍然健康。
+- en: If the probe response says the container is unhealthy, Kubernetes will take
+    action, and the action it takes depends on the type of probe. *Readiness probes*
+    take action at the network level, managing the routing for components that listen
+    for network requests. If the Pod container is unhealthy, the Pod is taken out
+    of the ready state and removed from the list of active Pods for a Service. Figure
+    12.1 shows how that looks for a Deployment with multiple replicas, where one Pod
+    is unhealthy.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果探测响应表明容器不健康，Kubernetes将采取行动，而它采取的行动取决于探测的类型。*就绪性探测*在网络层面上采取行动，管理监听网络请求的组件的路由。如果Pod容器不健康，Pod将被从就绪状态中移除，并从服务中移除的活跃Pod列表中删除。图12.1显示了对于具有多个副本的部署，一个Pod不健康时的样子。
+- en: '![](../Images/12-1.jpg)'
+  id: totrans-6
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/12-1.jpg)'
+- en: Figure 12.1 The list of endpoints for a Service excludes Pods that are not ready
+    to receive traffic.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.1 服务端点的列表排除了尚未准备好接收流量的Pod。
+- en: Readiness probes are a great way to manage temporary load issues. Some Pods
+    might be overloaded, returning a 503 status code to every request. If the readiness
+    probe checks for a 200 response and those Pods return 503, they will be removed
+    from the Service and will stop receiving requests. Kubernetes keeps running the
+    probe after it has failed, so if the overloaded Pod has a chance to recover while
+    it’s resting, the probe will succeed again, and the Pod will be enlisted back
+    into the Service.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就绪性探测是管理临时负载问题的绝佳方式。一些Pod可能会过载，对每个请求都返回503状态码。如果就绪性探测检查200响应，并且这些Pod返回503，它们将被从服务中移除，并停止接收请求。Kubernetes在探测失败后会继续运行探测，所以如果过载的Pod在休息期间有机会恢复，探测将再次成功，Pod将被重新纳入服务。
+- en: The random-number generator we’ve used in this book has a couple of features
+    we can use to see how this works. The API can run in a mode where it fails after
+    a certain number of requests, and it has an HTTP endpoint that returns whether
+    it is healthy or in a failed state. We’ll start by running it without a readiness
+    probe so we can understand the problem.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这本书中使用的随机数生成器有几个特性，我们可以使用它们来了解它是如何工作的。API可以在达到一定数量的请求后失败的模式下运行，并且它有一个HTTP端点，返回它是否健康或处于失败状态。我们将首先在没有就绪探测的情况下运行它，以便我们可以理解这个问题。
+- en: Try it now Run the API with multiple replicas, and see what happens when the
+    application fails without any container probes to test it.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：运行具有多个副本的API，并看看当应用程序在没有容器探测的情况下失败时会发生什么。
+- en: '[PRE0]'
+  id: totrans-11
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: You’ll see from this exercise that the Service keeps both Pods in its list of
+    endpoints, even though one of them is unhealthy and will always return a 500 error
+    response. My output in figure 12.2 shows two IP addresses in the endpoint list
+    before and after the request, which causes one instance to become unhealthy.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会从这次练习中看到，即使其中一个Pod不健康并且总是返回500错误响应，服务仍然将其保留在其端点列表中。我的输出图12.2显示了请求前后端点列表中的两个IP地址，这导致一个实例变得不健康。
+- en: '![](../Images/12-2.jpg)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图12-2](../Images/12-2.jpg)'
+- en: Figure 12.2 Application containers may be unhealthy, but the Pod stays in the
+    ready state.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.2 应用程序容器可能不健康，但Pod仍然处于就绪状态。
+- en: This happens because Kubernetes doesn’t know one of the Pods is unhealthy. The
+    application in the Pod container is still running, and Kubernetes doesn’t know
+    there’s a health endpoint it can use to see if the app is working correctly. You
+    can give it that information with a readiness probe in the container spec for
+    the Pod. Listing 12.1 shows an update to the API spec, which includes the health
+    check.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是因为Kubernetes不知道其中一个Pod不健康。Pod容器中的应用程序仍在运行，Kubernetes不知道有一个健康端点它可以用来检查应用程序是否运行正确。您可以通过Pod容器规范中的就绪探测提供该信息。列表12.1显示了API规范的更新，其中包含健康检查。
+- en: Listing 12.1 api-with-readiness.yaml, a readiness probe for the API container
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.1 api-with-readiness.yaml，API容器的就绪探测
+- en: '[PRE1]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Kubernetes supports different types of container probe. This one uses an HTTP
+    GET action, which is perfect for web applications and APIs. The probe tells Kubernetes
+    to test the `/healthz` endpoint every five seconds; if the response has an HTTP
+    status code between 200 and 399, then the probe succeeds; if any other status
+    code is returned, it will fail. The random-number API returns a 500 code when
+    it’s unhealthy, so we can see the readiness probe in action.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes支持不同类型的容器探测。这个使用HTTP GET操作，非常适合Web应用程序和API。探测告诉Kubernetes每五秒测试一次`/healthz`端点；如果响应的HTTP状态码在200到399之间，则探测成功；如果返回任何其他状态码，则探测失败。当随机数API不健康时，它会返回500状态码，因此我们可以看到就绪探测的实际操作。
+- en: Try it now Deploy the updated spec, and verify that the Pod with the failed
+    application is removed from the Service.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：部署更新后的规范，并验证失败的应用程序的Pod是否已从服务中移除。
+- en: '[PRE2]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: As shown in my output in figure 12.3, the readiness probe detects one of the
+    Pods is unhealthy because the response to the HTTP request returns 500\. That
+    Pod’s IP address is removed from the Service endpoint list, so it won’t receive
+    any more traffic.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如图12.3所示，就绪探测检测到一个Pod不健康，因为对HTTP请求的响应返回了500。该Pod的IP地址已从服务端点列表中移除，因此它将不再接收任何流量。
+- en: '![](../Images/12-3.jpg)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图12-3](../Images/12-3.jpg)'
+- en: Figure 12.3 Failing readiness probes move Pods out of the ready state so they’re
+    removed from Services.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.3 失败的就绪探测将Pod从就绪状态移除，从而从服务中移除。
+- en: This app is also a good example of how readiness probes on their own can be
+    dangerous. The logic in the random-number API means once it has failed, it will
+    always fail, so the unhealthy Pod will stay excluded from the Service, and the
+    application will run below the expected capacity. Deployments do not replace Pods
+    that leave the ready state when a probe fails, so we’re left with two Pods running
+    but only one receiving traffic. The situation gets much worse if the other Pod
+    fails, too.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个应用程序也是一个很好的例子，说明了就绪探测本身可能很危险。随机数API中的逻辑意味着一旦它失败，它就会一直失败，因此不健康的Pod将一直被排除在服务之外，应用程序将低于预期容量运行。当探测失败时，部署不会替换离开就绪状态的Pod，所以我们只剩下两个Pod在运行，但只有一个在接收流量。如果另一个Pod也失败，情况会变得更糟。
+- en: Try it now Only one Pod is in the Service list. You will make a request, and
+    that Pod goes unhealthy, too, so both Pods are removed from the Service.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：服务列表中只有一个Pod。你将发起一个请求，那个Pod也会变得不健康，因此两个Pod都会从服务中移除。
+- en: '[PRE3]'
+  id: totrans-26
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Now we’re in a fix—both Pods have failed readiness probes, and Kubernetes has
+    removed them both from the Service endpoint list. That leaves the Service with
+    no endpoints, so the app is offline, as you can see in figure 12.4\. The situation
+    now is that any clients trying to use the API will get a connection failure rather
+    than an HTTP error status code, and that’s true for administrators who try to
+    reset the app using the special admin URL.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们陷入了困境——两个Pod都失败了就绪性探测，Kubernetes已经将它们都从服务端点列表中移除。这导致服务没有端点，因此应用程序离线，如图12.4所示。现在的情况是，任何尝试使用API的客户端都会得到连接失败，而不是HTTP错误状态码，这对于尝试使用特殊管理URL重置应用程序的管理员来说也是如此。
+- en: '![](../Images/12-4.jpg)'
+  id: totrans-28
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图12-4](../Images/12-4.jpg)'
+- en: Figure 12.4 Probes are supposed to help the app, but they can remove all Pods
+    from a Service.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.4 探测器本应帮助应用程序，但它们可以移除服务中的所有Pod。
+- en: If you’re thinking, “This isn’t a self-healing app,” you’re absolutely right,
+    but remember that the application is in a failed state anyway. Without the readiness
+    probe, the app still doesn’t work, but with the readiness probe, it’s protected
+    from incoming requests until it recovers and is able to handle them. You need
+    to understand the failure modes of your application to know what will happen when
+    probes fail and whether the app is likely to recover by itself.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你认为，“这不是一个自我修复的应用程序”，你完全正确，但请记住，应用程序已经处于失败状态。没有就绪性探测，应用程序仍然无法工作，但有就绪性探测，它被保护免受传入请求，直到它恢复并能够处理它们。你需要了解你应用程序的故障模式，以便知道探测失败时会发生什么，以及应用程序是否可能自行恢复。
+- en: 'The random-number API never becomes healthy again, but we can fix the failed
+    state by restarting the Pod. Kubernetes will do that for you if you include another
+    healthcheck in the container spec: a *liveness probe*.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机数API永远不会再次变得健康，但我们可以通过重启Pod来修复失败状态。如果你在容器规范中包含另一个健康检查：一个**存活性探测**，Kubernetes会为你完成这项工作。
+- en: 12.2 Restarting unhealthy Pods with liveness probes
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.2 使用存活性探测重启不健康的Pod
+- en: Liveness probes use the same healthcheck mechanism as readiness probes—the test
+    configurations might be identical in your Pod spec—but the action for a failed
+    probe is different. Liveness probes take action at the compute level, restarting
+    Pods if they become unhealthy. A restart is when Kubernetes replaces the Pod container
+    with a new one; the Pod itself isn’t replaced; it continues to run on the same
+    node but with a new container.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存活性探测使用与就绪性探测相同的健康检查机制——测试配置可能在你的Pod规范中是相同的——但失败探测的动作是不同的。存活性探测在计算级别采取行动，如果Pod变得不健康，则会重启Pod。重启是Kubernetes用新的容器替换Pod容器；Pod本身不会被替换；它将继续在相同的节点上运行，但使用新的容器。
+- en: Listing 12.2 shows a liveness probe for the random-number API. This probe uses
+    the same HTTP GET action to run the probe, but it has some additional configuration.
+    Restarting a Pod is more invasive than removing it from a Service, and the extra
+    settings help to ensure that happens only when we really need it.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.2显示了一个随机数API的存活性探测。这个探测使用相同的HTTP GET动作来运行探测，但它有一些额外的配置。重启Pod比将其从服务中移除更具侵入性，额外的设置有助于确保只有在真正需要时才会发生。
+- en: Listing 12.2 api-with-readiness-and-liveness.yaml, adding a liveness probe
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.2 api-with-readiness-and-liveness.yaml，添加存活性探测
+- en: '[PRE4]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: This is a change to the Pod spec, so applying the update will create new replacement
+    Pods that start off healthy. This time, when a Pod becomes unhealthy after the
+    application fails, it will be removed from the Service thanks to the readiness
+    probe. It will be restarted thanks to the liveness probe, and then the Pod will
+    be added back into the Service.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是对Pod规范的更改，因此应用更新将创建新的替换Pod，这些Pod一开始就是健康的。这次，当Pod在应用程序失败后变得不健康，它将因为就绪性探测而被从服务中移除。它将因为存活性探测而被重启，然后Pod将被重新添加到服务中。
+- en: Try it now Update the API, and verify that liveness and readiness checks combined
+    keep the application healthy.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：更新API，并验证存活性和就绪性检查的组合是否使应用程序保持健康。
+- en: '[PRE5]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: In this exercise, you see the liveness probe in action, restarting the Pod when
+    the application fails. The restart is a new Pod container, but the Pod environment
+    is the same—it has the same IP address, and if the container mounted an `EmptyDir`
+    volume in the Pod, it would have access to the files written by the previous container.
+    You can see in figure 12.5 that both Pods are running and ready after the restart,
+    so Kubernetes fixed the failure and healed the application.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你看到存活性探测在应用失败时重启 Pod。重启是一个新的 Pod 容器，但 Pod 环境是相同的——它有相同的 IP 地址，如果容器在 Pod
+    中挂载了一个 `EmptyDir` 卷，它将能够访问前一个容器写入的文件。你可以在图 12.5 中看到，重启后两个 Pods 都在运行并就绪，所以 Kubernetes
+    修复了故障并恢复了应用。
+- en: '![](../Images/12-5.jpg)'
+  id: totrans-41
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 12-5](../Images/12-5.jpg)'
+- en: Figure 12.5 Readiness probes and liveness probes combined help keep applications
+    online.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.5 就绪性探测和存活性探测结合帮助保持应用在线。
+- en: Restarts aren’t a permanent fix if the app keeps failing without a healthy streak,
+    because Kubernetes won’t indefinitely restart a failing Pod. For transient issues,
+    it works well, provided the application can restart successfully in a replacement
+    container. Probes are also useful to keep applications healthy during upgrades,
+    because rollouts proceed only as new Pods enter the ready state, so if a readiness
+    probe fails, that will pause the rollout.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果应用在没有健康序列的情况下持续失败，重启并不是一个永久的解决方案，因为 Kubernetes 不会无限期地重启一个失败的 Pod。对于短暂的问题，如果应用能在替换容器中成功重启，那么这种方法效果很好。探测也是保持应用在升级期间健康的有用工具，因为滚动更新只有在新的
+    Pods 进入就绪状态时才会进行，所以如果就绪探测失败，这将暂停滚动更新。
+- en: We’ll show that with the to-do list application, with specifications that include
+    liveness and readiness checks for the web application Pod and the database. The
+    web probes use the same HTTP GET action we’ve already seen, but the database doesn’t
+    have an HTTP endpoint we can use. Instead, the spec uses the other types of probe
+    action that Kubernetes supports—the TCP socket action, which checks that a port
+    is open and listening for incoming traffic, and the exec action, which runs a
+    command inside the container. Listing 12.3 shows the probe setup.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过待办事项列表应用来展示这一点，其中包括对 Web 应用 Pod 和数据库的存活性和就绪性检查。Web 探测使用我们之前已经看到的相同的 HTTP
+    GET 动作，但数据库没有我们可以使用的 HTTP 端点。相反，规范使用了 Kubernetes 支持的其他类型的探测动作——TCP 套接字动作，它检查端口是否打开并正在监听传入流量，以及
+    exec 动作，它在容器内运行命令。列表 12.3 展示了探测设置。
+- en: Listing 12.3 todo-db.yaml, using TCP and command probes
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.3 todo-db.yaml，使用 TCP 和命令探测
+- en: '[PRE6]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: When you deploy this code, you’ll see the app works in the same way as always,
+    but now it’s protected against transient failures in both the web and database
+    components.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你部署这段代码时，你会看到应用以同样的方式工作，但现在它已经能够抵御 Web 和数据库组件的短暂故障。
+- en: Try it now Run the to-do list app with the new self-healing specification.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 运行带有新自我修复规范的待办事项列表应用。
+- en: '[PRE7]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Nothing new here, as you can see in my output in figure 12.6\. But the database
+    probes mean Postgres won’t get any traffic until the database is ready, and if
+    the Postgres server fails, then the database Pod will be restarted, with the replacement
+    using the same data files in the `EmptyDir` volume in the Pod.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里没有新的内容，正如你在图 12.6 的输出中看到的那样。但是，数据库探测意味着 Postgres 不会收到任何流量，直到数据库就绪。如果 Postgres
+    服务器失败，那么数据库 Pod 将会被重启，替换容器将使用 Pod 中的 `EmptyDir` 卷中的相同数据文件。
+- en: '![](../Images/12-6.jpg)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片 12-6](../Images/12-6.jpg)'
+- en: Figure 12.6 Probes are firing and returning healthy responses, so the app works
+    in the usual way.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.6 探测正在触发并返回健康响应，因此应用以通常的方式工作。
+- en: 'Container probes can also keep an application running if an update goes wrong.
+    There’s a new database spec for the to-do app that upgrades the version of Postgres,
+    but it also overrides the container command, so it sleeps instead of starting
+    Postgres. This is a classic left-over-from-debugging mistake: someone wanted to
+    start a Pod with the correct configuration but without running the app so they
+    could run a shell inside the container to check the environment, but they didn’t
+    revert their change. If the Pod didn’t have any probes, the update would succeed
+    and take down the app. The `sleep` command keeps the Pod container running, but
+    there’s no database server for the website to use. The probes stop that happening
+    and keep the app available.'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果更新出错，容器探针也可以使应用程序继续运行。待办事项应用程序有一个新的数据库规范，它升级了Postgres的版本，但它也覆盖了容器命令，使其休眠而不是启动Postgres。这是一个经典的调试遗留错误：有人想以正确的配置启动Pod，但不运行应用程序，以便他们可以在容器内运行shell来检查环境，但他们没有撤销他们的更改。如果Pod没有任何探针，更新将成功并使应用程序崩溃。`sleep`命令使Pod容器继续运行，但没有为网站使用的数据库服务器。探针阻止这种情况发生，并保持应用程序可用。
+- en: Try it now Deploy the bad update, and verify that the failing probes in the
+    new Pod prevent the original Pod from being removed.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：部署这个错误的更新，并验证新Pod中的失败探针阻止了原始Pod被移除。
+- en: '[PRE8]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: You can see my output in figure 12.7\. The replacement database Pod is created,
+    but it never enters the ready state because the readiness probe checks port 5342
+    for a process listening, and there isn’t one. The Pod will keep restarting, too,
+    because the liveness probe runs a command that checks that Postgres is ready to
+    receive client connections. While the new Pod keeps failing, the old one is left
+    running, and the app keeps working.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在图12.7中看到我的输出。替换数据库Pod已创建，但它从未进入就绪状态，因为就绪探针检查端口5342是否有监听进程，但没有。Pod也会不断重启，因为存活探针运行一个命令来检查Postgres是否准备好接收客户端连接。当新的Pod持续失败时，旧的Pod会继续运行，应用程序也会继续工作。
+- en: '![](../Images/12-7.jpg)'
+  id: totrans-57
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/12-7.jpg)'
+- en: Figure 12.7 Rollouts wait for new Pods to become ready, so probes protect against
+    failed updates.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.7 滚动更新等待新的Pod就绪，因此探针可以防止更新失败。
+- en: 'If you leave this app running for another five minutes or so and check the
+    Pod status again, you’ll see the new Pod goes into the CrashLoopBackOff status.
+    This is how Kubernetes protects the cluster from wasting compute resources on
+    applications that constantly fail: it adds a time delay between Pod restarts,
+    and that delay increases with each restart. If you see a Pod in CrashLoopBackOff,
+    it usually means the app is beyond repair.'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你让这个应用程序再运行大约五分钟，然后再次检查Pod状态，你会看到新的Pod进入CrashLoopBackOff状态。这就是Kubernetes如何保护集群免受在持续失败的应用程序上浪费计算资源的影响：它在Pod重启之间添加了一个时间延迟，并且每次重启延迟都会增加。如果你看到一个Pod处于CrashLoopBackOff状态，通常意味着应用程序已经无法修复。
+- en: The to-do app is in the same situation now that we first saw in chapter 9 when
+    rollouts fail. The Deployment is managing two ReplicaSets, and its goal is to
+    scale down the old one to zero as soon as the new one is up to capacity. But the
+    new ReplicaSet never reaches capacity, because the probes in the new Pod constantly
+    fail. The Deployment stays like this, hoping it can eventually finish the rollout.
+    Kubernetes doesn’t have an automatic rollback option, but Helm does, and you can
+    extend your Helm charts to support healthy upgrades.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 待办事项应用程序现在的情况与我们在第9章首次看到滚动更新失败的情况相同。部署正在管理两个ReplicaSet，其目标是当新的ReplicaSet达到容量时，立即将旧的ReplicaSet缩放到零。但新的ReplicaSet永远不会达到容量，因为新Pod中的探针不断失败。部署会保持这种状态，希望它最终能够完成滚动更新。Kubernetes没有自动回滚选项，但Helm有，你可以扩展你的Helm图表以支持健康的升级。
+- en: 12.3 Deploying upgrades safely with Helm
+  id: totrans-61
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.3 使用Helm安全部署升级
+- en: A little bit of Helm goes a long way. You learned the basics in chapter 10,
+    and you don’t need to dig too deeply into the templating functions and the dependency
+    management to make good use of Helm for safe application upgrades. Helm supports
+    atomic installs and upgrades, which automatically roll back if they fail, and
+    it also has a deployment life cycle you can hook into to run validation jobs before
+    and after installation.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一点点的Helm就能走得很远。你在第10章学习了基础知识，你不需要深入研究模板函数和依赖管理，就可以很好地利用Helm进行安全的应用程序升级。Helm支持原子安装和升级，如果失败会自动回滚，它还有一个你可以挂钩的部署生命周期，可以在安装前后运行验证作业。
+- en: The source folder for this chapter has multiple Helm charts for the to-do app,
+    which represent different versions (normally that would be a single Helm chart
+    that evolves with each release). The version 1 chart deploys the app using the
+    same liveness and readiness checks we used in section 12.2; the only difference
+    is that the database uses a PersistentVolumeClaim, so data is preserved between
+    upgrades. We’ll start by clearing down the previous exercises and installing the
+    Helm version.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的源文件夹包含多个用于待办事项应用的Helm图表，代表不同的版本（通常每个发布都会有一个随时间演变的单个Helm图表）。版本1的图表使用我们在第12.2节中使用的相同的存活性和就绪性检查来部署应用程序；唯一的区别是数据库使用PersistentVolumeClaim，因此数据在升级之间得到保留。我们将首先清理之前的练习并安装Helm版本。
+- en: Try it now Run the to-do app using the same Pod specs but deployed using a Helm
+    chart.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试这个 使用相同的Pod规范运行待办应用程序，但使用Helm图表部署。
+- en: '[PRE9]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Version 1 of the app is now running through Helm, and there’s nothing new here
+    except that the chart contains a file in the templates folder called NOTES.txt,
+    which displays the helpful text you see after installation. My output is shown
+    in figure 12.8\. I haven’t included an application screenshot, so you’ll just
+    have to take my word that I browsed and added an item saying “finish chapter 12.”
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序的版本1现在通过Helm运行，这里没有新内容，除了图表中包含一个位于templates文件夹中的NOTES.txt文件，该文件显示安装后看到的帮助文本。我的输出如图12.8所示。我没有包含应用程序的截图，所以你只能相信我浏览并添加了一条“完成第12章”的条目。
+- en: '![](../Images/12-8.jpg)'
+  id: totrans-67
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/12-8.jpg)'
+- en: Figure 12.8 Installing apps with Helm waits for container probes to be healthy.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.8 使用Helm安装应用时等待容器探测处于健康状态。
+- en: 'Version 2 of the Helm chart attempts the same database image upgrade we saw
+    in section 12.2, complete with the misconfiguration in the command for the Postgres
+    container. When you deploy this with Helm, the same thing happens under the hood:
+    Kubernetes updates the Deployment, which adds a new ReplicaSet, and that ReplicaSet
+    never reaches capacity because the Pod readiness probe fails. But Helm checks
+    the status of the rollout, and if it doesn’t succeed within a specific period,
+    it automatically rolls back.'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Helm图表的版本2尝试与我们在第12.2节中看到的相同的数据库镜像升级，包括Postgres容器命令中的配置错误。当你使用Helm部署它时，在底层发生相同的事情：Kubernetes更新Deployment，添加一个新的ReplicaSet，但该ReplicaSet永远不会达到容量，因为Pod的就绪性探测失败。但是Helm检查滚出的状态，如果在特定时间段内没有成功，它会自动回滚。
+- en: Try it now Upgrade the to-do app release using Helm. The upgrade fails because
+    the Pod spec is misconfigured, and Helm rolls it back.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试这个 使用Helm升级待办应用程序发布。升级失败，因为Pod规范配置错误，Helm进行了回滚。
+- en: '[PRE10]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: If you check the Pod list a few times in that exercise, you’ll see the rollback
+    happening, as you can see in figure 12.9\. At first, there’s a single Pod running
+    Postgres 11.6, and then it’s joined by a new Pod running 11.8, but that’s the
+    Pod with the failing container probes. The Pod isn’t ready within the Helm timeout
+    period, so the upgrade is rolled back, and the new Pod is removed; it doesn’t
+    keep restarting and hit CrashLoopBackOff as it did with the kubectl update.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你在这项练习中多次检查Pod列表，你会看到回滚发生，如图12.9所示。最初，有一个运行Postgres 11.6的Pod在运行，然后一个新的运行11.8的Pod加入，但那是失败的容器探测Pod。Pod在Helm超时期间没有就绪，因此升级被回滚，新的Pod被移除；它不会像kubectl
+    update那样不断重启并触发CrashLoopBackOff。
+- en: '![](../Images/12-9.jpg)'
+  id: totrans-73
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/12-9.jpg)'
+- en: Figure 12.9 The upgrade fails because the new Pod doesn’t become ready, and
+    Helm rolls back.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.9 升级失败，因为新的Pod没有变为就绪状态，Helm进行了回滚。
+- en: The to-do app has been online without interruption or reduced capacity during
+    the failed upgrade to version 2\. The next version fixes the upgrade by removing
+    the bad container command in the Pod spec, and it also adds an extra template
+    for a Kubernetes Job, which you can run as a deployment test with Helm. Tests
+    run on demand and not as part of the install, so they’re perfect for smoke tests—automated
+    test suites that you run to confirm that a successful release is working correctly.
+    Listing 12.4 shows a test for the to-do database.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在版本2的升级失败期间，待办事项应用程序一直在线，没有中断或容量减少。下一个版本通过移除Pod规范中的错误容器命令来修复升级，并且它还添加了一个用于Kubernetes
+    Job的额外模板，你可以使用Helm作为部署测试运行它。测试是按需运行的，而不是作为安装的一部分，因此它们非常适合烟雾测试——这是你运行以确认成功发布是否正常工作的自动化测试套件。列表12.4显示了待办数据库的测试。
+- en: Listing 12.4 todo-db-test-job.yaml, a Kubernetes Job to run as a Helm test
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.4 todo-db-test-job.yaml，一个作为Helm测试运行的Kubernetes Job
+- en: '[PRE11]'
+  id: totrans-77
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: We met Jobs in chapter 8, and Helm makes good use of them. Job specs include
+    an expectation of how many times they should run to successful completion, and
+    Helm uses that to evaluate if the test succeeds. The version 3 upgrade should
+    succeed, and when it completes, you can run the test Job, which runs a SQL statement
+    to confirm the to-do database is accessible.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在第8章遇到了乔布斯，赫尔姆对其进行了很好的利用。工作规范包括对它们应该成功运行多少次的期望，赫尔姆正是利用这一点来评估测试是否成功。版本3的升级应该成功，当它完成时，你可以运行测试工作，该工作运行一个SQL语句以确认待办数据库是可访问的。
+- en: Try it now Upgrade to the version 3 chart, which fixes the Postgres update.
+    Then run the test with Helm, and check the logs for the Job Pod.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 升级到版本3的图表，它修复了Postgres更新。然后使用赫尔姆运行测试，并检查作业Pod的日志。
+- en: '[PRE12]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: I’ve snipped my output in figure 12.10, but the detail is all there—the upgrade
+    is successful, but there are no tests as part of the `upgrade` command. The database
+    is now using the upgraded version of Postgres, and when the test runs, the Job
+    connects to the database and confirms the data is still there.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在图12.10中剪裁了我的输出，但细节都在那里——升级是成功的，但`upgrade`命令中没有测试。现在数据库正在使用升级后的Postgres版本，当测试运行时，作业连接到数据库并确认数据仍然存在。
+- en: '![](../Images/12-10.jpg)'
+  id: totrans-82
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/12-10.jpg)'
+- en: Figure 12.10 Running test suites on demand with Helm lets you smoke-test your
+    app at any time.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.10 使用赫尔姆按需运行测试套件，让你可以在任何时间进行应用烟雾测试。
+- en: Helm manages Jobs for you. It doesn’t clean up completed Jobs, so you can check
+    the Pod status and logs if you need to, but it replaces them when you repeat the
+    test command, so you can rerun the test suite as often as you like. There’s one
+    other use for Jobs that helps to make sure upgrades are safe, by running them
+    before upgrades so you can check the current release is in a valid state to be
+    upgraded.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 赫尔姆为你管理工作。它不会清理已完成的工作，所以如果你需要，你可以检查Pod状态和日志，但当你重复测试命令时，它会替换它们，这样你就可以按需重新运行测试套件。工作还有另一个用途，通过在升级前运行它们，以确保升级的安全性，你可以检查当前发布版本是否处于有效状态，可以升级。
+- en: This capability is especially useful if you support multiple versions of your
+    app, but only with incremental upgrades, so version 1.1 needs to upgrade to version
+    1.2 before it can upgrade to version 2\. The logic for this might involve querying
+    the API version for different services or the schema version of a database, and
+    Helm can run it all in a Job that has access to all the other Kubernetes objects
+    sharing the same ConfigMaps and Secrets as the application Pods. Listing 12.5
+    shows a pre-upgrade test in version 4 of the to-do Helm chart.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的应用支持多个版本，但只有增量升级，这个功能特别有用，因为版本1.1需要升级到版本1.2，然后才能升级到版本2。这个逻辑可能涉及查询不同服务的API版本或数据库的模式版本，赫尔姆可以在一个具有访问所有其他与应用程序Pod共享相同ConfigMaps和Secrets的Kubernetes对象的作业中运行所有这些。列表12.5显示了待办赫尔姆图表的版本4中的预升级测试。
+- en: Listing 12.5 todo-db-check-job.yaml, a Job that runs before a Helm upgrade
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.5 todo-db-check-job.yaml，一个在赫尔姆升级前运行的工作
+- en: '[PRE13]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'There are two templates for the pre-upgrade check: one is the Job spec, and
+    the other is a ConfigMap that contains the script to run in the Job. You use annotations
+    to control where Jobs need to run in the Helm life cycle, and this Job will run
+    only for upgrades, not as part of a new install. The weighting annotations make
+    sure the ConfigMap is created before the Job. Life cycles and weights let you
+    model complex validation steps in Helm, but this one is simple—it upgrades the
+    database image but only if the release is currently running version 11.6.'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预升级检查有两个模板：一个是作业规范，另一个是包含作业中要运行的脚本的ConfigMap。你使用注解来控制作业需要在赫尔姆生命周期中的哪个位置运行，而这个作业只会为升级运行，不会作为新安装的一部分运行。权重注解确保在作业之前创建ConfigMap。生命周期和权重让你可以在赫尔姆中模拟复杂的验证步骤，但这个很简单——它升级数据库镜像，但只有当发布版本当前运行的是11.6时。
+- en: Try it now The upgrade from version 3 to version 4 isn’t valid because version
+    3 has already upgraded the Postgres version. Run the upgrade to verify that it
+    doesn’t get deployed.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 从版本3到版本4的升级是无效的，因为版本3已经升级了Postgres版本。运行升级以验证它不会被部署。
+- en: '[PRE14]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: In this exercise, you’ll see that Helm effectively blocks the upgrade, because
+    the pre-upgrade hook runs and the Job fails. That’s all recorded in the history
+    for the release, which will show that the latest upgrade failed and the release
+    was rolled back to the last good revision. My output is shown in figure 12.11,
+    and throughout this update, the app was still available.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，您将看到 Helm 有效地阻止了升级，因为预升级钩子运行并且作业失败。所有这些都会记录在发布的记录中，这将显示最新的升级失败，并且发布被回滚到最后一个良好版本。我的输出显示在图
+    12.11 中，在整个更新过程中，应用程序仍然可用。
+- en: '![](../Images/12-11.jpg)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/12-11.jpg)'
+- en: Figure 12.11 Pre-upgrade Jobs in Helm charts let you validate that the release
+    is suitable to upgrade.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.11 Helm 图表中预升级作业让您可以验证发布是否适合升级。
+- en: It’s good to understand what Helm brings in terms of keeping your applications
+    healthy, because pre-upgrade validation and automatic rollbacks help to keep your
+    application upgrades self-healing, too. Helm isn’t a prerequisite for that, but
+    if you’re not using Helm, you should consider implementing these features using
+    kubectl in your deployment pipeline.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 了解 Helm 在保持应用程序健康方面的作用是很好的，因为预升级验证和自动回滚有助于保持应用程序升级的自愈能力。Helm 不是这一点的先决条件，但如果您不使用
+    Helm，您应该考虑在您的部署管道中使用 kubectl 实现这些功能。
+- en: There’s one more part of application health that we’ll cover in this chapter-managing
+    the compute resources available to your Pod containers.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们还将涵盖应用程序健康的一个其他方面——管理您的 Pod 容器可用的计算资源。
+- en: 12.4 Protecting apps and nodes with resource limits
+  id: totrans-96
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.4 使用资源限制保护应用程序和节点
+- en: 'Containers are a virtualized environment for your application process. Kubernetes
+    builds that environment, and you know that Kubernetes creates the container filesystem
+    and sets up networking. The container environment also includes memory and CPU,
+    and those can be managed by Kubernetes, too, but by default, they’re not. That
+    means Pod containers get access to all the memory and CPU on the node where they’re
+    running, which is bad for two reasons: apps can max out on memory and crash, or
+    they can starve the node of resources so other apps can’t run.'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器是您的应用程序进程的虚拟化环境。Kubernetes 构建这个环境，您知道 Kubernetes 创建容器文件系统并设置网络。容器环境还包括内存和
+    CPU，这些也可以由 Kubernetes 管理，但默认情况下，它们不是。这意味着 Pod 容器可以访问它们所在节点上的所有内存和 CPU，这有两个原因：应用程序可能会耗尽内存并崩溃，或者它们可能会耗尽节点的资源，导致其他应用程序无法运行。
+- en: You can limit the resources available to a container in the Pod spec, and those
+    limits are like container probes—you really shouldn’t go to production without
+    them. Apps with memory leaks can ruin your cluster very quickly, and causing a
+    CPU spike is a nice, easy attack vector for intruders. In this section, you’ll
+    learn how to spec your Pods to prevent that, and we’ll start with a new app that
+    has a large appetite for memory.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在 Pod 规范中限制容器可用的资源，并且这些限制就像容器探测一样——您真的不应该在没有它们的情况下进入生产环境。具有内存泄漏的应用程序可以非常快地破坏您的集群，而引起
+    CPU 峰值是一个很好的、简单的攻击向量。在本节中，您将学习如何指定您的 Pods 以防止这种情况发生，我们将从一个对内存有大量需求的新应用程序开始。
+- en: Try it now Clear down from the last exercise, and run the new app—it doesn’t
+    do anything other than allocate memory and log how much it has allocated. This
+    Pod runs without any container limits.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 清除上一个练习，并运行新应用程序——它除了分配内存和记录分配了多少内存之外，什么都不做。这个 Pod 运行时没有任何容器限制。
+- en: '[PRE15]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: The memory-allocator app grabs about 10 MB of memory every five seconds, and
+    it will keep going until it uses all the memory in your lab cluster. You can see
+    from my output in figure 12.12 that my Docker Desktop node has access to about
+    25 GB of memory, and the allocator app had grabbed almost 1.5 GB when I took the
+    screenshot.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 内存分配器应用程序每五秒钟会占用大约 10 MB 的内存，并且它会一直进行下去，直到耗尽您实验室集群中的所有内存。您可以从图 12.12 中的我的输出中看到，我的
+    Docker Desktop 节点可以访问大约 25 GB 的内存，当我截图时，分配器应用程序已经占用了大约 1.5 GB。
+- en: '![](../Images/12-12.jpg)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/12-12.jpg)'
+- en: Figure 12.12 Don’t run this app in production—it just keeps allocating memory
+    until it has it all.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.12 不要在生产环境中运行此应用程序——它只是不断分配内存，直到用完为止。
+- en: As long as the app is running, it will keep allocating memory, so we need to
+    get on quickly before my machine dies and I lose the edits to this chapter. Listing
+    12.6 shows an updated Pod spec that includes resource limits, restricting the
+    app to 50 MB of memory.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只要应用程序在运行，它就会继续分配内存，所以我们需要尽快行动，以免我的机器崩溃，我丢失了本章的编辑。列表 12.6 显示了一个更新的 Pod 规范，其中包括资源限制，将应用程序限制在
+    50 MB 的内存。
+- en: Listing 12.6 memory-allocator-with-limit.yaml, adding memory limits to the container
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.6 memory-allocator-with-limit.yaml，向容器添加内存限制
+- en: '[PRE16]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Resources are specified at the container level, but this is a new Pod spec,
+    so when you deploy the update, you’ll get a new Pod. The replacement will start
+    off with zero memory allocated, and it will start allocating 10 MB every five
+    seconds again. Now, however, it will hit a limit at 50 MB, and Kubernetes will
+    take action.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源是在容器级别指定的，但这是一个新的 Pod 规范，因此当你部署更新时，你会得到一个新的 Pod。替换将从零内存分配开始，并且它将每五秒再次分配 10
+    MB。现在，然而，它将在 50 MB 处达到限制，Kubernetes 将采取行动。
+- en: Try it now Deploy an update to the memory-allocator app with the resource limits
+    defined in listing 12.6\. You should see the Pod is restarted, but only if your
+    Linux host is running without swap memory enabled. K3s doesn’t have that setup
+    (unless you’re using the Vagrant VM setup), so you won’t see the same results
+    as Docker Desktop or a cloud Kubernetes service.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：使用第 12.6 节中定义的资源限制部署内存分配器应用的更新。你应该会看到 Pod 已重启，但这仅在你运行的 Linux 主机未启用交换内存的情况下。K3s
+    没有这种设置（除非你使用 Vagrant 虚拟机设置），所以你不会看到 Docker Desktop 或云 Kubernetes 服务相同的输出结果。
+- en: '[PRE17]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'In this exercise, you’ll see that Kubernetes enforces the memory limit: when
+    the app tries to allocate more than 50 MB of memory, the container is replaced,
+    and you can see the Pod enters the OOMKilled status. Exceeding the limit causes
+    a Pod restart, so this has the same drawback as a failing liveness probe—if the
+    replacement containers keep failing, the Pod restarts will take longer and longer
+    as Kubernetes applies CrashLoopBackOff, as you see in figure 12.13.'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你会看到 Kubernetes 强制执行内存限制：当应用尝试分配超过 50 MB 的内存时，容器将被替换，你可以看到 Pod 进入 OOMKilled
+    状态。超过限制会导致 Pod 重启，因此这具有与失败的存活探针相同的缺点——如果替换容器持续失败，Pod 重启将越来越长，因为 Kubernetes 应用了
+    CrashLoopBackOff，如图 12.13 所示。
+- en: '![](../Images/12-13.jpg)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/12-13.jpg)'
+- en: Figure 12.13 Memory limits are hard limits—if a container exceeds them, it gets
+    killed and the Pod restarts.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 12.13 内存限制是硬限制——如果容器超过它们，它将被杀死，Pod 将重启。
+- en: The hard part of applying resource constraints is working out what the limits
+    should be. You’ll need to factor in some performance testing to see what your
+    app can manage with—be aware that some application platforms will grab more than
+    they need if they see lots of available memory. You should be generous with your
+    initial releases and then look to bring the limits down as you get more feedback
+    from your monitoring.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用资源约束的难点在于确定应该设置什么限制。你需要进行一些性能测试，看看你的应用能够处理多少资源——请注意，如果应用平台看到大量可用内存，它们可能会占用比实际需要的更多资源。你应该对你的初始发布慷慨一些，然后根据从监控中获得的更多反馈来降低限制。
+- en: You can apply resource limits in another way, too—by specifying maximum quotas
+    for a namespace. This method is especially useful for shared clusters where you
+    use namespaces to divide the cluster for different teams or environments; you
+    can enforce limits on the total amount of resources the namespace can use. Listing
+    12.7 shows the spec for a ResourceQuota object, which restricts the total amount
+    of memory available to 150 MB in the namespace called `kiamol-ch12-memory`.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还可以通过指定命名空间的最大配额来应用资源限制。这种方法对于使用命名空间来划分集群以供不同团队或环境使用的共享集群特别有用；你可以对命名空间可以使用的总资源量实施限制。列表
+    12.7 显示了 ResourceQuota 对象的规范，它将命名空间 `kiamol-ch12-memory` 中可用的总内存限制为 150 MB。
+- en: Listing 12.7 02-memory-quota.yaml, setting memory quota for a namespace
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 12.7 02-memory-quota.yaml，为命名空间设置内存配额
+- en: '[PRE18]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Container limits are reactive, so Pods are restarted when the memory limit is
+    exceeded. Because resource quotas are proactive, Pods won’t be created if the
+    limits they specify exceed what’s available in the quota. If there’s a quota in
+    place, then every Pod spec needs to include a resource section so Kubernetes can
+    compare what the spec needs to what’s currently available in the namespace. An
+    updated version of the memory-allocator spec to demonstrate that follows, where
+    the Pod specifies a limit that is greater than the quota.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器限制是反应性的，因此当内存限制被超过时，Pod 将会重启。由于资源配额是主动性的，如果它们指定的限制超过了配额中可用的资源，则不会创建 Pod。如果已存在配额，则每个
+    Pod 规范都需要包含一个资源部分，以便 Kubernetes 可以比较规范所需与当前命名空间中可用的资源。以下是一个更新的内存分配器规范示例，其中 Pod
+    指定了一个大于配额的限制。
+- en: Try it now Deploy a new version of the memory allocator in its own namespace
+    with a resource quota applied.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：在具有资源配额的命名空间中部署内存分配器的新版本。
+- en: '[PRE19]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: You’ll see from the output of the ReplicaSet that it has zero Pods out of a
+    desired total of one. It can’t create the Pod because it would exceed the quota
+    for the namespace, as you can see in figure 12.14\. The controller keeps trying
+    to create the Pod, but it won’t succeed unless enough quota becomes available,
+    such as from other Pods terminating, but in this case there aren’t any, so it
+    would need to be an update to the quota.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会从ReplicaSet的输出中看到，它有0个Pod，而期望的总数是1。它不能创建Pod，因为它会超出命名空间配额，如图12.14所示。控制器会不断尝试创建Pod，但除非有足够的配额可用，例如其他Pod终止，但在这个案例中没有，所以它需要更新配额。
+- en: '![](../Images/12-14.jpg)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图12-14](../Images/12-14.jpg)'
+- en: Figure 12.14 Quotas with hard limits prevent Pods being created if they would
+    exceed the quota.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.14 硬限制配额会阻止Pod创建，如果它们会超过配额。
+- en: Kubernetes can also apply CPU limits to containers and quotas, but they work
+    in a slightly different way. Containers with a CPU limit run with a fixed amount
+    of processing power, and they can use as much of that CPU as they like—they aren’t
+    replaced if they hit the limit. You can limit a container to one half of a CPU
+    core, and it can run at 100% CPU while all the other cores on the node remain
+    idle and available for other containers. Calculating Pi is a compute-intensive
+    operation, and we can see the effect of applying a CPU limit on the Pi application
+    we’ve used before in the book.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes也可以将CPU限制应用于容器和配额，但它们的工作方式略有不同。具有CPU限制的容器以固定的处理能力运行，并且它们可以使用尽可能多的CPU——如果达到限制，它们不会被替换。你可以将容器限制为CPU核心的一半，并且它可以以100%的CPU运行，而节点上的所有其他核心都保持空闲，可供其他容器使用。计算π是一个计算密集型操作，我们可以看到在书中之前使用的π应用程序上应用CPU限制的效果。
+- en: Try it now Run the Pi application with and without CPU limits, and compare its
+    performance.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 运行带有和不带有CPU限制的π应用程序，并比较其性能。
+- en: '[PRE20]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: My output is shown in figure 12.15\. Your timings will be different, depending
+    on how much CPU is available on your node. Mine has eight cores, and with no limits,
+    the app calculates Pi to 50,000 decimal places consistently within 3.4 seconds.
+    After the update, the app container is limited to one quarter of one core, and
+    the same calculation takes 14.4 seconds.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的输出显示在图12.15中。你的时间将根据你的节点上可用的CPU量而有所不同。我的有八个核心，在没有限制的情况下，应用程序可以在3.4秒内持续计算π到50000位小数。更新后，应用程序容器限制为四分之一核心，同样的计算需要14.4秒。
+- en: '![](../Images/12-15.jpg)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图12-15](../Images/12-15.jpg)'
+- en: Figure 12.15 Squint and you’ll see that limiting CPU has an impact on calculation
+    speed.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.15 略微眯起眼睛，你会看到限制CPU对计算速度有影响。
+- en: Kubernetes defines CPU limits using a fixed unit, where one represents a single
+    core. You can use multiples to give your app container access to many cores or
+    divide a single core into “millicores,” where one millicore is one-thousandth
+    of a core. Listing 12.8 shows the CPU limit applied to the Pi container from the
+    previous exercise, where 250 millicores is one quarter of one core.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes使用固定单位定义CPU限制，其中一代表单个核心。你可以使用倍数来给你的应用程序容器提供对多个核心的访问，或者将单个核心分成“毫核心”，其中一毫核心是核心的一千分之一。列表12.8显示了之前练习中应用于π容器的CPU限制，其中250毫核心是四分之一核心。
+- en: Listing 12.8 web-with-cpu-limit.yaml
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表12.8 web-with-cpu-limit.yaml
+- en: '[PRE21]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: I’m focusing on one resource at a time so you can clearly see the impact, but
+    typically you should include both CPU and memory limits so your apps don’t surge
+    and starve the cluster. Resource specs can also include a requests section, which
+    states how much CPU and memory the container is expected to use. That helps Kubernetes
+    decide which node should run the Pod, and we’ll cover it more when we get to scheduling
+    in chapter 18.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我一次关注一个资源，这样你可以清楚地看到影响，但通常你应该包括CPU和内存限制，这样你的应用程序就不会激增并使集群饿死。资源规范还可以包括一个请求部分，它声明容器预期将使用多少CPU和内存。这有助于Kubernetes决定哪个节点应该运行Pod，我们将在第18章的调度部分进一步介绍它。
+- en: We’ll finish this chapter with one more exercise to show how CPU limits can
+    be applied to a quota for a namespace and what it means when the quota is exceeded.
+    The new spec for the Pi application tries to run two replicas with 300 millicore
+    CPU limits in a namespace that has a quota with a maximum of 500 millicores.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将以一个额外的练习结束本章，以展示如何将CPU限制应用于命名空间的配额，以及当配额超出时意味着什么。π应用程序的新规范尝试在具有最大500毫核心配额的命名空间中运行具有300毫核心CPU限制的两个副本。
+- en: Try it now Run an updated Pi application in its own namespace, which has a CPU
+    quota applied.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 在其自己的命名空间中运行更新的π应用程序，该命名空间已应用CPU配额。
+- en: '[PRE22]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: In this exercise, you can see that quotas apply across all Pods in the namespace.
+    The ReplicaSet is running with one Pod instead of two, because the first Pod allocated
+    300 m CPU, which only left 200 m in the quota—not enough for the second Pod to
+    run. Figure 12.16 shows the failure reason in the events for the ReplicaSet. The
+    Pi app is still running but under capacity because there isn’t enough CPU available.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你可以看到配额适用于命名空间中的所有Pod。ReplicaSet正在运行一个Pod而不是两个，因为第一个Pod分配了300 m CPU，这仅剩下200
+    m的配额——不足以让第二个Pod运行。图12.16显示了ReplicaSet事件中的失败原因。Pi应用程序仍在运行，但容量不足，因为没有足够的CPU可用。
+- en: '![](../Images/12-16.jpg)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/12-16.jpg)'
+- en: Figure 12.16 Hard CPU limits in quotas are enforced to block objects from exceeding
+    the total limit.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图12.16 配额中强制执行硬CPU限制以阻止对象超过总限制。
+- en: Quotas are more for protecting your cluster than the apps themselves, but they’re
+    a good way of enforcing that all Pod specs have limits specified. If you’re not
+    dividing up your cluster with namespaces, you can still apply a quota with large
+    CPU and memory limits to the default namespace to make sure Pod specs include
+    limits of their own.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配额主要是为了保护你的集群，而不是应用程序本身，但它们是确保所有Pod规范都有限制指定的好方法。如果你没有使用命名空间来划分你的集群，你仍然可以将具有大CPU和内存限制的配额应用到默认命名空间，以确保Pod规范包含自己的限制。
+- en: Resource limits, container probes, and atomic upgrades all help to keep your
+    apps running in the face of normal failure conditions. These should be on your
+    road map to production, but you also need to be aware that Kubernetes can’t repair
+    every kind of failure.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源限制、容器探测和原子升级都有助于在正常故障条件下保持应用程序的运行。这些应该在你的生产路线图中，但你也需要意识到Kubernetes无法修复所有类型的故障。
+- en: 12.5 Understanding the limits of self-healing apps
+  id: totrans-141
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.5 理解自愈应用程序的限制
+- en: Kubernetes allocates a Pod to a node, and that’s the node where it will run.
+    Pods aren’t replaced unless the node goes offline, so all the repair mechanisms
+    we’ve seen in this chapter work by restarting the Pod—replacing the application
+    container. You need to make sure your app can tolerate that, especially in the
+    multicontainer scenarios we covered in chapter 7, because init containers are
+    executed again and sidecars are replaced when a Pod restarts.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes将Pod分配给一个节点，它将在该节点上运行。除非节点离线，否则Pod不会被替换，因此我们在这章中看到的所有修复机制都是通过重启Pod——替换应用程序容器来工作的。你需要确保你的应用程序可以容忍这一点，尤其是在第7章中我们讨论的多容器场景中，因为当Pod重启时，初始化容器会再次执行，而边车会被替换。
+- en: Pod restarts are fine for most scenarios with temporary failures, but repeated
+    failures will end up in a CrashLoopBackOff state, which can take your app offline.
+    Kubernetes doesn’t provide any configuration options for how many restarts are
+    allowed or the backoff period, and it doesn’t support replacing failed Pods with
+    a new Pod on a different node. Those features are requested, but until they land,
+    your nicely configured self-healing app still has the potential for all its Pods
+    to be in a backoff state with no endpoints in the Service.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大多数具有暂时性故障的场景，Pod的重启是可行的，但重复的故障最终会导致CrashLoopBackOff状态，这可能导致应用程序离线。Kubernetes不提供任何配置选项来指定允许的重启次数或退避时间，并且它不支持在另一个节点上用新的Pod替换失败的Pod。这些功能已被请求，但直到它们实现，你精心配置的自愈应用程序仍然有可能所有Pod都处于退避状态，且服务中没有端点。
+- en: That edge case usually appears as a result of misconfigured specs or fatal problems
+    with the application, which take more intervention than Kubernetes can manage
+    by itself. For the typical failure states, the combination of container probes
+    and resource limits go a long way to keeping your app running smoothly all by
+    itself.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那个边缘情况通常是由于配置不当的规范或应用程序的致命问题导致的，这些问题需要比Kubernetes自己能够处理的干预更多。对于典型的故障状态，容器探测和资源限制的组合可以大大帮助应用程序独立平稳运行。
+- en: And that’s all for self-healing apps, so we can tidy up the cluster in preparation
+    for the lab.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那就是关于自愈应用程序的所有内容，因此我们可以整理集群，为实验室做准备。
+- en: Try it now Remove the objects from this chapter.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 移除本章中的对象。
+- en: '[PRE23]'
+  id: totrans-147
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 12.6 Lab
+  id: totrans-148
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 12.6 实验室
+- en: 'I’ve got a nice little capacity-planning exercise for you in this lab. The
+    goal is to divide your cluster into three environments to run the Pi app: dev,
+    test, and UAT. UAT should be limited to 50% of your node’s total CPU, and dev
+    and test to 25% each. Your Pi Deployment should be set with limits so it can run
+    at least four replicas in every environment, and then you need to verify how much
+    you can scale up to in UAT.'
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个实验室中，我有一个很好的小容量规划练习。目标是把您的集群分成三个环境来运行Pi应用：开发（dev）、测试（test）和用户验收测试（UAT）。UAT应限制在节点总CPU的50%，而开发和测试各占25%。您的Pi部署应设置限制，以便在每个环境中至少运行四个副本，然后您需要验证在UAT中可以扩展到多大。
+- en: Start by deploying the namespaces and Services in the lab folder.
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 首先在实验室文件夹中部署命名空间和服务。
+- en: Then work out the CPU capacity of your node, and deploy resource quotas to limit
+    CPU in each namespace (you’ll need to write the quota specs).
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 然后计算您节点的CPU容量，并将资源配额部署到每个命名空间以限制CPU（您需要编写配额规范）。
+- en: Update the Deployment spec in web.yaml to include a CPU limit that allows four
+    replicas to run in each namespace.
+  id: totrans-152
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将web.yaml中的部署规范更新，以包括一个CPU限制，允许每个命名空间运行四个副本。
+- en: When everything’s running, scale up the UAT Deployment to eight replicas, and
+    try to find out why they don’t all run.
+  id: totrans-153
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当一切运行正常时，将UAT部署扩展到八个副本，并尝试找出为什么它们不能全部运行。
+- en: 'This is a good exercise to help you understand how CPU resources get shared
+    and to practice working with multiple namespaces. My solution is on GitHub for
+    you to check: [https://github.com/sixeyed/kiamol/blob/master/ch12/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch12/lab/README.md).'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个很好的练习，可以帮助您了解CPU资源是如何共享的，并练习与多个命名空间一起工作。我的解决方案在GitHub上供您检查：[https://github.com/sixeyed/kiamol/blob/master/ch12/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch12/lab/README.md)。

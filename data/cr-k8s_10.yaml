@@ -1,0 +1,985 @@
+- en: 10 DNS in Kubernetes
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Kubernetes 中的 10 个 DNS
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Reviewing DNS in Kubernetes clusters
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 审查 Kubernetes 集群中的 DNS
+- en: Exploring hierarchical DNS
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索分层 DNS
+- en: Examining the default DNS in a Pod
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 检查 Pod 中的默认 DNS
+- en: Configuring CoreDNS
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 配置 CoreDNS
+- en: DNS has existed as long as the internet. Microservices make it hard to manage
+    DNS records at scale because they require an explosion in the use of domain names
+    on an internal data center. Kubernetes standards around DNS for Pods make DNS
+    extremely easy, such that individual applications rarely need to follow complex
+    guidelines for finding downstream services. This is generally enabled by CoreDNS
+    ([https://github.com/coredns/coredns](https://github.com/coredns/coredns)), which
+    is at the heart of this chapter.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DNS 自从互联网存在以来就存在了。微服务使得在规模上管理 DNS 记录变得困难，因为它们需要在内部数据中心上使用大量的域名。Kubernetes 关于
+    Pod 的 DNS 标准使得 DNS 非常容易，以至于单个应用程序很少需要遵循复杂的指南来查找下游服务。这通常是通过 CoreDNS ([https://github.com/coredns/coredns](https://github.com/coredns/coredns))
+    实现的，它是本章的核心。
+- en: 10.1 A brief intro to DNS (and CoreDNS)
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.1 DNS（以及 CoreDNS）简介
+- en: The job of any DNS server is to map DNS names (like www.google.com) to IP addresses
+    (like 142.250.72.4). There are a few common mappings from DNS servers that we
+    use every day when we browse the web. Let’s look at some of those.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何 DNS 服务器的任务是将 DNS 名称（如 www.google.com）映射到 IP 地址（如 142.250.72.4）。在我们每天浏览网页时，DNS
+    服务器有一些常见的映射。让我们看看其中的一些。
+- en: 10.1.1 NXDOMAINs, A records, and CNAME records
+  id: totrans-9
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.1 NXDOMAINs、A 记录和 CNAME 记录
+- en: When using Kubernetes, DNS is mostly handled for you, at least in clusters.
+    We still need to define a few terms to contextualize this chapter, however, especially
+    in situations where you might have a custom DNS behavior you care about (for example,
+    with headless services, as seen in this chapter). As for our definitions, at the
+    very least, you’ll want to know about
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当使用 Kubernetes 时，DNS 主要由系统处理，至少在集群中是这样。然而，我们仍然需要定义一些术语来使本章内容具体化，尤其是在你可能关心自定义
+    DNS 行为的情况下（例如，在本章中看到的无头服务）。至于我们的定义，至少你想要了解
+- en: '*NXDOMAIN responses*—DNS responses that are returned if IP addresses don’t
+    exist for domain names'
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*NXDOMAIN 响应*—当域名不存在 IP 地址时返回的 DNS 响应'
+- en: '*A and AAAA mappings*—Take a hostname as input and return an IPv4 or IPv6 address
+    (e.g., they take google.com as input and return 142.250.72.4)'
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*A 和 AAAA 映射*—接受一个主机名作为输入并返回一个 IPv4 或 IPv6 地址（例如，它们接受 google.com 作为输入并返回 142.250.72.4）'
+- en: '*CNAME mappings*—Return an alias for certain DNS names (e.g., they take [www.google.com](https://www.google.com/)
+    and return [google.com](https://www.google.com/))'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*CNAME 映射*—为特定的 DNS 名称返回一个别名（例如，它们将 [www.google.com](https://www.google.com/)
+    映射为 [google.com](https://www.google.com/)）'
+- en: 'In a homegrown environment, CNAMEs are crucial for backward compatibility of
+    API clients and other apps depending on services. The following code snippet shows
+    an example of how A names and CNAME records intermingle. These records live in
+    what are known as *zone files*. A zone file resembles a long CSV file of records
+    just like this (well, without the commas, of course):'
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在自建环境中，CNAME 对于 API 客户端和其他依赖服务的向后兼容性至关重要。以下代码片段展示了 A 名称和 CNAME 记录如何交织在一起。这些记录存在于所谓的
+    *区域文件* 中。区域文件类似于这样一个长 CSV 文件中的记录（当然，没有逗号）：
+- en: '[PRE0]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'If this looks a little like /etc/hosts to you, you’re right. A Linux system''s
+    /etc/hosts file is just a local DNS configuration that is checked before your
+    computer goes out to the internet to find other hosts that might match the DNS
+    names you enter into your browser, and ANAME and CNAME records are provided by
+    a DNS server. Even before Kubernetes, there were many different DNS server implementations:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这让你想起了 /etc/hosts，那么你是正确的。Linux 系统的 /etc/hosts 文件只是一个本地 DNS 配置，在计算机连接到互联网以查找可能匹配你在浏览器中输入的
+    DNS 名称的其他主机之前进行检查，并且 ANAME 和 CNAME 记录由 DNS 服务器提供。甚至在 Kubernetes 之前，就有许多不同的 DNS
+    服务器实现：
+- en: Some of these are recursive; in other words, they are capable of resolving almost
+    anything on the internet by starting at the root of a DNS record (such as .edu
+    or .com) and working their way down. BIND is one such server that is commonly
+    used in Linux data centers.
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 其中一些是递归的；换句话说，它们可以从 DNS 记录的根（如 .edu 或 .com）开始解析互联网上的几乎所有内容。BIND 是这种在 Linux 数据中心中常用的一种服务器。
+- en: Some of these are cloud-based and cloud-integrated (for example, Route53 in
+    AWS) and aren’t hosted by end users.
+  id: totrans-18
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 其中一些是基于云和云集成的（例如，AWS 中的 Route53）并且不由最终用户托管。
+- en: In most modern installations, Kubernetes typically uses CoreDNS to provide in-cluster
+    DNS to Pods.
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在大多数现代安装中，Kubernetes通常使用CoreDNS为Pod提供集群内的DNS服务。
+- en: The Kubernetes Conformance test suites actually confirm that certain DNS characteristics
+    are present, including
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes一致性测试套件实际上确认了某些DNS特性是存在的，包括
+- en: The `/etc/hosts` cluster entries in Pods, so they can automatically access the
+    API server through an internal host name, kubernetes.default
+  id: totrans-21
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Pod中的`/etc/hosts`集群条目，这样它们可以通过内部主机名kubernetes.default自动访问API服务器
+- en: Pods that are allowed to inject their own DNS records
+  id: totrans-22
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 允许注入自己的DNS记录的Pod
+- en: Arbitrary services and headless services that must resolve to A records by the
+    Pods
+  id: totrans-23
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 必须解析到A记录的任意服务和无头服务
+- en: Pods that have their own DNS records
+  id: totrans-24
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 拥有自己的DNS记录的Pod
+- en: Using CoreDNS to implement this behavior is by no means required in Kubernetes,
+    but it sure does make things easier. All that really matters is that your Kubernetes
+    distribution adheres to the DNS specification for Kubernetes. In any case, CoreDNS
+    is likely what you use in your clusters, and for good reason. It is the only widely
+    available open source DNS service with baked-in Kubernetes support. It is capable
+    of
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Kubernetes中使用CoreDNS来实现这种行为并非必需，但它确实使事情变得更容易。真正重要的是，你的Kubernetes发行版遵循Kubernetes的DNS规范。无论如何，CoreDNS很可能是你在集群中使用的，而且有充分的理由。它是唯一广泛可用的具有内置Kubernetes支持的开放源代码DNS服务。它能够
+- en: Connecting to the Kubernetes API server and slurping in IP addresses for Pods
+    and Services where needed.
+  id: totrans-26
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 连接到Kubernetes API服务器，并在需要时获取Pod和服务的IP地址。
+- en: Resolving DNS service records to service IP addresses for Pods and in-cluster
+    services.
+  id: totrans-27
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将DNS服务记录解析为Pod和集群内服务的IP地址。
+- en: Caching DNS entries so that large Kubernetes clusters, where hundreds of Pods
+    need to resolve Services, can work in a performant manner.
+  id: totrans-28
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缓存DNS条目，以便大型Kubernetes集群，其中数百个Pod需要解析服务，可以以高性能的方式工作。
+- en: Plugging in new functionality at compile time (not run time).
+  id: totrans-29
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在编译时（而不是运行时）插入新功能。
+- en: Scaling horizontally and performing with extremely low latency even in high-load
+    environments.
+  id: totrans-30
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在高负载环境中也能以极低延迟进行水平扩展和性能表现。
+- en: Forwarding requests (via the [https://coredns.io/plugins/forward/](https://coredns.io/plugins/forward/)
+    plugin) for external cluster addresses to other upstream resolvers.
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过[https://coredns.io/plugins/forward/](https://coredns.io/plugins/forward/)插件将请求转发到外部集群地址的其他上游解析器。
+- en: Although CoreDNS can handle a lot, it doesn’t forward requests for external
+    cluster addresses to other upstream servers that provide recursive DNS capabilities.
+    CoreDNS allows you to resolve the IP addresses of services that live in your cluster
+    networks as well as Pods, in some cases (as we’ll see in a few moments).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然CoreDNS可以处理很多事情，但它不会将外部集群地址的请求转发到其他提供递归DNS功能的上游服务器。CoreDNS允许你解析集群网络中服务的IP地址以及Pod的IP地址，在某些情况下（我们将在稍后看到）。
+- en: Figure 10.1 depicts the relationship between CoreDNS and other DNS servers (such
+    as BIND). Any DNS server must implement the baseline functionality for resolving
+    internet hosts. CoreDNS was built after Kubernetes and, thus, has explicit support
+    for the Kubernetes DNS as well.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1描述了CoreDNS与其他DNS服务器（如BIND）之间的关系。任何DNS服务器都必须实现解析互联网主机的基线功能。CoreDNS是在Kubernetes之后构建的，因此它也明确支持Kubernetes
+    DNS。
+- en: '![](../Images/CH10_F01_love.png)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F01_love.png)'
+- en: Figure 10.1 The relationship between CoreDNS and other DNS servers
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1 CoreDNS与其他DNS服务器（如BIND）之间的关系
+- en: 10.1.2 Pods need internal DNS
+  id: totrans-36
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.2 Pods需要内部DNS
+- en: 'Because every Pod in a microservice environment is usually accessed over a
+    service, and Pods can come and go (which means they have changing IPs), DNS is
+    the primary way that any service is accessed. This is true for the internet and
+    the cloud, in general. Gone are the days that someone would give you an IP address
+    with the destination of a specific server or database. Let’s take a look at how
+    Pods can reach each other over DNS in a cluster by firing up a multicontainer
+    service and probing it:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为在微服务环境中，每个Pod通常通过服务访问，Pod可以来去（这意味着它们有变化的IP），DNS是访问任何服务的主要方式。这在互联网和云中都是如此。那些有人给你一个IP地址，指向特定服务器或数据库的日子已经过去了。让我们通过启动一个多容器服务并对其进行探测来看看Pod如何在集群中通过DNS相互通信：
+- en: '[PRE1]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Provides a port for our service
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为我们的服务提供一个端口
+- en: ❷ An old NGINX version that allows for a shell inside our NGINX Pod
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 一个旧的NGINX版本，允许在NGINX Pod内部使用shell
+- en: ❸ For comparison of how DNS works in different types of Pods
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 为了比较不同类型的Pod中DNS的工作方式
+- en: Having a port in place for a service is important in our example because we’re
+    interested in exploring how DNS resolves. Also note that we’re using an old NGINX
+    version so that we can have a shell inside of our NGINX Pod. Newer NGINX containers
+    don’t have a shell for security reasons. And, finally, this time we use a StatefulSet
+    to compare how DNS works in different types of Pods.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的示例中，为服务设置一个端口很重要，因为我们感兴趣的是探索DNS解析的方式。此外，请注意，我们使用的是旧版本的NGINX，这样我们可以在我们的NGINX
+    Pod内部有一个shell。出于安全原因，较新的NGINX容器没有shell。最后，这次我们使用StatefulSet来比较不同类型的Pod中DNS的工作方式。
+- en: Note The NGINX container we’re using allows us to poke around in the shell,
+    but we don’t have this convenience with newer NGINX containers. We’ve mentioned
+    scratch containers a few times in this book (the really lean kind that don’t have
+    a full-blown OS base, thus being more secure, but also lacking a shell to access
+    and hack around in). More and more, you’ll find that for security reasons, containers
+    are published without a shell that you can enter. Another increasingly common
+    image base is the *distroless* base image for containers. If you want to securely
+    build containers with a few reasonable defaults, we recommend using the distroless
+    image, which has most of the defaults you need for a microservices app without
+    the extra bloat that can increase your vulnerability footprint in terms of CVEs.
+    This concept is also covered in chapter 13\. To learn more about how to build
+    your apps from distroless base images, you can peruse [https://github.com/GoogleContainerTools/distroless](https://github.com/GoogleContainerTools/distroless).
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们使用的NGINX容器允许我们在shell中探索，但使用较新的NGINX容器没有这种便利。在这本书中我们提到了几次scratch容器（真正精简的容器，没有完整的操作系统基础，因此更安全，但也缺少shell来访问和进行黑客攻击）。越来越多地，你会发现出于安全原因，容器发布时没有可以进入的shell。另一个越来越常见的容器基础镜像是为容器提供的*distroless*基础镜像。如果您想使用一些合理的默认设置安全地构建容器，我们建议使用distroless镜像，它具有大多数适用于微服务应用程序的默认设置，而没有可能增加您的CVE漏洞足迹的额外冗余。这一概念也在第13章中有所涉及。要了解更多关于如何从distroless基础镜像构建应用程序的信息，您可以查阅[https://github.com/GoogleContainerTools/distroless](https://github.com/GoogleContainerTools/distroless)。
+- en: Before we start hacking, we’ll quickly go over the concept of StatefulSets and
+    where they are used in Kubernetes. These often have the most interesting DNS properties
+    and requirements.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们开始黑客攻击之前，我们将快速概述StatefulSets的概念以及它们在Kubernetes中的使用情况。这些通常具有最有趣的DNS特性和要求。
+- en: 10.2 Why StatefulSets instead of Deployments?
+  id: totrans-45
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.2 为什么选择StatefulSets而不是Deployments？
+- en: 'In this chapter, we’ll create a Pod that runs in what is known as a StatefulSets.
+    StatefulSets have interesting properties when it comes to DNS, so we’ll use this
+    Pod to probe the capabilities and limitations of Kubernetes when it comes to running
+    HA processes with reliable DNS endpoints. StatefulSets are extremely important
+    for applications that need to have firm identities. For example:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将创建一个运行在所谓的StatefulSets中的Pod。当涉及到DNS时，StatefulSets具有有趣的特性，因此我们将使用这个Pod来探测Kubernetes在运行具有可靠DNS端点的HA（高可用性）进程时的能力和限制。对于需要具有明确身份的应用程序来说，StatefulSets非常重要。例如：
+- en: Apache ZooKeeper
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Apache ZooKeeper
+- en: MinIO or other storage-related applications
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: MinIO或其他与存储相关的应用程序
+- en: Apache Hadoop
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Apache Hadoop
+- en: Apache Cassandra
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Apache Cassandra
+- en: Bitcoin mining applications
+  id: totrans-51
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 比特币挖矿应用程序
+- en: StatefulSets are intimately related to advanced DNS use cases in Kubernetes
+    because they both are typically used in scenarios where the canonical microservices
+    model begins to break down, and external entities (services, applications, legacy
+    systems) begin to influence the way applications are deployed. In theory, you
+    should rarely, if ever, need to use a StatefulSet for a modern stateless application,
+    unless there are critical performance requirements that you cannot attain otherwise.
+    StatefulSets are inherently harder to administer, extending and scaling over time,
+    rather than “dumb” deployments that have no carryover baggage between Pod restarts.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: StatefulSets与Kubernetes中高级DNS用例密切相关，因为它们通常用于标准微服务模型开始崩溃的场景，外部实体（服务、应用程序、遗留系统）开始影响应用程序的部署方式。从理论上讲，对于现代无状态应用程序，你应该很少需要使用StatefulSet，除非有无法通过其他方式获得的临界性能要求。StatefulSets本质上是更难管理的，随着时间的推移扩展和扩展，而不是“愚蠢”的部署，这种部署在Pod重启之间没有携带行李。
+- en: 10.2.1 DNS with headless services
+  id: totrans-53
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.1 无头服务与DNS
+- en: 'When we use a StatefulSet to deploy an application, we often do so with a headless
+    service. A *headless service* is one that doesn’t have a `ClusterIP` field, and
+    instead, directly returns an A record from a DNS server. This has some important
+    implications for DNS. To take a look at such a service, run the following code
+    snippet:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们使用 StatefulSet 来部署应用程序时，我们通常与一个无头服务一起这样做。一个 *无头服务* 是一个没有 `ClusterIP` 字段的服务，而是直接从
+    DNS 服务器返回一个 A 记录。这对 DNS 有一些重要的含义。要查看此类服务，请运行以下代码片段：
+- en: '[PRE2]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'The previous command returns a YAML file. That file defines a service like
+    so:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前的命令返回一个 YAML 文件。该文件定义了一个服务如下：
+- en: '[PRE3]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ publishNotReadyAddresses decides whether you get NXDomain records or not.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ `publishNotReadyAddresses` 决定了你是否会得到 NXDomain 记录。
+- en: This service selects from a set of Pods running a web server that’s also defined
+    in this file. Once this service is up
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此服务从定义在此文件中的运行 web 服务器的 Pods 集合中选择。一旦此服务启动
+- en: You can issue a query to `wget headless-svc:80` in the BusyBox Pod that we co-deployed.
+  id: totrans-60
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你可以在我们共同部署的 BusyBox Pod 中发出对 `wget headless-svc:80` 的查询。
+- en: Your BusyBox Pod queries the CoreDNS (which we talk about in this chapter) to
+    get the IP address of the headless service.
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的 BusyBox Pod 查询 CoreDNS（我们将在本章中讨论）以获取无头服务的 IP 地址。
+- en: CoreDNS will then, upon checking if the headless service is up (based on its
+    `readinessProbe`), return the IP addresses of the corresponding Pods.
+  id: totrans-62
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CoreDNS 将在检查无头服务是否启动（基于其 `readinessProbe`）后，返回相应 Pods 的 IP 地址。
+- en: Note If set to `true`, `publishNotReadyAddresses` always returns backend Pods
+    for NGINX, even if they are not ready. Interestingly, this means that if the Pod
+    for NGINX is not ready according to its `readinessProbe`, your underlying CoreDNS
+    services returns NXDOMAIN records instead of IP addresses. This is often mischaracterized
+    by Kubernetes novices as a DNS bug, but actually, it points to potential problems
+    in your kubelet or application.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：如果设置为 `true`，`publishNotReadyAddresses` 总是返回 NGINX 的后端 Pods，即使它们尚未就绪。有趣的是，这意味着如果
+    NGINX 的 Pod 根据其 `readinessProbe` 不可用，你的底层 CoreDNS 服务将返回 NXDOMAIN 记录而不是 IP 地址。这通常被
+    Kubernetes 初学者误认为是 DNS 错误，但实际上，这指向了你的 kubelet 或应用程序中可能存在的潜在问题。
+- en: Why use a headless service? It turns out that many applications build up quorums
+    and other network-specific behavior by directly connecting to one another over
+    a Pod IP, as opposed to relying on the network proxy (`kube-proxy`) for load-balanced
+    connections. In general, you should try to use ClusterIP services whenever possible
+    because they’re much easier to reason about from a DNS perspective, unless you
+    really need some kind of network-specific behavior related to IP preservation,
+    quorum decision making, or specific IP-to-IP performance guarantees.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么使用无头服务？事实证明，许多应用程序通过直接通过 Pod IP 相互连接来建立法定多数和其他网络特定行为，而不是依赖于网络代理（`kube-proxy`）进行负载均衡连接。一般来说，你应该尽可能使用
+    ClusterIP 服务，因为从 DNS 视角来看，它们更容易推理，除非你真的需要与 IP 保留、法定多数决策或特定的 IP 到 IP 性能保证相关的某种网络特定行为。
+- en: If you’re interested in learning more about the way headless services and DNS
+    works, you can walk through the steps at [http://mng.bz/q2Rz](http://mng.bz/q2Rz).
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想要了解更多关于无头服务和 DNS 的工作方式，你可以查看 [http://mng.bz/q2Rz](http://mng.bz/q2Rz) 中的步骤。
+- en: 10.2.2 Persistent DNS records in StatefulSets
+  id: totrans-66
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.2 StatefulSets 中的持久 DNS 记录
+- en: 'Let’s recreate the original StatefulSet example. As a shortcut, you can run
+    `kubectl` `create` `-f` `https://raw.githubusercontent.com/jayunit100/k8sprototypes/master/
+    smoke-tests/four-of-us.yaml`. The name of this service can be used to see its
+    endpoints, as in this code snippet:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们重新创建原始的 StatefulSet 示例。作为一个快捷方式，你可以运行 `kubectl` `create` `-f` `https://raw.githubusercontent.com/jayunit100/k8sprototypes/master/smoke-tests/four-of-us.yaml`。这个服务的名称可以用来查看其端点，如下代码片段所示：
+- en: '[PRE4]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Here, we can see that we have four consecutive endpoints in the 13–16 range.
+    This comes from our two StatefulSet replicas and our two Deployment replicas.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们可以看到我们在 13-16 范围内有四个连续的端点。这来自于我们的两个 StatefulSet 副本和两个 Deployment 副本。
+- en: 10.2.3 Using a polyglot deployment to explore Pod DNS properties
+  id: totrans-70
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.3 使用多语言部署来探索 Pod DNS 属性
+- en: In this section, we’ll look at two different ways to use Kubernetes DNS. We’ll
+    then compare the DNS properties of our StatefulSet and Deployment Pods.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将探讨两种不同的使用 Kubernetes DNS 的方法。然后，我们将比较 StatefulSet 和 Deployment Pods
+    的 DNS 属性。
+- en: 'First, let’s look at how DNS works for these Pods. The most obvious test we
+    can run is to check their service endpoints. Let’s do this from inside our cluster
+    so that we don’t have to worry about exposing or forwarding any ports. First,
+    create a bastion Pod that we can use to `_wget_` against different apps that we’ve
+    created:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看看这些Pod的DNS是如何工作的。我们可以进行的明显测试之一是检查它们的服务端点。让我们在集群内部进行这个操作，这样我们就不必担心暴露或转发任何端口。首先，创建一个堡垒Pod，我们可以用它来对不同的应用程序运行`_wget_`：
+- en: '[PRE5]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ The default namespace
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 默认命名空间
+- en: 'Note that the default namespace is the easiest one to use for this example,
+    but you can also create this Pod in a different namespace. If so, you need to
+    make sure to fully qualify DNS names when probing the four-of-us services. Now,
+    let’s `exec` into this Pod and use it for all of the experiments in the remainder
+    of this chapter:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，默认命名空间是使用这个例子最容易的，但你也可以在不同的命名空间中创建这个Pod。如果是这样，你需要确保在探测four-of-us服务时完全限定DNS名称。现在，让我们`exec`进入这个Pod，并使用它来完成本章剩余部分的全部实验：
+- en: '[PRE6]'
+  id: totrans-76
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ This is the Pod we’ll access as a way to explore DNS inside our cluster.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 这是我们将访问的Pod，作为探索集群内部DNS的一种方式。
+- en: 'The first obvious thing we can do is to `wget` down our endpoints. The following
+    code snippet shows the command for this:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以做的第一件事就是`wget`下载我们的端点。以下代码片段显示了该命令：
+- en: '[PRE7]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'That’s a relief. We now know that our service is up. Now, if we look closely
+    at our IP address, we’ll see that it’s not in the 10.244 range. That’s because
+    we’re accessing a Service, not a Pod. Typically, the DNS name that you will use
+    to access a service inside a cluster will be a service name, but what if we want
+    to access a specific Pod? Then we can use something like this:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这真是个安慰。我们现在知道我们的服务是启动的。现在，如果我们仔细看看我们的IP地址，我们会发现它不在10.244范围内。这是因为我们访问的是一个服务，而不是Pod。通常，你将使用服务名称作为DNS名称来访问集群内的服务，但如果我们想访问一个特定的Pod呢？那么我们可以使用类似这样的方法：
+- en: '[PRE8]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ❶ The Pod name plus service name combination
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ Pod名称加上服务名称组合
+- en: ❷ Get the IP address for a Pod in a deployment by name.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 通过名称获取部署中Pod的IP地址。
+- en: In the example, the Pod name plus the service name combination is accessible
+    like any web server, and there’s no equivalent DNS name for a Pod created from
+    a deployment. Inside our container, we can not only access our Pods by their service,
+    but some of our Pods, the ones created by StatefulSet, can also be accessed directly
+    over DNS.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，Pod名称加上服务名称的组合可以像任何Web服务器一样访问，而且没有为从部署创建的Pod提供等效的DNS名称。在我们的容器内部，我们不仅可以通过服务访问我们的Pod，而且一些Pod，即由StatefulSet创建的Pod，也可以通过DNS直接访问。
+- en: 'When we run `wget` against the web-ss-0.nginx endpoint (or, in general, against
+    any <*name*>-0.<*serviceName*> endpoint), we will directly resolve this address
+    to the IP address of the first replica of a given StatefulSet. To access the second
+    replica, we can replace the 0 with a 1, and so on. We’ve thus learned our first
+    lesson on DNS for clusters: Services and StatefulSet Pods both are first-class,
+    stable DNS endpoints in a Kubernetes cluster. Now, how does the extremely convenient
+    web-ss-0.nginx name get resolved?'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们对web-ss-0.nginx端点运行`wget`（或者一般地，对任何<name>-0.<serviceName>端点运行）时，我们将直接将此地址解析为给定StatefulSet的第一个副本的IP地址。要访问第二个副本，我们可以将0替换为1，依此类推。因此，我们学到了关于集群DNS的第一个教训：服务和StatefulSet
+    Pod都是Kubernetes集群中的第一类、稳定的DNS端点。现在，如何解析这个极其方便的web-ss-0.nginx名称呢？
+- en: 10.3 The resolv.conf file
+  id: totrans-86
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.3 resolv.conf文件
+- en: Let’s look at how these different DNS requests are resolved (or, in some cases,
+    not resolved) by starting with a peek into the resolv.conf file itself. This will
+    ultimately lead us to the CoreDNS service.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过查看resolv.conf文件本身来了解这些不同的DNS请求是如何解析的（或者在某些情况下，无法解析）。这将最终引导我们到CoreDNS服务。
+- en: 10.3.1 A quick note about routing
+  id: totrans-88
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.1 关于路由的简要说明
+- en: This chapter is not about Pod IP networking, but it’s a good chance to ensure
+    that there is a clear connection in your mental model between DNS and Pod network
+    infrastructure because these two aspects of a cluster are intricately dependent.
+    After a host is resolved to an IP
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章不是关于Pod IP网络，但这是一个确保在您的思维模型中DNS和Pod网络基础设施之间有明确联系的好机会，因为集群的这两个方面密切相关。在主机解析为IP之后
+- en: If that host’s IP is a service, it is the network proxy’s job to make sure this
+    IP routes to a Pod endpoint.
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果该主机的IP是服务，那么确保这个IP路由到Pod端点就是网络代理的工作。
+- en: If that host is a Pod, it is your CNI provider’s job to make sure that the IP
+    is directly routable.
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果该主机是一个Pod，那么确保IP直接可路由就是你的CNI提供商的工作。
+- en: If that host is on the internet, then your Pod’s outgoing traffic needs to be
+    NAT’d via iptables so that the TCP connection that is made to the outside world
+    flows back to your Pod from the node that the request originated on.
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果该主机在互联网上，那么你的Pod的出站流量需要通过iptables进行NAT，以便从请求发起的节点流回Pod的TCP连接。
+- en: Figure 10.2 depicts the way that Pod DNS resolution for an incoming hostname
+    works. The key functionality here is that multiple versions of a DNS query will
+    be sent to 10.96.0.10 until a match is found.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.2展示了Pod对进入的主机名的DNS解析方式。这里的关键功能是，将发送多个版本的DNS查询到10.96.0.10，直到找到匹配项。
+- en: '![](../Images/CH10_F02_love.png)'
+  id: totrans-94
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F02_love.png)'
+- en: Figure 10.2 Pod DNS resolution for an incoming hostname
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.2 Pod对进入的主机名的DNS解析
+- en: 'The resolv.conf file is a standard way to configure DNS for a container. In
+    any scenario where you are attempting to figure out how your Pod is configured
+    with regard to DNS, this is the first place to look. If you are running a modern
+    Linux server, you might use `resolvctl` instead, but the principal is the same.
+    We can now take a quick look at how DNS is set up inside our Pod with this code
+    snippet:'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: resolv.conf文件是配置容器DNS的标准方式。在任何你试图了解Pod如何配置DNS的场景中，这是首先要查看的地方。如果你运行的是现代Linux服务器，你可能使用`resolvctl`代替，但原理是相同的。现在我们可以通过这个代码片段快速查看DNS是如何在我们的Pod中设置的：
+- en: '[PRE9]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Appends the following to the end of a query
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将以下内容追加到查询的末尾
+- en: ❷ Specifies a DNS server
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 指定一个DNS服务器
+- en: In this code snippet, the `search` field in this file is basically saying “append
+    these attributes to the end of a query, until a query returns.” In other words,
+    first see if a URL resolves without any modification. If that fails, try adding
+    `default.svc.cluster .local` to the DNS request. If that fails, try adding `svc.cluster.local`,
+    and so on. Next, note the `nameserver` field. This tells your resolver that it
+    can rectify external DNS names (those not in /etc/hosts) by asking a DNS server
+    that lives at 10.96.0.10, which is the address of your kube-dns service.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个代码片段中，该文件中的`search`字段基本上是在说“将这些属性追加到查询的末尾，直到查询返回。”换句话说，首先尝试一个未经修改的URL是否可以解析。如果失败，尝试将`default.svc.cluster
+    .local`添加到DNS请求中。如果仍然失败，尝试添加`svc.cluster.local`，依此类推。接下来，注意`nameserver`字段。这告诉解析器，它可以通过询问位于10.96.0.10的DNS服务器（即你的kube-dns服务的地址）来纠正外部DNS名称（不在/etc/hosts中的那些）。
+- en: 'We can see how, for example, the DNS for our StatefulSet Pods resolves to a
+    Pod IP inside our cluster network by running `wget`. Let’s `kubectl exec` into
+    our NGINX Pod and run the following command:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过运行`wget`来查看，例如，我们的StatefulSet Pods的DNS是如何解析到集群网络内的Pod IP的。让我们通过`kubectl
+    exec`进入我们的NGINX Pod并运行以下命令：
+- en: '[PRE10]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: We’ll leave it as an exercise for the reader to try this out from a different
+    Namespace. Rest assured, resolving `web-ss-0` works from any namespace in your
+    cluster if you include the entire DNS name. For that matter, so will `wget web-ss-0.nginx.default`.
+    You can now envision various ways to share services across different Namespaces
+    using this trick. One of the most obvious use cases for this might be
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将把这个作为读者的练习，尝试从不同的命名空间中尝试这个操作。请放心，如果你包含完整的DNS名称，`web-ss-0`在集群的任何命名空间中都可以解析。同样，`wget
+    web-ss-0.nginx.default`也可以。现在你可以想象出各种使用这个技巧在不同命名空间间共享服务的方法。这个用例中最明显的可能之一是
+- en: A user (Joe) makes an application in the namespace `joe`, which normally accesses
+    the database using the URL my-db from inside the `joe` Namespace.
+  id: totrans-104
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用户（Joe）在`joe`命名空间中创建了一个应用程序，该应用程序通常使用`my-db` URL在`joe`命名空间内部访问数据库。
+- en: Another user (Sally), who has an app in the namespace `sally`, wants to access
+    the my-db service, which she can do by using the URL my-db.joe.svc.cluster .local.
+  id: totrans-105
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 另一个用户（Sally），她在`sally`命名空间中有一个应用程序，想要访问my-db服务，她可以通过使用URL my-db.joe.svc.cluster
+    .local来实现。
+- en: '10.3.2 CoreDNS: The upstream resolver for the ClusterFirst Pod DNS'
+  id: totrans-106
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.2 CoreDNS：ClusterFirst Pod DNS的上游解析器
+- en: CoreDNS is the mysterious nameserver lurking behind the 10.96.0.10 endpoint.
+    We can confirm this by running `kubectl get services` locally if we want. What
+    exactly is CoreDNS doing that allows it to resolve hosts from the internet, from
+    the internal cluster, and so on? We can see how it is set up by looking at its
+    configuration map.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CoreDNS是隐藏在10.96.0.10端点背后的神秘名称服务器。如果我们想确认这一点，可以在本地运行`kubectl get services`。CoreDNS究竟做了什么，使其能够解析来自互联网、内部集群等的主机？我们可以通过查看其配置映射来了解其设置情况。
+- en: CoreDNS is powered by plugins, and you read a CoreDNS configuration from the
+    top down, with each plugin being a new line in the file. To view the configuration
+    map for CoreDNS, you can run `kubectl` `get` `cm` `coredns` `-n` `kube-system`
+    `-o` `yaml` on any cluster. In our example, this returns
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CoreDNS由插件提供支持，你从文件顶部向下读取CoreDNS配置，每个插件都是文件中的一行。要查看CoreDNS的配置映射，你可以在任何集群上运行`kubectl
+    get cm coredns -n kube-system -o yaml`。在我们的示例中，这返回
+- en: '[PRE11]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Resolves the cluster’s local IP hosts
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 解析集群的本地IP主机
+- en: ❷ Resolves internet addresses if the K8s plugin fails
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 如果K8s插件失败，解析互联网地址
+- en: ❸ Keep a close eye on this plugin; we’ll use it later.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 仔细关注这个插件；我们稍后会用到它。
+- en: ❹ Enables verbose logging of CoreDNS responses and errors
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 启用CoreDNS响应和错误的详细日志记录
+- en: In this code example, the first thing we try to do is to resolve the cluster’s
+    local IP hosts using the Kubernetes plugin for CoreDNS. Then we use the kubelet’s
+    resolv.conf to resolve addresses on the internet if the Kubernetes plugin fails
+    at resolving them.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个代码示例中，我们首先尝试使用CoreDNS的Kubernetes插件解析集群的本地IP主机。然后，如果Kubernetes插件在解析它们时失败，我们使用kubelet的resolv.conf解析互联网上的地址。
+- en: 'You might be wondering, if CoreDNS is running in a container, isn’t its resolv.conf
+    going to depend on CoreDNS? It turns out that the answer to that is no! To see
+    why, let’s look at the cluster’s `dnsPolicy` field, which is set for any Pod in
+    a Kubernetes cluster:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想知道，如果CoreDNS在一个容器中运行，它的resolv.conf不会依赖于CoreDNS吗？结果证明，答案是否定的！为了了解原因，让我们看看集群的`dnsPolicy`字段，它在Kubernetes集群中的任何Pod上都被设置：
+- en: '[PRE12]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Uses CoreDNS as the primary resolver
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用CoreDNS作为主要解析器
+- en: ❷ Launches Pods with the default dnsPolicy
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用默认dnsPolicy启动Pod
+- en: ClusterFirst policies use CoreDNS as their primary resolver, which is why our
+    resolv.conf file in our Pod basically had CoreDNS and nothing else. Pods launched
+    with the default dnsPolicy actually get a /etc/resolv.conf file injected into
+    them, which resolves entries from the Kubelet itself. Thus, on most Kubernetes
+    clusters, you’ll find that
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ClusterFirst策略使用CoreDNS作为其主要解析器，这就是为什么我们的Pod中的resolv.conf文件基本上只有CoreDNS而没有其他内容。使用默认dnsPolicy启动的Pod实际上会注入一个`/etc/resolv.conf`文件，该文件从Kubelet本身解析条目。因此，在大多数Kubernetes集群中，你会发现
+- en: Even though CoreDNS runs in the regular Pod network, it has a different DNS
+    policy than other “normal” Pods in your cluster.
+  id: totrans-120
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 即使CoreDNS在常规Pod网络中运行，它也有与其他集群中的“正常”Pod不同的DNS策略。
+- en: The Pods in your cluster first try to contact a Kubernetes internal service
+    before reaching out to the internet via the flow configured in your Corefile.
+  id: totrans-121
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 你的集群中的Pod首先尝试联系Kubernetes内部服务，然后再通过你在Corefile中配置的流访问互联网。
+- en: The CoreDNS Pod itself forwards noncluster internal IP addresses to the same
+    place that its host forwards these IP addresses. In other words, it inherits internet
+    host-resolution properties from your kubelet.
+  id: totrans-122
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CoreDNS Pod本身将非集群内部IP地址转发到其主机转发这些IP地址的同一位置。换句话说，它继承了kubelet的互联网主机解析属性。
+- en: 10.3.3 Hacking the CoreDNS plugin configuration
+  id: totrans-123
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.3 破解CoreDNS插件配置
+- en: The cache plugin for CoreDNS tells CoreDNS that it can cache results for 30
+    seconds. This means that if we were to
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CoreDNS的缓存插件告诉CoreDNS它可以缓存结果30秒。这意味着如果我们试图
+- en: Scale down our StatefulSet (by running `kubectl` `scale` `statefulset` `web-ss`
+    `--replicas=0`)
+  id: totrans-125
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缩小我们的StatefulSet规模（通过运行`kubectl scale statefulset web-ss --replicas=0`）
+- en: Start a `wget` for the web-ss-0.nginx Pod
+  id: totrans-126
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为web-ss-0.nginx Pod启动一个`wget`
+- en: Scale our StatefulSet back up (by running `kubectl` `scale` `statefulset` `web-ss
+    --replicas=3`)
+  id: totrans-127
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将我们的StatefulSet规模恢复（通过运行`kubectl scale statefulset web-ss --replicas=3`）
+- en: we would actually see that we can get a long hang in our `wget` command, even
+    though three replicas run almost immediately. This is because the default for
+    CoreDNS, which is to run its cache plugin with a 30-second response, means that
+    DNS requests to the web-ss-0.nginx Pod fail for several seconds, even after this
+    Pod is happily up and running.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们实际上会发现，即使在三个副本几乎立即运行的情况下，我们也可以在`wget`命令中获得一个长挂。这是因为CoreDNS的默认设置，即运行其缓存插件并具有30秒的响应时间，意味着即使这个Pod已经愉快地启动并运行，DNS请求到web-ss-0.nginx
+    Pod也会失败几秒钟。
+- en: To fix this, you can run the `kubectl edit cm coreDNS -n kube-system` command
+    and modify this `cache` value to a smaller number, such as 5\. This then guarantees
+    that DNS queries will rapidly refresh their results. The larger this number is,
+    the less load you will create on the underlying Kubernetes control plane over
+    time, but of course, in our small `kind` cluster, this overhead is not important.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这个问题，你可以运行`kubectl edit cm coreDNS -n kube-system`命令，并将这个`cache`值修改为更小的数字，例如5。这样就可以保证DNS查询会快速刷新其结果。这个数字越大，随着时间的推移，你将在底层的Kubernetes控制平面上产生的负载就越小，但在我们的小型`kind`集群中，这种开销并不重要。
+- en: Note that DNS tuning is a deep subject in any data center, regardless of Kubernetes.
+    If you are interested in further tuning DNS for larger clusters, you can launch
+    the kubelet with NodeLocalDNS policies in newer versions of Kubernetes. This policy
+    makes DNS extremely fast by running a DaemonSet across all nodes in a cluster,
+    which caches all DNS requests for all Pods. There are also many other CoreDNS
+    plugin tunings you can look into, as well as Prometheus metrics, which you can
+    monitor over time.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，无论是否使用Kubernetes，DNS调优在任何数据中心都是一个深奥的主题。如果你对在更大的集群中进一步调整DNS感兴趣，可以在Kubernetes的新版本中启动带有NodeLocalDNS策略的kubelet。这个策略通过在集群的所有节点上运行DaemonSet，使得DNS非常快速，因为它缓存了所有Pod的所有DNS请求。还有许多其他的CoreDNS插件调优你可以查看，以及Prometheus指标，你可以随着时间的推移进行监控。
+- en: Summary
+  id: totrans-131
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: A major Kubernetes feature gives Pods internal DNS to access Services.
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes的一个主要特性为Pods提供了内部DNS以访问服务。
+- en: StatefulSets are extremely important for applications that need to have firm
+    identities.
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有状态集对于需要具有明确身份的应用程序来说非常重要。
+- en: Headless Services return Pod IPs directly and don’t have a stable ClusterIP,
+    which means they can sometimes return NXDOMAIN if a Pod is down.
+  id: totrans-134
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 无头服务直接返回Pod IP，没有稳定的ClusterIP，这意味着如果Pod宕机，有时会返回NXDOMAIN。
+- en: Services and StatefulSet Pods both are first class, stable DNS endpoints in
+    a Kubernetes cluster.
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务和有状态集Pods都是Kubernetes集群中的第一类、稳定的DNS端点。
+- en: The resolv.conf file is a standard way to configure DNS for a container. In
+    any scenario where you are attempting to figure out how your Pod is configured
+    with regard to DNS, this is the first place to look.
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: resolv.conf文件是配置容器DNS的标准方式。在任何你试图了解你的Pod如何配置DNS的场景中，这是首先要查看的地方。
+- en: CoreDNS is powered by plugins, and you read a CoreDNS configuration from the
+    top down, with each plugin being a new line in the file.
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CoreDNS由插件驱动，你从文件顶部向下读取CoreDNS配置，其中每个插件都是文件中的一行。
+- en: The cache plugin for CoreDNS tells CoreDNS that it can cache results for 30
+    seconds.
+  id: totrans-138
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CoreDNS的缓存插件告诉CoreDNS它可以缓存结果30秒。

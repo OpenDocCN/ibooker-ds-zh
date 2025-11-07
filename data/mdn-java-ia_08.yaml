@@ -1,0 +1,545 @@
+- en: Appendix C. Performing multiple operations in parallel on a stream
+  id: totrans-0
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 附录 C. 在流上并行执行多个操作
+- en: 'One of the biggest limitations of a Java 8 stream is that you can operate on
+    it only once and get only one result while processing it. Indeed, if you try to
+    traverse a stream for a second time, the only thing you can achieve is an exception
+    like this:'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Java 8 流的一个最大的限制是，在处理它时只能操作一次，并且只能得到一个结果。确实，如果你尝试第二次遍历流，你所能达到的只有像这样的异常：
+- en: '[PRE0]'
+  id: totrans-2
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Despite this, there are situations where you’d like to get several results when
+    processing a single stream. For instance, you may want to parse a log file in
+    a stream, as we did in [section 5.7.3](kindle_split_016.xhtml#ch05lev2sec18),
+    but gather multiple statistics in a single step. Or, keeping with the menu data
+    model used to explain `Stream`’s features in [chapters 4](kindle_split_015.xhtml#ch04),
+    [5](kindle_split_016.xhtml#ch05), and [6](kindle_split_017.xhtml#ch06), you may
+    want to retrieve different information while traversing the stream of dishes.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管如此，在处理单个流时，你可能会希望得到多个结果。例如，你可能想要像在 [第 5.7.3 节](kindle_split_016.xhtml#ch05lev2sec18)
+    中做的那样，以流的形式解析日志文件，但在单步中收集多个统计数据。或者，继续使用在 [第 4 章](kindle_split_015.xhtml#ch04)、[第
+    5 章](kindle_split_016.xhtml#ch05) 和 [第 6 章](kindle_split_017.xhtml#ch06) 中用来解释
+    `Stream` 功能的菜单数据模型，你可能在遍历菜肴流时想要检索不同的信息。
+- en: In other words, you’d like to push a stream through more than one lambda on
+    a single pass, and to do this you need a type of `fork` method and to apply different
+    functions to each forked stream. Even better, it would be great if you could perform
+    those operations in parallel, using different threads to calculate the different
+    required results.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 换句话说，你希望在单次遍历中通过多个 lambda 推送流，为此你需要一种 `fork` 方法，并将不同的函数应用于每个分叉的流。更好的是，如果你能够使用不同的线程并行执行这些操作，那就太棒了。
+- en: Unfortunately, these features aren’t currently available on the stream implementation
+    provided in Java 8, but in this appendix we’ll show you a way to use a `Spliterator`
+    and in particular its late-binding capacity, together with `BlockingQueues` and
+    `Futures`, to implement this useful feature and make it available with a convenient
+    API.^([[1](#app03fn1)])
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，这些功能目前在 Java 8 提供的流实现中尚不可用，但在这个附录中，我们将向你展示如何使用 `Spliterator` 以及其后期绑定能力，结合
+    `BlockingQueues` 和 `Futures` 来实现这个有用的功能，并通过一个方便的 API 提供它.^([[1](#app03fn1)])
+- en: ¹
+  id: totrans-6
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: ¹
+- en: ''
+  id: totrans-7
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: 'The implementation presented in the rest of this appendix is based on the solution
+    posted by Paul Sandoz in the email he sent to the lambda-dev mailing list: [http://mail.openjdk.java.net/pipermail/lambda-dev/2013-November/011516.html](http://mail.openjdk.java.net/pipermail/lambda-dev/2013-November/011516.html).'
+  id: totrans-8
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 本附录其余部分所提出的实现基于 Paul Sandoz 在他发送给 lambda-dev 邮件列表的电子邮件中提出的解决方案：[http://mail.openjdk.java.net/pipermail/lambda-dev/2013-November/011516.html](http://mail.openjdk.java.net/pipermail/lambda-dev/2013-November/011516.html)。
+- en: C.1\. Forking a stream
+  id: totrans-9
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: C.1\. 分叉流
+- en: The first thing necessary to execute multiple operations in parallel on a stream
+    is to create a `StreamForker` that wraps the original stream, on which you can
+    define the different operations you want to perform. Take a look at the following
+    listing.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在流上并行执行多个操作的第一件事是创建一个包装原始流的 `StreamForker`，你可以在其上定义你想要执行的不同操作。请看下面的列表。
+- en: Listing C.1\. Defining a `StreamForker` to execute multiple operations on a
+    stream
+  id: totrans-11
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 C.1\. 定义一个 `StreamForker` 以在流上执行多个操作
+- en: '[PRE1]'
+  id: totrans-12
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '***1* Index the function to be applied on the stream with a key.**'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 使用键索引要应用于流的函数。**'
+- en: '***2* Return this to fluently invoke the fork method multiple times.**'
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 返回此以便流畅地多次调用分叉方法。**'
+- en: 'Here the `fork` method accepts two arguments:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，`fork` 方法接受两个参数：
+- en: A `Function`, which transforms the stream into a result of any type representing
+    one of these operations
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个 `Function`，它将流转换成表示这些操作之一的任何类型的输出结果
+- en: A key, which will allow you to retrieve the result of that operation and accumulates
+    these key/function pairs in an internal `Map`
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个键，它将允许你检索该操作的输出，并将这些键/函数对累积到一个内部的 `Map` 中
+- en: The `fork` method returns the `StreamForker` itself; therefore, you can build
+    a pipeline by forking several operations. [Figure C.1](#app03fig01) shows the
+    main ideas behind the `StreamForker`.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fork` 方法返回 `StreamForker` 本身；因此，你可以通过分叉多个操作来构建一个管道。[图 C.1](#app03fig01) 展示了
+    `StreamForker` 的主要思想。'
+- en: Figure C.1\. The `StreamForker` in action
+  id: totrans-19
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 C.1\. `StreamForker` 的作用
+- en: '![](Images/cfig01_alt.jpg)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](Images/cfig01_alt.jpg)'
+- en: Here the user defines three operations to be performed on a stream indexed by
+    three keys. The `StreamForker` then traverses the original stream and forks it
+    into three other streams. At this point the three operations can be applied in
+    parallel on the forked streams, and the results of these function applications,
+    indexed with their corresponding keys, are used to populate the resulting `Map`.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，用户定义了三个要在三个键索引的流上执行的操作。然后 `StreamForker` 遍历原始流并将其分叉成三个其他流。在此阶段，可以在分叉的流上并行应用这三个操作，并使用这些函数应用的结果（按其相应的键索引）来填充结果
+    `Map`。
+- en: 'The execution of all the operations added through the `fork` method is triggered
+    by the invocation of the method `getResults`, which returns an implementation
+    of the `Results` interface defined as follows:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过调用 `getResults` 方法触发通过 `fork` 方法添加的所有操作的执行，该方法返回一个实现如下定义的 `Results` 接口的实现：
+- en: '[PRE2]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: This interface has only one method to which you can pass one of the key `Object`s
+    used in one of the `fork` methods, and that method returns the result of the operation
+    corresponding to that key.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此接口只有一个方法，你可以传递一个在 `fork` 方法中使用的键 `Object`，该方法返回与该键对应的操作的结果。
+- en: C.1.1\. Implementing the Results interface with the ForkingStreamConsumer
+  id: totrans-25
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: C.1.1\. 使用 ForkingStreamConsumer 实现 Results 接口
+- en: 'The `getResults` method can be implemented as follows:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`getResults` 方法可以按以下方式实现：'
+- en: '[PRE3]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The `ForkingStreamConsumer` implements both the `Results` interface defined
+    previously and the `Consumer` interface. As you’ll see when we analyze its implementation
+    in more detail, its main task is to consume all the elements in the stream and
+    multiplex them to a number of `BlockingQueue`s equal to the number of operations
+    submitted via the `fork` method. Note that it is ensured that the stream is sequential,
+    because if the method `forEach` were performed on a parallel stream, its elements
+    could be pushed to the queues out of order. The `finish` method adds special elements
+    to those queues to signal that there are no more items to be processed. The `build`
+    method used to create the `ForkingStreamConsumer` is shown in the next listing.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ForkingStreamConsumer` 实现了之前定义的 `Results` 接口和 `Consumer` 接口。正如你将在更详细地分析其实现时看到的那样，其主要任务是消费流中的所有元素并将它们多路复用到通过
+    `fork` 方法提交的操作数量的 `BlockingQueue`s。请注意，确保流是顺序的，因为如果在并行流上执行 `forEach` 方法，其元素可能会无序地推送到队列中。`finish`
+    方法向这些队列添加特殊元素以表示没有更多项目需要处理。用于创建 `ForkingStreamConsumer` 的 `build` 方法在下一列表中显示。'
+- en: Listing C.2\. The `build` method used to create `ForkingStreamConsumer`
+  id: totrans-29
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 C.2\. 创建 ForkingStreamConsumer 所使用的 `build` 方法
+- en: '[PRE4]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: '***1* Create a list of queues, with a queue for each operation.**'
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 为每个操作创建一个队列列表。**'
+- en: '***2* Map the Futures that will contain the results of the operations with
+    the keys used to identify those operations.**'
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 使用用于识别这些操作的键来映射将包含操作结果的 `Future`s。**'
+- en: In listing C.2, you first create the `List` of `BlockingQueue`s mentioned previously.
+    Then you create a `Map`, having as keys the same keys used to identify the different
+    operations to be executed on the stream, and having as values the `Future`s that
+    will contain the corresponding results of these operations. The `List` of `BlockingQueue`s
+    and the `Map` of `Future`s are then passed to the constructor of the `ForkingStreamConsumer`.
+    Each `Future` is created with this `getOperationResult` method, as shown in the
+    next listing.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表 C.2 中，你首先创建了之前提到的 `BlockingQueue`s 的 `List`。然后你创建了一个 `Map`，其键用于识别要在流上执行的不同操作，其值是包含这些操作相应结果的
+    `Future`s。然后，`BlockingQueue`s 的列表和 `Future`s 的 `Map` 被传递给 `ForkingStreamConsumer`
+    的构造函数。每个 `Future` 都使用此 `getOperationResult` 方法创建，如下一列表所示。
+- en: Listing C.3\. `Future`s created with the `getOperationResult` method
+  id: totrans-34
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 C.3\. 使用 `getOperationResult` 方法创建的 `Future`s
+- en: '[PRE5]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '***1* Create a queue and add it to the list of queues.**'
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 创建一个队列并将其添加到队列列表中。**'
+- en: '***2* Create a Spliterator traversing the elements in that queue.**'
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 创建一个遍历该队列元素的 Spliterator。**'
+- en: '***3* Create a stream having that Spliterator as source.**'
+  id: totrans-38
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***3* 创建一个以该 Spliterator 为源的流。**'
+- en: '***4* Create a Future calculating asynchronously the application of the given
+    function on that stream.**'
+  id: totrans-39
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***4* 创建一个 Future，异步计算给定函数在该流上的应用。**'
+- en: The method `getOperationResult` creates a new `BlockingQueue` and adds it to
+    the `List` of queues. This queue is passed to a new `BlockingQueueSpliterator`,
+    which is a late-binding `Spliterator`, reading the item to be traversed from the
+    queue; we’ll examine how it’s made shortly.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`getOperationResult` 方法创建一个新的 `BlockingQueue` 并将其添加到队列的 `List` 中。这个队列被传递给一个新的
+    `BlockingQueueSpliterator`，它是一个后期绑定的 `Spliterator`，从队列中读取要遍历的项目；我们将在稍后考察它是如何制作的。'
+- en: You then create a sequential stream traversing this `Spliterator`, and finally
+    you create a `Future` to calculate the result of applying the function representing
+    one of the operations you want to perform on this stream. This `Future` is created
+    using a static factory method of the `CompletableFuture` class that implements
+    the `Future` interface. This is another new class introduced in Java 8, and we
+    investigated it in detail in [chapter 16](kindle_split_030.xhtml#ch16).
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，你创建一个遍历此 `Spliterator` 的顺序流，最后创建一个 `Future` 来计算应用表示你想要在此流上执行的操作之一的函数的结果。这个
+    `Future` 是使用实现 `Future` 接口的 `CompletableFuture` 类的静态工厂方法创建的。这是 Java 8 中引入的另一个新类，我们在第
+    [16 章](kindle_split_030.xhtml#ch16) 中对其进行了详细调查。
+- en: C.1.2\. Developing the ForkingStreamConsumer and the BlockingQueueSpliterator
+  id: totrans-42
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: C.1.2\. 开发 ForkingStreamConsumer 和 BlockingQueueSpliterator
+- en: The last two outstanding parts you need to develop are the `ForkingStreamConsumer`
+    and `BlockingQueueSpliterator` classes we introduced previously. The first one
+    can be implemented as follows.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你需要开发的最后两个部分是之前介绍的 `ForkingStreamConsumer` 和 `BlockingQueueSpliterator` 类。第一个可以按以下方式实现。
+- en: Listing C.4\. A `ForkingStreamConsumer` to add stream elements to multiple queues
+  id: totrans-44
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 C.4\. 用于将流元素添加到多个队列的 ForkingStreamConsumer
+- en: '[PRE6]'
+  id: totrans-45
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: '***1* Propagates the traversed element of the stream to all the queues**'
+  id: totrans-46
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***1* 将流遍历的元素传播到所有队列中**'
+- en: '***2* Adds one last element to the queue to signal that the stream is finished**'
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***2* 向队列添加一个最后元素以表示流已结束**'
+- en: '***3* Returns the result of the operation indexed by the given key and waits
+    for the completion of the Future calculating it**'
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '***3* 返回给定键索引的操作结果，并等待计算它的 Future 完成**'
+- en: This class implements both the `Consumer` and `Results` interfaces and holds
+    a reference to the `List` of `BlockingQueues` and to the `Map` of `Futures` executing
+    the different operations on the stream.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个类实现了 `Consumer` 和 `Results` 接口，并持有 `BlockingQueues` 的 `List` 和执行流上不同操作的 `Map`
+    的引用。
+- en: The `Consumer` interface requires an implementation for the method `accept`.
+    Here, every time `ForkingStreamConsumer` accepts an element of the stream, it
+    adds that element to all the `BlockingQueue`s. Also, after all the elements of
+    the original stream have been added to all queues, the `finish` method causes
+    one last item to be added to all of them. This item, when met by `BlockingQueueSpliterators`,
+    will make the queues understand that there are no more elements to be processed.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Consumer` 接口要求实现 `accept` 方法。在这里，每次 `ForkingStreamConsumer` 接受流的一个元素时，它将该元素添加到所有
+    `BlockingQueue`s 中。此外，在将原始流的所有元素添加到所有队列之后，`finish` 方法会导致向所有队列添加最后一个项目。当遇到 `BlockingQueueSpliterators`
+    时，这个项目将使队列理解没有更多元素需要处理。'
+- en: The `Results` interface requires an implementation for the `get` method. Here,
+    it retrieves the `Future` that’s indexed in the `Map` with the argument key and
+    unwraps its result or waits until a result is available.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Results` 接口要求实现 `get` 方法。在这里，它检索在 `Map` 中通过键索引的 `Future`，并展开其结果或等待结果可用。'
+- en: Finally, there will be a `BlockingQueueSpliterator` for each operation to be
+    performed on the stream. Each `BlockingQueueSpliterator` will have a reference
+    to one of the `BlockingQueues` populated by the `ForkingStreamConsumer`, and it
+    can be implemented as shown in the following listing.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，将为流上要执行的操作创建一个 `BlockingQueueSpliterator`。每个 `BlockingQueueSpliterator` 将有一个引用，指向由
+    `ForkingStreamConsumer` 填充的 `BlockingQueue` 之一，它可以像以下列表中所示的那样实现。
+- en: Listing C.5\. A `Spliterator` reading the elements it traverses from a `BlockingQueue`
+  id: totrans-53
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表 C.5\. 从 BlockingQueue 读取遍历元素的一个 Spliterator
+- en: '[PRE7]'
+  id: totrans-54
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: In this listing a `Spliterator` is implemented, not to define the policy of
+    how to split a stream but only to use its late-binding capability. For this reason
+    the `trySplit` method is unimplemented.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个列表中，实现了一个 `Spliterator`，不是为了定义如何分割流的政策，而只是为了使用其后期绑定能力。因此，`trySplit` 方法未实现。
+- en: Also, it’s impossible to return any meaningful value from the `estimatedSize`
+    method because you can’t foresee how many elements can be still taken from the
+    queue. Further, because you’re not attempting any split, this estimation will
+    be useless. This implementation doesn’t have any of the `Spliterator` characteristics
+    we listed in [table 7.2](kindle_split_018.xhtml#ch07table02), so the `characteristic`
+    method returns `0`.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，由于你无法预见还能从队列中取出多少元素，因此从 `estimatedSize` 方法返回任何有意义的值都是不可能的。此外，因为你没有尝试任何拆分，这种估计将变得毫无用处。这个实现没有我们列在[表7.2](kindle_split_018.xhtml#ch07table02)中的任何
+    `Spliterator` 特性，所以 `characteristic` 方法返回 `0`。
+- en: The only method implemented here is `tryAdvance`, which waits to take from its
+    `BlockingQueue` the elements of the original stream added to it by the `ForkingStreamConsumer`.
+    It sends those elements to a `Consumer` that (based on how this `Spliterator`
+    was created in the `getOperationResult` method) is the source of a further stream
+    (on which the corresponding function, passed to one of the `fork` method invocations,
+    has to be applied). The `tryAdvance` method returns `true`, to notify its invoker
+    that there are other elements to be consumed, until it finds on the queue the
+    special `Object` added by `ForkingStreamConsumer` to signal that there are no
+    more elements to be taken from the queue. [Figure C.2](#app03fig02) shows an overview
+    of the `StreamForker` and its building blocks.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里只实现了 `tryAdvance` 方法，该方法等待从其 `BlockingQueue` 中取出原始流添加到其中的元素。它将这些元素发送到一个 `Consumer`，该
+    `Consumer`（基于如何在 `getOperationResult` 方法中创建此 `Spliterator`）是进一步流（在相应的函数应用于其中一个
+    `fork` 方法调用时）的来源。`tryAdvance` 方法返回 `true`，以通知其调用者还有其他元素要消费，直到它在队列中找到由 `ForkingStreamConsumer`
+    添加的特殊 `Object`，以表示没有更多元素要从队列中取出。[图C.2](#app03fig02)展示了 `StreamForker` 及其构建块的总览。
+- en: Figure C.2\. The `StreamForker` building blocks
+  id: totrans-58
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图C.2\. `StreamForker` 的构建块
+- en: '![](Images/cfig02_alt.jpg)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](Images/cfig02_alt.jpg)'
+- en: In the figure, the `StreamForker` in the upper left has a `Map`, where each
+    operation to be performed on the stream, defined by a function, is indexed by
+    a key. The `ForkingStreamConsumer` on the right holds a queue for each of these
+    operations and consumes all the elements in the original stream, multiplexing
+    them to all the queues.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图中，左上角的 `StreamForker` 有一个 `Map`，其中每个要执行的流操作（由一个函数定义）通过一个键进行索引。右边的 `ForkingStreamConsumer`
+    为这些操作中的每一个都保留一个队列，并消费原始流中的所有元素，将它们多路复用到所有队列中。
+- en: At the bottom of the figure, each queue has a `BlockingQueueSpliterator` pulling
+    its items and acting as a source for a different stream. Finally, each of these
+    streams, forked by the original one, is passed as argument to one of the functions,
+    thus executing one of the operations to be performed. You now have all the components
+    of your `StreamForker`, so it’s ready to use.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图的底部，每个队列都有一个 `BlockingQueueSpliterator` 拉取其项目，并作为不同流的来源。最后，这些由原始流拆分出来的每个流，都作为参数传递给一个函数，从而执行要执行的操作之一。现在你已经有了
+    `StreamForker` 的所有组件，因此它已经准备好使用。
+- en: C.1.3\. Putting the StreamForker to work
+  id: totrans-62
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: C.1.3\. 将 StreamForker 应用到工作中
+- en: Let’s put the `StreamForker` to work on the menu data model that we defined
+    in [chapter 4](kindle_split_015.xhtml#ch04), by forking the original stream of
+    dishes to perform four different operations in parallel on it, as shown in the
+    next listing. In particular, you want to generate a comma-separated list of the
+    names of all available dishes, calculate the total calories of the menu, find
+    the dish with the most calories, and group all dishes by their type.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们将 `StreamForker` 应用到我们在[第4章](kindle_split_015.xhtml#ch04)中定义的菜单数据模型上，通过拆分原始的菜肴流，并行地对它执行四个不同的操作，如下所示。特别是，你想要生成所有可用菜肴名称的逗号分隔列表，计算菜单的总卡路里，找到卡路里最高的菜肴，并按类型对所有菜肴进行分组。
+- en: Listing C.6\. Putting the `StreamForker` to work
+  id: totrans-64
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表C.6\. 将 `StreamForker` 应用到工作中
+- en: '[PRE8]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The `StreamForker` provides a convenient, fluent API to fork a stream and assign
+    a different operation to each forked stream. These operations are expressed in
+    terms of functions applied on the stream and can be identified by any arbitrary
+    object; in this case we’ve chosen to use `String`s. When you have no more forks
+    to add, you can invoke `getResults` on the `StreamForker` to trigger the execution
+    of all the defined operations and obtain `StreamForker.Results`. Because these
+    operations are internally performed asynchronously, the `getResults` method returns
+    immediately, without waiting for all the results to be available.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamForker`提供了一个方便的、流畅的API来分割流并将不同的操作分配给每个分割的流。这些操作以在流上应用函数的形式表达，并且可以由任何任意对象识别；在这种情况下，我们选择使用`String`。当你不再需要添加分割时，你可以在`StreamForker`上调用`getResults`来触发所有定义的操作并获取`StreamForker.Results`。因为这些操作是在内部异步执行的，所以`getResults`方法会立即返回，而无需等待所有结果都可用。'
+- en: You can obtain the result of a specific operation by passing the key used to
+    identify it to the `StreamForker.Results` interface. If in the meantime the computation
+    of that operation completes, the `get` method will return the corresponding result;
+    otherwise, it will block until such a result isn’t available.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过将用于识别该操作的键传递给`StreamForker.Results`接口来获取特定操作的结果。如果在那时该操作的计算完成，`get`方法将返回相应的结果；否则，它将阻塞，直到该结果可用。
+- en: 'As expected, this piece of code generates the following output:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如预期的那样，这段代码生成了以下输出：
+- en: '[PRE9]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: C.2\. Performance considerations
+  id: totrans-70
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: C.2. 性能考虑
+- en: For performance reasons you shouldn’t take for granted that this approach is
+    more efficient than traversing the stream several times. The overhead caused by
+    the use of the blocking queues can easily outweigh the advantages of executing
+    the different operations in parallel when the stream is made of data that’s all
+    in memory.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于性能原因，你不应该假设这种方法比多次遍历流更有效。使用阻塞队列造成的开销很容易超过当流由全部在内存中的数据组成时并行执行不同操作的优势。
+- en: Conversely, accessing the stream only once could be a winning choice when this
+    involves some expensive I/O operations, such as when the source of the stream
+    is a huge file; so (as usual) the only meaningful rule when optimizing the performance
+    of your application is to “Just measure it!”
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相反，当涉及到一些昂贵的I/O操作时，例如当流源是一个大文件时，只访问一次流可能是一个获胜的选择；因此（就像往常一样），在优化应用程序性能时，唯一有意义的规则是“只测量它！”
+- en: This example demonstrates how it can be possible to execute multiple operations
+    on the same stream in one shot. More importantly, we believe this proves that
+    even when a specific feature isn’t provided by the native Java API, the flexibility
+    of lambda expressions and a bit of creativity in reusing and combining what’s
+    already available can let you implement the missing feature on your own.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个例子演示了如何在一次操作中执行同一流上的多个操作。更重要的是，我们相信这证明了即使特定的功能不是由原生Java API提供的，lambda表达式的灵活性和一点点的创新，在重用和组合现有功能上，也可以让你自己实现缺失的功能。

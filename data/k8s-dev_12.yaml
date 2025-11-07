@@ -1,0 +1,1953 @@
+- en: 10 Background processing
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 10. 后台处理
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: How to process background tasks in Kubernetes
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何在Kubernetes中处理后台任务
+- en: The Kubernetes Job and CronJob objects
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes Job和CronJob对象
+- en: When to use (and not use) Job objects for your own batch processing workloads
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在何时以及何时不使用Job对象来处理自己的批量处理工作负载
+- en: Creating a custom task queue with Redis
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Redis创建自定义任务队列
+- en: Implementing a background processing task queue with Kubernetes
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Kubernetes实现后台处理任务队列
+- en: In prior chapters, we looked at developing services that are exposed on an IP
+    address, whether it’s providing an external service on a public address or an
+    internal service on a cluster local IP. But what about all the other computations
+    that you may need to do that aren’t directly part of a request-response chain,
+    like resizing a bunch of images, sending out device notifications, running an
+    AI/ML training job, processing financial data, or rendering a movie one frame
+    at a time? These are typically processed as background tasks, which are processes
+    that take an input and produce an output without being part of the synchronous
+    handling of user requests.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们探讨了开发暴露在IP地址上的服务，无论是提供公共地址上的外部服务还是集群本地IP上的内部服务。但关于所有可能需要执行但不直接属于请求-响应链的其他计算怎么办，比如调整大量图像、发送设备通知、运行AI/ML训练作业、处理财务数据或逐帧渲染电影？这些通常作为后台任务处理，这些任务是接受输入并产生输出，但不属于用户请求的同步处理。
+- en: You can process background tasks using Deployment or the Kubernetes Job object.
+    Deployment is ideal for a continuously running task queue like the one most web
+    applications run for tasks such as image resizing. The Kubernetes Job construct
+    is great for running one-off maintenance tasks, periodic tasks (via CronJob),
+    and processing a batch workload when there is a set amount of work to complete.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用Deployment或Kubernetes Job对象来处理后台任务。Deployment对于像大多数Web应用程序运行图像调整等持续运行的任务队列来说非常理想。Kubernetes
+    Job结构非常适合运行一次性维护任务、周期性任务（通过CronJob）以及在有一定工作量需要完成时处理批量工作负载。
+- en: 'Terminology: task or job'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 术语：任务或工作
+- en: Practitioners routinely use the terms *task* and *job* interchangeably when
+    referring to a background computation (e.g., job queue, task queue, background
+    job, background task). Since Kubernetes has an object named Job, to reduce ambiguity,
+    I will always use *Job* when referring to the object itself, and *task* (e.g.,
+    background task, task queue) when referring to the general concept of background
+    processing regardless of how it is implemented.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实践者通常在提及后台计算（例如，作业队列、任务队列、后台作业、后台任务）时将术语*任务*和*工作*互换使用。由于Kubernetes有一个名为Job的对象，为了减少歧义，我在提及该对象本身时始终使用*Job*，而在提及一般后台处理概念（无论其实现方式如何）时使用*任务*（例如，后台任务、任务队列）。
+- en: This chapter covers using both Deployment and Job for background task processing.
+    By the end, you’ll be able to configure a continuous background task processing
+    queue for your web application and define batch workloads with an end state, including
+    periodic and one-off tasks, all in Kubernetes.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了使用Deployment和Job进行后台任务处理。到本章结束时，您将能够为Web应用程序配置一个连续的后台任务处理队列，并使用Kubernetes定义具有最终状态的批量工作负载，包括周期性和一次性任务。
+- en: 10.1 Background processing queues
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.1 后台处理队列
+- en: Most web applications deployed in the wild have a major background task processing
+    component to handle processing tasks that can’t be completed in the short HTTP
+    request-response time window. User research conducted by Google shows that the
+    longer the page load time is, the higher the chance the user will “bounce” (i.e.,
+    leave the page and go somewhere else), observing that “the probability of bounce
+    increases 32% as page load time goes from 1 second to 3 seconds.”[¹](#pgfId-1105858)
+    So, it’s generally a mistake to try to do any heavy lifting while the user is
+    waiting; instead, a task should be put on a background queue, and the user should
+    be kept apprised of its progress. Page load speeds need to be on everyone’s mind,
+    from the frontend developers to the backend; it’s a collective responsibility.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在野外部署的大多数Web应用程序都有一个主要的后台任务处理组件，用于处理在短HTTP请求-响应时间窗口内无法完成的处理任务。谷歌进行的研究表明，页面加载时间越长，用户“跳出”（即离开页面并去其他地方）的可能性就越高，观察到“当页面加载时间从1秒增加到3秒时，跳出概率增加32%。”[¹](#pgfId-1105858)。因此，在用户等待时尝试进行任何重负载通常是一个错误；相反，应该将任务放入后台队列，并让用户了解其进度。页面加载速度需要让每个前端开发者到后端开发者都牢记在心；这是一个集体责任。
+- en: There’s a lot that goes into the time it takes to load the page, and many aspects,
+    like image sizes and JavaScript, are out of the scope of Kubernetes. A relevant
+    metric to consider when looking at your workload deployments in Kubernetes is
+    time to first byte (TTFB). This is the time it takes for your web server to complete
+    its processing of the request and the client to start downloading the response.
+    To achieve a low overall page loading time, it’s critical to reduce the TTFB time
+    and respond in subsecond times. That pretty much rules out any kind of data processing
+    that happens inline as part of the request. Need to create a ZIP file to serve
+    to a user or shrink an image they just uploaded? Best not to do it in the request
+    itself.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 加载页面所需的时间有很多，许多方面，如图片大小和JavaScript，都不在Kubernetes的范围内。当您在Kubernetes中查看工作负载部署时，需要考虑的一个相关指标是首次字节时间（TTFB）。这是您的Web服务器完成请求处理并客户端开始下载响应的时间。为了实现低整体页面加载时间，减少TTFB时间是至关重要的，并且需要在亚秒内响应。这基本上排除了任何作为请求一部分的行内数据处理。需要创建ZIP文件供用户使用或缩小他们刚刚上传的图片？最好不要在请求本身中执行这些操作。
+- en: As a result, the common pattern is to run a continuous background processing
+    queue. The web application hands off tasks it can’t do inline, like processing
+    data, which gets picked up by the background queue (figure 10.1). The web application
+    might show a spinner or some other UI affordance while it waits for the background
+    queue to do its thing, email the user when the results are ready, or simply prompt
+    the user to come back later. How you architect your user interaction is up to
+    you. What we’ll cover here is how to deploy this kind of background processing
+    task queue in Kubernetes.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，常见的模式是运行一个持续的后台处理队列。Web应用程序将无法行内处理的任务，如数据处理，转交给后台队列（图10.1）。在后台队列处理期间，Web应用程序可能会显示一个旋转器或其他UI提示，当结果准备好时给用户发邮件，或者简单地提示用户稍后再回来。您如何架构用户交互取决于您。在这里我们将介绍如何在Kubernetes中部署这种类型的后台处理任务队列。
+- en: '![10-01](../../OEBPS/Images/10-01.png)'
+  id: totrans-16
+  prefs: []
+  type: TYPE_IMG
+  zh: '![10-01](../../OEBPS/Images/10-01.png)'
+- en: Figure 10.1 Frontend web server with a background task queue
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.1 前端Web服务器与后台任务队列
+- en: Recall that a Deployment (as covered in chapter 3) is a workload construct in
+    Kubernetes whose purpose is to maintain a set of continuously running Pods. For
+    background task-processing queues, you need a set of continuously running Pods
+    to serve as your task workers. So that’s a match! It doesn’t matter that the Pods
+    in the Deployment won’t be exposed with a Service; the key is that you want at
+    least one worker to be continuously running. You’ll be updating this Deployment
+    with new container versions and scaling it up and down just as you do a Deployment
+    that serves your frontend requests, so everything we’ve learned so far can be
+    applied equally to a Deployment of background task workers.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 回想一下，部署（如第3章所述）是Kubernetes中的一个工作负载结构，其目的是维护一组持续运行的Pods。对于后台任务处理队列，您需要一组持续运行的Pods来作为您的任务工作者。所以这是一个匹配！部署中的Pods不会通过服务暴露出来并不重要；关键是您希望至少有一个工作者持续运行。您将像更新服务于前端请求的部署一样更新这个部署，使用新的容器版本并对其进行扩展和缩减，所以我们迄今为止学到的所有内容都可以同样应用于后台任务工作者的部署。
+- en: 10.1.1 Creating a custom task queue
+  id: totrans-19
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.1 创建自定义任务队列
+- en: 'The worker Pods that you deploy in your task-processing Deployment have a simple
+    role: take an input and produce an output. But where do they get the input from?
+    For that, you’ll need a queue on which other components of the application can
+    add tasks. This queue will store the list of pending tasks, which the worker Pods
+    will process. There are a bunch of off-the-shelf solutions for background queues
+    (some of which I mention in section 10.1.4), but to best understand how these
+    work, let’s create our own!'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您的任务处理部署中部署的工作节点Pods有一个简单的角色：接收输入并产生输出。但它们从哪里获取输入呢？为了这个目的，您需要一个队列，应用程序的其他组件可以在此队列中添加任务。这个队列将存储待处理任务的列表，工作节点Pods将处理这些任务。对于后台队列有许多现成的解决方案（其中一些我在第10.1.4节中提到），但要最好地理解它们是如何工作的，让我们自己创建一个吧！
+- en: 'For the queue data store, we’ll be using the same Redis workload deployment
+    we created in the previous chapter. Redis includes built-in support for queues,
+    making it perfect for this task (and many off-the-shelf solutions also use Redis).
+    The design of our task processing system is pretty straightforward: the web application
+    role enqueues tasks to Redis (we can emulate this role by manually adding tasks),
+    and worker Pods from our Deployment pop the tasks, perform the work, and wait
+    for the next task.'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于队列数据存储，我们将使用我们在上一章中创建的相同的Redis工作负载部署。Redis内置了对队列的支持，这使得它非常适合这项任务（并且许多现成的解决方案也使用Redis）。我们的任务处理系统设计相当简单：Web应用程序角色将任务入队到Redis（我们可以通过手动添加任务来模拟这个角色），然后我们的Deployment中的工作Pod从队列中弹出任务，执行工作，并等待下一个任务。
+- en: Queues in Redis
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Redis中的队列
+- en: 'Redis has several convenient data structures out of the box. The one we’re
+    using here is a queue. There are two functions we’ll be using on this queue structure
+    to achieve FIFO (first-in, first-out) ordering, which is typical of a background
+    queue (i.e., processing items in the order they are added): `RPUSH` to add items
+    to the back of the queue and `BLPOP` to pop items from the front of the queue
+    and block if none are available.'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Redis自带了几个方便的数据结构。我们在这里使用的是队列。在这个队列结构上，我们将使用两个函数来实现FIFO（先进先出）的顺序，这在后台队列中很典型（即按添加顺序处理项目）：`RPUSH`用于将项目添加到队列的末尾，`BLPOP`用于从队列的前端弹出项目，如果没有可用项目则阻塞。
+- en: '![10-01_UN01](../../OEBPS/Images/10-01_UN01.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![10-01_UN01](../../OEBPS/Images/10-01_UN01.png)'
+- en: If you think of the queue going from right to left, where the rightmost item
+    is at the back of the queue, and the leftmost item is the front, then the `L`
+    and `R` function prefixes will make more sense (`RPUSH` to push an object on the
+    right and `BLPOP` to pop the leftmost item in a blocking fashion). The additional
+    `B` prefix refers to the blocking form of the function (in this case, the blocking
+    version of `LPOP`), which will cause it to wait for an item in the event the queue
+    is empty rather than returning right away with nil. We could simply use `LPOP`
+    in our own retry loop, but it’s useful to block on the response to avoid a “busy
+    wait,” which would consume more resources, and this way, we can leave that task
+    to Redis.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你把队列想象成从右到左，最右边的项目在队列的末尾，最左边的项目在队列的前端，那么`L`和`R`函数前缀将更有意义（`RPUSH`用于在右侧推送对象，`BLPOP`用于以阻塞方式弹出队列中最左边的项目）。额外的`B`前缀表示函数的阻塞形式（在这种情况下，`LPOP`的阻塞版本），这将导致它在队列为空时等待项目，而不是立即返回nil。我们可以在自己的重试循环中简单地使用`LPOP`，但阻塞在响应上可以避免“忙等待”，这样可以节省更多资源，并且我们可以将这项任务留给Redis。
+- en: As a concrete but trivial example, our task will take as input an integer *n*,
+    and calculate Pi using the Leibniz series formula with *n* iterations (the more
+    iterations when calculating Pi in this way, the more accurate the end result).
+    In practice, your task will complete whatever arbitrary processing you need it
+    to do and will likely take as input a URL or dictionary of key-value parameters.
+    The concept is the same.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为具体但简单的例子，我们的任务将接受一个整数*n*作为输入，并使用莱布尼茨级数公式进行*n*次迭代来计算π（以这种方式计算π时，迭代次数越多，最终结果越准确）。在实际应用中，你的任务将完成你需要它完成的任意处理，并且可能以URL或键值参数字典作为输入。概念是相同的。
+- en: Creating a worker container
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建工作容器
+- en: Before we get to the Kubernetes Deployment, we’ll need to create our worker
+    container. I’ll use Python again for this sample, as we can implement a complete
+    task queue in a few lines of Python. The complete code for this container can
+    be found in the Chapter10/pi_worker folder in the source code that accompanies
+    this book. It consists of three Python files, presented in the following listings.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们到达Kubernetes Deployment之前，我们需要创建我们的工作容器。我将再次使用Python作为这个示例，因为我们可以在几行Python代码中实现一个完整的任务队列。这个容器的完整代码可以在本书附带源代码的Chapter10/pi_worker文件夹中找到。它由三个Python文件组成，如下所示。
+- en: Listing 10.1 is the work function where the actual computation happens. It has
+    no awareness of being in a queue; it simply does the processing. In your own case,
+    you’d replace this with whatever computation you need to do (e.g., create a ZIP
+    file or resize an image).
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.1是工作函数，其中发生实际计算。它没有意识到自己在队列中；它只是进行处理。在你的情况下，你会用你需要做的任何计算来替换这个（例如，创建ZIP文件或调整图像大小）。
+- en: Listing 10.1 Chapter10/pi_worker/pi.py
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.1 第10章/pi_worker/pi.py
+- en: '[PRE0]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Then, in listing 10.2, we have our worker implementation that will take the
+    task object at the head of the queue with the parameters of the work needing to
+    be done and perform the work by calling the `leibniz_pi` function. For your own
+    implementation, the object that you queue just needs to contain the relevant function
+    parameters for the task, like the details for a ZIP file to create or image to
+    process. It’s useful to separate the queue processing logic from the work function,
+    so that the latter can be reused in other environments.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在列表 10.2 中，我们有我们的工作实现，它将取队列头部的任务对象，并使用需要完成的工作的参数调用 `leibniz_pi` 函数执行工作。对于你的实现，你排队的对象只需要包含任务的相关函数参数，比如创建或处理图像的详细信息。将队列处理逻辑与工作函数分开是有用的，这样后者可以在其他环境中重用。
+- en: Listing 10.2 Chapter10/pi_worker/pi_worker.py
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.2 第 10 章/pi_worker/pi_worker.py
+- en: '[PRE1]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Retrieve the Redis host from the environment variable (supplied by the Deployment
+    in listing 10.5).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从环境变量中检索 Redis 主机（由列表 10.5 中的 Deployment 提供）。
+- en: ❷ Connect to the Redis service.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 连接到 Redis 服务。
+- en: ❸ Pop the next task (and block if there are none in the queue).
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 弹出下一个任务（如果没有任务在队列中，则阻塞）。
+- en: ❹ Perform the work.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 执行工作。
+- en: To pop our Redis-based queue, we use the Redis `BLPOP` command, which will get
+    the first element in the list and block if the queue is empty and wait for more
+    tasks to be added. There is more we would need to do to make this production-grade,
+    such as adding signal handling for when the Pod is terminated (covered in section
+    10.1.2), but this is enough for now.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要弹出基于 Redis 的队列，我们使用 Redis 的 `BLPOP` 命令，它将获取列表中的第一个元素，如果队列为空，则阻塞并等待添加更多任务。为了使这个产品级应用更完善，我们还需要做更多的事情，比如添加信号处理以处理
+    Pod 终止的情况（在第 10.1.2 节中介绍），但现在这已经足够了。
+- en: Lastly, in listing 10.3, we have a little script to add some work to this queue.
+    In the real world, you will queue tasks as needed (by calling `RPUSH` with the
+    task parameters), such as in response to user actions, like queuing the task to
+    resize an image in response to the user uploading it. For our demonstration, we
+    can seed our task queue with some random values. The following listing will create
+    10 sample tasks using a random value for our task input integer (with a value
+    in the range of 1 to 10 million).
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，在列表 10.3 中，我们有一个小脚本，用于向这个队列添加一些工作。在现实世界中，你将根据需要排队任务（通过使用带有任务参数的 `RPUSH` 调用），例如，在用户上传图片时响应性地排队调整图片大小的任务。在我们的演示中，我们可以用一些随机值初始化我们的任务队列。下面的列表将使用随机值（值在
+    1 到 100 万之间）创建 10 个示例任务。
+- en: Listing 10.3 Chapter10/pi_worker/add_tasks.py
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.3 第 10 章/pi_worker/add_tasks.py
+- en: '[PRE2]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Loop 10 times to add 10 tasks.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 循环 10 次添加 10 个任务。
+- en: ❷ Create a random task parameter.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 创建一个随机任务参数。
+- en: ❸ Add the task to the queue.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将任务添加到队列。
+- en: The `rpush` method (mapping to `RPUSH[²](#pgfId-1105964)`) adds the given value
+    (in our case, an integer) to the list specified with the key (in our case, the
+    key is `"queue:task"`). If you’ve not used Redis before, you might be expecting
+    something more complex, but this is all that’s needed to create a queue. No preconfiguration
+    or schemas are needed.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`rpush` 方法（对应 `RPUSH[²](#pgfId-1105964)`）将给定的值（在我们的例子中，是一个整数）添加到由键指定的列表中（在我们的例子中，键是
+    `"queue:task"`）。如果你之前没有使用过 Redis，你可能期望更复杂的东西，但创建队列只需要这些。不需要预先配置或模式。'
+- en: Bundling these three Python scripts into a container is pretty simple. As shown
+    in listing 10.4, we can use the official Python base image and add the Redis dependency
+    (see chapter 2 if you need a refresher on how to build such containers). For the
+    default container entry point, we’ll run our worker with `python3` `pi_worker.py`.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将这三个 Python 脚本打包成一个容器相当简单。如列表 10.4 所示，我们可以使用官方的 Python 基础镜像并添加 Redis 依赖（如果你需要复习如何构建这样的容器，请参阅第
+    2 章）。对于默认容器入口点，我们将使用 `python3` `pi_worker.py` 运行我们的工作进程。
+- en: Listing 10.4 Chapter10/pi_worker/Dockerfile
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.4 第 10 章/pi_worker/Dockerfile
+- en: '[PRE3]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Include the Redis dependency.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 包含 Redis 依赖。
+- en: ❷ Run the worker.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 运行工作进程。
+- en: With our Python worker container created, we can now get to the fun part of
+    deploying it to Kubernetes!
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在创建我们的 Python 工作容器后，我们现在可以进入部署到 Kubernetes 的有趣部分了！
+- en: Deploying to Kubernetes
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署到 Kubernetes
+- en: 'Figure 10.2 shows what the Kubernetes architecture looks like: we have the
+    StatefulSet, which runs Redis, and the Deployment, which runs the worker Pods.
+    There is also the web application role that adds the tasks, but we’ll do that
+    manually for this example.'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.2 展示了 Kubernetes 架构的样子：我们有运行 Redis 的 StatefulSet 和运行工作 Pod 的 Deployment。还有一个添加任务的
+    Web 应用程序角色，但在这个例子中我们将手动进行。
+- en: '![10-02](../../OEBPS/Images/10-02.png)'
+  id: totrans-55
+  prefs: []
+  type: TYPE_IMG
+  zh: '![10-02](../../OEBPS/Images/10-02.png)'
+- en: Figure 10.2 Kubernetes architecture of the background processing task queue
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.2 背景处理任务队列的 Kubernetes 架构
+- en: Our worker Pods will be deployed in a hopefully now-familiar Deployment configuration
+    (from chapter 3). We’ll pass in the location of our Redis host using an environment
+    variable that references the internal service host (as per section 7.1.3).
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的工人 Pod 将以一个希望现在熟悉的 Deployment 配置（来自第 3 章）进行部署。我们将通过一个环境变量传入 Redis 主机的位置，该变量引用内部服务主机（如第
+    7.1.3 节所述）。
+- en: Listing 10.5 Chapter10/10.1.1_TaskQueue/deploy_worker.yaml
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.5 第 10 章/10.1.1_任务队列/deploy_worker.yaml
+- en: '[PRE4]'
+  id: totrans-59
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ The worker container image
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 工人容器镜像
+- en: ❷ The Kubernetes Service host name of the primary Redis Pod
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 主要 Redis Pod 的 Kubernetes 服务主机名
+- en: ❸ Env variable to instruct Python to output all print statements immediately
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 环境变量，指示 Python 立即输出所有打印语句
+- en: Notice that there’s nothing special at all about this Deployment when compared
+    with the other Deployments used so far in this book for exposing web services.
+    It’s just a bunch of Pods that we happen to have given the role of task workers.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，与本书中用于公开 web 服务的其他 Deployment 相比，这个 Deployment 没有任何特别之处。它只是一组我们碰巧赋予任务工作者角色的
+    Pod。
+- en: 'Our worker Pods are expecting a Redis instance, so let’s deploy that first.
+    We can use the one from chapter 9; the solutions in the 9.2.1_StatefulSet_Redis
+    and 9.2.2_StatefulSet_Redis_Multi folders both work for our purposes here. From
+    the code sample root folder, simply run:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的工人 Pod 期待一个 Redis 实例，所以让我们先部署它。我们可以使用第 9 章中的那个；9.2.1_有状态集_Redis 和 9.2.2_有状态集_Redis_Multi
+    文件夹中的解决方案都适用于我们的目的。从代码样本根目录，只需运行：
+- en: '[PRE5]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Now create our worker deployment:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在创建我们的工人部署：
+- en: '[PRE6]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Finally, verify everything is working correctly. You should see five running
+    Pods:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，验证一切是否运行正常。你应该看到五个正在运行的 Pod：
+- en: '[PRE7]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Watching the rollout progress
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 观察滚动进度
+- en: 'The `get` commands I show here, like `kubectl` `get` `pods`, give you a point-in-time
+    status. Recall from chapter 3 that there are two great options for watching your
+    rollout: you can append `-w` to kubectl commands, which is Kubernetes’s built-in
+    watching option (e.g., `kubectl` `get` `pods` `-w`), or you can use my favorite,
+    the Linux `watch` command. I use `watch` `-d` `kubectl` `get` `pods`, which will
+    refresh the status every 2 seconds, and highlight changes. You can also customize
+    the refresh rate. To keep the syntax simple in the book, I won’t add watches to
+    every command I share, but remember that they are available to use.'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在这里展示的 `get` 命令，如 `kubectl get pods`，给你一个时间点的状态。回想一下第 3 章，有两个很好的选项来监视你的滚动：你可以在
+    kubectl 命令中附加 `-w`，这是 Kubernetes 的内置监视选项（例如，`kubectl get pods -w`），或者你可以使用我最喜欢的
+    Linux `watch` 命令。我使用 `watch -d kubectl get pods`，这将每 2 秒刷新状态，并突出显示更改。你还可以自定义刷新率。为了在书中保持语法简单，我不会在每个我分享的命令中添加监视，但请记住，它们是可以使用的。
+- en: 'Now that our app is deployed, we can look at the logs to see what it’s doing.
+    There’s no built-in way in Kubernetes to stream logs from multiple Pods (like
+    our two workers) at the same time, but by specifying the Deployment, the system
+    will randomly pick one and follow its logs:'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经部署了应用程序，我们可以查看日志以了解它在做什么。Kubernetes 中没有内置的方法可以同时流式传输多个 Pod（如我们的两个工人）的日志，但通过指定
+    Deployment，系统将随机选择一个并跟随其日志：
+- en: '[PRE8]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'If you want to view the logs for all pods in the deployment but not stream
+    them, that can also be done by referencing the metadata labels from the PodSpec,
+    which in our case is `pod=pi`:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你只想查看部署中所有 Pod 的日志而不进行流式传输，也可以通过引用 PodSpec 中的元数据标签来完成，在我们的情况下是 `pod=pi`：
+- en: '[PRE9]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Whichever way you view the logs, we can see that the Pod has printed `starting`
+    and nothing else because our Pod is waiting on tasks to be added to the queue.
+    Let’s add some tasks for it to work on.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论你以何种方式查看日志，我们都可以看到 Pod 打印了 `starting` 并没有其他内容，因为我们的 Pod 正在等待任务被添加到队列中。让我们添加一些任务供它处理。
+- en: Adding work to the queue
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 向队列添加工作
+- en: Normally, it will be the web application or another process that will be adding
+    work for the background queue to process. All that the web application need do
+    is call `redis.rpush('queue:task',` `object)` *with the object that represents
+    the tasks.*
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，添加工作到后台队列的将是 web 应用程序或另一个进程。所有 web 应用程序需要做的只是调用 `redis.rpush('queue:task',
+    object)` *带有表示任务的对象*。
+- en: 'For this example, we can run the `add_tasks.py` script that we included in
+    our container (listing 10.3) for scheduling some tasks. We can execute a one-off
+    command on the container in one of our Pods:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这个例子，我们可以运行我们包含在容器中（列表10.3）的`add_tasks.py`脚本来安排一些任务。我们可以在我们的Pod之一上执行一次性命令：
+- en: '[PRE10]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Note that when we pass in `deploy/pi-worker` here, `exec` will pick one of our
+    Pods randomly to run the actual command on (this can even be a Pod in the `Terminating`
+    state, so be careful!). You can also run the command directly on the Pod of your
+    choice with `kubectl exec -it $POD_NAME -- python3 add_tasks.py`.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，当我们在这里传递`deploy/pi-worker`时，`exec`将随机选择我们的Pod之一来运行实际命令（这甚至可以是处于`Terminating`状态的Pod，所以请小心！）您也可以使用`kubectl
+    exec -it $POD_NAME -- python3 add_tasks.py`直接在您选择的Pod上运行命令。
+- en: Viewing the work
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看工作情况
+- en: 'With tasks added to the queue, we can observe the logs of one of our worker
+    pods to see how they’re doing:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在队列中添加任务后，我们可以观察我们的一个工作Pod的日志，以了解它们的运行情况：
+- en: '[PRE11]'
+  id: totrans-84
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: This worker is getting the task (being to calculate Pi with *n* iterations of
+    the Gregory-Leibniz infinity series algorithm) and performing the work.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此工作Pod正在获取任务（即使用Gregory-Leibniz无穷级数算法的*n*次迭代来计算π）并执行工作。
+- en: 10.1.2 Signal handling in worker Pods
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.2 工作Pod中的信号处理
+- en: One thing to note is that the previous worker implementation has no SIGTERM
+    handling, which means it won’t shut down gracefully when the Pod needs to be replaced.
+    There are a lot of reasons why a Pod might be terminated, including if you update
+    the deployment or if the Kubernetes node is upgraded, so this is a very important
+    signal to handle.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有一个需要注意的事项是，之前的工人实现没有SIGTERM处理，这意味着当Pod需要替换时，它不会优雅地关闭。Pod可能被终止的原因有很多，包括更新部署或Kubernetes节点升级，所以这是一个非常重要的信号需要处理。
+- en: In Python, we can implement this with a SIGTERM handler that will instruct our
+    worker to terminate once it finishes its current task. We’ll also add a timeout
+    to our queue-pop call so the worker can check the status more frequently. For
+    your own work, look up how to implement SIGTERM signal handling in your language
+    of choice. Let’s add termination handling in the following listing to shut down
+    the worker when SIGTERM is received.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Python中，我们可以通过实现一个SIGTERM处理程序来实现这一点，该处理程序将指示我们的工作员在完成当前任务后终止。我们还将添加一个超时到我们的队列弹出调用，以便工作员可以更频繁地检查状态。对于您自己的工作，查找如何在您选择的语言中实现SIGTERM信号处理。让我们在以下列表中添加终止处理，以便在接收到SIGTERM时关闭工作员。
+- en: Listing 10.6 Chapter10/pi_worker2/pi_worker.py
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.6第10章/pi_worker2/pi_worker.py
+- en: '[PRE12]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Instead of looping indefinitely, exit the loop if this variable is set to
+    false by the signal handler.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果信号处理程序将此变量设置为false，则退出循环，而不是无限循环。
+- en: ❷ Register a signal handler to set the running state to false when SIGTERM is
+    received.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当接收到SIGTERM时，注册信号处理程序以将运行状态设置为false。
+- en: ❸ Pops the next task but now only waits for 5 seconds if the queue is empty
+    (to allow the running condition to be checked)
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 弹出下一个任务，但现在如果队列为空，则只等待5秒钟（以允许检查运行条件）
+- en: Then, deploy this revision in an updated Deployment, specifying the new image
+    along with `terminationGracePeriodSeconds` to request 2 minutes to handle that
+    SIGTERM by wrapping up the current work and exiting.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，在更新的部署中部署此修订版，指定新镜像以及`terminationGracePeriodSeconds`以请求2分钟来处理SIGTERM，通过完成当前工作并退出。
+- en: Listing 10.7 Chapter10/10.1.2_TaskQueue2/deploy_worker.yaml
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.7第10章/10.1.2_TaskQueue2/deploy_worker.yaml
+- en: '[PRE13]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ New app version with SIGTERM handling
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 具有SIGTERM处理的新的应用程序版本
+- en: ❷ Resource requests added so that it can work with HPA
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 添加资源请求，以便它可以与HPA一起工作
+- en: ❸ Request a 120-second graceful termination period to give the container time
+    to shutdown after SIGTERM.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 请求120秒的优雅终止期，以便容器在接收到SIGTERM后有足够的时间关闭。
+- en: Together, the signal handling in the Pod and the termination grace period means
+    that this Pod will stop accepting new jobs once it receives the SIGTERM and will
+    have 120 seconds to wrap up any current work. Adjust the `terminationGracePeriodSeconds`
+    value as needed for your own workloads.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一起，Pod中的信号处理和终止宽限期意味着，一旦接收到SIGTERM，此Pod将停止接受新的工作，并将有120秒的时间来处理任何当前的工作。根据您自己的工作负载需要调整`terminationGracePeriodSeconds`的值。
+- en: There are a few more things we didn’t consider here. For example, if the worker
+    crashes while processing a task, then that task would be lost as it will be removed
+    from the queue but not completed. Also, there’s only minimal observability and
+    other functions. The goal of the previous sample is not to provide a complete
+    queue system but, rather, to demonstrate conceptually how they work. You could
+    continue to implement fault tolerance and other functionality or adopt an open
+    source background task queue and have it do that for you. That choice is yours.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们还没有考虑一些其他事情。例如，如果工作器在处理任务时崩溃，那么该任务就会丢失，因为它将从队列中移除但未完成。此外，只有最小程度的可观察性和其他功能。前一个示例的目标不是提供一个完整的队列系统，而是从概念上展示它们是如何工作的。您可以继续实现容错和其他功能，或者采用开源的后台任务队列，让它为您完成这些工作。这个选择由您自己决定。
+- en: 10.1.3 Scaling worker Pods
+  id: totrans-102
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.3 扩展工作 Pod
+- en: Scaling the worker Pods is the same technique for any Deployment, as covered
+    in chapter 6\. You can set the replica count manually or with a Horizontal Pod
+    Autoscaler (HPA). Since our example workload is CPU-intensive, the CPU metric
+    works well for scaling using an HPA, so let’s set one up now.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 扩展工作 Pod 的技术对于任何 Deployment 都是一样的，如第 6 章所述。您可以手动设置副本数量或使用水平 Pod 自动扩展器 (HPA)。由于我们的示例工作负载是
+    CPU 密集型的，因此 CPU 指标非常适合使用 HPA 进行扩展，所以现在让我们设置一个。
+- en: Listing 10.8 Chapter10/10.1.3_HPA/worker_hpa.yaml
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.8 第 10 章第 10.1.3_HPA/worker_hpa.yaml
+- en: '[PRE14]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ References the Deployment from listing 10.7
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 引用列表 10.7 中的 Deployment
+- en: 'This code will scale our deployment to between 2 and 10 Pods, aiming for the
+    Pods to be using 20% of their requested CPU resources on average. Create the HPA
+    like so:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码将使我们的部署扩展到 2 到 10 个 Pod 之间，目标是使 Pod 平均使用其请求的 CPU 资源的 20%。创建 HPA 如下：
+- en: '[PRE15]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'With the HPA in place, you can repeat the “add tasks” step from section 10.1.1
+    and watch the HPA do its thing. The `kubectl` `get` command supports multiple
+    resource types, so you can run `kubectl` `get` `pods,hpa`, which I generally prefix
+    with the Linux `watch` command, to observe all the components interacting:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在设置了 HPA 之后，您可以重复第 10.1.1 节中的“添加任务”步骤，并观察 HPA 执行其操作。`kubectl` `get` 命令支持多种资源类型，因此您可以运行
+    `kubectl` `get` `pods,hpa`，我通常在 Linux `watch` 命令前加上前缀，以观察所有组件的交互：
+- en: '[PRE16]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 10.1.4 Open source task queues
+  id: totrans-111
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.4 开源任务队列
+- en: So far, we’ve been building our own task queue. I find it best to get hands-on
+    to understand how things work. However, you likely don’t need to implement a task
+    queue yourself from scratch since others have done the work for you.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直在构建自己的任务队列。我发现亲自动手了解事物的工作原理是最好的。然而，您可能不需要从头开始自己实现任务队列，因为其他人已经为您完成了这项工作。
+- en: For Python, RQ[³](#pgfId-1106204) is a popular choice that allows you to basically
+    enqueue a function call with a bunch of parameters. There’s no need to even wrap
+    this function in an object that conforms to a required protocol.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于 Python，RQ[³](#pgfId-1106204) 是一个流行的选择，它允许您基本上使用一堆参数来排队一个函数调用。甚至不需要将此函数包装在一个符合所需协议的对象中。
+- en: For Ruby developers, Resque,[⁴](#pgfId-1106209) created by the team at GitHub,
+    is a popular choice. Tasks in Resque are simply Ruby classes that implement a
+    `perform` method. The Ruby on Rails framework makes Resque particularly easy to
+    use with its Active Job framework, which allows Resque (among other task queue
+    implementations) to be used as the queuing backend.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于 Ruby 开发者来说，GitHub 团队创建的 Resque[⁴](#pgfId-1106209) 是一个流行的选择。Resque 中的任务只是实现了
+    `perform` 方法的 Ruby 类。Ruby on Rails 框架通过其 Active Job 框架使得 Resque（以及其他任务队列实现）特别容易使用，该框架允许
+    Resque（以及其他任务队列实现）作为排队后端使用。
+- en: Before going out and building your own queue, I’d recommend looking at these
+    options and more. If you have to build something yourself or the off-the-shelf
+    options just don’t cut it, I hope you saw from the earlier examples that it’s
+    at least pretty straightforward to get started.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在出去构建自己的队列之前，我建议您查看这些选项以及更多内容。如果您必须自己构建某些内容，或者现成的选项根本不够用，我希望您从早期的示例中看到了，至少开始起来是相当直接的。
+- en: 10.2 Jobs
+  id: totrans-116
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.2 工作
+- en: Kubernetes offers a way to define a finite set of work to process with the Job
+    construct. Both Job and Deployment can be used for handling batch jobs and background
+    processing in Kubernetes in general. The key difference is that Job is designed
+    to process a finite set of work and can potentially be used without needing a
+    queue data structure like Redis, while Deployment is for a continuously running
+    background queue that will need some kind of queue structure for coordination
+    (as we did in section 10.1). You can also use Jobs to run one-off and periodic
+    tasks like maintenance operations, which wouldn’t make sense in a Deployment (which
+    would restart the Pod once it finishes).
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 提供了一种使用 Job 结构定义有限工作集的方法。Job 和 Deployment 都可以用于在 Kubernetes 中处理批量作业和后台处理。关键区别在于，Job
+    是设计来处理有限的工作集，并且可能不需要像 Redis 这样的队列数据结构，而 Deployment 是用于持续运行的后台队列，它需要某种类型的队列结构来进行协调（就像我们在第
+    10.1 节中所做的那样）。你还可以使用 Jobs 来运行一次性任务和周期性任务，如维护操作，这在 Deployment 中是不合理的（Deployment
+    会在 Pod 完成后重启 Pod）。
+- en: You may be wondering why a separate construct is needed in Kubernetes to run
+    something once since standalone Pods could do that as well. While it’s true that
+    you can schedule a Pod to perform a task and shut down once it’s complete, there
+    is no controller to ensure that the task actually completes. That can happen,
+    for example, if the Pod was evicted due to a maintenance event before it had a
+    chance to complete. Job adds some useful constructs around the Pod to ensure that
+    the task will complete by rescheduling it if it fails or is evicted, as well as
+    the potential to track multiple completions and parallelism.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能想知道为什么在 Kubernetes 中需要一个单独的结构来运行一次性的任务，因为独立的 Pods 也能做到这一点。虽然确实可以安排一个 Pod
+    来执行任务并在完成后关闭，但没有控制器来确保任务实际上完成了。例如，如果 Pod 在有机会完成之前因为维护事件而被驱逐，这种情况就会发生。Job 通过在 Pod
+    旁边添加一些有用的结构来确保任务完成，包括在任务失败或被驱逐时重新安排任务，以及跟踪多个完成和并行性的可能性。
+- en: At the end of the day, Job is just another higher-order workload controller
+    in Kubernetes for managing Pods, like Deployment and StatefulSet. All three create
+    Pods to run your actual code, just with different logic around scheduling and
+    management provided by the controller. Deployments are for creating a set of continuously
+    running Pods; StatefulSet, for Pods that have a unique ordinal and can attach
+    disks through persistent volume templates; and Jobs, for Pods that should run
+    to completion, potentially multiple times.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，Job 只是 Kubernetes 中用于管理 Pods 的另一个高级工作负载控制器，就像 Deployment 和 StatefulSet 一样。所有三个都创建
+    Pods 来运行你的实际代码，只是控制器提供的调度和管理逻辑不同。Deployments 用于创建一组持续运行的 Pods；StatefulSet 用于具有唯一序号的
+    Pods，可以通过持久卷模板附加磁盘；而 Jobs 用于应该运行到完成的 Pods，可能需要多次运行。
+- en: 10.2.1 Running one-off tasks with Jobs
+  id: totrans-120
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.1 使用 Jobs 运行一次性任务
+- en: Jobs are great for running one-off tasks. Let’s say you want to perform a maintenance
+    task like clearing a cache or anything else that is essentially just running a
+    command in your container. Instead of using `kubectl` `exec` on an existing Pod,
+    you can schedule a Job to run the task as a separate process with its own resources,
+    ensure that the action will complete as requested (or report a failure status),
+    and make it easily repeatable.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Jobs 对于运行一次性任务非常出色。假设你想执行一个维护任务，比如清理缓存或其他本质上只是在你容器中运行命令的任务。而不是在现有的 Pod 上使用 `kubectl`
+    `exec`，你可以安排一个 Job 来以单独的过程运行任务，并为其分配自己的资源，确保操作将按请求完成（或报告失败状态），并使其易于重复。
+- en: The `exec` command should really only be used for debugging running Pods. If
+    you use `exec` to perform maintenance tasks, your task is sharing the resources
+    with the Pod, which isn’t great. The Pod may not have enough resources to handle
+    both, and you are affecting the performance. By moving tasks to a Job, they get
+    their own Pod with their own resource allocation.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`exec` 命令实际上应该仅用于调试正在运行的 Pods。如果你使用 `exec` 来执行维护任务，你的任务将与 Pod 共享资源，这并不理想。Pod
+    可能没有足够的资源来同时处理两者，并且你正在影响性能。通过将任务移动到 Job，它们将获得自己的 Pod 和自己的资源分配。'
+- en: Configuration as code for maintenance tasks
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置代码用于维护任务
+- en: Throughout this book, I’ve been espousing how important it is to capture everything
+    in configuration. By capturing routine maintenance tasks as Jobs, rather than
+    having a list of shell commands to copy/paste, you’re building a repeatable configuration.
+    If you follow the GitOps approach, where production changes go through Git (covered
+    in the next chapter), your maintenance tasks can go through your usual code review
+    process to be rolled out into production.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在整本书中，我一直强调捕获配置中的所有内容是多么重要。通过将常规维护任务作为Job来捕获，而不是有一个要复制/粘贴的shell命令列表，你正在构建一个可重复的配置。如果你遵循GitOps方法，其中生产变更通过Git进行（下一章将介绍），你的维护任务可以通过你通常的代码审查流程部署到生产环境中。
+- en: In the previous section, we needed to execute a command in the container to
+    add some work to our queue, and we used `kubectl` `exec` on an existing Pod to
+    run `python3` `add_tasks.py`. Let’s upgrade the process of adding work to be a
+    proper Job with its own Pod. The following Job definition can be used to perform
+    the `python3` `add_tasks.py` task on our container named `pi`.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中，我们需要在容器中执行一个命令来向我们的队列添加一些工作，我们使用了`kubectl` `exec`在现有的Pod上运行`python3` `add_tasks.py`。让我们升级添加工作的过程，使其成为一个具有自己Pod的Job。以下Job定义可以用来在我们的名为`pi`的容器上执行`python3`
+    `add_tasks.py`任务。
+- en: Listing 10.9 Chapter10/10.2.1_Job/job_addwork.yaml
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.9 第10章/10.2.1_Job/job_addwork.yaml
+- en: '[PRE17]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ References the same container image as the worker...
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 引用与工作节点相同的容器镜像...
+- en: ❷ ...but specifies a different command to run for the addwork Job
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ ...但对于addwork Job指定了不同的运行命令
+- en: The `spec` within the `template` within the `spec` pattern may look familiar,
+    and that’s because this object embeds a PodSpec template just as Deployment and
+    StatefulSet do (see figure 10.3 for a visual representation of the object composition).
+    All the parameters of the Pod can be used here, like resource requests and environment
+    variables, with only a couple of exceptions for parameter combinations that don’t
+    make sense in the Job context.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`spec`模式中的`template`内部的`spec`可能看起来很熟悉，这是因为这个对象就像Deployment和StatefulSet一样嵌入了一个PodSpec模板（见图10.3，展示了对象组成）。Pod的所有参数都可以在这里使用，例如资源请求和环境变量，只有少数几个参数组合在Job上下文中没有意义。
+- en: '![10-03](../../OEBPS/Images/10-03.png)'
+  id: totrans-131
+  prefs: []
+  type: TYPE_IMG
+  zh: '![10-03](../../OEBPS/Images/10-03.png)'
+- en: Figure 10.3 Object composition of a Job
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.3 Job的对象组成
+- en: 'Our PodSpec for the Job has the same environment variables as our PodSpec from
+    the Deployment. That’s the great thing about Kubernetes object composition: the
+    specification is the same wherever the Pod is embedded. The other differences
+    are the `restartPolicy` and the `backoffLimit` fields.'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们Job的PodSpec与我们的Deployment中的PodSpec具有相同的环境变量。这就是Kubernetes对象组合的好处：无论Pod在哪里嵌入，规范都是相同的。其他的不同之处在于`restartPolicy`和`backoffLimit`字段。
+- en: The Pod `restartPolicy`, a property of the PodSpec embedded in the Job, governs
+    whether or not the node’s kubelet will restart containers that exit with an error.
+    For Jobs, this can be set to `OnFailure` to restart the container if it fails
+    or `Never` to ignore failures. The `Always` option doesn’t make sense for Jobs,
+    as this would restart a successful Pod, which is not what Jobs are designed to
+    do (that’s more in the domain of Deployment).
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod的`restartPolicy`是Job中嵌入的PodSpec的一个属性，它决定了节点上的kubelet是否会重启因错误退出的容器。对于Job，这可以设置为`OnFailure`，如果容器失败则重启，或者设置为`Never`来忽略失败。对于Job来说，`Always`选项没有意义，因为这会重启一个成功的Pod，而这并不是Job设计的目的（这更属于Deployment的领域）。
+- en: The backoff limit is part of the Job and determines how many times to try to
+    run the Job. This encompasses both crashes and node failures. For example, if
+    the Job crashes twice and then is evicted due to node maintenance, that counts
+    as three restarts. Some practitioners like to use `Never` during development as
+    it’s easier to debug and see all the failed Pods and query their logs.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 倒计时限制是Job的一部分，它决定了尝试运行Job的次数。这包括崩溃和节点故障。例如，如果Job崩溃两次然后因为节点维护而被驱逐，这算作三次重启。一些实践者喜欢在开发期间使用`Never`，因为这更容易调试并查看所有失败的Pod以及查询它们的日志。
+- en: 'Create the Job like any other Kubernetes object and then observe the progress:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建Job就像创建任何其他Kubernetes对象一样，然后观察进度：
+- en: '[PRE18]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'If the Job succeeds, we can watch our worker Pods, which should become busy
+    with newly added work. If you deployed the HPA earlier, then you’ll soon see new
+    containers created, as I did here:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果Job成功，我们可以观察我们的工作节点Pod，它们应该会因新添加的工作而变得忙碌。如果你之前部署了HPA，那么你很快就会看到新容器被创建，就像我这里做的那样：
+- en: '[PRE19]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'One thing to note about Jobs is that whether the Job has completed or not,
+    you won’t be able to schedule it again with the same name (i.e., to repeat the
+    action) without deleting it first. That’s because even though the work is now
+    finished, the Job object still exists in Kubernetes. You can delete it like any
+    object created through configuration:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于 Job 有一点需要注意：无论 Job 是否已完成，你都无法使用相同的名称（即重复该操作）再次调度它，除非先删除它。这是因为尽管工作现在已经完成，但
+    Job 对象仍然存在于 Kubernetes 中。你可以像删除任何通过配置创建的对象一样删除它：
+- en: '[PRE20]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: To recap, Job is for when you have some task or work to complete. Our example
+    was to execute a simple command. However, this could equally have been a long
+    and complex computational task. If you need to run a one-off background process,
+    simply containerize it, define it in the Job, and schedule it. When the Job reports
+    itself as `Completed` (by terminating with an exit status of success), the work
+    is done.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结一下，Job 是当你有一些任务或工作要完成时使用的。我们的例子是执行一个简单的命令。然而，这也可以是一个漫长且复杂的计算任务。如果你需要运行一个一次性后台进程，只需将其容器化，在
+    Job 中定义它，并调度它。当 Job 报告自己为 `Completed`（通过成功退出状态终止）时，工作就完成了。
+- en: Two parameters of Job that we didn’t use to run a one-off task are `completions`
+    and `parallelism`. These parameters allow you to process a batch of tasks using
+    a single Job object description, which is covered in section 10.3\. Before we
+    get to that, let’s look at how to schedule Jobs at regular intervals.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '我们没有使用来运行一次性任务的 Job 参数是 `completions` 和 `parallelism`。这些参数允许你使用单个 Job 对象描述来处理一批任务，这将在第
+    10.3 节中介绍。在我们到达那里之前，让我们看看如何定期调度 Job。 '
+- en: 10.2.2 Scheduling tasks with CronJobs
+  id: totrans-144
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.2 使用 CronJobs 调度任务
+- en: In the previous section, we took a command that we had executed manually on
+    the cluster and created a proper Kubernetes object to encapsulate it. Now, any
+    developer on the team can perform that task by creating the Job object rather
+    than needing to remember a complex `exec` command.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一节中，我们创建了一个合适的 Kubernetes 对象来封装我们在集群上手动执行的命令。现在，团队中的任何开发者都可以通过创建 Job 对象来执行这个任务，而不是需要记住一个复杂的
+    `exec` 命令。
+- en: What about tasks that you need to run repeatedly on a set interval? Kubernetes
+    has you covered with CronJob. CronJob encapsulates a Job object and adds a frequency
+    parameter that allows you to set a daily or hourly (or any interval you like)
+    frequency to run the Job, as in the following listing. This is a popular way to
+    schedule tasks like a daily cache cleanup and the like.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，对于需要定期在固定间隔运行的任务怎么办？Kubernetes 提供了 CronJob。CronJob 封装了一个 Job 对象，并添加了一个频率参数，允许你设置每天或每小时（或任何你喜欢的间隔）的频率来运行
+    Job，如下面的列表所示。这是调度像每日缓存清理这样的任务的一种流行方式。
+- en: Listing 10.10 Chapter10/10.2.2_CronJob/cronjob_addwork.yaml
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.10 第 10 章/10.2.2_CronJob/cronjob_addwork.yaml
+- en: '[PRE21]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ The cron schedule to run the Job on
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 运行 Job 的 cron 调度计划
+- en: ❷ The Job specification, similar to listing 10.9
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 与列表 10.9 类似的 Job 规范
+- en: You might notice that we just copied the entire specification of the Job (i.e.,
+    the `spec` dictionary) from listing 10.9 under this CronJob’s `spec` dictionary
+    as the `jobTemplate` key and added an extra spec-level field named `schedule`.
+    Recall that the Job has its own template for the Pods that will be created, which
+    also have their own spec.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会注意到，我们只是将 Job 的整个规范（即 `spec` 字典）从列表 10.9 下的这个 CronJob 的 `spec` 字典中复制过来，作为
+    `jobTemplate` 键，并添加了一个额外的规范级别字段名为 `schedule`。回想一下，Job 有自己的模板用于将要创建的 Pods，这些 Pods
+    也有自己的规范。
+- en: So, the CronJob embeds a Job object, which, in turn, embeds a Pod. It can be
+    helpful to visualize this through object composition, so take a look at figure
+    10.4.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，CronJob 包含一个 Job 对象，而该对象反过来又包含一个 Pod。通过对象组合可视化这一点可能会有所帮助，所以请看一下图 10.4。
+- en: '![10-04](../../OEBPS/Images/10-04.png)'
+  id: totrans-153
+  prefs: []
+  type: TYPE_IMG
+  zh: '![10-04](../../OEBPS/Images/10-04.png)'
+- en: Figure 10.4 Object composition of CronJob
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.4 CronJob 的对象组合
+- en: Object Composition in Kubernetes
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 中的对象组合
+- en: With all the specs and templates embedding other templates and specs, sometimes
+    it feels like turtles all the way down in Kubernetes. Here we have a CronJob whose
+    spec contains the template for the Job that gets run on the schedule, which itself
+    contains the template of a Pod with its own spec. This may seem confusing and
+    repetitive, or both, but there is a huge benefit to this approach. When looking
+    at the API docs, you can use any field of Job in the `jobTemplate`, just as you
+    can use any field of Pod in the `spec` section. Kubernetes objects are built from
+    the composition of other objects.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有规范和模板嵌入其他模板和规范的情况下，有时感觉就像在Kubernetes中一直向下是乌龟。这里有一个CronJob，其规范包含在计划上运行的Job的模板，它本身包含具有自己规范的Pod的模板。这可能会让人感到困惑和重复，或者两者兼而有之，但这种方法有一个巨大的好处。在查看API文档时，你可以在`jobTemplate`中使用Job的任何字段，就像你可以在`spec`部分中使用Pod的任何字段一样。Kubernetes对象是由其他对象的组合构建的。
+- en: 'Some nomenclature is worth learning: when a Pod is embedded in another object,
+    we refer to the specification of the embedded Pod as a *PodSpec* (e.g., a Deployment
+    contains a PodSpec). When the controller for that higher-level object then creates
+    the Pod in the cluster, that Pod is equal to any other, including ones that were
+    created directly with their own specification. The only difference is that the
+    Pods created by a controller (like Job or Deployment) continue to be observed
+    by that controller (i.e., re-creating them if they fail, and so forth).'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些术语值得学习：当一个Pod嵌入到另一个对象中时，我们称嵌入Pod的规范为*PodSpec*（例如，Deployment包含一个PodSpec）。当那个高级对象的控制器在集群中创建Pod时，该Pod与任何其他Pod都相同，包括那些直接使用它们自己的规范创建的Pod。唯一的区别是，由控制器（如Job或Deployment）创建的Pod将继续被该控制器观察（即，如果它们失败，则重新创建它们，等等）。
+- en: So that’s how it’s composed. What about the `schedule` field, which is CronJob’s
+    contribution to the specification? `schedule` is where we define the frequency
+    in the age-old Unix cron format. The cron format is extremely expressive. In listing
+    10.10, `*/5` `*` `*` `*` `*` translates to “every 5 minutes.” You can configure
+    schedules like “run every 30 minutes” (`*/30` `*` `*` `*` `*`), run daily at midnight
+    *(*`0` `0` `*` `*` `*`*),* run Mondays at 4:00 p.m. (`0` `16` `*` `*` `1`), and
+    many, many more. I recommend using a visual cron editor (a Google search for “cron
+    editor” should do the trick) to validate your preferred expression rather than
+    waiting a week to verify that the Job you wanted to run weekly actually ran.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么这就是它的组成方式。关于`schedule`字段，这是CronJob对规范的贡献？`schedule`是我们定义频率的地方，使用古老的Unix cron格式。cron格式非常具有表现力。在列表10.10中，`*/5`
+    `*` `*` `*` `*`表示“每5分钟”。你可以配置像“每30分钟运行一次”(`*/30` `*` `*` `*` `*`)、午夜运行(`*` `0`
+    `*` `*` `*`*)、周一下午4:00(`0` `16` `*` `*` `1`)等时间表。我建议使用可视化的cron编辑器（通过谷歌搜索“cron
+    editor”应该可以解决问题）来验证你偏好的表达式，而不是等待一周来验证你想要每周运行的Job实际上是否运行了。
+- en: 'Create the new CronJob:'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建新的CronJob：
+- en: '[PRE22]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'Wait a couple of minutes (for this example, the Job is created every 5 minutes,
+    i.e., :00, :05, and so forth), and then you can see the Job and the Pod that it
+    spawned:'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 等待几分钟（在这个例子中，Job每5分钟创建一次，即：00，05，等等），然后你可以看到Job及其产生的Pod：
+- en: '[PRE23]'
+  id: totrans-162
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: CronJob will spawn a new Job on a schedule, which, in turn, will spawn a new
+    Pod. You can inspect these historic jobs, as they remain with the `Complete` status.
+    The `successfulJobsHistoryLimit` and `failedJobsHistoryLimit` options in the CronJobSpec[⁵](#pgfId-1106363)
+    can be used to govern how many of those historic Jobs will be kept.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CronJob将按计划生成一个新的Job，反过来，这个Job将生成一个新的Pod。你可以检查这些历史Job，因为它们保持`Complete`状态。CronJobSpec中的`successfulJobsHistoryLimit`和`failedJobsHistoryLimit`选项可以用来控制保留多少个历史Job。
+- en: Time zones
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 时区
+- en: 'Be aware that the CronJob will run on the time zone of your cluster, which
+    for many platforms, including Google Kubernetes Engine (GKE), will be UTC. The
+    time zone used is that of the system Kubernetes controller component, which runs
+    on the control plane. If you’re on a managed platform, it may not be possible
+    to query the control plane nodes directly, but it is possible to check the worker
+    nodes, which likely use the same time zone. Here’s how to create a one-off Pod
+    to run the Linux `date` command and then exit with the output in bold:'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，CronJob将在你的集群时区运行，对于许多平台，包括Google Kubernetes Engine（GKE），将是UTC。使用的时区是系统Kubernetes控制器组件的时区，该组件运行在控制平面。如果你在一个托管平台上，可能无法直接查询控制平面节点，但可以检查工作节点，它们可能使用相同的时区。以下是如何创建一个一次性Pod来运行Linux
+    `date`命令然后以粗体输出结果的步骤：
+- en: '[PRE24]'
+  id: totrans-166
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 10.3 Batch task processing with Jobs
+  id: totrans-167
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.3 使用Job进行批量任务处理
+- en: What if you have a batch of work that you want to process as a regular or one-off
+    event? As covered in section 10.1, if a *continuously running* task queue is what
+    you want, then Deployment is actually the right Kubernetes object. But, if you
+    have a finite batch of work to process, then Job is the ideal Kubernetes construct
+    to use.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你有一批工作想要作为常规或一次性事件处理，会怎样？如第10.1节所述，如果你想要一个持续运行的任务队列，那么部署实际上是正确的Kubernetes对象。但是，如果你有一批有限的工作要处理，那么Job是理想的Kubernetes结构。
+- en: If you have a dynamic work queue data structure like we did in section 10.1
+    but want your workers to shut down completely when the queue is empty, that’s
+    something that Job can do. With a Deployment, you need a separate system (like
+    a `HorizontalPodAutoscaler`) to scale the worker Pods up and down, for example,
+    when there is no more work in the queue. When using Job, the worker Pods themselves
+    can signal to the Job controller when the work is complete and they should be
+    shut down and the resources reclaimed.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你有一个像我们在第10.1节中那样的动态工作队列数据结构，但希望当队列空时你的工作者完全关闭，那么Job可以做到这一点。使用部署，你需要一个单独的系统（如`HorizontalPodAutoscaler`）来上下调整工作者Pod的数量，例如，当队列中没有更多工作时要这样做。当使用Job时，工作者Pod本身可以向Job控制器发出信号，表明工作已完成，它们应该关闭并回收资源。
+- en: Another way to use Job is to run it on a static work queue in such a way that
+    a database is not needed at all. Let’s say you know you need to process 100 tasks
+    in a queue. You could run the Job 100 times. The catch, of course, is that each
+    Pod instantiation in the Job series needs to know which of those 100 tasks to
+    run on, which is where the indexed Job comes in.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Job的另一种方式是在静态工作队列上运行它，这样根本不需要数据库。比如说，你知道你需要处理队列中的100个任务。你可以运行Job 100次。当然，问题是Job系列中的每个Pod实例化都需要知道要运行哪100个任务，这就是索引Job发挥作用的地方。
+- en: In this section, I’ll cover both the dynamic and static approaches to task processing.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我将介绍动态和静态任务处理方法。
+- en: 10.3.1 Dynamic queue processing with Jobs
+  id: totrans-172
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.1 使用Job进行动态队列处理
+- en: Let’s redesign the dynamic queue from section 10.1 to use a Job instead of a
+    Deployment. Both a Deployment and a Job allow the creation of multiple Pod workers,
+    and both will re-create Pods in the event of failure. Deployment, however, doesn’t
+    have the notation of a Pod “completing” (i.e., terminating with an exit status
+    of success). Whatever replica count you give the Deployment is what it will strive
+    to keep running at all times. On the other hand, when a Pod managed by a Job terminates
+    with the success exit code (e.g., `exit` `0`), it indicates to the Job controller
+    that the work has completed successfully, and the Pod won’t be restarted.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们重新设计第10.1节中的动态队列，使用Job而不是部署。部署和Job都允许创建多个Pod工作者，并且两者在发生故障时都会重新创建Pod。然而，部署没有Pod“完成”的注释（即，以成功退出状态终止）。你给部署的任何副本数，它都会努力保持始终运行。另一方面，当由Job管理的Pod以成功退出代码（例如，`exit`
+    `0`）终止时，它向Job控制器表明工作已成功完成，Pod不会被重新启动。
+- en: This property of a Job that allows the individual workers to signal when the
+    work is finished is what makes Jobs useful. If you’re using a dynamic Kubernetes
+    environment such as one with autoscaling (including GKE in Autopilot mode), then
+    a Job allows you to “set and forget” the work, where you schedule it, and once
+    it’s done, the resource consumption goes to zero. Note that you can’t scale the
+    Job back up once it’s completed, but you can delete and re-create it, which essentially
+    starts a new processing queue.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Job的这一特性允许个别工作者在完成工作时发出信号，这使得Job非常有用。如果你使用的是动态Kubernetes环境，例如具有自动缩放（包括Autopilot模式下的GKE）的环境，那么Job允许你“设置并忘记”工作，你安排它，一旦完成，资源消耗就会降到零。请注意，一旦完成，你不能将其缩放回原大小，但你可以删除并重新创建它，这本质上启动了一个新的处理队列。
+- en: For our task worker container to work correctly in a Job environment, we need
+    to add a success exit condition for when the queue becomes empty. The following
+    listing shows what our revised worker code looks like.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使我们的任务工作者容器在Job环境中正确工作，我们需要为队列变为空时添加一个成功退出条件。以下列表显示了我们的修订后的工作者代码。
+- en: Listing 10.11 Chapter10/pi_worker3/pi_worker.py
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.11 第10章/pi_worker3/pi_worker.py
+- en: '[PRE25]'
+  id: totrans-177
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ When configured with COMPLETE_WHEN_EMPTY=1, don’t wait for new tasks when
+    the queue is empty.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当配置为COMPLETE_WHEN_EMPTY=1时，当队列空时不要等待新任务。
+- en: ❷ The 0 exit code indicates to Kubernetes that the Job completed successfully.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 0退出代码向Kubernetes表明Job已成功完成。
+- en: With our worker container set up to behave correctly in the Job context, we
+    can create a Kubernetes Job to run it. Whereas in the deployment we use the `replica`
+    field to govern the number of Pods that are running at once, with a Job, it’s
+    the `parallelism` parameter, which basically does the same thing.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的工作容器设置正确地以作业上下文行为后，我们可以创建一个Kubernetes作业来运行它。在部署中，我们使用`replica`字段来控制同时运行的Pod数量，而在作业中，则是`parallelism`参数，它基本上做的是同样的事情。
+- en: Listing 10.12 Chapter10/10.3.1_JobWorker/job_worker.yaml
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.12 第10章/10.3.1_JobWorker/job_worker.yaml
+- en: '[PRE26]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ❶ How many Pods to run simultaneously to process this task queue
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 同时运行多少个Pod来处理这个任务队列
+- en: ❷ New container version with completion logic
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 带有完成逻辑的新容器版本
+- en: ❸ Environment variable specified to enable completion behavior in the worker
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 指定以启用工作者中的完成行为的环境变量
+- en: If you compare the PodSpec of the worker created as a Job in listing 10.12 to
+    the PodSpec of the worker created as a Deployment in listing 10.7, you’ll notice
+    that the embedded PodSpec (the fields under `template`) is identical other than
+    the addition of the `COMPLETE_WHEN_EMPTY` environment variable and the `restartPolicy`
+    field. The restart policy is added because the default of `Always` for Pods doesn’t
+    apply to Jobs that are designed to terminate. With the `OnFailure` restart policy,
+    the worker Pod will be restarted only if it crashes without returning success,
+    which is generally desirable. We don’t strictly need the labels metadata for the
+    Job version of this worker, but it can be useful to query the logs of multiple
+    Pods at the same time as discussed earlier (i.e., with `kubectl` `logs` `--selector`
+    `pod=pi`).
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您将列表10.12中作为作业创建的工作者的PodSpec与列表10.7中作为部署创建的工作者的PodSpec进行比较，您会注意到除了添加了`COMPLETE_WHEN_EMPTY`环境变量和`restartPolicy`字段之外，内嵌的PodSpec（`template`下的字段）是相同的。添加重启策略是因为Pod的默认值`Always`不适用于旨在终止的作业。使用`OnFailure`重启策略，只有在工作者Pod崩溃而没有返回成功时，工作者Pod才会重启，这通常是期望的。我们并不严格需要这个工作者的作业版本的标签元数据，但它可以像之前讨论的那样（即使用`kubectl
+    logs --selector pod=pi`）同时查询多个Pod的日志。
+- en: Preparing
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 准备中
+- en: 'Before running the Job-based version of the task worker, delete the previous
+    Deployment version of the worker and remove the old “addwork” Job and CronJob
+    so they can be run again:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行基于作业的任务工作者的版本之前，删除之前的部署版本的工作者，并移除旧的“addwork”作业和CronJob，以便它们可以再次运行：
+- en: '[PRE27]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'Since our Redis-based queue may have some existing jobs, you can reset it as
+    well using the LTRIM Redis command:'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的基于Redis的队列可能有一些现有的作业，您也可以使用LTRIM Redis命令来重置它：
+- en: '[PRE28]'
+  id: totrans-191
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'You can also run the `redis-cli` interactively if you prefer to reset the queue:'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您更喜欢交互式运行`redis-cli`来重置队列，也可以：
+- en: '[PRE29]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'Let’s take this Job-based worker for a spin. First, we can add some work to
+    our Redis queue, using a one-off Job like before:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们尝试这个基于作业的工作者。首先，我们可以像之前一样向我们的Redis队列添加一些工作：
+- en: '[PRE30]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: TIP You can’t create the same Job object twice, even if the first instance already
+    ran and completed. To rerun a Job, delete it first before creating again.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TIP 您不能两次创建相同的作业对象，即使第一个实例已经运行并完成。要重新运行作业，首先删除它然后再创建。
+- en: 'Once this `addwork` Job has completed, we can run our new Job queue to process
+    the work. Unlike previously, the order matters here since the Job workers will
+    exit if there is no work in the queue, so make sure that `addwork` completed before
+    you run the Job queue. Observe the status like so:'
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦这个`addwork`作业完成，我们可以运行新的作业队列来处理工作。与之前不同，这里的顺序很重要，因为如果队列中没有工作，作业工作者将退出，所以请确保在运行作业队列之前`addwork`已经完成。观察状态如下：
+- en: '[PRE31]'
+  id: totrans-198
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'Once we see `Completed` on our `addwork` task, we can go ahead and schedule
+    the Job queue:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦我们在`addwork`任务上看到`Completed`状态，我们就可以继续安排作业队列：
+- en: '[PRE32]'
+  id: totrans-200
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: 'What should happen next is that the worker Pods will process the queue, and
+    when the queue is empty, the workers will complete the task they are currently
+    working on and then exit with success. If you want to monitor the queue depth
+    to know when the work should wrap up, you can run `LLEN` on the Redis queue to
+    observe the current queue length:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来应该发生的事情是，工作Pods将处理队列，当队列为空时，工作者将完成他们目前正在处理的任务，然后成功退出。如果您想监控队列深度以了解何时应该结束工作，您可以在Redis队列上运行`LLEN`来观察当前队列长度：
+- en: '[PRE33]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'When it gets to zero, you should observe the Pods entering the `Completed`
+    state. Note that they won’t enter this state right away but rather after they
+    wrap up the last task they are processing:'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当它达到零时，您应该观察到Pod进入`Completed`状态。请注意，它们不会立即进入这个状态，而是在完成它们正在处理的最后一个任务之后：
+- en: '[PRE34]'
+  id: totrans-204
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'Remember that if you want to rerun any of the Jobs, you need to delete them
+    first and create them again, even if the Jobs have completed and there are no
+    Pods running. To run the previous demo a second time, delete both Jobs (the one
+    that adds the work and the one that runs the workers) and create them afresh:'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，如果你想重新运行任何作业，你首先需要删除它们，然后再重新创建，即使作业已经完成且没有 Pod 在运行。为了再次运行之前的演示，请删除两个作业（添加工作负载的作业和运行工作者的作业）并重新创建它们：
+- en: '[PRE35]'
+  id: totrans-206
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 10.3.2 Static queue processing with Jobs
+  id: totrans-207
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.2 使用作业进行静态队列处理
+- en: There are a number of ways to run Jobs with a static queue instead of using
+    a dynamic queue like Redis, as we did in the previous section to store the task
+    list. When using a static queue, the queue length is known ahead of time and is
+    configured as part of the Job itself, and a new Pod is created for each task.
+    Instead of having task workers running until the queue is empty, you are defining
+    up front how many times to instantiate the worker Pod.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有多种方法可以在 Kubernetes 中使用静态队列运行作业，而不是像我们在上一节中那样使用 Redis 这样的动态队列来存储任务列表。当使用静态队列时，队列长度是事先已知的，并作为作业本身的一部分进行配置，并为每个任务创建一个新的
+    Pod。你不需要让任务工作者一直运行直到队列为空，而是预先定义了工作者 Pod 的实例化次数。
+- en: The main reason for doing this is to avoid the container needing to understand
+    how to pull tasks from the dynamic queue, which for existing containers often
+    means effort to add that functionality. The drawback is that there is generally
+    additional configuration on the Kubernetes side. It essentially shifts the configuration
+    burden from the worker container to Kubernetes objects.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 做这件事的主要原因是为了避免容器需要理解如何从动态队列中拉取任务，对于现有的容器来说，这通常意味着需要付出努力来添加这项功能。缺点是通常需要在 Kubernetes
+    端进行额外的配置。这实际上是将配置负担从工作容器转移到了 Kubernetes 对象上。
+- en: Note that even if you have the requirement that you can’t modify the container
+    that performs the work, this doesn’t mean you have to use a static queue. You
+    can have multiple containers in a Pod and have one container that performs the
+    dequeuing, passing the parameters on to the other container.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，即使你有不能修改执行工作的容器的需求，这并不意味着你必须使用静态队列。你可以在 Pod 中有多个容器，并让其中一个容器执行出队操作，然后将参数传递给另一个容器。
+- en: So how do you represent a static work queue in Kubernetes configuration? There
+    are a few different options, three of which I’ll outline here.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么如何在 Kubernetes 配置中表示静态工作队列呢？有几个不同的选项，其中三个我将在这里概述。
+- en: Static queue using an index
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用索引的静态队列
+- en: Indexed Jobs are the most interesting static queue option, in my opinion. They
+    are useful when you know ahead of time how many tasks to process and the task
+    list is one that is easily indexed. One example is rendering an animated movie.
+    You know the number of frames (queue length) and can easily pass each instantiation
+    the frame number (i.e., index into the queue) of the frame to render.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我看来，索引作业是静态队列选项中最有趣的一个。当你事先知道要处理多少个任务以及任务列表是易于索引的时候，它们非常有用。一个例子是渲染动画电影。你知道帧数（队列长度），并且可以轻松地将每个实例的帧数（即渲染帧的队列索引）传递给它们。
+- en: Kubernetes will run the Job the total number of times (`completions`) you specify,
+    creating a Pod for each task. Each time it runs, it will give the Job the next
+    index (supplied in the environment variable `$JOB_COMPLETION_INDEX`). If your
+    work is naturally indexed (e.g., rendering frames in an animated movie), this
+    works great! You can easily instruct Kubernetes to run the Job 30,000 times (i.e.,
+    render 30,000 frames), and it will give each Pod the frame number. Another obvious
+    approach is to give each Job the full list of work using some data structure (e.g.,
+    an array of tasks encoded in YAML or just plain text, one per line), and Kubernetes
+    supplies the index. The Job can then look up the task in the list using the index.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes 将根据你指定的总次数（`completions`）运行作业，为每个任务创建一个 Pod。每次运行时，它都会给作业下一个索引（通过环境变量
+    `$JOB_COMPLETION_INDEX` 提供）。如果你的工作是自然索引的（例如，在动画电影中渲染帧），这将非常有效！你可以轻松地指示 Kubernetes
+    运行作业 30,000 次（即渲染 30,000 帧），并且它会为每个 Pod 提供帧号。另一个明显的方法是使用某种数据结构（例如，YAML 编码的任务数组或纯文本，每行一个任务）为每个作业提供完整的工作列表，Kubernetes
+    提供索引。然后作业可以使用索引在列表中查找任务。
+- en: The following listing provides an example configuration of an Indexed Job that
+    simply outputs a frame number. You can sub in the actual movie rendering logic
+    yourself.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下列表提供了一个简单输出帧号的索引作业的配置示例。你可以自己替换实际的渲染电影逻辑。
+- en: Listing 10.13 Chapter10/10.3.2_IndexedJob/indexed_job.yaml
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.13 第10章/10.3.2_IndexedJob/indexed_job.yaml
+- en: '[PRE36]'
+  id: totrans-217
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: ❶ The number of times to run the Job (upper bound of the index)
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 运行作业的次数（索引的上限）
+- en: ❷ The number of worker Pods to run in parallel
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 并行运行的Worker Pods数量
+- en: ❸ Run in indexed mode, passing in JOB_COMPLETION_INDEX as an environment variable.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 以索引模式运行，通过环境变量传递JOB_COMPLETION_INDEX。
+- en: ❹ Command to output the current index
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 输出当前索引的命令
+- en: 'Run and observe this Job:'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行并观察此作业：
+- en: '[PRE37]'
+  id: totrans-223
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: 'To inspect the logs, do the following:'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检查日志，请执行以下操作：
+- en: '[PRE38]'
+  id: totrans-225
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: Your application can use this environment variable directly, or you can use
+    an *init* container to take the index and perform any configuration steps needed
+    for the main container to perform the work—for example, by building a script that
+    will be run.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您的应用程序可以直接使用此环境变量，或者您可以使用一个*init*容器来获取索引并执行为主容器执行工作所需的任何配置步骤——例如，通过构建一个将要运行的脚本。
+- en: Static queue with a message queue service
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 带有消息队列服务的静态队列
+- en: Another approach that doesn’t require modification of the container is to populate
+    a message queue and have each Pod pull the work from that. As the containers can
+    be configured to get the required parameters through environment variables in
+    the Kubernetes configuration, it’s possible to build a Job where the container
+    is unaware of the queue. It’s still “static” since you have to declare upfront
+    how many tasks there are and run one worker Pod per task, but it also requires
+    a data structure (i.e., the message queue). The Kubernetes docs do a great job
+    of demonstrating this approach using RabbitMQ for the message queue.[⁶](#pgfId-1106620)
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种不需要修改容器的方法是填充一个消息队列，并让每个Pod从该队列中提取工作。由于容器可以通过Kubernetes配置中的环境变量获取所需的参数，因此可以构建一个作业，其中容器对队列一无所知。它仍然是“静态”的，因为您必须提前声明有多少个任务，并为每个任务运行一个worker
+    Pod，但它也需要一个数据结构（即消息队列）。Kubernetes文档使用RabbitMQ作为消息队列，出色地演示了这种方法。[⁶](#pgfId-1106620)
+- en: Static queue via scripting
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过脚本实现的静态队列
+- en: Another option is to use scripting to simply create a separate Job for each
+    task in the queue. Basically, if you have 100 tasks to complete, you’d set up
+    a script to iterate over your task definition and create 100 individual Jobs,
+    giving each the specific input data it needs. This is personally my least-favorite
+    option as it’s a bit unwieldy to manage. Imagine you queue all this work up and
+    then want to cancel it. Instead of just deleting a single Job, as in all the other
+    examples in this section, you’d have to delete 100, so you’d likely need more
+    scripting to do that, and on it goes. Again, the Kubernetes docs have a good demo
+    of this, so if it interests you, check it out.[⁷](#pgfId-1106636)
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个选项是使用脚本为队列中的每个任务创建一个单独的作业。基本上，如果您有100个任务要完成，您会设置一个脚本来遍历您的任务定义并创建100个单独的作业，为每个作业提供它需要的特定输入数据。这对我来说是个人最不喜欢的选项，因为它有点难以管理。想象一下，您将所有这些工作排队，然后想要取消它。与该节中所有其他示例不同，您需要删除100个作业，因此您可能需要更多的脚本来完成这项工作，以此类推。再次强调，Kubernetes文档有一个很好的演示，如果您感兴趣，可以查看它。[⁷](#pgfId-1106636)
+- en: 10.4 Liveness probes for background tasks
+  id: totrans-231
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.4 背景任务的存活性探测
+- en: Just like containers that serve HTTP traffic, containers that perform tasks
+    (whether configured as a Deployment or Job) should also have liveness probes.
+    A liveness probe provides Kubernetes the information it needs to restart containers
+    that are running but not performing as expected (for example, the process has
+    hung or an external dependency has failed). The kubelet will automatically restart
+    *crashed* containers (unless the PodSpec’s `restartPolicy` field is set to `Never`),
+    but it has no way of knowing if your process has hung or is otherwise not performing
+    as expected without a liveness probe.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像处理HTTP流量的容器一样，执行任务的容器（无论配置为Deployment还是Job）也应该有存活性探测。存活性探测为Kubernetes提供所需的信息，以便重启运行但未按预期执行（例如，进程挂起或外部依赖失败）的容器。kubelet会自动重启*崩溃*的容器（除非PodSpec的`restartPolicy`字段设置为`Never`），但没有存活性探测，它无法知道您的进程是否挂起或未按预期执行。
+- en: In chapter 4, we covered readiness and liveness probes in the context of HTTP
+    serving workloads. For background tasks, we can ignore readiness as background
+    tasks don’t have a Service that they can be added to or removed from based on
+    readiness, and focus just on liveness. As with serving workloads, liveness can
+    be used to detect stuck or hung containers in background tasks so Kubernetes can
+    restart them.
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 4 章，我们讨论了在 HTTP 服务工作负载的上下文中准备就绪和活动性探测。对于后台任务，我们可以忽略准备就绪，因为后台任务没有服务可以基于准备就绪添加或删除，我们只需关注活动性。与服务工作负载一样，活动性可以用来检测后台任务中的停滞或挂起容器，这样
+    Kubernetes 就可以重新启动它们。
+- en: As background tasks don’t have an HTTP or a TCP endpoint to use for a liveness
+    probe, that leaves the command-based probe option. You can specify any command
+    to run on the container, and if it exits with success, the container is considered
+    live. But what command should you use? One approach is for the task to write the
+    current timestamp to a file periodically and then have a script that checks the
+    recency of that timestamp, which can be used as the liveness command.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于后台任务没有 HTTP 或 TCP 端点可用于活动性探测，这留下了基于命令的探测选项。你可以指定在容器上运行的任何命令，如果它以成功退出，则容器被认为是活动的。但应该使用什么命令呢？一种方法是为任务定期将当前时间戳写入文件，然后有一个脚本检查该时间戳的新鲜度，这可以用作活动性命令。
+- en: Let’s go ahead and configure such a liveness probe for our task worker container.
+    First, we need a function to write the current time (as a Unix timestamp) to a
+    file. The following listing implements exactly that.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们为我们的任务工作容器配置这样的活动性探测。首先，我们需要一个函数，将当前时间（作为 Unix 时间戳）写入文件。以下列表实现了这一点。
+- en: Listing 10.14 Chapter10/pi_worker4/liveness.py
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.14 第 10 章/pi_worker4/liveness.py
+- en: '[PRE39]'
+  id: totrans-237
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: ❶ The current time as a Unix timestamp
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当前时间作为 Unix 时间戳
+- en: ❷ Write the timestamp to the file logs/lastrun.date.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将时间戳写入文件 logs/lastrun.date。
+- en: Then, we need to call this `update_liveness()` method at various points during
+    the worker run loop to indicate that the process is still live. The obvious place
+    to put it is right in the main loop. If you have a very long running task, you
+    might want to add it in a few more places as well. The following listing shows
+    where this method was added to pi_worker.py (see the source that accompanies the
+    book for the unabridged file).
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们需要在 worker 运行循环的各个阶段调用这个 `update_liveness()` 方法，以表明进程仍然处于活动状态。显然，放置它的最佳位置就在主循环中。如果你有一个非常长的运行任务，你可能还想在更多的地方添加它。以下列表显示了在
+    pi_worker.py 中添加此方法的位置（请参阅随书提供的源代码以获取完整文件）。
+- en: Listing 10.15 Chapter10/pi_worker4/pi_worker.py
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.15 第 10 章/pi_worker4/pi_worker.py
+- en: '[PRE40]'
+  id: totrans-242
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: ❶ Mark the task “live” during the main run loop.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在主运行循环中标记任务为“活动”。
+- en: 'Next, we need a bash script in the container that can be referenced by the
+    liveness command to determine the freshness of this timestamp. Listing 10.16 is
+    such a script. It takes two parameters: the file to read (variable `$1`) and the
+    number of seconds to consider the result live (variable `$2`). It compares the
+    contents of the file to the current time and returns success (exit code `0`) if
+    the timestamp is considered fresh, or fail (a nonzero exit code) if it’s not.
+    Example usage is `./health_check.sh` `logs/lastrun .date` `300`, which will return
+    success if the timestamp written to the lastrun.date file is within 300 seconds
+    (5 minutes) of the current time. See the source that accompanies the book for
+    the complete file including input validation.'
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要一个在容器中可以由 liveness 命令引用的 bash 脚本，以确定此时间戳的新鲜度。列表 10.16 是这样一个脚本。它接受两个参数：要读取的文件（变量
+    `$1`）和认为结果处于活动状态所需考虑的秒数（变量 `$2`）。它将文件内容与当前时间进行比较，如果认为时间戳是新鲜的，则返回成功（退出代码 `0`），如果不新鲜，则返回失败（非零退出代码）。示例用法是
+    `./health_check.sh` `logs/lastrun .date` `300`，如果写入 lastrun.date 文件的时间戳在当前时间的
+    300 秒（5 分钟）内，则返回成功。请参阅随书提供的源代码以获取包括输入验证在内的完整文件。
+- en: Listing 10.16 Chapter10/pi_worker4/check_liveness.sh
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 10.16 第 10 章/pi_worker4/check_liveness.sh
+- en: '[PRE41]'
+  id: totrans-246
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: ❶ Reads the timestamp file (specified by input parameter $1), exit with an error
+    if it doesn’t exist
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 读取时间戳文件（由输入参数 $1 指定），如果不存在则退出错误
+- en: ❷ Get the current timestamp.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 获取当前时间戳。
+- en: ❸ Compares the two timestamps
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 比较两个时间戳
+- en: ❹ Return an error status code if the process, timestamp is older than the threshold
+    (parameter $2).
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果进程的时间戳早于阈值（参数 $2），则返回错误状态码。
+- en: ❺ Return a success exit status.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 返回成功退出状态。
+- en: With the task worker writing the timestamp and a bash script to check it, the
+    final step is to update our workload definition to add the liveness probe via
+    the `livenessProbe` field. This field is part of the PodSpec, so it can be added
+    to either the Deployment or Job version of the task worker. The following listing
+    updates the worker Deployment from listing 10.7 to add a liveness probe.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过任务worker写入时间戳和bash脚本来检查它，最后一步是更新我们的工作负载定义，通过`livenessProbe`字段添加存活探针。该字段是PodSpec的一部分，因此可以添加到任务worker的Deployment或Job版本中。以下列表将worker
+    Deployment从列表10.7更新，以添加存活探针。
+- en: Listing 10.17 Chapter10/10.4_TaskLiveness/deploy_worker.yaml
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表10.17 第10章/10.4_任务存活/deploy_worker.yaml
+- en: '[PRE42]'
+  id: totrans-254
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: ❶ New container version with the liveness probe logic
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 带有存活探针逻辑的新容器版本
+- en: ❷ The new liveness probe
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 新的存活探针
+- en: Putting it all together, we now have a process to detect hung processes in the
+    task worker. If the worker fails to write an updated timestamp into the file in
+    the required *freshness* time threshold (set to 300 seconds in the example), the
+    liveness probe command will *return a failure status, and the Pod will be restarted.*
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将所有这些放在一起，我们现在有一个检测任务worker中挂起进程的过程。如果worker未能将更新的时间戳写入文件，且在所需的新鲜度时间阈值内（示例中设置为300秒），存活探针命令将*返回失败状态，并且Pod将被重启*。
+- en: Make sure your worker is updating this timestamp more frequently than the time
+    specified. If you have a very long running task, either increase the freshness
+    time threshold or update the timestamp file multiple times during the task processing
+    instead of just in the loop as we did in listing 10.15\. Another consideration
+    is to ensure the timestamp is only written when the worker is behaving normally.
+    You probably wouldn’t call `update_liveness()` in an exception handler, for example.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 确保您的worker更新这个时间戳的频率高于指定的频率。如果您有一个非常长的运行任务，要么增加新鲜度时间阈值，要么在任务处理期间多次更新时间戳文件，而不是像我们在列表10.15中所做的那样只在循环中更新。另一个考虑因素是确保只有在worker正常行为时才写入时间戳。例如，您可能不会在异常处理程序中调用`update_liveness()`。
+- en: Note In this example, the threshold for being considered stale (not live) is
+    unrelated to how *often* the liveness probe is run (the `periodSeconds` *field*).
+    If you need to increase the threshold, increase the number of seconds given as
+    the third value to the liveness probe—that is, the `"300"` in `["./check_ liveness.sh",`
+    `"logs/lastrun.date",` `"300"]`*.*
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在这个例子中，被认为是过时的（不活跃的）阈值与存活探针运行的频率（`periodSeconds`字段）无关。如果您需要增加阈值，请增加作为存活探针第三个值的秒数——即`["./check_liveness.sh",
+    "logs/lastrun.date", "300"]`中的`"300"`。
+- en: With this liveness probe configured to the background task, now Kubernetes has
+    the information it needs to keep your code running with less intervention from
+    you.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将这个存活探针配置到后台任务中，现在Kubernetes有了它需要的信息，以更少的干预来保持您的代码运行。
+- en: Summary
+  id: totrans-261
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Kubernetes has a few different options for handling background task queues and
+    batch jobs.
+  id: totrans-262
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes有几种不同的选项来处理后台任务队列和批量作业。
+- en: Deployments can be used to build a continuously running task queue, utilizing
+    a queue data structure like Redis for coordination.
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署可以用来构建一个持续运行的任务队列，利用像Redis这样的队列数据结构进行协调。
+- en: The background processing that many websites run to offload computationally
+    heavy requests would typically be run as a Deployment.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 许多网站运行的后台处理，用于卸载计算密集型请求，通常作为部署来运行。
+- en: Kubernetes also has a dedicated Job object for running tasks.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes还有一个专门的Job对象用于运行任务。
+- en: Jobs can be used for one-off tasks, such as a manual maintenance task.
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Jobs可以用于一次性任务，例如手动维护任务。
+- en: CronJob can be used to schedule Jobs to run, for example, a daily cleanup task.
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: CronJob可以用来安排作业运行，例如，每天进行清理任务。
+- en: Jobs can be used to process a task queue and self-terminate when the work is
+    completed, such as when running one-off or period batch jobs.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 任务可以使用来自动处理任务队列并在工作完成后自我终止，例如在运行一次性或周期性批量作业时。
+- en: Unlike a Deployment-based background queue, Job can be used to schedule work
+    on a static queue, avoiding the need for a queue data structure like Redis.
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与基于部署的后台队列不同，Job可以用来在静态队列上调度工作，避免需要像Redis这样的队列数据结构。
+- en: Liveness checks are still relevant for Pods that process background tasks to
+    detect stuck/hung processes and can be configured using a command-based liveness
+    check.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 存活检查对于处理后台任务的Pod仍然相关，用于检测卡住/挂起的进程，并且可以使用基于命令的存活检查进行配置。
+- en: '* * *'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '* * *'
+- en: ^(1.) Google/SOASTA Research, 2017\. [https://www.thinkwithgoogle.com/marketing-strategies/app-and-mobile/
+    page-load-time-statistics/](https://www.thinkwithgoogle.com/marketing-strategies/app-and-mobile/page-load-time-statistics/)
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (1.) Google/SOASTA 研究所，2017年。[https://www.thinkwithgoogle.com/marketing-strategies/app-and-mobile/page-load-time-statistics/](https://www.thinkwithgoogle.com/marketing-strategies/app-and-mobile/page-load-time-statistics/)
+- en: ^(2.) [https://redis.io/commands/rpush](https://redis.io/commands/rpush)
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (2.) [https://redis.io/commands/rpush](https://redis.io/commands/rpush)
+- en: ^(3.) [https://python-rq.org/](https://python-rq.org/)
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (3.) [https://python-rq.org/](https://python-rq.org/)
+- en: ^(4.) [https://github.com/resque/resque](https://github.com/resque/resque)
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (4.) [https://github.com/resque/resque](https://github.com/resque/resque)
+- en: ^(5.) [https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/cron-job-v1/#CronJobSpec](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/cron-job-v1/%23CronJobSpec)
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (5.) [https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/cron-job-v1/#CronJobSpec](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/cron-job-v1/%23CronJobSpec)
+- en: ^(6.) [https://kubernetes.io/docs/tasks/job/coarse-parallel-processing-work-queue/](https://kubernetes.io/docs/tasks/job/coarse-parallel-processing-work-queue/)
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (6.) [https://kubernetes.io/docs/tasks/job/coarse-parallel-processing-work-queue/](https://kubernetes.io/docs/tasks/job/coarse-parallel-processing-work-queue/)
+- en: ^(7.) [https://kubernetes.io/docs/tasks/job/parallel-processing-expansion/](https://kubernetes.io/docs/tasks/job/parallel-processing-expansion/)
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: (7.) [https://kubernetes.io/docs/tasks/job/parallel-processing-expansion/](https://kubernetes.io/docs/tasks/job/parallel-processing-expansion/)

@@ -1,0 +1,1300 @@
+- en: Chapter 8\. Storm internals
+  id: totrans-0
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 第8章. Storm内部机制
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: How an executor works under the covers
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行器在底层是如何工作的
+- en: How tuples are passed between executors
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 元组如何在执行器之间传递
+- en: Storm’s internal buffers
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Storm的内部缓冲区
+- en: Overflow and tuning of Storm’s internal buffers
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Storm内部缓冲区的溢出和调整
+- en: Routing and tasks
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 路由和任务
+- en: Storm’s debug log output
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Storm的调试日志输出
+- en: 'Here we are, four chapters into covering Storm in production. We’ve explained
+    how you can use the Storm UI to understand what’s going on in your topologies,
+    how to use that information to tune your topologies, and how to diagnose and treat
+    cross-topology contention issues. We’ve explored a number of tools you can put
+    to good use. In this chapter, we’ll introduce you to one more: a deeper understanding
+    of Storm’s internals.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到这里，我们已经介绍了四个章节，涵盖了在生产环境中使用Storm。我们解释了如何使用Storm UI来理解你的拓扑中正在发生的事情，如何使用这些信息来调整你的拓扑，以及如何诊断和治疗跨拓扑竞争问题。我们已经探索了许多你可以有效使用的工具。在本章中，我们将介绍另一个：对Storm内部机制的深入了解。
+- en: Why do we think this is important? Well, in the previous three chapters we’ve
+    given you the tools and strategies for handling issues you’re likely to encounter,
+    but we can’t know every possible problem you will encounter. Each Storm cluster
+    is unique; your combination of hardware and code is bound to encounter issues
+    we’ve never seen and, perhaps, that other people haven’t seen either. The deeper
+    the understanding you have of how Storm works, the better equipped you’ll be to
+    handle such issues. The intent of this chapter, unlike the previous chapter, isn’t
+    to provide solutions to specific problems.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么我们认为这很重要呢？好吧，在前三章中，我们为你提供了处理可能遇到的问题的工具和策略，但我们无法预知你可能会遇到的所有可能的问题。每个Storm集群都是独特的；你硬件和代码的组合很可能会遇到我们从未见过的，也许其他人也没有见过的挑战。你对Storm工作原理的理解越深入，你处理这类问题的能力就越强。本章的意图，与上一章不同，并不是提供特定问题的解决方案。
+- en: To become a master of tuning Storm, debugging Storm issues, designing your topologies
+    for maximum efficiency, and all the other myriad tasks that are part of running
+    a production system, you need to have a deep understanding of the tool you’re
+    using. We aim in this chapter to take you deep into the abstractions that make
+    up Storm. We aren’t going to take you all the way down to the bottom, because
+    Storm is a living project that’s actively being developed and a lot of that development
+    is going on at the core. But there’s a level of abstraction deeper than any we’ve
+    covered so far, and it’s this level of abstraction that we’ll endeavor to familiarize
+    you with. How you’ll deploy the knowledge you get from this chapter we can’t say,
+    but we know you won’t master Storm until you have a firm grasp of the internals
+    that are the subject of this chapter.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要成为Storm调优、调试问题、为最大效率设计拓扑，以及运行生产系统所涉及的其他无数任务的专家，你需要对你所使用的工具有深入的理解。我们旨在本章带你深入了解构成Storm的抽象。我们不会带你深入到底层，因为Storm是一个活跃的项目，正在积极开发中，其中很多开发工作都在核心部分进行。但有一个比我们之前所覆盖的任何抽象都更深的层次，我们将努力让你熟悉这个层次。我们无法告诉你如何部署从本章获得的知识，但我们知道，直到你牢固掌握本章主题的内部机制，你不会掌握Storm。
+- en: '|  |'
+  id: totrans-11
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: Note
+  id: totrans-12
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Some of the terminology we use throughout this chapter doesn’t map directly
+    to the verbiage in the Storm source code but is true to the spirit. This is intentional,
+    because the focus should be on how the internals work, not necessarily how they’re
+    named.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中使用的某些术语并不直接对应于Storm源代码中的术语，但与精神相符。这是故意的，因为重点应该放在内部机制的工作方式上，而不是它们的命名上。
+- en: '|  |'
+  id: totrans-14
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: To focus on Storm’s internals rather than the details of a new use case, we’re
+    going to bring back an old friend, the commit count topology from [chapter 2](kindle_split_010.html#ch02).
+    Let’s go through a quick rundown of this topology just in case you’ve forgotten.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了专注于Storm的内部机制而不是新用例的细节，我们将重新引入一个老朋友，即第2章中的提交计数拓扑[chapter 2](kindle_split_010.html#ch02)。让我们快速回顾一下这个拓扑，以防你忘记了。
+- en: 8.1\. The commit count topology revisited
+  id: totrans-16
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.1. 重新审视提交计数拓扑
+- en: The commit count topology provides a simple topology (one spout and two bolts)
+    we can use to explain Storm’s internals within the context of a particular use
+    case but without getting bogged down with the details of the use case. Having
+    said that, there are a few additional qualifiers we’ll add to this topology for
+    teaching purposes. But before we get to those qualifiers, let’s quickly rehash
+    the topology itself.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提交计数拓扑提供了一个简单的拓扑（一个 Spout 和两个 Bolt），我们可以用它来解释在特定用例的上下文中 Storm 的内部结构，但又不至于陷入用例的细节。话虽如此，为了教学目的，我们还会在这个拓扑结构中添加一些额外的限定条件。但在我们讨论这些限定条件之前，让我们快速回顾一下拓扑结构本身。
+- en: 8.1.1\. Reviewing the topology design
+  id: totrans-18
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.1.1\. 回顾拓扑设计
+- en: As you’ll recall from [chapter 2](kindle_split_010.html#ch02), the commit count
+    topology is broken down into (1) one spout that’ll read commits from a feed, and
+    (2) two bolts that’ll extract the email from the commit message and store counts
+    for each email, respectively. This can all be seen in [figure 8.1](#ch08fig01).
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您从[第 2 章](kindle_split_010.html#ch02)中回忆的那样，提交计数拓扑被分解为（1）一个 Spout，它将从源读取提交，以及（2）两个
+    Bolt，它们将分别从提交消息中提取电子邮件并存储每个电子邮件的计数。所有这些都可以在[图 8.1](#ch08fig01)中看到。
+- en: Figure 8.1\. Commit count topology design and flow of data between the spout
+    and bolts
+  id: totrans-20
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.1\. 提交计数拓扑设计和 Spout 与 Bolt 之间的数据流
+- en: '![](08fig01_alt.jpg)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_IMG
+  zh: '![08fig01_alt.jpg](08fig01_alt.jpg)'
+- en: This design is straightforward and easy to understand. As such, it provides
+    us with a nice scenario to delve into the internals of Storm. One thing we’ll
+    do differently in this chapter is present the topology deployed to a remote Storm
+    cluster, as opposed to having it run in local mode. Let’s discuss why this is
+    needed and how our topology may look when deployed to a remote cluster with multiple
+    worker nodes.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个设计简单易懂。因此，它为我们提供了一个很好的场景，可以深入研究 Storm 的内部结构。在本章中，我们将做的一件事是展示部署到远程 Storm 集群上的拓扑结构，而不是在本地模式下运行。让我们讨论为什么需要这样做，以及我们的拓扑结构在部署到具有多个工作节点的远程集群时可能看起来是什么样子。
+- en: 8.1.2\. Thinking of the topology as running on a remote Storm cluster
+  id: totrans-23
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.1.2\. 将拓扑视为在远程 Storm 集群上运行
+- en: Presenting the topology as running on a remote Storm cluster is essential for
+    this chapter, because the Storm internals we want to cover exist only in a remote
+    cluster setup. For this, we’ll say our topology is running across two worker nodes.
+    Doing this allows us to explain what happens when tuples are passed between components
+    within the same worker process (JVM) as well as across worker processes (from
+    one JVM to another). [Figure 8.2](#ch08fig02) illustrates the two worker nodes
+    along with specifics on where each spout and bolt is executing. This diagram should
+    look familiar, as we presented something similar in [chapter 5](kindle_split_013.html#ch05)
+    when providing a hypothetical configuration of the credit card authorization topology.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将拓扑结构展示为在远程 Storm 集群上运行对于本章至关重要，因为我们要讨论的 Storm 内部结构只存在于远程集群设置中。为此，我们将说我们的拓扑结构运行在两个工作节点上。这样做允许我们解释当元组在同一个工作进程（JVM）内的组件之间传递时以及跨工作进程（从一个
+    JVM 到另一个 JVM）时会发生什么。[图 8.2](#ch08fig02) 展示了两个工作节点以及每个 Spout 和 Bolt 执行的具体位置。这张图应该看起来很熟悉，因为我们曾在[第
+    5 章](kindle_split_013.html#ch05)中提供了一个类似的假设配置，即信用卡授权拓扑结构。
+- en: Figure 8.2\. Commit count topology running across two worker nodes, with one
+    worker process executing a spout and bolt and another worker process executing
+    a bolt
+  id: totrans-25
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.2\. 提交计数拓扑在两个工作节点上运行，其中一个工作进程执行 Spout 和 Bolt，另一个工作进程执行 Bolt
+- en: '![](08fig02_alt.jpg)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![08fig02_alt.jpg](08fig02_alt.jpg)'
+- en: 8.1.3\. How data flows between the spout and bolts in the cluster
+  id: totrans-27
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.1.3\. 集群中 Spout 和 Bolt 之间的数据流
+- en: Let’s trace the flow of a tuple through the topology, much as we did in [chapter
+    2](kindle_split_010.html#ch02). But rather than showing the data flow from the
+    viewpoint of [figure 8.1](#ch08fig01), we’ll show it from the viewpoint of data
+    being passed between instances of our spout and bolts across executors and worker
+    processes ([figure 8.3](#ch08fig03)).
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们追踪一个元组通过拓扑结构的流动，就像我们在[第 2 章](kindle_split_010.html#ch02)中所做的那样。但与从[图 8.1](#ch08fig01)的视角展示数据流不同，我们将从数据在我们
+    Spout 和 Bolt 实例之间、执行器和工作进程之间传递的视角展示它（[图 8.3](#ch08fig03)）。
+- en: Figure 8.3\. Breaking down the flow of data through the topology into six sections,
+    each of which highlights something different within an executor or how data is
+    passed between executors
+  id: totrans-29
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.3\. 将拓扑结构中的数据流分解为六个部分，每个部分都突出了执行器内部的不同之处或数据在执行器之间传递的方式
+- en: '![](08fig03_alt.jpg)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![08fig03_alt.jpg](08fig03_alt.jpg)'
+- en: '[Figure 8.3](#ch08fig03) illustrates nicely how the tuples will flow between
+    instances of our spout and bolts across threads (executors) within a single JVM
+    (worker process) along with data flowing between worker nodes to a completely
+    separate JVM (worker process). Think of [figure 8.3](#ch08fig03) as the 10,000-foot
+    view of how tuples are being passed between components. The goal of this chapter
+    is to dive down much deeper into what’s happening in [figure 8.3](#ch08fig03),
+    so let’s do exactly that, following the flow of data within and between executors
+    in our scenario.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 8.3](#ch08fig03) 很好地说明了元组如何在单个 JVM（工作进程）内的实例之间以及在不同工作节点之间流动，包括数据流向完全不同的
+    JVM（工作进程）。将 [图 8.3](#ch08fig03) 想象为元组在组件之间传递的 10,000 英尺视图。本章的目标是深入探讨 [图 8.3](#ch08fig03)
+    中发生的事情，所以让我们按照我们场景中执行器内部和之间的数据流进行操作。'
+- en: 8.2\. Diving into the details of an executor
+  id: totrans-32
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.2\. 深入了解执行器的细节
+- en: In previous chapters, we’ve described executors as a single thread running on
+    a JVM. That has served us well until now. In our day-to-day reasoning about our
+    own topologies, we usually think of an executor at that level of abstraction as
+    well. But an executor is more than a single thread. Let’s discuss what we mean
+    by this, starting with the executor running our spout instance that reads data
+    from a data source.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们将执行器描述为在 JVM 上运行的单个线程。这至今为止都对我们很有帮助。在我们日常对自身拓扑的推理中，我们通常也会将执行器抽象到这个层面。但是，执行器不仅仅是单个线程。让我们从我们运行的读取数据源数据的
+    spout 实例的执行器开始讨论我们所说的这个意思。
+- en: 8.2.1\. Executor details for the commit feed listener spout
+  id: totrans-34
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.2.1\. 提交消息监听 spout 的执行器详细信息
+- en: Data enters the commit count topology via the commit feed listener spout that
+    listens to a feed of data containing individual commit messages. [Figure 8.4](#ch08fig04)
+    illustrates where we are in our data flow for the topology.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据通过提交消息监听 spout 进入提交计数拓扑，该 spout 监听包含单个提交消息的数据流。[图 8.4](#ch08fig04) 展示了我们在拓扑中的数据流位置。
+- en: Figure 8.4\. Focusing on data flowing into the spout
+  id: totrans-36
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.4\. 专注于流入 spout 的数据
+- en: '![](08fig04.jpg)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](08fig04.jpg)'
+- en: There’s a bit more to this executor than a single thread. It’s actually two
+    threads and one queue. The first thread is what we call the *main thread* and
+    is primarily responsible for running user-supplied code; in this instance, it’s
+    the code we wrote in `nextTuple`. The second thread is what we’ll call the *send
+    thread*, which we’ll talk about shortly in the next section, and it handles transferring
+    tuples to the next bolt in the topology.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个执行器比单个线程要复杂一些。它实际上是两个线程和一个队列。第一个线程就是我们所说的 *主线程*，主要负责运行用户提供的代码；在这个例子中，就是我们在
+    `nextTuple` 中编写的代码。第二个线程是我们将要称为 *发送线程* 的线程，我们将在下一节中简要讨论它，它负责将元组传递到拓扑中的下一个 bolt。
+- en: In addition to the two threads, we have a single queue for transferring emitted
+    tuples out of the executor. Think of this queue as a post-execute-spout function.
+    This queue is designed for high-performance messaging between executors. It’s
+    achieved by having the queue implementation rely on a library known as the *LMAX
+    Disruptor.*^([[1](#ch08fn01)]) All you need to know about a disruptor queue for
+    now is that Storm uses it for the internal executor queue implementations. [Figure
+    8.5](#ch08fig05) illustrates this more detailed understanding of the executor
+    for our spout, with two threads and one queue.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了两个线程外，我们还有一个用于将发出的元组从执行器中传输出去的单个队列。将这个队列想象成一个执行后-spout 函数。这个队列是为了在执行器之间实现高性能消息传递而设计的。它是通过让队列实现依赖于一个称为
+    *LMAX Disruptor* 的库来实现的。[图 8.5](#ch08fig05) 更详细地展示了我们 spout 的执行器，其中有两个线程和一个队列。
+- en: ¹ The LMAX Disruptor is a high-performance inter-thread messaging library. It’s
+    an open source project available at [http://lmax-exchange.github.io/disruptor](http://lmax-exchange.github.io/disruptor).
+  id: totrans-40
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: ¹ LMAX Disruptor 是一个高性能的线程间消息库。它是一个开源项目，可在 [http://lmax-exchange.github.io/disruptor](http://lmax-exchange.github.io/disruptor)
+    找到。
+- en: Figure 8.5\. The spout reads messages off the queue containing commit messages
+    and converts those messages into tuples. The main thread on the executor handles
+    emitted tuples, passing them to the executor’s outgoing queue.
+  id: totrans-41
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.5\. Spout 从包含提交消息的队列中读取消息，并将这些消息转换为元组。执行器上的主线程处理发出的元组，将它们传递到执行器的输出队列。
+- en: '![](08fig05_alt.jpg)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](08fig05_alt.jpg)'
+- en: The illustration in [figure 8.5](#ch08fig05) covers data being read in by the
+    spout instance and the main thread taking the tuple emitted by the spout and placing
+    it on the outgoing queue. What hasn’t been covered is what happens once the emitted
+    tuple has been placed on the outgoing queue. This is where the send thread comes
+    into play.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图8.5](#ch08fig05)中的插图涵盖了喷泉实例读取的数据和主线程接收喷泉发出的元组并将其放置在输出队列上的情况。没有涵盖的是，一旦发出的元组被放置在输出队列上会发生什么。这就是发送线程发挥作用的地方。'
+- en: 8.2.2\. Transferring tuples between two executors on the same JVM
+  id: totrans-44
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.2.2. 在同一JVM上的两个执行器之间传输元组
+- en: Our tuple has been placed on the spout’s outgoing disruptor queue. Now what?
+    Before we get into what happens here, let’s take a look at [figure 8.6](#ch08fig06),
+    which shows where we are in our topology’s data flow.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的元组已经被放置在喷泉的输出disruptor队列中。现在怎么办？在我们深入探讨这里发生的事情之前，让我们看一下[图8.6](#ch08fig06)，它显示了我们在拓扑数据流中的位置。
+- en: Figure 8.6\. Focusing on passing tuples within the same JVM
+  id: totrans-46
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.6. 聚焦于同一JVM内传递元组
+- en: '![](08fig06.jpg)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig06.jpg)'
+- en: Once the data has been placed on the spout’s outgoing disruptor queue, the send
+    thread will read that tuple off the outgoing disruptor queue and send it to the
+    appropriate executor(s) via a *transfer function*.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦数据被放置在喷泉的输出disruptor队列中，发送线程将从这个输出disruptor队列中读取该元组，并通过一个**传输函数**将其发送到适当的执行器（们）。
+- en: Because the commit feed listener spout and email extractor bolt are both on
+    the same JVM, this transfer function will execute a *local transfer* between executors.
+    When a local transfer occurs, the executor’s send thread publishes outgoing tuples
+    to the next executor directly. Both executors here are on the same JVM, so there’s
+    little to no overhead during the send, making this an extremely fast type of transfer
+    function. This is illustrated in more detail in [figure 8.7](#ch08fig07).
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于提交数据源监听器喷泉和电子邮件提取器螺栓都在同一个JVM上，这个传输函数将在执行器之间执行一个**本地传输**。当发生本地传输时，执行器的发送线程直接将输出元组发布给下一个执行器。这里的两个执行器都在同一个JVM上，因此在发送过程中几乎没有开销，这使得这种传输函数非常快。这更详细地在本节[图8.7](#ch08fig07)中说明。
+- en: Figure 8.7\. A more detailed look at a local transfer of tuples between the
+    commit feed listener spout and the email extractor bolt
+  id: totrans-50
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.7. 对提交数据源监听器喷泉和电子邮件提取器螺栓之间元组本地传输的更详细查看
+- en: '![](08fig07_alt.jpg)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig07_alt.jpg)'
+- en: How exactly does the executor for our first bolt receive tuples directly? This
+    is covered in the next section, where we break down the executor for the email
+    extractor bolt.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的第一个螺栓的执行器是如何直接接收元组的？这将在下一节中介绍，我们将分解电子邮件提取器螺栓的执行器。
+- en: 8.2.3\. Executor details for the email extractor bolt
+  id: totrans-53
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.2.3. 电子邮件提取器螺栓的执行器详细信息
+- en: So far we’ve covered our spout reading a commit message from a feed of data
+    and emitting a new tuple for each individual commit message. We’re at the point
+    where our first bolt, the email extractor, is ready to process an incoming tuple.
+    [Figure 8.8](#ch08fig08) highlights where we are in our data flow.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经涵盖了我们的喷泉从数据源中读取提交消息并为每个单独的提交消息发出一个新元组。我们现在处于第一个螺栓，即电子邮件提取器，准备处理传入元组的状态。[图8.8](#ch08fig08)突出了我们在数据流中的位置。
+- en: Figure 8.8\. Focusing on a bolt that emits a tuple
+  id: totrans-55
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.8. 聚焦于发射元组的螺栓
+- en: '![](08fig08.jpg)'
+  id: totrans-56
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig08.jpg)'
+- en: 'You probably have some idea of what the executors for our bolts look like given
+    that we’ve already covered the executor for a spout. The only real difference
+    between executors for spouts and for bolts is that an executor for a bolt has
+    an additional queue: the queue for handling incoming tuples. This means our bolt’s
+    executor has an incoming disruptor queue and a main thread that reads a tuple
+    off the incoming disruptor queue and processes that tuple, resulting in zero or
+    more tuples to be emitted. These emitted tuples are placed on the outgoing disruptor
+    queue. [Figure 8.9](#ch08fig09) breaks down the details.'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们已经涵盖了喷泉的执行器，您可能对我们的螺栓执行器有一些了解。喷泉和螺栓之间的唯一真正区别是，螺栓的执行器有一个额外的队列：处理传入元组的队列。这意味着我们的螺栓执行器有一个传入的disruptor队列和一个主线程，该线程从传入的disruptor队列中读取一个元组并处理该元组，从而产生零个或多个要发出的元组。这些发出的元组被放置在输出disruptor队列中。[图8.9](#ch08fig09)详细说明了这些细节。
+- en: Figure 8.9\. The executor for our bolt, with two threads and two queues
+  id: totrans-58
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.9. 我们的螺栓执行器，具有两个线程和两个队列
+- en: '![](08fig09_alt.jpg)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig09_alt.jpg)'
+- en: Once the email extractor bolt has processed the tuple, it’s ready to be sent
+    to the next bolt down the line, the commit counter bolt. We’ve already discussed
+    what happens when a tuple is sent between the commit feed listener spout and the
+    email extractor bolt. This happens with a local transfer. But we’re in a different
+    situation when sending data between the email extractor bolt and the commit counter
+    bolt. The bolt instances are running on different JVMs. Let’s discuss what happens
+    in this scenario next.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦电子邮件提取bolt处理完元组，它就准备好发送到下一bolt，即提交计数bolt。我们已经讨论了当元组在提交feed监听spout和电子邮件提取bolt之间发送时会发生什么。这是在本地传输中发生的。但是，当在电子邮件提取bolt和提交计数bolt之间发送数据时，我们处于不同的情境。bolt实例在不同的JVM上运行。让我们接下来讨论这个场景中会发生什么。
+- en: 8.2.4\. Transferring tuples between two executors on different JVMs
+  id: totrans-61
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.2.4\. 在不同JVM之间传输元组
+- en: As we mentioned previously, the email extractor and commit counter bolts are
+    running on separate JVMs. [Figure 8.10](#ch08fig10) shows you exactly where we
+    are in the data flow for our topology.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如我们之前提到的，电子邮件提取bolt和提交计数bolt在不同的JVM上运行。[图8.10](#ch08fig10)显示了我们的拓扑数据流中我们所在的确切位置。
+- en: Figure 8.10\. Focusing on sending tuples between JVMs
+  id: totrans-63
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.10\. 专注于在JVM之间发送元组
+- en: '![](08fig10.jpg)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig10.jpg)'
+- en: When a tuple is emitted to an executor running on a separate JVM, the sending
+    executor’s send thread will execute a *transfer function* that performs what we
+    call a *remote transfer*. A remote transfer is more involved than a local transfer.
+    What happens when Storm needs to send tuples from one JVM to another? The first
+    step in the process is to serialize our tuple for transport. Depending on your
+    tuple, this could be a rather expensive operation. When serializing tuples, Storm
+    attempts to look up a Kryo serializer for that object and ready it for transport.
+    Lacking a Kryo serializer, Storm will fall back on standard Java object serialization.
+    Kryo serialization is far more efficient than Java serialization, so if you care
+    about pulling every last bit of performance out of your topologies, you’ll want
+    to register custom serializers for your tuples.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当元组被发送到在单独JVM上运行的executor时，发送executor的发送线程将执行一个*传输函数*，执行我们所说的*远程传输*。远程传输比本地传输更复杂。当Storm需要从一个JVM向另一个JVM发送元组时会发生什么？这个过程的第一步是将我们的元组序列化以进行传输。根据你的元组，这可能是一个相当昂贵的操作。在序列化元组时，Storm试图查找该对象的Kryo序列化器并准备好传输。如果没有Kryo序列化器，Storm将回退到标准的Java对象序列化。Kryo序列化比Java序列化更高效，所以如果你关心从你的拓扑中提取每一分性能，你将希望为你的元组注册自定义序列化器。
+- en: Once a tuple has been serialized for inter-JVM transport, our executor’s send/transfer
+    thread publishes it to yet another disruptor queue. This queue is the transfer-
+    queue for our entire JVM. Any time an executor on this JVM needs to transfer tuples
+    to executors on other JVMs, those serialized tuples will be published to this
+    queue.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦元组被序列化以进行跨JVM传输，我们的executor的发送/传输线程将其发布到另一个disruptor队列。这个队列是我们整个JVM的传输队列。任何时候，这个JVM上的executor需要将元组传输到其他JVM上的executor时，那些序列化的元组将被发布到这个队列。
+- en: Once a tuple is on this queue, another thread, the worker process’s send/transfer
+    thread, picks it up and, via TCP, sends it over the network to its destination
+    JVM.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦元组进入这个队列，另一个线程，即工作进程的发送/传输线程，将其取走，并通过TCP将其发送到目标JVM。
+- en: At the destination JVM, another thread, the worker process’s receive thread,
+    is waiting to receive tuples that it in turn passes off to yet another function,
+    the receive function. The worker receive function, much like an executor’s transfer
+    function, is responsible for routing the tuple to the correct executor. The receive
+    thread publishes our tuple to the incoming disruptor queue where it’s available
+    to be picked up by the executor’s primary thread for processing. This entire process
+    can be seen in [figure 8.11](#ch08fig11).
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在目标JVM上，另一个线程，即工作进程的接收线程，正在等待接收元组，然后将其传递给另一个函数，即接收函数。工作接收函数，就像executor的传输函数一样，负责将元组路由到正确的executor。接收线程将我们的元组发布到传入的disruptor队列中，在那里它可供executor的主线程进行处理。整个过程可以在[图8.11](#ch08fig11)中看到。
+- en: Figure 8.11\. The steps that occur during a remote transfer of a tuple between
+    executors on different JVMs
+  id: totrans-69
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.11\. 在不同JVM的executors之间远程传输元组时发生的步骤
+- en: '![](08fig11_alt.jpg)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig11_alt.jpg)'
+- en: In our commit counter example, an email address such as *sean@example.com* was
+    extracted from a commit by our email extractor bolt and placed on the executor’s
+    transfer queue, where the executor’s send thread picked it up and passed it to
+    the transfer function. There it was serialized for transport and placed on the
+    worker’s transfer queue. Another thread then picked up the transfer and sent it
+    via TCP to our second worker, where the receive thread accepted it and, via the
+    receive function, routed it to the correct executor by placing it on that executor’s
+    incoming disruptor queue.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的提交计数示例中，我们的电子邮件提取螺栓从一个提交中提取了一个电子邮件地址，例如 *sean@example.com*，并将其放置在执行器的传输队列中，执行器的发送线程将其拾取并传递给传输函数。在那里，它被序列化以进行传输，并放置在工作者的传输队列中。然后另一个线程拾取传输并将其通过
+    TCP 发送到我们的第二个工作者，接收线程接受它并通过接收函数将其路由到正确的执行器，将其放置在该执行器的传入 disruptor 队列中。
+- en: '|  |'
+  id: totrans-72
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: '**A word about Netty**'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '**关于 Netty 的一些话**'
+- en: In this section, we’ve used the term *TCP* to discuss connections between JVMs
+    that make up a Storm cluster. As of the current version of Storm, network transport
+    is provided by Netty, a powerful framework designed to make it easy to build high-performance-
+    asynchronous network applications. It has a wealth of settings that allow you
+    to tune its performance.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们使用了 *TCP* 这个术语来讨论构成 Storm 集群的 JVM 之间的连接。截至 Storm 的当前版本，网络传输由 Netty 提供，这是一个旨在简化构建高性能异步网络应用程序的强大框架。它拥有丰富的设置，允许你调整其性能。
+- en: For a standard Storm installation, you shouldn’t need to tweak any Netty settings
+    exposed by Storm. If you find yourself running into Netty performance issues,
+    as with any other settings, be prepared to measure before and after changes.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于标准的 Storm 安装，你不应该需要调整 Storm 提供的任何 Netty 设置。如果你发现自己遇到了 Netty 性能问题，就像任何其他设置一样，在改变之前准备好测量前后变化。
+- en: Providing enough information to allow you to confidently wade into tuning Netty
+    is beyond the scope of this book. If you’re interested in learning more about
+    Netty, we urge you to get *Netty in Action* (Manning, 2015) by Netty committer
+    Norman Maurer.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提供足够的信息，让你能够自信地调整 Netty，超出了本书的范围。如果你对学习 Netty 感兴趣，我们强烈建议你阅读 Netty 贡献者 Norman
+    Maurer 所著的 *Netty in Action*（Manning，2015）。
+- en: '|  |'
+  id: totrans-77
+  prefs: []
+  type: TYPE_TB
+  zh: '|  |'
+- en: 8.2.5\. Executor details for the email counter bolt
+  id: totrans-78
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.2.5\. 电子计数螺栓的执行器细节
+- en: The executor for this bolt is similar to the executor for our previous bolt,
+    but because this bolt doesn’t emit a tuple, no work needs to be done by the executor’s
+    send thread. [Figure 8.12](#ch08fig12) highlights where we are in our flow of
+    a tuple between executors.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个螺栓的执行器与我们的前一个螺栓的执行器类似，但由于这个螺栓不发射元组，执行器的发送线程不需要做任何工作。[图 8.12](#ch08fig12) 突出了我们在执行器之间元组流中的位置。
+- en: Figure 8.12\. Focusing on a bolt that does not emit a tuple
+  id: totrans-80
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.12\. 关注一个不发射元组的螺栓
+- en: '![](08fig12.jpg)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](08fig12.jpg)'
+- en: The details of what happens within this executor can be seen in [figure 8.13](#ch08fig13).
+    Notice that the number of steps is reduced, because we aren’t emitting tuples
+    in this bolt.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个执行器内部发生的事情的细节可以在[图 8.13](#ch08fig13)中看到。注意步骤数量减少了，因为我们在这个螺栓中不发射元组。
+- en: Figure 8.13\. The executor for the email counter bolt with a main thread that
+    pulls a tuple off the incoming disruptor queue and sends that tuple to the bolt
+    to be processed
+  id: totrans-83
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.13\. 电子计数螺栓的执行器，主线程从传入的 disruptor 队列中拉取一个元组并将其发送到螺栓进行处理
+- en: '![](08fig13_alt.jpg)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](08fig13_alt.jpg)'
+- en: Our data has now managed to flow from the spout where it started through the
+    email counter bolt. Its life cycle is almost done. It’ll be deserialized and processed,
+    and the count for that email address will be updated. Our email counter bolt doesn’t
+    emit a new tuple—it acks its incoming tuple.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的数据现在已经从起始的 spout 流经电子计数螺栓。它的生命周期几乎结束。它将被反序列化并处理，并且该电子邮件地址的计数将被更新。我们的电子计数螺栓不会发射新的元组——它确认其传入的元组。
+- en: 8.3\. Routing and tasks
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.3\. 路由和任务
+- en: A few times in the book, we’ve explained something only to later admit we lied
+    via omission in order to explain the basics of a concept. And so it is again with
+    our explanation that we’ve given so far in this chapter. We’ve omitted a very
+    important part of the conversation. But don’t worry; now that you have a handle
+    on the core parts of Storm, we can discuss *tasks and routing*.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书中，我们有时只解释了一些内容，后来又通过省略来承认我们撒了谎，以便解释一个概念的基本原理。因此，我们到目前为止在本章中的解释也是如此。我们省略了一个非常重要的对话部分。但不用担心；现在你已经掌握了
+    Storm 的核心部分，我们可以讨论 *任务和路由*。
+- en: Way back in [chapter 3](kindle_split_011.html#ch03), we introduced executors
+    and tasks. [Figure 8.14](#ch08fig14) should look familiar—it’s the figure breaking
+    down a worker node as a JVM running an executor with a task (spout/bolt instance),
+    but updated with your current understanding of how an executor works.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第3章](kindle_split_011.html#ch03)中，我们介绍了执行器和任务。[图8.14](#ch08fig14)应该看起来很熟悉——这是分解工作节点作为一个运行执行器并带有任务（spout/bolt实例）的JVM的图，但更新了你对执行器如何工作的当前理解。
+- en: Figure 8.14\. A worker process broken down with its internal threads and queue
+    along with an executor and its internal threads, queues, and a task
+  id: totrans-89
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.14. 一个工作进程及其内部线程和队列，以及执行器及其内部线程、队列和任务
+- en: '![](08fig14_alt.jpg)'
+  id: totrans-90
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig14_alt.jpg)'
+- en: Let’s dig a little bit more into tasks. As we stated in [chapter 3](kindle_split_011.html#ch03),
+    an executor can have one or more tasks, where the executor is responsible for
+    “executing” the user logic that’s in the task. How does this work when an executor
+    has multiple tasks ([figure 8.15](#ch08fig15))?
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们更深入地探讨一下任务。正如我们在[第3章](kindle_split_011.html#ch03)中所述，执行器可以有一个或多个任务，其中执行器负责“执行”任务中用户逻辑。当执行器有多个任务（[图8.15](#ch08fig15)）时，这是如何工作的？
+- en: Figure 8.15\. An executor with multiple tasks
+  id: totrans-92
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.15. 具有多个任务的执行器
+- en: '![](08fig15.jpg)'
+  id: totrans-93
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig15.jpg)'
+- en: This is where routing comes into the picture. *Routing* in this context means
+    how a worker process’s receive thread (remote transfer) or an executor’s send
+    thread (local transfer) sends a tuple to its correct next location (task). It’s
+    a multistep process that’ll be easier with a concrete example. We’ll use the email
+    extractor as an example. [Figure 8.16](#ch08fig16) illustrates what happens after
+    the email extractor’s main thread has run its `execute` method and a tuple has
+    been emitted.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是路由介入的地方。在这个上下文中，“路由”指的是工作进程的接收线程（远程传输）或执行器的发送线程（本地传输）如何将一个元组发送到其正确的下一个位置（任务）。这是一个多步骤的过程，通过具体的例子会更容易理解。我们将使用电子邮件提取器作为例子。[图8.16](#ch08fig16)展示了电子邮件提取器的主线程运行`execute`方法并发出一个元组之后发生的情况。
+- en: Figure 8.16\. Mapping out the steps taken when determining the destination task
+    for an emitted tuple
+  id: totrans-95
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.16. 确定发出的元组的目标任务时采取的步骤
+- en: '![](08fig16_alt.jpg)'
+  id: totrans-96
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig16_alt.jpg)'
+- en: '[Figure 8.16](#ch08fig16) should look somewhat familiar. It includes some of
+    the internal queues and threads we’ve been discussing along with annotations for
+    the steps that are taken when determining which task is supposed to execute an
+    emitted tuple. The figure references a task ID and tuple pair, which comes in
+    the form of an object of type `TaskMessage`:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图8.16](#ch08fig16)应该看起来有些熟悉。它包括我们一直在讨论的一些内部队列和线程，以及确定哪个任务应该执行发出的元组时采取的步骤的注释。该图引用了一个任务ID和元组对，它以`TaskMessage`类型对象的格式出现：'
+- en: '[PRE0]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This brings our explanation of Storm’s internal queues to a close. We’ll now
+    move on to how these queues may overflow and some ways to address such overflow.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就结束了我们对Storm内部队列的解释。现在，我们将继续讨论这些队列可能发生的溢出以及解决这种溢出的一些方法。
+- en: 8.4\. Knowing when Storm’s internal queues overflow
+  id: totrans-100
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.4. 知道Storm内部队列何时溢出
+- en: We’ve covered an awful lot in a relatively short period of time. By now, you
+    should have a decent grasp of what constitutes an executor. But before we get
+    into the details of debug logs, we want to bring you back to the three queues
+    internal to Storm we’ve discussed so far.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在相对较短的时间内，我们已经涵盖了大量的内容。到现在，你应该已经对构成执行器的内容有了相当的了解。但在我们深入调试日志的细节之前，我们想让你回顾一下我们之前讨论的Storm内部三个队列。
+- en: 8.4.1\. The various types of internal queues and how they might overflow
+  id: totrans-102
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.4.1. 内部队列的各种类型以及它们可能发生的溢出
+- en: 'In our discussion of executors, we identified three queues that are internal
+    to Storm:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们讨论执行器时，我们确定了Storm内部三个队列：
+- en: An executor’s incoming queue
+  id: totrans-104
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行器的输入队列
+- en: An executor’s outgoing queue
+  id: totrans-105
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行器的输出队列
+- en: The outgoing queue that exists on a worker node
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 工作节点上存在的输出队列
+- en: 'We love to talk about troubleshooting and what can go wrong, so we pose the
+    question: *What would it take to overflow each of those queues?*'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们喜欢谈论故障排除和可能出错的情况，因此我们提出问题：要使每个队列溢出需要什么？
+- en: Go ahead. Take a minute. We’ll wait. For a queue to overflow, anything producing
+    data that goes on to the queue has to be generating that data faster than it can
+    be consumed. It’s the relationship between producers and consumers that we want
+    to focus on. We’ll start by looking at the executor’s incoming queue.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好吧。花一分钟时间。我们会等待。对于一个队列要溢出，任何产生并进入队列的数据都必须以比其被消费更快的速度生成。我们想要关注的是生产者和消费者之间的关系。我们将从查看执行器的输入队列开始。
+- en: Executor’s incoming queue
+  id: totrans-109
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 执行器的输入队列
+- en: This queue receives tuples from the spout/bolt preceding it in the topology.
+    If the preceding spout/bolt is producing tuples at a faster rate than the consuming
+    bolt can process them, you’re going to have an overflow problem.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此队列接收来自拓扑中 preceding spout/bolt 的元组。如果 preceding spout/bolt 产生元组的速率比消费 bolt
+    处理它们的速率快，你将遇到溢出问题。
+- en: The next queue a tuple will encounter is the executor’s outgoing transfer queue.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 元组将遇到的下一个队列是执行器的输出传输队列。
+- en: Executor’s outgoing transfer queue
+  id: totrans-112
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 执行器的输出传输队列
+- en: This one is a bit trickier. This queue sits between an executor’s main thread,
+    executing user logic, and the transfer thread that handles routing the tuple to
+    its next task. In order for this queue to get backed up, you’d need to be processing
+    incoming tuples faster than they can be routed, serialized, and so forth. That’s
+    a pretty tall order—one we’ve never actually experienced ourselves—but we’re sure
+    someone has had it happen.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个有点复杂。这个队列位于执行器的主线程（执行用户逻辑）和负责将元组路由到下一个任务的传输线程之间。为了使这个队列出现拥堵，你需要以比元组路由、序列化等更快的速度处理传入的元组。这是一个相当高的要求——我们实际上从未遇到过这种情况——但我们确信有人遇到过。
+- en: If we’re dealing with a tuple that’s being transferred to another JVM, we’ll
+    run into the third queue, the worker process’s outgoing transfer queue.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们处理的是要传输到另一个 JVM 的元组，我们将遇到第三个队列，即工作进程的输出传输队列。
+- en: Worker process’s outgoing transfer queue
+  id: totrans-115
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 工作进程的输出传输队列
+- en: This queue receives tuples from all executors on the worker that are bound for
+    another, different worker process. Given enough executors within the worker process
+    producing tuples that need to be sent over the network to other worker processes,
+    it’s quite possible that you could overflow this buffer. But you’re probably going
+    to have to work hard to do it.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此队列接收来自工作进程中所有执行器、旨在发送到另一个不同工作进程的元组。考虑到工作进程内部有足够的执行器产生需要通过网络发送到其他工作进程的元组，你可能会溢出此缓冲区。但你可能需要付出很大努力才能做到这一点。
+- en: What happens if you start to overflow one of these buffers? Storm places the
+    overflowing tuples in a (hopefully) temporary overflow buffer until there’s space
+    on a given queue. This will cause a drop in throughput and can cause a topology
+    to grind to a halt. If you’re using a shuffle grouping where tuples are distributed
+    evenly among tasks, this should present a problem that you’d solve using the tuning
+    techniques from [chapter 6](kindle_split_014.html#ch06) or the troubleshooting
+    tips from [chapter 7](kindle_split_015.html#ch07).
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你开始溢出这些缓冲区之一，会发生什么？Storm 将溢出的元组放置在（希望是）临时的溢出缓冲区中，直到给定队列上有空间。这将导致吞吐量下降，并可能导致拓扑停止运行。如果你使用的是将元组均匀分配到任务中的
+    shuffle 分组，这应该是一个问题，你可以使用第 6 章（[chapter 6](kindle_split_014.html#ch06)）中的调整技术或第
+    7 章（[chapter 7](kindle_split_015.html#ch07)）中的故障排除技巧来解决。
+- en: If you aren’t distributing tuples evenly across your tasks, issues will be harder
+    to spot at a macro level and the techniques from [chapters 6](kindle_split_014.html#ch06)
+    and [7](kindle_split_015.html#ch07) are unlikely to help you. What do you do then?
+    You first need to know how to tell whether a buffer is overflowing and what can
+    be done about it. This is where Storm’s debug logs can help.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你没有在任务之间均匀分配元组，宏观层面上的问题将更难发现，并且第 6 章（[chapters 6](kindle_split_014.html#ch06)）和第
+    7 章（[chapters 7](kindle_split_015.html#ch07)）中的技术可能无法帮助你。那么你该怎么办？首先，你需要知道如何判断缓冲区是否溢出以及可以采取哪些措施。这正是
+    Storm 的调试日志能提供帮助的地方。
+- en: 8.4.2\. Using Storm’s debug logs to diagnose buffer overflowing
+  id: totrans-119
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.4.2\. 使用 Storm 的调试日志诊断缓冲区溢出
+- en: The best place to see whether any of Storm’s internal buffers are overflowing
+    is the debug log output in Storm’s logs. [Figure 8.17](#ch08fig17) shows a sample
+    debug entry from a Storm log file.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要查看 Storm 的内部缓冲区是否溢出，最佳位置是 Storm 日志中的调试日志输出。[图 8.17](#ch08fig17) 展示了 Storm 日志文件中的一个示例调试条目。
+- en: Figure 8.17\. Snapshot of a debug log output for a bolt instance
+  id: totrans-121
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图 8.17\. 执行器实例的调试日志输出快照
+- en: '![](08fig17_alt.jpg)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](08fig17_alt.jpg)'
+- en: In [figure 8.17](#ch08fig17) we’ve highlighted the lines related to the send/receive
+    queues, which present metrics about each of those queues respectively. Let’s take
+    a more detailed look at each of those lines.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图8.17](#ch08fig17)中，我们突出显示了与发送/接收队列相关的行，分别提供了每个队列的指标。让我们更详细地看看这些行。
+- en: The example in [figure 8.18](#ch08fig18) shows two queues that are nowhere near
+    overflowing, but it should be easy to tell if they are. Assuming you’re using
+    a shuffle grouping to distribute tuples evenly among bolts and tasks, checking
+    the value for any task of a given bolt should be enough to determine how close
+    you are to capacity. If you’re using a grouping that doesn’t evenly distribute
+    tuples among bolts and tasks, you may have a harder time quickly spotting the
+    problem. A little automated log analysis should get you where you need to be,
+    though. The pattern of the log entries is well established, and pulling out each
+    entry and looking for population values that are at or near capacity would be
+    a matter of constructing and using an appropriate tool.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图8.18](#ch08fig18)中的示例显示了两个几乎不会溢出的队列，但应该很容易判断它们是否溢出。假设你正在使用洗牌分组来将元组均匀地分配到bolt和任务中，检查任何bolt的任何任务的值应该足以确定你接近容量有多近。如果你使用的是不会均匀分配元组到bolt和任务的分组，你可能会更难快速发现问题。不过，一点自动化的日志分析应该能帮你找到需要的地方。日志条目的模式已经建立，提取每个条目并查找达到或接近容量的值，将是一个构建和使用适当工具的问题。'
+- en: Figure 8.18\. Breaking down the debug log output lines for the send/receive
+    queue metrics
+  id: totrans-125
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 图8.18\. 分解发送/接收队列指标的调试日志输出行
+- en: '![](08fig18_alt.jpg)'
+  id: totrans-126
+  prefs: []
+  type: TYPE_IMG
+  zh: '![08fig18_alt.jpg](08fig18_alt.jpg)'
+- en: Now that you know how to determine whether one of Storm’s internal queues is
+    overflowing, we’re going to show you some ways to stop the overflow.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经知道如何确定Storm的内部队列中是否有溢出，我们将向你展示一些停止溢出的方法。
+- en: 8.5\. Addressing internal Storm buffers overflowing
+  id: totrans-128
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.5\. 解决内部Storm缓冲区溢出问题
+- en: 'You can address internal Storm buffers overflowing in one of four primary ways.
+    These aren’t all-or-nothing options—you can mix and match as needed in order to
+    address the problem:'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过四种主要方式之一来解决内部Storm缓冲区溢出问题。这些选项不是非此即彼的——你可以根据需要混合使用，以解决问题：
+- en: Adjust the production-to-consumption ratio
+  id: totrans-130
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调整生产到消费的比例
+- en: Increase the size of the buffer for all topologies
+  id: totrans-131
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 增加所有拓扑的缓冲区大小
+- en: Increase the size of the buffer for a given topology
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 增加给定拓扑的缓冲区大小
+- en: Set max spout pending
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 设置最大spout挂起数
+- en: Let’s cover them one at a time, starting with adjusting the production-to-consumption
+    ratio.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们逐一介绍，首先是调整生产到消费的比例。
+- en: 8.5.1\. Adjust the production-to-consumption ratio
+  id: totrans-135
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.5.1\. 调整生产到消费的比例
+- en: Producing tuples slower or consuming them faster is your best option to handle
+    buffer overflows. You can decrease the parallelism of the producer or increase
+    the parallelism of the consumer until the problem goes away (or becomes a different
+    problem!). Another option beyond tweaking parallelism is to examine your user
+    code in the consuming bolt (inside the `execute` method) and find a way to make
+    it go faster.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少元组的生成速度或增加消费速度是处理缓冲区溢出的最佳选择。你可以降低生产者的并行度或提高消费者的并行度，直到问题消失（或者变成另一个问题！）！除了调整并行度之外，还可以检查消费bolt（在`execute`方法内部）中的用户代码，找到使其运行更快的方法。
+- en: For executor buffer-related problems, there are many reasons why tweaking parallelism
+    isn’t going to solve the problem. Stream groupings other than shuffle grouping
+    are liable to result in some tasks handling far more data than others, resulting
+    in their buffers seeing more activity than others. If the distribution is especially
+    off, you could end up with memory issues from adding tons of consumers to handle
+    what is in the end a data distribution problem.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于执行器缓冲区相关的问题，有很多原因说明调整并行度并不能解决问题。除了洗牌分组之外的其他流分组可能会导致一些任务处理比其他任务多得多的数据，导致它们的缓冲区比其他任务更活跃。如果分布特别不均匀，你可能会因为添加大量消费者来处理最终是数据分布问题的情况而出现内存问题。
+- en: When dealing with an overflowing worker transfer queue, “increasing parallelism”
+    means adding more worker processes, thereby (hopefully) lowering the executor-to-worker
+    ratio and relieving pressure on the worker transfer queue. Again, however, data
+    distribution can rear its head. If most of the tuples are bound for tasks on the
+    same worker process after you add another worker process, you haven’t gained anything.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当处理溢出的工作传输队列时，“增加并行性”意味着添加更多的工作进程，从而（希望）降低执行器到工作进程的比例，减轻工作传输队列的压力。然而，数据分布问题仍然可能出现。如果你添加了另一个工作进程后，大多数元组都绑定到同一工作进程的任务上，那么你并没有获得任何好处。
+- en: Adjusting the production-to-consumption ratio can be difficult when you aren’t
+    evenly distributing tuples, and any gains you get could be lost by a change in
+    the shape of the incoming data. Although you might get some mileage out of adjusting
+    the ratio, if you aren’t relying heavily on shuffle groupings, one of our other
+    three options is more likely to help.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你不均匀地分配元组时，调整生产到消费的比例可能会很困难，而你获得的所有收益可能会因为输入数据形状的变化而丢失。尽管你可能通过调整比例获得一些效果，但如果你不依赖于shuffle分组，我们其他三个选项中可能更有助于你。
+- en: 8.5.2\. Increase the size of the buffer for all topologies
+  id: totrans-140
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.5.2\. 增加所有拓扑的缓冲区大小
+- en: 'We’ll be honest with you: this is the cannon-to-kill-a-fly approach. The odds
+    of every topology needing an increased buffer size are low, and you probably don’t
+    want to change buffer sizes across your entire cluster. That said, maybe you have
+    a really good reason. You can change the default buffer size for topologies by
+    adjusting the following values in your storm.yaml:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们会诚实地告诉你：这是一种用大炮打苍蝇的方法。每个拓扑都需要增加缓冲区大小的可能性很低，你可能不想在整个集群中更改缓冲区大小。话虽如此，也许你有一个非常好的理由。你可以通过调整以下storm.yaml中的值来更改拓扑的默认缓冲区大小：
+- en: The default size of all executors’ incoming queue can be changed using the value
+    `topology.executor.receive.buffer.size`
+  id: totrans-142
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有执行器的输入队列的默认大小可以通过`topology.executor.receive.buffer.size`的值进行更改
+- en: The default size of all executors’ outgoing queue can be changed using the value
+    `topology.executor.send.buffer.size`
+  id: totrans-143
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有执行器的输出队列的默认大小可以通过`topology.executor.send.buffer.size`的值进行更改
+- en: The default size of a worker process’s outgoing transfer queue can be changed
+    using the value `topology.transfer.buffer.size`
+  id: totrans-144
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 工作进程的输出传输队列的默认大小可以通过`topology.transfer.buffer.size`的值进行更改
+- en: It’s important to note that any value you set the size of a disruptor queue
+    buffer to has to be set to a power of 2—for example, 2, 4, 8, 16, 32, and so on.
+    This is a requirement imposed by the LMAX disruptor.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，你设置任何disruptor队列缓冲区大小的值都必须是2的幂——例如，2、4、8、16、32等等。这是LMAX disruptor强制要求的。
+- en: If changing the buffer size for all topologies isn’t the route you want to go,
+    and you need finer-grained control, increasing the buffer sizes for an individual
+    topology may be the option you want.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不想更改所有拓扑的缓冲区大小，并且需要更细粒度的控制，那么增加单个拓扑的缓冲区大小可能是你想要的选项。
+- en: 8.5.3\. Increase the size of the buffer for a given topology
+  id: totrans-147
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.5.3\. 增加特定拓扑的缓冲区大小
+- en: Individual topologies can override the default values of the cluster and set
+    their own size for any of the disruptor queues. This is done via the `Config`
+    class that gets passed into the `StormSubmitter` when you submit a topology. As
+    with previous chapters, we’ve been placing this code in a `RemoteTopologyRunner`
+    class, which can be seen in the following listing.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 单个拓扑可以覆盖集群的默认值，并为任何disruptor队列设置自己的大小。这是通过在提交拓扑时传递给`StormSubmitter`的`Config`类来完成的。与前面的章节一样，我们一直在将此代码放置在`RemoteTopologyRunner`类中，如下所示。
+- en: Listing 8.1\. `RemoteTopologyRunner.java` with configuration for increased buffer
+    sizes
+  id: totrans-149
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 列表8.1\. `RemoteTopologyRunner.java`带有增加缓冲区大小的配置
+- en: '[PRE1]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'This brings us to our final option (one that should also be familiar): setting
+    max spout pending.'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就带我们来到了我们的最后一个选项（这也是你应该熟悉的）：设置最大spout挂起数。
+- en: 8.5.4\. Max spout pending
+  id: totrans-152
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: 8.5.4\. 最大spout挂起数
+- en: 'We discussed max spout pending in [chapter 6](kindle_split_014.html#ch06).
+    As you may recall, *max spout pending* caps the number of tuples that any given
+    spout will allow to be live in the topology at one time. How can this help prevent
+    buffer overflows? Let’s try some math:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[第6章](kindle_split_014.html#ch06)中讨论了最大spout挂起数。如您所回忆的那样，*最大spout挂起数*限制了任何给定的spout在任何时候在拓扑中保持活跃的元组数量。这如何帮助防止缓冲区溢出？让我们尝试一些数学计算：
+- en: A single spout has a max spout pending of 512.
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 单个spout的最大spout挂起数为512。
+- en: The smallest disruptor has a buffer size of 1024. *512 < 1024*
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最小的干扰器具有 1024 的缓冲区大小。*512 < 1024*
+- en: 'Assuming all your bolts don’t create more tuples than they ingest, it’s impossible
+    to have enough tuples in play within the topology to overflow any given buffer.
+    The math for this can get complicated if you have bolts that ingest a single tuple
+    but emit a variable number of tuples. Here’s a more complicated example:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设你的所有 bolt 不会创建比它们消耗更多的元组，那么在拓扑中不可能有足够的元组在游戏中以溢出任何给定的缓冲区。如果你有一些 bolt 消耗单个元组但发射可变数量的元组，这个数学可能会变得复杂。这里有一个更复杂的例子：
+- en: A single spout has a max spout pending of 512.
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 单个 spout 的最大 spout 待处理数量为 512。
+- en: The smallest disruptor has a buffer size of 1024.
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最小的干扰器具有 1024 的缓冲区大小。
+- en: One of our bolts takes in a single tuple and emits 1 to 4 tuples. That means
+    the 512 tuples that our spout will emit at a given point in time could result
+    in anywhere from 512 to 2048 tuples in play within our topology. Or put another
+    way, we could have a buffer overflow issue. Buffer overflows aside, setting a
+    spout’s max spout pending value is a good idea and should always be done.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的一个 bolt 只接受一个元组并发射 1 到 4 个元组。这意味着我们的 spout 在某个时间点将发射的 512 个元组可能导致拓扑中从 512
+    到 2048 个元组在游戏中。或者换句话说，我们可能会遇到缓冲区溢出问题。不考虑缓冲区溢出，设置 spout 的最大 spout 待处理值是一个好主意，并且应该始终这样做。
+- en: Having addressed four solutions for handling buffers overflowing, we’re going
+    to turn our attention to tweaking the sizes of these buffers in order to get the
+    best performance possible in your Storm topologies.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在解决了处理缓冲区溢出的四种解决方案之后，我们将把注意力转向调整这些缓冲区的大小，以便在 Storm 拓扑中获得最佳性能。
+- en: 8.6\. Tweaking buffer sizes for performance gain
+  id: totrans-161
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.6. 调整缓冲区大小以获得性能提升
+- en: 'Many blog posts are floating around that detail performance metrics with Storm
+    that are based in part on changing the sizes of internal Storm disruptor buffers.
+    We’d be remiss not to address this performance-tuning aspect in this chapter.
+    But first, a caveat: Storm has many internal components whose configuration is
+    exposed via storm.yaml and programmatic means. We touched on some of these in
+    [section 8.5](#ch08lev1sec5). If you find a setting and don’t know what it does,
+    don’t change it. Do research first. Understand in general what you’re changing
+    and think through how it might impact throughput, memory usage, and so forth.
+    Don’t change anything until you’re able to monitor the results of your change
+    and can verify you got your desired result.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多博客文章都在流传，详细介绍了基于部分更改 Storm 内部干扰器缓冲区大小的性能指标。在这个章节中，我们不应该不讨论这个性能调整方面。但首先，有一个警告：Storm
+    有许多内部组件，其配置通过 storm.yaml 和程序性方式公开。我们在[第 8.5 节](#ch08lev1sec5)中提到了一些。如果你找到一个设置但不知道它做什么，不要更改它。先进行研究。在一般上了解你正在更改的内容，并考虑它可能如何影响吞吐量、内存使用等。在你能够监控你更改的结果并验证你得到了期望的结果之前，不要更改任何内容。
+- en: 'Lastly, remember that Storm is a complicated system and each additional change
+    builds on previous ones. You might have two different configuration changes—let’s
+    call them A and B—that independently result in desirable performance changes but
+    when combined result in a degenerate change. If you applied them in the order
+    of A and then B, you might assume that B is a poor change. But that might not
+    be the case. Let’s present a hypothetical scenario to show you what we mean:'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，请记住 Storm 是一个复杂的系统，每次额外的更改都是基于之前的更改。你可能有两个不同的配置更改——让我们称它们为 A 和 B——它们独立地导致期望的性能变化，但结合在一起会导致退化的变化。如果你按照
+    A 然后是 B 的顺序应用它们，你可能会认为 B 是一个较差的更改。但这可能并不正确。让我们提出一个假设场景来展示我们的意思：
+- en: Change A results in 5% throughput improvement.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 改变 A 导致吞吐量提高 5%。
+- en: Change B results in 10% throughput improvement.
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 改变 B 会导致吞吐量提高 10%。
+- en: Change A and B result in a 2% drop in throughput.
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 改变 A 和 B 会导致吞吐量下降 2%。
+- en: Ideally, you should use change B, not change A, for your best performance. Be
+    sure to test changes independently. Be prepared to test in both an additive fashion,
+    applying change B to an existing configuration that already involves A, as well
+    as applying B to a “stock” Storm configuration.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理想情况下，你应该使用更改 B，而不是更改 A，以获得最佳性能。务必独立测试更改。准备以累加的方式测试，将更改 B 应用到已经包含 A 的现有配置中，以及将
+    B 应用到“标准”Storm 配置中。
+- en: 'All of this assumes that you need to wring every last bit of performance out
+    of your topology. We’ll let you in on a secret: we rarely do that. We spend enough
+    time to get acceptable performance in a given topology and then call it a day
+    and move on to other work. We suspect most of you will as well. It’s a reasonable
+    approach, but we still feel it’s important, if you’re ramping up your Storm usage,
+    to learn about the various internals and start tweaking, setting, and understanding
+    how they impact performance. Reading about it is one thing—experiencing it firsthand
+    is entirely different.'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些假设都是基于你需要从你的拓扑中榨取每一丝性能。我们给你透露一个秘密：我们很少这样做。我们花足够的时间在给定的拓扑中获取可接受的性能，然后结束工作，继续其他任务。我们怀疑你们大多数人也会这样做。这是一个合理的做法，但我们仍然觉得，如果你正在增加你的Storm使用量，了解各种内部机制，开始调整、设置和理解它们如何影响性能是很重要的。阅读关于它是回事——亲自体验则是完全不同的。
+- en: 'That concludes our chapter on Storm’s internals. We hope you’ve found some
+    value in knowing a bit more about what happens “under the covers” with Storm’s
+    internal buffers, how those buffers might overflow, how to handle the overflow,
+    and some thoughts on how to approach performance tuning. Next we’ll switch gears
+    and cover a high-level abstraction for Storm: Trident.'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就结束了我们对Storm内部机制的章节。我们希望你在了解Storm内部缓冲区“幕后”发生的事情、这些缓冲区可能如何溢出、如何处理溢出以及一些关于如何进行性能调整的想法方面找到了一些价值。接下来，我们将转换话题，介绍Storm的高级抽象：Trident。
+- en: 8.7\. Summary
+  id: totrans-170
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 8.7. 概述
+- en: In this chapter, you learned that
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，你了解到
+- en: Executors are more than just a single thread and consist of two threads (main/sender)
+    along with two disruptor queues (incoming/outgoing).
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 执行器不仅仅是单个线程，它由两个线程（主/发送者）以及两个中断队列（输入/输出）组成。
+- en: Sending tuples between executors on the same JVM is simple and fast.
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在同一JVM上的执行器之间发送元组既简单又快速。
+- en: Worker processes have their send/transfer thread, outgoing queue, and receive
+    thread for handling sending tuples between JVMs.
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 工作进程有自己的发送/传输线程、输出队列和接收线程，用于处理在JVM之间发送元组。
+- en: Each of the internal queues (buffers) can overflow, causing performance issues
+    within your Storm topologies.
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个内部队列（缓冲区）都可能溢出，导致你的Storm拓扑中的性能问题。
+- en: Each of the internal queues (buffers) can be configured to address any potential
+    overflow issues.
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个内部队列（缓冲区）都可以配置以解决任何潜在的溢出问题。

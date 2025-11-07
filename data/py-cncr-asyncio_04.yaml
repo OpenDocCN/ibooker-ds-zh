@@ -1,0 +1,1591 @@
+- en: 4 Concurrent web requests
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 4 并发网络请求
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Asynchronous context managers
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 异步上下文管理器
+- en: Making asyncio-friendly web requests with aiohttp
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用aiohttp进行异步网络请求
+- en: Running web requests concurrently with `gather`
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用`gather`并发运行网络请求
+- en: Processing results as they come in with `as` `completed`
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用`as` `completed`处理结果
+- en: Keeping track of in-flight requests with `wait`
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用`wait`跟踪进行中的请求
+- en: Setting and handling timeouts for groups of requests and canceling requests
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为请求组设置和处理超时以及取消请求
+- en: In chapter 3, we learned more about the inner workings of sockets and built
+    a basic echo server. Now that we’ve seen how to design a basic application, we’ll
+    take this knowledge and apply it to making concurrent, non-blocking web requests.
+    Utilizing asyncio for web requests allows us to make hundreds of them at the same
+    time, cutting down on our application’s runtime compared to a synchronous approach.
+    This is useful for when we must make multiple requests to a set of REST APIs,
+    as can happen in a microservice architecture or when we have a web crawling task.
+    This approach also allows for other code to run as we’re waiting for potentially
+    long web requests to finish, allowing us to build more responsive applications.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第三章，我们学习了套接字的内部工作原理，并构建了一个基本的回声服务器。现在我们已经看到了如何设计一个基本的应用程序，我们将运用这些知识来制作并发、非阻塞的网络请求。利用asyncio进行网络请求允许我们同时进行数百次请求，与同步方法相比，可以减少应用程序的运行时间。这在我们必须对一组REST
+    API进行多次请求时很有用，例如在微服务架构中或当我们有网络爬虫任务时。这种方法还允许在我们等待可能很长的网络请求完成时运行其他代码，使我们能够构建更响应式的应用程序。
+- en: In this chapter, we’ll learn about an asynchronous library called *aiohttp*
+    that enables this. This library uses non-blocking sockets to make web requests
+    and returns coroutines for those requests, which we can then `await` for a result.
+    Specifically, we’ll learn how to take a list of hundreds of URLs we’d like to
+    get the contents for, and run all those requests concurrently. In doing so, we’ll
+    examine the various API methods that asyncio provides to run coroutines at one
+    time, allowing us to choose between waiting for everything to complete before
+    moving on, or processing results as fast as they come in. In addition, we’ll look
+    at how to set timeouts for these requests, both at the individual request level
+    as well as for a group of requests. We’ll also see how to cancel a set of in-process
+    requests, based on how other requests have performed. These API methods are useful
+    not only for making web requests but also for whenever we need to run a group
+    of coroutines or tasks concurrently. In fact, we’ll use the functions we use here
+    throughout the rest of this book, and you will use them extensively as an asyncio
+    developer.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将学习一个名为*aiohttp*的异步库，它使得这一点成为可能。这个库使用非阻塞套接字进行网络请求，并为这些请求返回协程，然后我们可以`await`以获取结果。具体来说，我们将学习如何获取我们想要获取内容的数百个URL列表，并并发运行所有这些请求。在这样做的时候，我们将检查asyncio提供的各种API方法，这些方法可以在一次运行多个协程，允许我们在等待所有内容完成后再继续，或者处理结果尽可能快。此外，我们还将了解如何为这些请求设置超时，包括在单个请求级别以及请求组级别。我们还将看到如何根据其他请求的表现取消一组正在进行的请求。这些API方法不仅适用于制作网络请求，而且在我们需要并发运行一组协程或任务时也很有用。实际上，我们将在这里使用的函数贯穿整本书，作为asyncio开发者，你将广泛使用它们。
+- en: 4.1 Introducing aiohttp
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.1 介绍aiohttp
+- en: In chapter 2, we mentioned that one of the problems that newcomers face when
+    first starting with asyncio is trying to take their existing code and pepper it
+    with `async` and `await` in hopes of a performance gain. In most cases, this won’t
+    work, and this is especially true when working with web requests, as most existing
+    libraries are blocking.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第二章中，我们提到，初学者在使用asyncio时面临的一个问题是尝试将现有的代码与`async`和`await`结合，希望获得性能提升。在大多数情况下，这不会奏效，尤其是在处理网络请求时，因为大多数现有的库都是阻塞的。
+- en: One popular library for making web requests is the `requests` library. This
+    library does not perform well with asyncio because it uses blocking sockets. This
+    means that if we make a request, it will block the thread that it runs in, and
+    since asyncio is single-threaded, our entire event loop will halt until that request
+    finishes.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 制作网络请求的一个流行库是`requests`库。这个库与asyncio配合不佳，因为它使用阻塞套接字。这意味着如果我们发起一个请求，它将阻塞运行它的线程，由于asyncio是单线程的，我们的整个事件循环将暂停，直到该请求完成。
+- en: To address this issue and get concurrency, we need to use a library that is
+    non-blocking all the way down to the socket layer. *aiohttp* (Asynchronous HTTP
+    Client/Server for asyncio and Python) is one library that solves this problem
+    with non-blocking sockets.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这个问题并获得并发性，我们需要使用一个库，该库在套接字层也是非阻塞的。*aiohttp*（异步 HTTP 客户端/服务器，用于 asyncio
+    和 Python）是解决这个问题的库之一，它使用非阻塞套接字。
+- en: aiohttp is an open source library that is part of the *aio-libs* project, which
+    is the self-described “set of asyncio-based libraries built with high quality”
+    (see [https://github.com/aio-libs](https://github.com/aio-libs)). This library
+    is a fully functioning web client as well as a web server, meaning it can make
+    web requests, and developers can create async web servers using it. (Documentation
+    for the library is available at [https://docs.aiohttp.org/](https://docs.aiohttp.org/).)
+    In this chapter, we’ll focus on the client side of aiohttp, but we will also see
+    how to build web servers with it later in the book.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: aiohttp 是一个开源库，它是 *aio-libs* 项目的一部分，该项目自称为“一套使用高质量构建的基于 asyncio 的库”（见 [https://github.com/aio-libs](https://github.com/aio-libs)）。这个库是一个功能齐全的
+    Web 客户端，也是一个 Web 服务器，这意味着它可以发起 Web 请求，开发者可以使用它来创建异步 Web 服务器。（该库的文档可在 [https://docs.aiohttp.org/](https://docs.aiohttp.org/)
+    找到。）在本章中，我们将关注 aiohttp 的客户端部分，但稍后我们将在书中看到如何使用它来构建 Web 服务器。
+- en: So how do we get started with aiohttp? The first thing to learn is to make a
+    HTTP request. We’ll first need to learn a bit of new syntax for asynchronous context
+    managers. Using this syntax will allow us to acquire and close HTTP sessions cleanly.
+    As an asyncio developer, you will use this syntax frequently for asynchronously
+    acquiring resources, such as database connections.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，我们如何开始使用 aiohttp 呢？首先需要学习的是如何发起一个 HTTP 请求。我们首先需要了解一些新的异步上下文管理器的语法。使用这种语法可以使我们干净地获取和关闭
+    HTTP 会话。作为一个 asyncio 开发者，你将频繁地使用这种语法来异步获取资源，例如数据库连接。
+- en: 4.2 Asynchronous context managers
+  id: totrans-16
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.2 异步上下文管理器
+- en: 'In any programming language, dealing with resources that must be opened and
+    then closed, such as files, is common. When dealing with these resources, we need
+    to be careful about any exceptions that may be thrown. This is because if we open
+    a resource and an exception is thrown, we may never execute any code to clean
+    up, leaving us in a status with leaking resources. Dealing with this in Python
+    is straightforward using a `finally` block. Though this example is not exactly
+    Pythonic, we can always close a file even if an exception was thrown:'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在任何编程语言中，处理必须先打开后关闭的资源，如文件，是常见的。在处理这些资源时，我们需要小心可能抛出的任何异常。这是因为如果我们打开了一个资源并且抛出了异常，我们可能永远不会执行任何清理代码，导致资源泄漏。在
+    Python 中，使用 `finally` 块处理这个问题很简单。尽管这个例子并不完全符合 Python 风格，我们即使在抛出异常的情况下也可以关闭文件：
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'This solves the issue of a file handle being left open if there was an exception
+    during `file.readlines`. The drawback is that we must remember to wrap everything
+    in a `try` `finally`, and we also need to remember the methods to call to properly
+    close our resource. This isn’t too hard to do for files, as we just need to remember
+    to close them, but we’d still like something more reusable, especially since our
+    cleanup may be more complicated than just calling one method. Python has a language
+    feature to deal with this known as a *context manager*. Using this, we can abstract
+    the shutdown logic along with the `try/finally` block:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这解决了在 `file.readlines` 期间发生异常时文件句柄被留下打开的问题。缺点是我们必须记住将所有内容包裹在 `try` `finally`
+    中，并且我们还需要记住调用以正确关闭我们的资源的方法。对于文件来说，这并不太难做，因为我们只需要记住关闭它们，但我们仍然希望有更可重用的东西，尤其是我们的清理可能比仅仅调用一个方法更复杂。Python
+    有一个处理这种问题的语言特性，称为 *上下文管理器*。使用它，我们可以将关闭逻辑与 `try/finally` 块一起抽象化：
+- en: '[PRE1]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: This Pythonic way to manage files is a lot cleaner. If an exception is thrown
+    in the `with` block, our file will automatically be closed. This works for synchronous
+    resources, but what if we want to asynchronously use a resource with this syntax?
+    In this case, the context manager syntax won’t work, as it is designed to work
+    only with synchronous Python code and not coroutines and tasks. Python introduced
+    a new language feature to support this use case, called *asynchronous context
+    managers*. The syntax is almost the same as for synchronous context managers with
+    the difference being that we say `async` `with` instead of just `with`.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种 Pythonic 的文件管理方式要干净得多。如果在 `with` 块中抛出异常，我们的文件将自动关闭。这对于同步资源有效，但如果我们想使用这种语法异步地使用资源呢？在这种情况下，上下文管理器语法将不起作用，因为它设计用于仅与同步
+    Python 代码一起工作，而不是协程和任务。Python 引入了一个新的语言特性来支持这种用例，称为 *异步上下文管理器*。语法几乎与同步上下文管理器相同，区别在于我们说
+    `async` `with` 而不是仅仅 `with`。
+- en: Asynchronous context managers are classes that implement two special coroutine
+    methods, `__aenter__,` which asynchronously acquires a resource and `__aexit__`,
+    which closes that resource*.* *The* `__aexit__` coroutine takes several arguments
+    that deal with any exceptions that occur, which we won’t review in this chapter.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异步上下文管理器是实现了两个特殊协程方法的类，`__aenter__`，它异步获取资源，以及 `__aexit__`，它关闭该资源*.* `__aexit__`
+    协程接受几个与任何发生的异常相关的参数，我们将在本章中不进行回顾。
+- en: To fully understand async context managers, let’s implement a simple one using
+    the sockets we introduced in chapter 3\. We can consider a client socket connection
+    a resource we’d like to manage. When a client connects, we acquire a client connection.
+    Once we are done with it, we clean up and close the connection. In chapter 3,
+    we wrapped everything in a `try/finally` block, but we could have implemented
+    an asynchronous context manager to do so instead.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了完全理解异步上下文管理器，让我们使用第 3 章中引入的套接字实现一个简单的异步上下文管理器。我们可以将客户端套接字连接视为我们想要管理的资源。当客户端连接时，我们获取客户端连接。一旦我们完成使用，我们就清理并关闭连接。在第
+    3 章中，我们使用 `try/finally` 块包装了所有内容，但我们可以实现一个异步上下文管理器来代替这样做。
+- en: Listing 4.1 An asynchronous context manager to wait for a client connection
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.1 等待客户端连接的异步上下文管理器
+- en: '[PRE2]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ This coroutine is called when we enter the with block. It waits until a client
+    connects and returns the connection.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 当我们进入 `with` 块时，会调用这个协程。它等待客户端连接，并返回连接。
+- en: ❷ This coroutine is called when we exit the with block. In it, we clean up any
+    resources we use. In this case, we close the connection.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当我们退出 `with` 块时，会调用这个协程。在其中，我们清理我们使用的任何资源。在这种情况下，我们关闭连接。
+- en: ❸ This calls __aenter__ and waits for a client connection.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 这调用 `__aenter__` 并等待客户端连接。
+- en: ❹ After this statement, __aenter__ will execute, and we’ll close our connection.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在这个语句之后，`__aenter__` 将执行，我们将关闭我们的连接。
+- en: 'In the preceding listing, we created a `ConnectedSocket` async context manager.
+    This class takes in a server socket, and in our `__aenter__` coroutine we wait
+    for a client to connect. Once a client connects, we return that client’s connection.
+    This lets us access that connection in the `as` portion of our `async` `with`
+    statement. Then, inside our `async` `with` block, we use that connection to wait
+    for the client to send us data. Once this block finishes execution, the `__aexit__`
+    coroutine runs and closes the connection. Assuming a client connects with Telnet
+    and sends some test data, we should see output like the following when running
+    this program:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个 `ConnectedSocket` 异步上下文管理器。这个类接受一个服务器套接字，并在我们的 `__aenter__`
+    协程中等待客户端连接。一旦客户端连接，我们就返回该客户端的连接。这使得我们可以在 `async` `with` 语句的 `as` 部分访问该连接。然后，在我们的
+    `async` `with` 块内部，我们使用该连接等待客户端发送数据。一旦这个块执行完毕，`__aexit__` 协程就会运行并关闭连接。假设客户端使用
+    Telnet 连接并发送一些测试数据，当运行这个程序时，我们应该看到以下输出：
+- en: '[PRE3]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: aiohttp uses async context managers extensively for acquiring HTTP sessions
+    and connections, and we’ll use this later in chapter 5 when dealing with async
+    database connections and transactions. Normally, you won’t need to write your
+    own async context managers, but it’s helpful to have an understanding of how they
+    work and are different from normal context managers. Now that we’ve introduced
+    context managers and their workings, let’s use them with aiohttp to see how to
+    make an asynchronous web request.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: aiohttp 广泛使用异步上下文管理器来获取 HTTP 会话和连接，我们将在第 5 章处理异步数据库连接和事务时使用它。通常，你不需要编写自己的异步上下文管理器，但了解它们的工作原理以及与普通上下文管理器的区别是有帮助的。现在我们已经介绍了上下文管理器和它们的工作方式，让我们使用
+    aiohttp 来看看如何发起异步网络请求。
+- en: 4.2.1 Making a web request with aiohttp
+  id: totrans-33
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.1 使用 aiohttp 发起网络请求
+- en: 'We’ll first need to install the aiohttp library. We can do this using `pip`
+    by running the following:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先需要安装 aiohttp 库。我们可以通过运行以下命令使用 `pip` 来完成此操作：
+- en: '[PRE4]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: This will install the latest version of aiohttp (3.8.1 at the time of this writing).
+    Once this is complete, you’re ready to start making requests.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将安装 aiohttp 的最新版本（在撰写本文时为 3.8.1）。一旦完成，你就可以开始发起请求了。
+- en: aiohttp, and web requests in general, employ the concept of a *session*. Think
+    of a session as opening a new browser window. Within a new browser window, you’ll
+    make connections to any number of web pages, which may send you cookies that your
+    browser saves for you. With a session, you’ll keep many connections open, which
+    can then be recycled. This is known as connection pooling. *Connection pooling*
+    is an important concept that aids the performance of our aiohttp-based applications.
+    Since creating connections is resource intensive, creating a reusable pool of
+    them cuts down on resource allocation costs. A session will also internally save
+    any cookies that we receive, although this functionality can be turned off if
+    desired.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: aiohttp 以及网络请求通常采用 *会话* 的概念。将会话想象成打开一个新的浏览器窗口。在一个新的浏览器窗口中，你可以连接到任意数量的网页，这些网页可能会发送给你浏览器为你保存的
+    cookie。使用会话，你可以保持多个连接打开，这些连接随后可以被回收。这被称为连接池。*连接池* 是一个重要的概念，有助于提高我们基于 aiohttp 的应用程序的性能。由于创建连接是资源密集型的，创建可重用的连接池可以减少资源分配成本。会话还会内部保存我们接收到的任何
+    cookie，尽管如果需要，这个功能可以被关闭。
+- en: Typically, we want to take advantage of connection pooling, so most aiohttp-based
+    applications run one session for the entire application. This session object is
+    then passed to methods where needed. A session object has methods on it for making
+    any number of web requests, such as GET, PUT, and POST. We can create a session
+    by using `async` `with` syntax and the `aiohttp.ClientSession` asynchronous context
+    manager.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，我们希望利用连接池，因此大多数基于 aiohttp 的应用程序在整个应用程序中运行一个会话。然后，这个会话对象被传递到需要它的方法中。会话对象上有用于发起任何数量网络请求的方法，例如
+    GET、PUT 和 POST。我们可以通过使用 `async` `with` 语法和 `aiohttp.ClientSession` 异步上下文管理器来创建一个会话。
+- en: Listing 4.2 Making an aiohttp web request
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.2 发起 aiohttp 网络请求
+- en: '[PRE5]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: When we run this, we should see that the output `Status` `for` `http:/ / www
+    .example .com was` `200`. In the preceding listing, we first created a client
+    session in an `async` `with` block with `aiohttp.ClientSession().` Once we have
+    a client session, we’re free to make any web request desired. In this case, we
+    define a convenience method `fetch_status_code` that will take in a session and
+    a URL and return the status code for the given URL. In this function, we have
+    another `async` `with` block and use the session to run a `GET` `HTTP` request
+    against the URL. This will give us a result, which we can then process within
+    the `with` block. In this case, we just grab the status code and return.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个命令时，我们应该看到输出 `Status` `for` `http:/ / www .example .com was` `200`。在上面的列表中，我们首先在
+    `async` `with` 块中创建了一个客户端会话 `aiohttp.ClientSession()`。一旦我们有了客户端会话，我们就可以自由地发起任何想要的网络请求。在这种情况下，我们定义了一个便利方法
+    `fetch_status_code`，它将接受一个会话和一个 URL，并返回给定 URL 的状态码。在这个函数中，我们还有一个 `async` `with`
+    块，并使用会话对 URL 运行一个 `GET` `HTTP` 请求。这将给我们一个结果，我们可以在 `with` 块中对其进行处理。在这种情况下，我们只是获取状态码并返回。
+- en: Note that a `ClientSession` will create a default maximum of 100 connections
+    by default, providing an implicit upper limit to the number of concurrent requests
+    we can make. To change this limit, we can create an instance of an aiohttp `TCPConnector`
+    specifying the maximum number of connections and passing that to the `ClientSession`.
+    To learn more about this, review the aiohttp documentation at [https:// docs.aiohttp.org/en/stable/client_advanced.html#connectors](https://docs.aiohttp.org/en/stable/client_advanced.html#connectors).
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，`ClientSession` 默认会创建最多 100 个连接，这为我们可以发起的并发请求数量提供了一个隐含的上限。要更改此限制，我们可以创建一个
+    aiohttp `TCPConnector` 的实例，指定最大连接数，并将其传递给 `ClientSession`。要了解更多信息，请查阅 aiohttp
+    文档：[https://docs.aiohttp.org/en/stable/client_advanced.html#connectors](https://docs.aiohttp.org/en/stable/client_advanced.html#connectors)。
+- en: We’ll reuse `fetch_status` throughout the chapter, so let’s make this function
+    reusable. We’ll create a Python module named `chapter_04` with its `__init__.py`
+    containing this function. We’ll then import this in future examples in this chapter
+    as `from` `chapter_04` import `fetch_status`*.*
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在本章中重复使用 `fetch_status` 函数，所以让我们使这个函数可重用。我们将创建一个名为 `chapter_04` 的 Python
+    模块，其中包含 `__init__.py` 文件，并包含这个函数。然后，我们将在本章的后续示例中导入它，作为 `from chapter_04 import
+    fetch_status`*.*。
+- en: A note for Windows users
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Windows 用户注意事项
+- en: At the present time, an issue exists with aiohttp on Windows, where you may
+    see errors like `RuntimeError:` `Event` `loop` `is` `closed` even though your
+    application works fine. Read more about this issue at [https://github.com/aio-libs/aiohttp/issues/4324](https://github.com/aio-libs/aiohttp/issues/4324)
+    and [https://bugs.python.org/issue39232](https://bugs.python.org/issue39232).
+    To work around this issue, you can either manually manage the event loop as shown
+    in chapter 2 with `asyncio.get_event_ loop().run_until_complete(main())`, or you
+    can change the event loop policy to the Windows selector event loop policy by
+    calling `asyncio.set_event_loop_policy (asyncio.WindowsSelectorEventLoopPolicy())`
+    before `asyncio.run(main()).`
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，aiohttp 在 Windows 上存在一个问题，即使你的应用程序运行正常，你也可能会看到诸如 `RuntimeError:` `Event`
+    `loop` `is` `closed` 这样的错误。更多关于此问题的信息，请参阅 [https://github.com/aio-libs/aiohttp/issues/4324](https://github.com/aio-libs/aiohttp/issues/4324)
+    和 [https://bugs.python.org/issue39232](https://bugs.python.org/issue39232)。为了解决这个问题，你可以手动管理事件循环，如第
+    2 章中所示，使用 `asyncio.get_event_loop().run_until_complete(main())`，或者你可以在调用 `asyncio.run(main())`
+    之前，通过调用 `asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())`
+    将事件循环策略更改为 Windows 选择器事件循环策略。
+- en: 4.2.2 Setting timeouts with aiohttp
+  id: totrans-46
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.2.2 使用 aiohttp 设置超时
+- en: Earlier we saw how we could specify a timeout for an awaitable by using `asyncio.wait_
+    for`. This will also work for setting timeouts for an aiohttp request, but a cleaner
+    way to set timeouts is to use the functionality that aiohttp provides out of the
+    box.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前我们看到，我们可以通过使用 `asyncio.wait_for` 来指定可等待对象的超时。这同样适用于设置 aiohttp 请求的超时，但设置超时的一种更干净的方法是使用
+    aiohttp 提供的内置功能。
+- en: By default, aiohttp has a timeout of five minutes, which means that no single
+    operation should take longer than that. This is a long timeout, and many application
+    developers may wish to set this lower. We can specify a timeout at either the
+    session level, which will apply that timeout for every operation, or at the request
+    level, which provides more granular control.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，aiohttp 的超时时间为五分钟，这意味着没有任何单个操作应该超过这个时间。这是一个较长的超时时间，许多应用程序开发者可能希望将其设置得更低。我们可以在会话级别指定超时，这将适用于每个操作，或者在请求级别指定超时，这提供了更细粒度的控制。
+- en: We can specify timeouts using the aiohttp-specific `ClientTimeout` *data structure.*
+    This structure not only allows us to specify a total timeout in seconds for an
+    entire request but also allows us to set timeouts on establishing a connection
+    or reading data. Let’s examine how to use this by specifying a timeout for our
+    session and one for an individual request.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 aiohttp 特定的 `ClientTimeout` *数据结构* 来指定超时。这个结构不仅允许我们为整个请求指定秒数总超时，还允许我们设置建立连接或读取数据的超时。让我们通过为我们的会话和单个请求指定超时来查看如何使用它。
+- en: Listing 4.3 Setting timeouts with aiohttp
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.3 使用 aiohttp 设置超时
+- en: '[PRE6]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: In the preceding listing, we set two timeouts. The first timeout is at the client-session
+    level. Here we set a total timeout of 1 second and explicitly set a connection
+    timeout of 100 milliseconds. Then, in `fetch_status` we override this for our
+    `get` request to set a total timeout of 10 miliseconds. In this instance, if our
+    request to example.com takes more than 10 milliseconds, an `asyncio.TimeoutError`
+    will be raised when we `await` `fetch_status`. In this example, 10 milliseconds
+    should be enough time for the request to example.com to complete, so we’re not
+    likely to see an exception. If you’d like to check out this exception, change
+    the URL to a page that takes a bit longer than 10 milliseconds to download.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们设置了两个超时。第一个超时是在客户端会话级别。在这里，我们设置了一个总超时时间为1秒，并明确设置了一个连接超时时间为100毫秒。然后，在`fetch_status`中，我们覆盖了这一点，为我们的`get`请求设置了一个总超时时间为10毫秒。在这种情况下，如果我们的请求到example.com需要超过10毫秒，当我们`await`
+    `fetch_status`时，将引发一个`asyncio.TimeoutError`。在这个例子中，10毫秒应该足够让请求到example.com完成，所以我们不太可能看到异常。如果您想检查这个异常，请将URL更改为下载时间比10毫秒长一点的页面。
+- en: These examples show us the basics of aiohttp. However, our application’s performance
+    won’t benefit from running only a single request with asyncio. We’ll start to
+    see the real benefits when we run several web requests concurrently.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些示例向我们展示了aiohttp的基础。然而，仅通过asyncio运行单个请求并不会提高我们应用程序的性能。当我们并发运行多个网络请求时，我们才会看到真正的益处。
+- en: 4.3 Running tasks concurrently, revisited
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.3 再次探讨并发运行任务
+- en: 'In the first few chapters of this book, we learned how to create multiple tasks
+    to run coroutines concurrently. To do this, we used `asyncio.create_task` and
+    then awaited the task as below:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书的前几章中，我们学习了如何创建多个任务以并发运行协程。为此，我们使用了`asyncio.create_task`，然后像下面这样等待任务：
+- en: '[PRE7]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: This works for simple cases like the previous one in which we have one or two
+    coroutines we want to launch concurrently. However, in a world where we may make
+    hundreds, thousands, or even more web requests concurrently, this style would
+    become verbose and messy.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这适用于像之前的例子那样的简单情况，其中我们想要并发启动一个或两个协程。然而，在一个可能同时进行数百、数千甚至更多网络请求的世界里，这种风格会变得冗长且混乱。
+- en: We may be tempted to utilize a `for` loop or a list comprehension to make this
+    a little smoother, as demonstrated in the following listing. However, this approach
+    can cause issues if not written correctly.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能会倾向于使用`for`循环或列表推导式来使这个过程更加流畅，如下面的列表所示。然而，如果编写不当，这种方法可能会引起问题。
+- en: Listing 4.4 Using tasks with a list comprehension incorrectly
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.4 使用列表推导式错误地使用任务
+- en: '[PRE8]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: 'Given that we ideally want the `delay` tasks to run concurrently, we’d expect
+    the main method to complete in about 3 seconds. However, in this case 9 seconds
+    elapse to run, since everything is done sequentially:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们理想情况下希望`delay`任务能够并发运行，我们预计主方法大约在3秒内完成。然而，在这种情况下，运行时间达到了9秒，因为所有操作都是顺序执行的：
+- en: '[PRE9]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: The problem here is subtle. It occurs because we use `await` as soon as we create
+    the task. This means that we pause the list comprehension and the main coroutine
+    for every `delay` task we create until that `delay` task completes. In this case,
+    we will have only one task running at any given time, instead of running multiple
+    tasks concurrently. The fix is easy, although a bit verbose. We can create the
+    tasks in one list comprehension and `await` in a second. This lets everything
+    to run concurrently.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的问题很微妙。这是由于我们在创建任务后立即使用了`await`。这意味着对于每个我们创建的`delay`任务，我们都会暂停列表推导式和主协程，直到该`delay`任务完成。在这种情况下，我们将在任何给定时间只运行一个任务，而不是并发运行多个任务。修复方法是简单的，尽管有点冗长。我们可以在一个列表推导式中创建任务，并在第二个中`await`。这可以让一切并发运行。
+- en: Listing 4.5 Using tasks concurrently with a list comprehension
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.5 使用列表推导式并发使用任务
+- en: '[PRE10]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'This code creates a number of tasks all at once in the `tasks` list. Once we
+    have created all the tasks, we await their completion in a separate list comprehension.
+    This works because `create_task` returns instantly, and we don’t do any awaiting
+    until all the tasks have been created. This ensures that it only requires at most
+    the maximum pause in `delay_times`, giving a runtime of about 3 seconds:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码在`tasks`列表中一次性创建了多个任务。一旦我们创建了所有任务，我们就在一个单独的列表推导式中等待它们的完成。这是因为`create_task`会立即返回，我们不会在所有任务创建之前进行任何等待。这确保了它只需要最多`delay_times`中的最大暂停时间，从而运行时间大约为3秒：
+- en: '[PRE11]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: While this does what we want, drawbacks remain. The first is that this consists
+    of multiple lines of code, where we must explicitly remember to separate out our
+    task creation from our awaits. The second is that it is inflexible, and if one
+    of our coroutines finishes long before the others, we’ll be trapped in the second
+    list comprehension waiting for all other coroutines to finish. While this may
+    be acceptable in certain circumstances, we may want to be more responsive, processing
+    our results as soon as they arrive. The third, and potentially biggest issue,
+    is exception handling. If one of our coroutines has an exception, it will be thrown
+    when we `await` the failed task. This means that we won’t be able to process any
+    tasks that completed successfully because that one exception will halt our execution.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然这做到了我们想要的事情，但仍然存在一些缺点。第一个缺点是它由多行代码组成，我们必须明确记住将任务创建与 `await` 分离。第二个缺点是不灵活，如果我们的协程比其他协程先完成，我们将被困在第二个列表解析中，等待所有其他协程完成。虽然这在某些情况下可能是可以接受的，但我们可能希望更加响应，一旦结果到达就处理它们。第三个，也是潜在的最大问题是异常处理。如果我们的协程中有一个异常，当我们在
+    `await` 失败的任务时，它将被抛出。这意味着我们无法处理任何成功完成的任务，因为那个异常将停止我们的执行。
+- en: asyncio has convenience functions to deal with all these situations and more.
+    These functions are recommended when running multiple tasks concurrently. In the
+    following sections, we’ll look at some of them, and examine how to use them in
+    the context of making multiple web requests concurrently.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncio 提供了一些便利函数来处理所有这些情况以及更多。当并发运行多个任务时，建议使用这些函数。在接下来的几节中，我们将查看其中的一些，并检查如何在并发发出多个网络请求的上下文中使用它们。
+- en: 4.4 Running requests concurrently with gather
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.4 使用 gather 并发运行请求
+- en: A widely used asyncio API functions for running awaitables concurrently is `asyncio
+    .gather`. This function takes in a sequence of awaitables and lets us run them
+    concurrently, all in one line of code. If any of the awaitables we pass in is
+    a coroutine, `gather` will automatically wrap it in a task to ensure that it runs
+    concurrently. This means that we don’t have to wrap everything with `asyncio.create_task`
+    separately as we used above.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个广泛使用的 asyncio API，用于并发运行可等待对象的是 `asyncio.gather`。这个函数接受一个可等待对象的序列，并允许我们一行代码中并发运行它们。如果我们传递的可等待对象中有一个是协程，`gather`
+    将自动将其包装在一个任务中，以确保它并发运行。这意味着我们不需要像上面那样单独使用 `asyncio.create_task` 将所有内容包装起来。
+- en: '`asyncio.gather` returns an awaitable. When we use it in an `await` expression,
+    it will pause until all awaitables that we passed into it are complete. Once everything
+    we passed in finishes, `asyncio.gather` will return a list of the completed results.'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`asyncio.gather` 返回一个可等待对象。当我们将其用于 `await` 表达式中时，它将暂停，直到我们传递给它的所有可等待对象都完成。一旦我们传递的所有内容都完成，`asyncio.gather`
+    将返回一个包含完成结果的列表。'
+- en: We can use this function to run as many web requests as we’d like concurrently.
+    To illustrate this, let’s see an example where we make 1,000 requests at the same
+    time and grab the status code of each response. We’ll decorate our main coroutine
+    with `@async_ timed` so we know how long things are taking.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用这个函数并发运行我们想要的任意数量的网络请求。为了说明这一点，让我们看一个例子，我们同时发出1,000个请求，并获取每个响应的状态码。我们将使用
+    `@async_timed` 装饰器装饰我们的主协程，以便我们知道事情花费了多长时间。
+- en: Listing 4.6 Running requests concurrently with gather
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.6 使用 gather 并发运行请求
+- en: '[PRE12]'
+  id: totrans-75
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Generate a list of coroutines for each request we want to make.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为我们想要发出的每个请求生成一个协程列表。
+- en: ❷ Wait for all requests to complete.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待所有请求完成。
+- en: In the preceding listing, we first generate a list of URLs we’d like to retrieve
+    the status code from; for simplicity, we’ll request example.com repeatedly. We
+    then take that list of URLs and call `fetch_status_code` to generate a list of
+    coroutines that we then pass into `gather`. This will wrap each coroutine in a
+    task and start running them concurrently. When we execute this code, we’ll see
+    1,000 messages printed to standard out, saying that the `fetch_status_code` coroutines
+    started sequentially, indicating that 1,000 requests started concurrently. As
+    results come in, we’ll see messages like `finished` `<function` `fetch_status_code`
+    `at` `0x10f3fe3a0>` `in` `0.5453` `second(s)` arrive. Once we retrieve the contents
+    of all the URLs we’ve requested, we’ll see the status codes start to print out.
+    This process is quick, depending on the internet connection and speed of the machine,
+    and this script can finish in as little as 500-600 milliseconds.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们首先生成一个我们想要从中检索状态码的URL列表；为了简单起见，我们将反复请求example.com。然后，我们取出这个URL列表，调用`fetch_status_code`来生成一个协程列表，然后我们将这些协程传递给`gather`。这将每个协程包装在一个任务中，并开始并发运行它们。当我们执行此代码时，我们会看到1,000条消息打印到标准输出，表示`fetch_status_code`协程依次启动，表明有1,000个请求并发启动。随着结果的到来，我们会看到类似`finished`
+    `<function` `fetch_status_code` `at` `0x10f3fe3a0>` `in` `0.5453` `second(s)`的消息。一旦我们检索到我们请求的所有URL的内容，我们就会看到状态码开始打印出来。这个过程很快，取决于互联网连接和机器的速度，这个脚本可以在500-600毫秒内完成。
+- en: 'So how does this compare with doing things synchronously? It’s easy to adapt
+    the main function so that it blocks on each request by using an `await` when we
+    call `fetch_status_code`. This will pause the main coroutine for each URL, effectively
+    making things synchronous:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，这与同步操作相比如何呢？很容易通过在调用`fetch_status_code`时使用`await`来修改主函数，使其在每个请求上阻塞。这将使每个URL的主协程暂停，从而有效地使操作同步：
+- en: '[PRE13]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'If we run this, notice that things will take much longer. We’ll also notice
+    that, instead of getting 1,000 `starting` `function` `fetch_status_code` messages
+    followed by 1,000 `finished` `function` `fetch_status_code` messages, something
+    like the following displays for each request:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们运行这个，我们会注意到事情会花费更长的时间。我们还会注意到，与得到1,000条`starting` `function` `fetch_status_code`消息后跟1,000条`finished`
+    `function` `fetch_status_code`消息的情况不同，每个请求都会显示类似以下的内容：
+- en: '[PRE14]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: This indicates that requests occur one after another, waiting for each call
+    to `fetch_ status_code` to finish before moving on to the next request. So how
+    much slower is this than using our async version? While this depends on your internet
+    connection and the machine you run this on, running sequentially can take around
+    18 seconds to complete. Comparing this with our asynchronous version, which took
+    around 600 milliseconds, the latter runs an impressive 33 times faster.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这表明请求是依次发生的，等待每个`fetch_status_code`调用完成后再进行下一个请求。那么，这比使用我们的异步版本慢多少？虽然这取决于你的互联网连接和运行此代码的机器，但顺序运行可能需要大约18秒才能完成。与我们的异步版本相比，后者大约需要600毫秒，后者运行速度提高了33倍。
+- en: It is worth noting that the results for each awaitable we pass in may not complete
+    in a deterministic order. For example, if we pass coroutines `a` and `b` to `gather`
+    in that order, `b` may complete before `a`. A nice feature of `gather` is that,
+    regardless of when our awaitables complete, we are guaranteed the results will
+    be returned in the order we passed them in. Let’s demonstrate this by looking
+    at the scenario we just described with our `delay` function.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得注意的是，我们传递给每个可等待对象的每个结果可能不会以确定性的顺序完成。例如，如果我们按顺序将协程`a`和`b`传递给`gather`，`b`可能会在`a`之前完成。`gather`的一个不错的特点是，无论我们的可等待对象何时完成，我们都保证结果将以我们传递它们的顺序返回。让我们通过查看我们刚刚用`delay`函数描述的场景来演示这一点。
+- en: Listing 4.7 Awaitables finishing out of order
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.7 可等待对象完成顺序混乱
+- en: '[PRE15]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: In the preceding listing, we pass two coroutines to `gather`. The first takes
+    3 seconds to complete and the second takes 1 second. We may expect the result
+    of this to be `[1,` `3]`, since our 1-second coroutine finishes before our 3-second
+    coroutine, but the result is actually `[3,` `1]`—the order we passed things in.
+    The `gather` function keeps result ordering deterministic despite the inherent
+    nondeterminism behind the scenes. In the background, `gather` uses a special kind
+    of `future` implementation to do this. For the curious reader, reviewing the source
+    code of `gather` can be an instructive way to understand how many asyncio APIs
+    are built using futures.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们向 `gather` 传递了两个协程。第一个需要 3 秒钟完成，第二个需要 1 秒钟。我们可能期望这个结果为 `[1,` `3]`，因为我们的
+    1 秒钟协程在 3 秒钟协程之前完成，但实际结果是 `[3,` `1]` — 我们传递内容的顺序。`gather` 函数即使在后台存在固有的非确定性情况下，也能保持结果排序的确定性。在后台，`gather`
+    使用一种特殊的 `future` 实现来完成这个任务。对于好奇的读者，查看 `gather` 的源代码可以是一个了解许多 asyncio API 是如何使用
+    futures 构建的有益方式。
+- en: In the examples above, it’s assumed none of the requests will fail or throw
+    an exception. This works well for the “happy path,” but what happens when a request
+    fails?
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上面的示例中，假设没有任何请求会失败或抛出异常。这对于“顺利路径”来说效果很好，但当一个请求失败时会发生什么呢？
+- en: 4.4.1 Handling exceptions with gather
+  id: totrans-89
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.4.1 使用 `gather` 处理异常
+- en: Of course, when we make a web request, we might not always get a value back;
+    we might get an exception. Since networks can be unreliable, different failure
+    cases are possible. For example, we could pass in an address that is invalid or
+    has become invalid because the site has been taken down. The server we connect
+    to could also close or refuse our connection.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，当我们发起一个网络请求时，我们并不总是能得到一个返回值；我们可能会遇到异常。由于网络可能不可靠，可能出现不同的故障情况。例如，我们可能传递了一个无效的地址，或者由于网站已被关闭而变得无效。我们连接的服务器也可能关闭或拒绝我们的连接。
+- en: '`asyncio.gather` gives us an optional parameter, `return_exceptions`, which
+    allows us to specify how we want to deal with exceptions from our awaitables.
+    `return_exceptions` is a Boolean value; therefore, it has two behaviors that we
+    can choose from:'
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`asyncio.gather` 函数提供了一个可选参数 `return_exceptions`，它允许我们指定如何处理 `awaitables` 中的异常。`return_exceptions`
+    是一个布尔值；因此，我们可以从以下两种行为中选择：'
+- en: '`return_exceptions=False`—This is the default value for `gather`. In this case,
+    if any of our coroutines throws an exception, our `gather` call will also throw
+    that exception when we `await` it. However, even though one of our coroutines
+    failed, our other coroutines are not canceled and will continue to run as long
+    as we handle the exception, or the exception does not result in the event loop
+    stopping and canceling the tasks.'
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`return_exceptions=False` — 这是 `gather` 的默认值。在这种情况下，如果我们的任何协程抛出异常，当我们在 `await`
+    它时，`gather` 调用也会抛出那个异常。然而，尽管我们的一个协程失败了，但其他协程并没有被取消，只要我们处理了异常，或者异常没有导致事件循环停止并取消任务，它们将继续运行。'
+- en: '`return_exceptions=True`—In this case, `gather` will return any exceptions
+    as part of the result list it returns when we `await` it. The call to `gather`
+    will not throw any exceptions itself, and we’ll be able handle all exceptions
+    as we wish.'
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`return_exceptions=True` — 在这种情况下，当我们在 `await` `gather` 时，`gather` 将将任何异常作为它返回的结果列表的一部分。`gather`
+    调用本身不会抛出任何异常，我们可以按我们的意愿处理所有异常。'
+- en: 'To illustrate how these options work, let’s change our URL list to contain
+    an invalid web address. This will cause aiohttp to raise an exception when we
+    attempt to make the request. We’ll then pass that into `gather` and see how each
+    of these `return_ exceptions` behaves:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这些选项是如何工作的，让我们将我们的 URL 列表更改为包含一个无效的网址。这将导致当我们尝试发起请求时，aiohttp 会抛出一个异常。然后我们将这个异常传递给
+    `gather`，并查看每个 `return_exceptions` 的行为：
+- en: '[PRE16]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'If we change our URL list to the above, the request for `''python:// example
+    .com''` will fail because that URL is not valid. Our `fetch_status_code` coroutine
+    will throw an `AssertionError` because of this, meaning that `python:/ /` does
+    not translate into a port. This exception will get thrown when we `await` our
+    `gather` coroutine. If we run this and look at the output, we’ll see that our
+    exception was thrown, but we’ll also see that our other request continued to run
+    (we’ve removed the verbose traceback for brevity):'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们将我们的 URL 列表更改为上述内容，对 `'python:// example .com'` 的请求将失败，因为这个 URL 是无效的。由于这个原因，我们的
+    `fetch_status_code` 协程将抛出一个 `AssertionError`，这意味着 `python:/ /` 并不转换为一个端口。当我们在
+    `await` 我们的 `gather` 协程时，这个异常将被抛出。如果我们运行这个程序并查看输出，我们会看到我们的异常被抛出，但也会看到我们的其他请求继续运行（为了简洁，我们已移除详细的跟踪信息）：
+- en: '[PRE17]'
+  id: totrans-97
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '`asyncio.gather` won’t cancel any other tasks that are running if there is
+    a failure. That may be acceptable for many use cases but is one of the drawbacks
+    of `gather`. We’ll see how to cancel tasks we run concurrently later in this chapter.'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果 `asyncio.gather` 失败，它不会取消任何其他正在运行的任务。这可能对许多用例来说是可接受的，但这是 `gather` 的缺点之一。我们将在本章后面看到如何取消并发运行的任务。
+- en: 'Another potential issue with the above code is that if more than one exception
+    happens, we’ll only see the first one that occurred when we `await` the `gather`.
+    We can fix this by using `return_exceptions=True`, which will return all exceptions
+    we encounter when running our coroutines. We can then filter out any exceptions
+    and handle them as needed. Let’s examine our previous example with invalid URLs
+    to understand how this works:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述代码的另一个潜在问题是，如果发生多个异常，我们只能在 `await` `gather` 时看到第一个发生的异常。我们可以通过使用 `return_exceptions=True`
+    来修复这个问题，这将返回我们在运行协程时遇到的全部异常。然后我们可以过滤掉任何异常，并按需处理它们。让我们通过检查无效 URL 的前一个示例来了解这是如何工作的：
+- en: '[PRE18]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'When running this, notice that no exceptions are thrown, and we get all the
+    exceptions alongside our successful results in the list that `gather` returns.
+    We then filter out anything that is an instance of an exception to retrieve the
+    list of successful responses, resulting in the following output:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当运行此代码时，请注意没有抛出异常，我们得到了 `gather` 返回的列表中所有成功的和失败的异常。然后我们过滤掉所有异常实例，以检索成功的响应列表，结果如下：
+- en: '[PRE19]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: This solves the issue of not being able to see all the exceptions that our coroutines
+    throw. It is also nice that now we don’t need to explicitly handle any exceptions
+    with a `try` `catch` block, since we no longer throw an exception when we `await`.
+    It is still a little clunky that we must filter out exceptions from successful
+    results, but the API is not perfect.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这解决了无法看到协程抛出的所有异常的问题。现在我们不再需要显式地使用 `try` `catch` 块来处理任何异常，因为我们不再在 `await` 时抛出异常。尽管我们仍然必须从成功的结果中过滤掉异常，但
+    API 并不完美。
+- en: '`gather` has a few drawbacks. The first, which was already mentioned, is that
+    it isn’t easy to cancel our tasks if one throws an exception. Imagine a case in
+    which we’re making requests to the same server, and if one request fails, all
+    others will as well, such as reaching a rate limit. In this case, we may want
+    to cancel requests to free up resources, which isn’t very easy to do because our
+    coroutines are wrapped in tasks in the background.'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`gather` 有几个缺点。第一个，前面已经提到，就是如果其中一个任务抛出异常，取消我们的任务并不容易。想象一下，如果我们向同一个服务器发送请求，如果一个请求失败，所有其他请求也会失败，比如达到速率限制。在这种情况下，我们可能想要取消请求以释放资源，但这并不容易做到，因为我们的协程在后台被任务封装。'
+- en: The second is that we must wait for all our coroutines to finish before we can
+    process our results. If we want to deal with results as soon as they complete,
+    this poses a problem. For example, if we have one request needing 100 milliseconds,
+    but another that lasts 20 seconds, we’ll be stuck waiting for 20 seconds before
+    we can process the request that completed in only 100 milliseconds.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个问题是，我们必须等待所有协程完成，我们才能处理我们的结果。如果我们想在结果完成时立即处理它们，这会引发一个问题。例如，如果我们有一个请求需要 100
+    毫秒，但另一个请求持续 20 秒，我们将在处理只花费 100 毫秒完成的请求之前，被卡在等待 20 秒。
+- en: asyncio provides APIs that allow us to solve for both issues. Let’s start by
+    looking at the problem of handling results as soon as they come in.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: asyncio 提供了 API，使我们能够解决这两个问题。让我们首先看看如何处理结果一出现就进行处理的问题。
+- en: 4.5 Processing requests as they complete
+  id: totrans-107
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.5 在请求完成时处理请求
+- en: While `asyncio.gather` will work for many cases, it has the drawback that it
+    waits for all awaitables to finish before allowing access to any results. This
+    is a problem if we’d like to process results as soon as they come in. It can also
+    be a problem if we have a few awaitables that could complete quickly and a few
+    which could take some time, since `gather` waits for everything to finish. This
+    can cause our application to become unresponsive; imagine a user makes 100 requests
+    and two of them are slow, but the rest complete quickly. It would be great if
+    once requests start to finish, we could output some information to our users.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然 `asyncio.gather` 在许多情况下都能正常工作，但它有一个缺点，那就是它需要在所有可等待对象完成之前等待，才允许访问任何结果。如果我们希望一有结果就处理它们，这会成为一个问题。如果我们有一些可等待对象可以快速完成，而有一些可能需要一些时间，那么
+    `gather` 等待所有东西完成也会成为一个问题。这可能导致我们的应用程序变得无响应；想象一下，一个用户发出了100个请求，其中两个很慢，但其余的很快完成。如果一旦请求开始完成，我们就能向用户输出一些信息，那会很好。
+- en: To handle this case, asyncio exposes an API function named `as_completed`. This
+    method takes a list of awaitables and returns an iterator of futures. We can then
+    iterate over these futures, awaiting each one. When the `await` expression completes,
+    we will retrieve the result of the coroutine that finished first out of all our
+    awaitables. This means that we’ll be able to process results as soon as they are
+    available, but there is now no deterministic ordering of results, since we have
+    no guarantees as to which requests will complete first.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了处理这种情况，`asyncio` 提供了一个名为 `as_completed` 的API函数。此方法接受一个可等待对象的列表，并返回一个future的迭代器。然后我们可以遍历这些future，等待每一个。当
+    `await` 表达式完成时，我们将从所有我们的可等待对象中检索第一个完成的协程的结果。这意味着我们将在结果可用时立即处理它们，但由于我们没有关于哪个请求将首先完成的保证，因此现在没有结果的确定性排序。
+- en: 'To show how this works, let’s simulate a case where one request completes quickly,
+    and another needs more time. We’ll add a `delay` parameter to our `fetch_status`
+    function and call `asyncio.sleep` to simulate a long request, as follows:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了展示这是如何工作的，让我们模拟一个情况，其中一个请求很快完成，而另一个需要更多时间。我们将在 `fetch_status` 函数中添加一个 `delay`
+    参数，并调用 `asyncio.sleep` 来模拟一个长时间请求，如下所示：
+- en: '[PRE20]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: We’ll then use a `for` loop to iterate over the iterator returned from `as_completed`.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们将使用一个 `for` 循环来遍历 `as_completed` 返回的迭代器。
+- en: Listing 4.8 Using as_completed
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.8 使用 as_completed
+- en: '[PRE21]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'In the preceding listing, we create three coroutines—two that require about
+    1 second to complete and one that will take 10 seconds. We then pass these into
+    `as_completed`. Under the hood, each coroutine is wrapped in a task and starts
+    running concurrently. The routine instantly returned an iterator that starts to
+    loop over. When we enter the `for` loop, we hit `await` `finished_task`. Here
+    we pause execution and wait for our first result to come in. In this case, our
+    first result comes in after 1 second, and we print the status code. Then we reach
+    `the` `await` `result` again, and since our requests ran concurrently, we should
+    see the second result almost instantly. Finally, our 10-second request will complete,
+    and our loop will finish. Executing this will give us output as follows:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了三个协程——两个需要大约1秒来完成，一个将需要10秒。然后我们将这些传递给 `as_completed`。在底层，每个协程都被包装在一个任务中并开始并发运行。该协程立即返回一个迭代器，开始循环。当我们进入
+    `for` 循环时，我们遇到 `await` `finished_task`。在这里我们暂停执行并等待第一个结果到来。在这种情况下，我们的第一个结果在1秒后到来，我们打印状态码。然后我们再次遇到
+    `await` `result`，由于我们的请求是并发运行的，我们应该几乎立即看到第二个结果。最后，我们的10秒请求将完成，循环将结束。执行此操作将给出以下输出：
+- en: '[PRE22]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: In total, iterating over `result_iterator` still takes about 10 seconds, as
+    it would have if we used `asynio.gather`; however, we’re able to execute code
+    to print the result of our first request as soon as it finishes. This gives us
+    extra time to process the result of our first successfully finished coroutine
+    while others are still waiting to finish, making our application more responsive
+    when our tasks complete.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总体来说，遍历 `result_iterator` 仍然需要大约10秒，就像我们使用 `asyncio.gather` 一样；然而，我们能够在第一个请求完成时立即执行代码来打印其结果。这给了我们额外的时间来处理第一个成功完成的协程的结果，同时其他协程仍在等待完成，这使得我们的应用程序在任务完成时更加响应。
+- en: This function also offers better control over exception handling. When a task
+    throws an exception, we’ll be able to process it when it happens, as the exception
+    is thrown when we `await` the `future`.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数还提供了更好的异常处理控制。当一个任务抛出异常时，我们将在它发生时处理它，因为异常是在我们 `await` `future` 时抛出的。
+- en: 4.5.1 Timeouts with as_completed
+  id: totrans-119
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.5.1 使用 as_completed 的超时
+- en: Any web-based request runs the risk of taking a long time. A server could be
+    under a heavy resource load, or we could have a poor network connection. Earlier,
+    we saw how to add timeouts for a particular request, but what if we wanted to
+    have a timeout for a group of requests? The `as_completed` function supports this
+    use case by supplying an optional timeout parameter, which lets us specify a timeout
+    in seconds. This will keep track of how long the `as_completed` call has taken;
+    if it takes longer than the timeout, each awaitable in the iterator will throw
+    a `TimeoutException` when we `await` it.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何基于 Web 的请求都有可能花费很长时间。服务器可能正承受着沉重的资源负载，或者我们可能有一个糟糕的网络连接。之前，我们看到了如何为特定请求添加超时，但如果我们想为一组请求设置超时怎么办？`as_completed`
+    函数通过提供一个可选的超时参数来支持这种用例，这允许我们指定秒数。这将跟踪 `as_completed` 调用所花费的时间；如果它超过了超时时间，当我们在迭代器中
+    `await` 它时，每个可等待对象都会抛出一个 `TimeoutException`。
+- en: To illustrate this, let’s take our previous example and create two requests
+    that take 10 seconds to complete and one request that takes 1 second. Then, we’ll
+    set a timeout of 2 seconds on `as_completed`. Once we’re done with the loop, we’ll
+    print out all the tasks we have that are currently running.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这一点，让我们以之前的例子为基础，创建两个需要 10 秒才能完成的请求和一个需要 1 秒的请求。然后，我们在 `as_completed` 上设置
+    2 秒的超时。一旦我们完成循环，我们将打印出所有当前正在运行的任务。
+- en: Listing 4.9 Setting a timeout on as_completed
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.9 在 as_completed 上设置超时
+- en: '[PRE23]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'When we run this, we’ll notice the result from our first fetch, and after 2
+    seconds, we’ll see two timeout errors. We’ll also see that two fetches are still
+    running, giving output similar to the following:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行这个程序时，我们会注意到第一次抓取的结果，2秒后，我们会看到两个超时错误。我们还会看到还有两个抓取仍在运行，输出类似于以下内容：
+- en: '[PRE24]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: '`as_completed` works well for getting results as fast as possible but has drawbacks.
+    The first is that while we get results as they come in, there isn’t any way to
+    easily see which coroutine or task we’re awaiting as the order is completely nondeterministic.
+    If we don’t care about order, this may be fine, but if we need to associate the
+    results to the requests somehow, we’re left with a challenge.'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`as_completed` 在尽可能快地获取结果方面表现良好，但也有一些缺点。第一个缺点是，虽然我们随着结果的出现而获取结果，但由于顺序是完全非确定的，没有简单的方法可以看到我们正在等待哪个协程或任务。如果我们不关心顺序，这可能没问题，但如果我们需要以某种方式将结果关联到请求，我们就会面临挑战。'
+- en: The second is that with timeouts, while we will correctly throw an exception
+    and move on, any tasks created will still be running in the background. Since
+    it’s hard to figure out which tasks are still running if we want to cancel them,
+    we have another challenge. If these are problems we need to deal with, then we’ll
+    need some finer-grained knowledge of which awaitables are finished, and which
+    are not. To handle this situation, asyncio provides another API function called
+    `wait`.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个缺点是，使用超时，虽然我们会正确地抛出异常并继续执行，但任何创建的任务仍然会在后台运行。由于很难确定哪些任务仍在运行，如果我们想取消它们，我们就会面临另一个挑战。如果这些问题是我们需要处理的，那么我们就需要更细粒度的知识，了解哪些可等待对象已经完成，哪些还没有。为了处理这种情况，asyncio
+    提供了另一个 API 函数，称为 `wait`。
+- en: 4.6 Finer-grained control with wait
+  id: totrans-128
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 4.6 使用 wait 进行更细粒度的控制
+- en: One of the drawbacks of both `gather` and `as_completed` is that there is no
+    easy way to cancel tasks that were already running when we saw an exception. This
+    might be okay in many situations, but imagine a use case in which we make several
+    coroutine calls and if the first one fails, the rest will as well. An example
+    of this would be passing in an invalid parameter to a web request or reaching
+    an API rate limit. This has the potential to cause performance issues because
+    we’ll consume more resources by having more tasks than we need. Another drawback
+    we noted with `as_completed` is that, as the iteration order is nondeterministic,
+    it is challenging to keep track of exactly which task had completed.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`gather` 和 `as_completed` 的一个缺点是，当我们遇到异常时，没有简单的方法来取消已经运行的任务。这在许多情况下可能没问题，但想象一下这样的用例：我们进行了几个协程调用，如果第一个调用失败，其余的也会失败。这种情况的一个例子是将无效参数传递给
+    Web 请求或达到 API 速率限制。这可能会引起性能问题，因为我们可能会消耗比所需更多的资源。我们注意到 `as_completed` 的另一个缺点是，由于迭代顺序是非确定的，很难跟踪确切哪个任务已经完成。'
+- en: '`wait` in asyncio is similar to `gather` `wait` that offers more specific control
+    to handle these situations. This method has several options to choose from depending
+    on when we want our results. In addition, this method returns two sets: a set
+    of tasks that are finished with either a result or an exception, and a set of
+    tasks that are still running. This function also allows us to specify a timeout
+    that behaves differently from how other API methods operate; it does not throw
+    exceptions. When needed, this function can solve some of the issues we noted with
+    the other asyncio API functions we’ve used so far.'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`asyncio`中的`wait`类似于`gather`，它提供了更具体的控制来处理这些情况。此方法有几个选项可供选择，具体取决于我们何时想要结果。此外，此方法返回两个集合：一个集合包含已完成任务的结果或异常，另一个集合包含仍在运行的任务。此函数还允许我们指定一个与其他API方法操作不同的超时时间；它不会抛出异常。当需要时，此函数可以解决我们之前使用其他`asyncio`
+    API函数时遇到的一些问题。'
+- en: 'The basic signature of `wait` is a list of awaitable objects, followed by an
+    optional timeout and an optional `return_when` string. This string has a few predefined
+    values that we’ll examine: `ALL_COMPLETED`, `FIRST_EXCEPTION` and `FIRST_COMPLETED`.
+    It defaults to `ALL_COMPLETED`. While as of this writing, `wait` takes a list
+    of awaitables, it will change in future versions of Python to only accept `task`
+    objects. We’ll see why at the end of this section, but for these code samples,
+    as this is best practice, we’ll wrap all coroutines in tasks.'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`wait`的基本签名是一个可等待对象列表，后面跟着一个可选的超时时间和一个可选的`return_when`字符串。这个字符串有几个预定义的值，我们将对其进行检查：`ALL_COMPLETED`、`FIRST_EXCEPTION`和`FIRST_COMPLETED`。它默认为`ALL_COMPLETED`。虽然截至本文写作时，`wait`接受一个可等待对象列表，但在未来的Python版本中，它将只接受`task`对象。我们将在本节末尾看到原因，但为了这些代码示例，作为最佳实践，我们将所有协程包装在任务中。'
+- en: 4.6.1 Waiting for all tasks to complete
+  id: totrans-132
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.1 等待所有任务完成
+- en: This option is the default behavior if `return_when` is not specified, and it
+    is the closest in behavior to `asyncio.gather`, though it has a few differences.
+    As implied, using this option will wait for all tasks to finish before returning.
+    Let’s adapt this to our example of making multiple web requests concurrently to
+    learn how this function works.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果没有指定`return_when`，则此选项是默认行为，并且它在行为上与`asyncio.gather`最接近，尽管它有一些差异。如前所述，使用此选项将在返回之前等待所有任务完成。让我们将此应用于我们的并发执行多个网络请求的示例，以了解此函数的工作方式。
+- en: Listing 4.10 Examining the default behavior of wait
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.10 检查`wait`的默认行为
+- en: '[PRE25]'
+  id: totrans-135
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'In the preceding listing, we run two web requests concurrently by passing a
+    list of coroutines to `wait`. When we `await` `wait` it will return two sets once
+    all requests finish: one set of all tasks that are complete and one set of the
+    tasks that are still running. The `done` set contains all tasks that finished
+    either successfully or with exceptions. The `pending` set contains all tasks that
+    have not finished yet. In this instance, since we are using the `ALL_COMPLETED`
+    option the `pending` set will always be zero, since `asyncio.wait` won’t return
+    until everything is completed. This will give us the following output:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们通过向`wait`传递协程列表来并发运行两个网络请求。当我们`await``wait`时，一旦所有请求完成，它将返回两个集合：一个是所有已完成的任务集合，另一个是仍在运行的任务集合。`done`集合包含所有成功完成或抛出异常的任务。`pending`集合包含所有尚未完成的任务。在这个例子中，因为我们使用了`ALL_COMPLETED`选项，所以`pending`集合始终为零，因为`asyncio.wait`不会在所有内容完成之前返回。这将给我们以下输出：
+- en: '[PRE26]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: If one of our requests throws an exception, it won’t be thrown at the `asyncio.wait`
+    call in the same way that `asyncio.gather` did. In this instance, we’ll get both
+    the `done` and `pending` sets as before, but we won’t see an exception until we
+    `await` the task in `done` that failed.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的请求之一抛出异常，它不会像`asyncio.gather`那样在`asyncio.wait`调用中抛出。在这个例子中，我们将像之前一样得到`done`和`pending`集合，但直到我们`await`失败的任务，我们才看不到异常。
+- en: With this paradigm, we have a few options on how to handle exceptions. We can
+    use `await` and let the exception throw, we can use `await` and wrap it in a `try`
+    `except` block to handle the exception, or we can use the `task.result``()` and
+    `task.exception()` methods. We can safely call these methods since our tasks in
+    the `done` set are guaranteed to be completed tasks; if they were not calling
+    these methods, it would then produce an exception.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种范式，我们有几种处理异常的方法。我们可以使用`await`并让异常抛出，我们可以使用`await`并在`try``except`块中包装它来处理异常，或者我们可以使用`task.result()`和`task.exception()`方法。我们可以安全地调用这些方法，因为`done`集中的任务保证是已完成的任务；如果它们没有调用这些方法，那么将产生异常。
+- en: Let’s say that we don’t want to throw an exception and have our application
+    crash. Instead, we’d like to print the task’s result if we have it and log an
+    error if there was an exception. In this case, using the methods on the `Task`
+    object is an appropriate solution. Let’s see how to use these two `Task` methods
+    to handle exceptions.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们不想抛出异常并使我们的应用程序崩溃。相反，如果我们有任务的结果，我们希望打印任务的结果，如果有异常，则记录错误。在这种情况下，使用 `Task`
+    对象的方法是合适的解决方案。让我们看看如何使用这两个 `Task` 方法来处理异常。
+- en: Listing 4.11 Exceptions with wait
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.11 使用 wait 的异常
+- en: '[PRE27]'
+  id: totrans-142
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: 'Using `done_task.exception()` will check to see if we have an exception. If
+    we don’t, then we can proceed to get the result from `done_task` with the `result`
+    method. It would also be safe to do `result` `=` `await` `done_task` here, although
+    it might throw an exception, which may not be what we want. If the exception is
+    not `None`, then we know that the awaitable had an exception, and we can handle
+    that as desired. Here we just print out the exception’s stack trace. Running this
+    will yield output similar to the following (we’ve removed the verbose traceback
+    for brevity):'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 `done_task.exception()` 将检查我们是否有异常。如果没有，我们可以继续使用 `done_task` 的 `result` 方法来获取结果。在这里执行
+    `result` `=` `await` `done_task` 也是安全的，尽管它可能会抛出异常，这可能不是我们想要的。如果异常不是 `None`，那么我们知道可等待对象有异常，我们可以按需处理它。在这里，我们只是打印出异常的堆栈跟踪。运行此操作将产生类似于以下输出的结果（为了简洁，我们已删除冗长的跟踪信息）：
+- en: '[PRE28]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 4.6.2 Watching for exceptions
+  id: totrans-145
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.2 监视异常
+- en: The drawbacks of `ALL_COMPLETED` are like the drawbacks we saw with `gather`.
+    We could have any number of exceptions while we wait for other coroutines to complete,
+    which we won’t see until all tasks complete. This could be an issue if, because
+    of one exception, we’d like to cancel other running requests. We may also want
+    to immediately handle any errors to ensure responsiveness and continue waiting
+    for other coroutines to complete.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ALL_COMPLETED` 的缺点与我们在 `gather` 中看到的缺点类似。在我们等待其他协程完成时，我们可能会有任何数量的异常，但我们直到所有任务完成才看不到。如果我们因为一个异常而想取消其他正在运行的任务，这可能会成为一个问题。我们可能还希望立即处理任何错误，以确保响应性并继续等待其他协程完成。'
+- en: To support these use cases, `wait` supports the `FIRST_EXCEPTION` option. When
+    we use this option, we’ll get two different behaviors, depending on whether any
+    of our tasks throw exceptions.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了支持这些用例，`wait` 支持了 `FIRST_EXCEPTION` 选项。当我们使用此选项时，我们将根据我们的任务是否抛出异常获得两种不同的行为。
+- en: No exceptions from any awaitables
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 没有来自任何可等待对象的异常
+- en: If we have no exceptions from any of our tasks, then this option is equivalent
+    to `ALL_COMPLETED`. We’ll wait for all tasks to finish and then the `done` set
+    will contain all finished tasks and the `pending` set will be empty.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的任务中没有异常，那么此选项与 `ALL_COMPLETED` 等效。我们将等待所有任务完成，然后 `done` 集合将包含所有完成的任务，而
+    `pending` 集合将为空。
+- en: One or more exception from a task
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 来自任务的一个或多个异常
+- en: If any task throws an exception, `wait` will immediately return once that exception
+    is thrown. The `done` set will have any coroutines that finished successfully
+    alongside any coroutines with exceptions. The `done` set is, at minimum, guaranteed
+    to have one failed task in this case but may have successfully completed tasks.
+    The `pending` set may be empty, but it may also have tasks that are still running.
+    We can then use this `pending` set to manage the currently running tasks as we
+    desire.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果任何任务抛出异常，一旦抛出异常，`wait` 将立即返回。`done` 集合将包含所有成功完成的协程以及带有异常的协程。在这种情况下，`done`
+    集合至少保证有一个失败的任务，但也可能包含成功完成的任务。`pending` 集合可能为空，但也可能包含仍在运行的任务。然后我们可以使用这个 `pending`
+    集合来管理当前正在运行的任务，就像我们希望的那样。
+- en: To illustrate how `wait` behaves in these scenarios, look at what happens when
+    we have a couple of long-running web requests we’d like to cancel when one coroutine
+    fails immediately with an exception.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明 `wait` 在这些场景中的行为，看看当我们有几个长时间运行的 Web 请求，我们希望在其中一个协程立即因异常失败时取消这些请求会发生什么。
+- en: Listing 4.12 Canceling running requests on an exception
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.12 在异常发生时取消正在运行的任务
+- en: '[PRE29]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: In the preceding listing, we make one bad request and two good ones; each lasts
+    3 seconds. When we await our `wait` statement, we return almost immediately since
+    our bad request errors out right away. Then we loop through the `done` tasks.
+    In this instance, we’ll have only one in the `done` set since our first request
+    ended immediately with an exception. For this, we’ll execute the branch that prints
+    the exception.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们发出一个错误请求和两个正确请求；每个请求持续3秒。当我们等待`wait`语句时，我们几乎立即返回，因为我们的错误请求立即出错。然后我们遍历`done`任务。在这种情况下，`done`集合中只有一个任务，因为我们的第一个请求立即以异常结束。为此，我们将执行打印异常的分支。
+- en: 'The `pending` set will have two elements, as we have two requests that take
+    roughly 3 seconds each to run and our first request failed almost instantly. Since
+    we want to stop these from running, we can call the `cancel` method on them. This
+    will give us the following output:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`pending`集合将有两个元素，因为我们有两个请求，每个请求大约需要3秒来运行，我们的第一个请求几乎立即失败。由于我们希望停止这些请求的运行，我们可以调用它们的`cancel`方法。这将给我们以下输出：'
+- en: '[PRE30]'
+  id: totrans-157
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: Note Our application took almost no time to run, as we quickly reacted to the
+    fact that one of our requests threw an exception; the power of using this option
+    is we achieve fail fast behavior, quickly reacting to any issues that arise.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们的应用程序运行时间几乎为零，因为我们迅速反应到我们的一个请求抛出了异常；使用此选项的强大之处在于我们实现了快速失败行为，迅速对出现的问题做出反应。
+- en: 4.6.3 Processing results as they complete
+  id: totrans-159
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.3：按完成顺序处理结果
+- en: Both `ALL_COMPLETED` and `FIRST_EXCEPTION` have the drawback that, in the case
+    where coroutines are successful and don’t throw an exception, we must wait for
+    all coroutines to complete. Depending on the use case, this may be acceptable,
+    but if we’re in a situation where we want to respond to a coroutine as soon as
+    it completes successfully, we are out of luck.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ALL_COMPLETED`和`FIRST_EXCEPTION`的缺点是，在协程成功且没有抛出异常的情况下，我们必须等待所有协程完成。根据用例，这可能是可以接受的，但如果我们处于希望一成功完成就响应协程的情况，我们就无计可施了。'
+- en: In the instance in which we want to react to a result as soon as it completes,
+    we could use `as_completed`; however, the issue with `as_completed` is there is
+    no easy way to see which tasks are remaining and which tasks have completed. We
+    get them only one at a time through an iterator.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们希望一完成就响应结果的情况下，我们可以使用`as_completed`；然而，`as_completed`的问题是没有简单的方法可以看到哪些任务仍在进行中，哪些任务已经完成。我们只能通过迭代器一次获取一个。
+- en: The good news is that the `return_when` parameter accepts a `FIRST_COMPLETED`
+    option. This option will make the `wait` coroutine return as soon as it has at
+    least one result. This can either be a coroutine that failed or one that ran successfully.
+    We can then either cancel the other running coroutines or adjust which ones to
+    keep running, depending on our use case. Let’s use this option to make a few web
+    requests and process whichever one finishes first.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好消息是`return_when`参数接受一个`FIRST_COMPLETED`选项。这个选项将使`wait`协程一有至少一个结果就返回。这可能是一个失败的协程或成功运行的协程。然后我们可以根据我们的用例取消其他正在运行的协程或调整要继续运行的协程。让我们使用这个选项来发出几个网络请求并处理第一个完成的请求。
+- en: Listing 4.13 Processing as they complete
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表4.13：按完成顺序处理
+- en: '[PRE31]'
+  id: totrans-164
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: 'In the preceding listing, we start three requests concurrently. Our `wait`
+    coroutine will return as soon as any of these requests completes. This means that
+    `done` will have one complete request, and `pending` will contain anything still
+    running, giving us the following output:'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们并发启动了三个请求。我们的`wait`协程将在任何这些请求完成时返回。这意味着`done`将有一个完成的请求，而`pending`将包含仍在运行的内容，输出如下：
+- en: '[PRE32]'
+  id: totrans-166
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: These requests can complete at nearly the same time, so we could also see output
+    that says two or three tasks are done. Try running this listing a few times to
+    see how the result varies.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些请求几乎可以同时完成，所以我们也可能看到输出显示有两个或三个任务已经完成。尝试多次运行这个列表，看看结果如何变化。
+- en: This approach lets us respond right away when our first task completes. What
+    if we want to process the rest of the results as they come in like `as_completed`?
+    The above example can be adopted easily to loop on the `pending` tasks until they
+    are empty. This will give us behavior similar to `as_completed`, with the benefit
+    that at each step we know exactly which tasks have finished and which are still
+    running.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法让我们可以在第一个任务完成时立即做出响应。如果我们想像 `as_completed` 一样处理所有结果，该怎么办？上述示例可以轻松地循环 `pending`
+    任务，直到它们为空。这将给我们带来类似于 `as_completed` 的行为，好处是，在每一步我们都能确切地知道哪些任务已完成，哪些任务仍在运行。
+- en: Listing 4.14 Processing all results as they come in
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.14 处理所有结果，随着它们的到来
+- en: '[PRE33]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'In the preceding listing, we create a set named `pending` that we initialize
+    to the coroutines we want to run. We loop while we have items in the `pending`
+    set and call `wait` with that set on each iteration. Once we have a result from
+    `wait`, we update the `done` and `pending` sets and then print out any `done`
+    tasks. This will give us behavior similar to `as_completed` with the difference
+    being we have better insight into which tasks are done and which tasks are still
+    running. Running this, we’ll see the following output:'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的列表中，我们创建了一个名为 `pending` 的集合，并将其初始化为我们想要运行的协程。我们循环，直到 `pending` 集合中有项目，并在每次迭代中调用
+    `wait`。一旦我们从 `wait` 获得结果，我们就更新 `done` 和 `pending` 集合，然后打印出任何 `done` 任务。这将给我们带来类似于
+    `as_completed` 的行为，区别在于我们更好地了解哪些任务已完成，哪些任务仍在运行。运行此代码，我们将看到以下输出：
+- en: '[PRE34]'
+  id: totrans-172
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: 'Since the request function may complete quickly, such that all requests complete
+    at the same time, it’s not impossible that we see output similar to this as well:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于请求函数可能很快完成，以至于所有请求同时完成，所以我们看到类似以下输出的情况也是可能的：
+- en: '[PRE35]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 4.6.4 Handling timeouts
+  id: totrans-175
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.4 处理超时
+- en: In addition to allowing us finer-grained control on how we wait for coroutines
+    to complete, `wait` also allows us to set timeouts to specify how long we want
+    for all awaitables to complete. To enable this, we can set the `timeout` parameter
+    with the maximum number of seconds desired. If we’ve exceeded this timeout, `wait`
+    will return both the `done` and `pending` task set. There are a couple of differences
+    in how timeouts behave in `wait` as compared to what we have seen thus far with
+    `wait_for` and `as_completed`.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了允许我们对协程完成的方式有更细粒度的控制外，`wait` 还允许我们设置超时时间来指定所有可等待对象完成所需的时间。为了启用此功能，我们可以使用期望的最大秒数设置
+    `timeout` 参数。如果我们超过了这个超时时间，`wait` 将返回 `done` 和 `pending` 任务集。与之前在 `wait_for` 和
+    `as_completed` 中看到的不同，`wait` 中的超时行为有几个差异。
+- en: Coroutines are not canceled
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 协程不会被取消
+- en: When we used `wait_for`, if our coroutine timed out it would automatically request
+    cancellation for us. This is not the case with `wait`; it behaves closer to what
+    we saw with `gather` and `as_completed`. In the case we want to cancel coroutines
+    due to a timeout, we must explicitly loop over the tasks and cancel them.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们使用 `wait_for` 时，如果我们的协程超时，它会自动为我们请求取消。但在 `wait` 中并非如此；它的行为更接近我们之前在 `gather`
+    和 `as_completed` 中看到的。如果我们想因为超时而取消协程，我们必须显式地遍历任务并取消它们。
+- en: Timeout errors are not raised
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超时错误不会被抛出
+- en: '`wait` does not rely on exceptions in the event of timeouts as do `wait_for`
+    and `as_` `completed`. Instead, if the timeout occurs the `wait` returns all tasks
+    done and all tasks that are still pending up to that point when the timeout occurred.'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 `wait_for` 和 `as_completed` 不同，`wait` 在超时的情况下不依赖于异常。相反，如果发生超时，`wait` 将返回所有已完成的任务和超时发生时仍挂起的所有任务。
+- en: For example, let’s examine a case where two requests complete quickly and one
+    takes a few seconds. We’ll use a timeout of 1 second with `wait` to understand
+    what happens when we have tasks that take longer than the timeout. For the `return_when`
+    parameter, we’ll use the default value of `ALL_COMPLETED`.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，让我们考察一个有两个请求很快完成，而另一个需要几秒钟的情况。我们将使用 `wait` 的 1 秒超时来理解当我们有超过超时时间的任务时会发生什么。对于
+    `return_when` 参数，我们将使用默认值 `ALL_COMPLETED`。
+- en: Listing 4.15 Using timeouts with wait
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.15 使用 `wait` 设置超时
+- en: '[PRE36]'
+  id: totrans-183
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: 'Running the preceding listing, our `wait` call will return our `done` and `pending`
+    sets after 1 second. In the `done` set we’ll see our two fast requests, as they
+    finished within 1 second. Our slow request is still running and is, therefore,
+    in the `pending` set. We then `await` the `done` tasks to extract out their return
+    values. We also could have canceled the `pending` task if we so desired. Running
+    this code, we will see the following output:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行前面的列表，我们的`wait`调用将在1秒后返回我们的`done`和`pending`集合。在`done`集合中，我们将看到我们的两个快速请求，因为它们在1秒内完成了。我们的慢速请求仍在运行，因此它在`pending`集合中。然后我们`await`完成的任务以提取它们的返回值。如果我们愿意，我们也可以取消`pending`任务。运行这段代码，我们将看到以下输出：
+- en: '[PRE37]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: Note that, as before, our tasks in the `pending` set are not canceled and will
+    continue to run despite the timeout. If we have a use case where we want to terminate
+    the `pending` tasks, we’ll need to explicitly loop through the `pending` set and
+    call `cancel` on each task.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，与之前一样，我们`pending`集合中的任务没有被取消，并且即使超时也会继续运行。如果我们有一个用例想要终止`pending`任务，我们需要显式地遍历`pending`集合并对每个任务调用`cancel`。
+- en: 4.6.5 Why wrap everything in a task?
+  id: totrans-187
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 4.6.5 为什么要在任务中包装一切？
+- en: At the start of this section, we mentioned that it is best practice to wrap
+    the coroutines we pass into `wait` in tasks. Why is this? Let’s go back to our
+    previous timeout example and change it a little bit. Let’s say that we have requests
+    to two different web APIs that we’ll call API A and API B. Both can be slow, but
+    our application can run without the result from API B, so it is just a “nice to
+    have.” Since we’d like a responsive application, we set a timeout of 1 second
+    for the requests to complete. If the request to API B is still pending after that
+    timeout, we cancel it and move on. Let’s see what happens if we implement this
+    without wrapping the requests in tasks.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节的开始，我们提到将传递给`wait`的协程包装在任务中是最佳实践。为什么是这样？让我们回到我们之前的超时示例并稍作修改。假设我们有对两个不同Web
+    API的请求，我们将它们称为API A和API B。两者都可能很慢，但我们的应用程序可以在没有API B的结果的情况下运行，所以它只是一个“锦上添花”的功能。由于我们希望应用程序响应迅速，我们为请求完成设置了1秒的超时。如果API
+    B的请求在超时后仍然挂起，我们将取消它并继续。让我们看看如果我们不将请求包装在任务中实现会发生什么。
+- en: Listing 4.16 Canceling a slow request
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 4.16 取消慢速请求
+- en: '[PRE38]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: We’d expect for this code to print out `API` `B` `is` `too` `slow` `and` `cancelling`,
+    but what happens if we don’t see this message at all? This can happen because
+    when we call `wait` with just coroutines they are automatically wrapped in tasks,
+    and the `done` and `pending` sets returned are those tasks that `wait` created
+    for us. This means that we can’t do any comparisons to see which specific task
+    is in the `pending` set such as `if` `task` `is` `api_b`, since we’ll be comparing
+    a `task` object, we have no access to with a coroutine. However, if we wrap `fetch_status`
+    in a `task`, `wait` won’t create any new objects, and the comparison `if` `task`
+    `is` `api_b` will work as we expect. In this case, we’re correctly comparing two
+    `task` objects.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们预计这段代码会打印出`API` `B` `is` `too` `slow` `and` `cancelling`，但如果我们根本看不到这条消息会怎样？这种情况可能发生，因为我们调用`wait`时只传递了协程，它们会被自动包装在任务中，返回的`done`和`pending`集合是`wait`为我们创建的任务。这意味着我们无法进行任何比较来查看`pending`集合中哪个特定的任务，例如`if`
+    `task` `is` `api_b`，因为我们将会比较一个`task`对象，我们没有访问协程的能力。然而，如果我们把`fetch_status`包装在任务中，`wait`就不会创建任何新对象，并且`if`
+    `task` `is` `api_b`的比较将像我们预期的那样工作。在这种情况下，我们正确地比较了两个`task`对象。
+- en: Summary
+  id: totrans-192
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: We’ve learned how to use and create our own asynchronous context managers. These
+    are special classes that allow us to asynchronously acquire resources and then
+    release them, even if an exception occurred. These let us clean up any resources
+    we may have acquired in a non-verbose manner and are useful when working with
+    HTTP sessions as well as database connections. We can use them with the special
+    `async` `with` syntax.
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们已经学会了如何使用和创建我们自己的异步上下文管理器。这些是特殊的类，允许我们异步获取资源然后释放它们，即使发生了异常。这些让我们可以以非冗余的方式清理我们可能获取的任何资源，并且当与HTTP会话以及数据库连接一起工作时也非常有用。我们可以使用特殊的`async`
+    `with`语法来使用它们。
+- en: We can use the aiohttp library to make asynchronous web requests. aiohttp is
+    a web client and server that uses non-blocking sockets. With the web client, we
+    can execute multiple web requests concurrently in a way that does not block the
+    event loop.
+  id: totrans-194
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用aiohttp库来执行异步网络请求。aiohttp是一个使用非阻塞套接字的Web客户端和服务器。使用Web客户端，我们可以以不阻塞事件循环的方式并发执行多个网络请求。
+- en: The `asyncio.gather` function lets us run multiple coroutines concurrently and
+    wait for them to complete. This function will return once all awaitables we pass
+    into it have completed. If we want to keep track of any errors that happen, we
+    can set `return_exeptions` to `True`. This will return the results of awaitables
+    that completed successfully alongside any exceptions we received.
+  id: totrans-195
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`asyncio.gather`函数允许我们并发运行多个协程并等待它们完成。这个函数将在我们传递给它的所有awaitables都完成后返回。如果我们想要跟踪发生的任何错误，我们可以将`return_exceptions`设置为`True`。这将返回成功完成的awaitables的结果以及我们收到的任何异常。'
+- en: We can use the `as_completed` function to process results of a list of awaitables
+    as soon as they complete. This will give us an iterator of futures that we can
+    loop over. As soon as a coroutine or task has finished, we’ll be able to access
+    the result and process it.
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用`as_completed`函数来处理一组awaitables的结果，一旦它们完成。这将给我们一个future迭代器，我们可以遍历它。一旦协程或任务完成，我们就能访问结果并对其进行处理。
+- en: If we want to run multiple tasks concurrently but want to be able to understand
+    which tasks are done and which are still running, we can use `wait`. This function
+    also allows us greater control on when it returns results. When it returns, we
+    get a set of tasks that have finished and set of tasks that are still running.
+    We can then cancel any tasks we wish or do any other awaiting we need.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果我们想要同时运行多个任务，但又想了解哪些任务已完成以及哪些仍在运行，我们可以使用`wait`函数。这个函数还允许我们在何时返回结果上拥有更大的控制权。当它返回时，我们将得到一组已完成的任务和一组仍在运行的任务。然后我们可以取消任何我们希望取消的任务，或者执行任何其他等待的操作。

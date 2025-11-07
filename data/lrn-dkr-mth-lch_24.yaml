@@ -1,0 +1,874 @@
+- en: 21 Asynchronous communication with a message queue
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 21 使用消息队列进行异步通信
+- en: 'This is the final full chapter of the book, and it introduces a new way for
+    the components of a system to communicate: sending and receiving messages using
+    a queue. Message queues have been around for a very long time--they’re a way of
+    decoupling components so instead of making a direct connection to communicate
+    with each other, they send messages to the queue. The queue can deliver messages
+    to one or many recipients, and that adds a lot of flexibility to your architecture.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是本书的最后一章完整章节，它介绍了一种新的系统组件通信方式：通过队列发送和接收消息。消息队列已经存在很长时间了——它们是一种解耦组件的方法，而不是直接连接以进行通信，而是向队列发送消息。队列可以将消息传递给一个或多个接收者，这为你的架构增加了许多灵活性。
+- en: 'In this chapter we’ll focus on two scenarios that are enabled when you add
+    a message queue to your application: improving system performance and scalability,
+    and adding new features with zero downtime. We’ll use two modern message queues
+    that run very nicely in Docker: Redis and NATS.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将关注当你向应用程序添加消息队列时启用的两种场景：提高系统性能和可伸缩性，以及在不中断服务的情况下添加新功能。我们将使用两个在现代Docker中运行得很好的现代消息队列：Redis和NATS。
+- en: 21.1 What is asynchronous messaging?
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 21.1 什么是异步消息？
+- en: Software components usually communicate synchronously--the client makes a connection
+    to the server, sends a request, waits for the server to send a response, and then
+    closes the connection. That’s true for REST APIs, SOAP web services, and gRPC,
+    which all use HTTP connections.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 软件组件通常以同步方式通信——客户端连接到服务器，发送请求，等待服务器发送响应，然后关闭连接。这对于REST API、SOAP Web服务和gRPC都适用，它们都使用HTTP连接。
+- en: 'Synchronous communication is like making a telephone call: it needs both parties
+    to be available at the same time, so it needs careful management. Servers might
+    be offline or running at full capacity, so they can’t accept connections. Services
+    may take a long time to process, and client connections might time out waiting
+    for the response. Connections can fail at the network level, and the client needs
+    to know if they can safely repeat the request. You need a lot of logic in your
+    application code or libraries to deal with all the failure modes.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同步通信就像打电话一样：需要双方同时可用，因此需要仔细管理。服务器可能离线或满载运行，因此无法接受连接。服务可能需要很长时间才能处理，客户端连接可能在等待响应时超时。连接可能在网络级别失败，客户端需要知道是否可以安全地重复请求。你需要在应用程序代码或库中添加大量逻辑来处理所有故障模式。
+- en: Asynchronous communication adds a layer between the client and the server. If
+    the client needs a server to do something, it sends a message to the queue. The
+    server is listening on the queue, picks up the message, and processes it. The
+    server can send a response message to the queue, and if the client wants a response,
+    it will be listening on the queue and will pick it up. Asynchronous messaging
+    is like communicating by email--parties can join in when they have free time.
+    If the server is offline or out of capacity, the message sits in the queue until
+    a server is available to pick it up. If the message takes a long time to process,
+    that doesn’t affect the client or the queue. If there’s a failure when the client
+    sends a message, the message isn’t in the queue and the client can safely send
+    it again. Figure 21.1 shows communication with asynchronous messaging.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异步通信在客户端和服务器之间增加了一层。如果客户端需要服务器执行某些操作，它会向队列发送一条消息。服务器监听队列，接收到消息后进行处理。服务器可以向队列发送响应消息，如果客户端需要响应，它将监听队列并接收消息。异步消息就像通过电子邮件进行通信——各方可以在有空时加入。如果服务器离线或超出容量，消息将留在队列中，直到有服务器可以处理它。如果消息处理时间较长，这不会影响客户端或队列。如果客户端发送消息时出现故障，消息不在队列中，客户端可以安全地再次发送。图21.1展示了使用异步消息的通信。
+- en: '![](../Images/21-1.jpg)'
+  id: totrans-7
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/21-1.jpg)'
+- en: Figure 21.1 Message queues decouple components so they don’t communicate with
+    each other directly.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.1 消息队列解耦组件，使它们不直接通信。
+- en: Messaging has always been a favorite option for integration architects, but
+    it used to raise some difficult issues--the queue technology needs to be super-reliable,
+    but enterprise queues are too expensive to run in test environments, so can we
+    use different queues in different environments, or skip the queues altogether
+    in dev? Docker fixes that, making it easy to add enterprise-grade open source
+    queues to your application. Running queues in lightweight containers means you
+    can run a dedicated queue for each application, and free open source software
+    means you can use the same technology in every environment. Redis is a popular
+    message queue option (which you can also use as a data store), and you can easily
+    try it out to get a feel for asynchronous messaging.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消息传递一直是集成架构师的首选选项，但过去它引发了一些难题——队列技术需要超级可靠，但企业队列在测试环境中运行成本太高，所以我们是否可以在不同的环境中使用不同的队列，或者在开发中完全跳过队列？Docker解决了这个问题，使得轻松将企业级开源队列添加到您的应用程序中。在轻量级容器中运行队列意味着您可以针对每个应用程序运行一个专门的队列，而开源软件的免费使用意味着您可以在每个环境中使用相同的技术。Redis是一个流行的消息队列选项（您也可以将其用作数据存储），您可以轻松尝试它来感受异步消息传递。
+- en: 'try it now Run the Redis server in a container, connected to a network where
+    you can run other containers to send and receive messages:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '现在试试 Run the Redis server in a container, connected to a network where you
+    can run other containers to send and receive messages:'
+- en: '` # create the network - on Linux containers:` ` docker network create ch21`
+     ` # OR Windows containers:` ` docker network create -d nat ch21`  ` # run the
+    Redis server:` ` docker container run -d --name redis --network ch21 diamol/redis`
+     ` # check that the server is listening:` ` docker container logs redis --tail
+    1`'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在Linux容器中创建网络：` ` docker network create ch21`  ` # 或者Windows容器：` ` docker
+    network create -d nat ch21`  ` # 运行Redis服务器：` ` docker container run -d --name
+    redis --network ch21 diamol/redis`  ` # 检查服务器是否正在监听：` ` docker container logs
+    redis --tail 1`'
+- en: Message queues are server components that just run until you stop them. Redis
+    listens for connections on port 6379, and that same address is used by clients
+    to send messages and by servers to listen for messages. You’ll see from your container
+    logs that Redis is up and running just a few seconds after you start the container--my
+    output is in figure 21.2.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消息队列是服务器组件，只需运行直到您停止它们。Redis在端口6379上监听连接，并且相同的地址被客户端用于发送消息，以及服务器用于监听消息。您将从容器日志中看到，Redis在您启动容器后仅几秒钟就开始运行了——我的输出在图21.2中。
+- en: '![](../Images/21-2.jpg)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-2.jpg)'
+- en: Figure 21.2 A message queue is just like any other background container, waiting
+    for connections.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.2 消息队列就像任何其他后台容器一样，等待连接。
+- en: Clients need to open a connection to the queue to send their message--and if
+    you’re wondering how that’s better than just calling a REST API directly, it’s
+    all down to speed. Queues usually have their own custom communication protocol,
+    which is highly optimized, so when the client sends a message, it just transmits
+    the bytes of the request and waits for an acknowledgement that it has been received.
+    Queues don’t do any complex processing on the message, so they should easily handle
+    thousands of messages per second.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户端需要打开到队列的连接以发送他们的消息——如果您想知道这比直接调用REST API更好，那全在于速度。队列通常有自己的自定义通信协议，它高度优化，因此当客户端发送消息时，它只需传输请求的字节并等待确认它已被接收。队列不对消息进行任何复杂的处理，因此它们应该能够轻松处理每秒数千条消息。
+- en: 'Try it now We won’t send thousands of requests, but we’ll use the Redis CLI
+    to send a few messages. The command syntax is a bit involved, but this is going
+    to publish the message “ping” on the channel called `channel21` , and it will
+    repeat that message 50 times with a 5 second interval in between:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '现在试试 We won’t send thousands of requests, but we’ll use the Redis CLI to send
+    a few messages. The command syntax is a bit involved, but this is going to publish
+    the message “ping” on the channel called `channel21` , and it will repeat that
+    message 50 times with a 5 second interval in between:'
+- en: '` # run the Redis client in the background to publish messages:` ` docker run
+    -d --name publisher --network ch21 diamol/redis-cli -r 50 -i 5 PUBLISH channel21
+    ping`  ` # check the logs to see messages are being sent:` ` docker logs publisher`'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 在后台运行Redis客户端以发布消息：` ` docker run -d --name publisher --network ch21 diamol/redis-cli
+    -r 50 -i 5 PUBLISH channel21 ping`  ` # 检查日志以查看消息是否正在发送：` ` docker logs publisher`'
+- en: This Redis client container will sit in the background and send a message every
+    five seconds. The log output just shows the response code from each message send,
+    so if everything is working, you’ll see lots of zeros, which is the “OK” response.
+    You can see mine in figure 21.3.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个Redis客户端容器将在后台运行，每五秒发送一条消息。日志输出仅显示每次消息发送的响应代码，所以如果一切正常，你会看到很多零，这是“OK”响应。你可以在图21.3中看到我的示例。
+- en: '![](../Images/21-3.jpg)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/21-3.jpg)'
+- en: Figure 21.3 The Redis CLI is a simple way to send messages to the queue running
+    in the Redis container.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.3 Redis CLI是向运行在Redis容器中的队列发送消息的简单方法。
+- en: There’s some new terminology here, because “client” and “server” don’t really
+    make sense in messaging terms. Every component is a client of the message queue;
+    they just use it in different ways. The component sending messages is the publisher,
+    and the component receiving messages is the subscriber. There could be lots of
+    different systems using the queue, so Redis uses channels to keep messages separate.
+    In this case, the publisher is sending messages on the channel called `channel21`
+    , so for a component to read those messages, it needs to subscribe to the same
+    channel.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一些新的术语，因为“客户端”和“服务器”在消息传递的术语中并不真正适用。每个组件都是消息队列的客户端；他们只是以不同的方式使用它。发送消息的组件是发布者，接收消息的组件是订阅者。可能有多个不同的系统使用队列，因此Redis使用通道来保持消息的分离。在这种情况下，发布者正在`channel21`通道上发送消息，因此为了使组件能够读取这些消息，它需要订阅相同的通道。
+- en: 'Try it now Run another container with the Redis CLI, this time subscribing
+    to the channel where the other container is publishing messages:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 运行另一个带有Redis CLI的容器，这次订阅其他容器发布消息的通道：
+- en: '` # run an interactive subscriber and you''ll see messages received every`
+     ` # five seconds:` ` docker run -it --network ch21 --name subscriber diamol/redis-cli
+    SUBSCRIBE channel21`'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`# 运行一个交互式订阅者，你将每五秒看到一次消息` `# 收到：` `docker run -it --network ch21 --name subscriber
+    diamol/redis-cli SUBSCRIBE channel21`'
+- en: We’re using the Redis CLI, which is a simple client that talks using the Redis
+    messaging protocol--there are Redis SDKs for all the major application platforms,
+    so you can integrate it with your own apps too. The CLI prints output across multiple
+    lines, so you’ll first see the output from subscribing to the queue. The publishing
+    container is still running in the background, and every time it publishes a message,
+    Redis sends a copy to the subscriber container--then you’ll see the message detail
+    in the logs. Mine is in figure 21.4.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们正在使用Redis CLI，这是一个使用Redis消息协议进行通信的简单客户端--对于所有主要的应用平台都有Redis SDK，因此你也可以将其集成到自己的应用中。CLI会在多行打印输出，所以你首先会看到订阅队列的输出。发布容器仍在后台运行，每次它发布消息时，Redis都会将副本发送给订阅容器--然后你会在日志中看到消息详情。我的在图21.4中。
+- en: '![](../Images/21-4.jpg)'
+  id: totrans-25
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/21-4.jpg)'
+- en: Figure 21.4 A subscriber to the queue receives a copy of every message published
+    on the channel.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.4 队列的订阅者接收了在通道上发布的每条消息的副本。
+- en: 'You can exit from the container with Ctrl-C, or kill the container with `docker`
+    `container` `rm` `-f` `subscriber` . Until then, it will keep listening for messages.
+    You can see that this is asynchronous communication: the publisher was sending
+    messages before there were any subscribers listening, and the subscriber will
+    keep listening for messages even when there are no publishers. Each component
+    works with the message queue, and it doesn’t know about other components that
+    are sending or receiving messages.'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以用Ctrl-C退出容器，或者用`docker container rm -f subscriber`命令杀死容器。在此之前，它将继续监听消息。你可以看到这是一种异步通信：发布者在有订阅者监听之前就发送了消息，而订阅者将在没有发布者时继续监听消息。每个组件都与消息队列一起工作，并且不知道其他正在发送或接收消息的组件。
+- en: This simple principle of decoupling senders and receivers with a queue helps
+    you make your apps performant and scalable, and you’ll see that next with a new
+    version of the to-do list app.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个简单的原理，通过队列解耦发送者和接收者，有助于使你的应用性能更优和可扩展，你将在下一个版本的任务列表应用中看到这一点。
+- en: 21.2 Using a cloud-native message queue
+  id: totrans-29
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 21.2 使用云原生消息队列
+- en: The to-do application has a web frontend and a SQL database for storage. In
+    the original implementation, all the communication between components was synchronous--when
+    the web app sends a query or inserts data, it opens a connection to the database
+    and keeps it open until the request is finished. That architecture doesn’t scale
+    well. We could run hundreds of web containers to support high user load, but eventually
+    we’d hit a limit where we’re using all the available database connections and
+    the app would start to fail.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 待办事项应用程序有一个Web前端和SQL数据库用于存储。在原始实现中，组件之间的所有通信都是同步的——当Web应用程序发送查询或插入数据时，它会打开到数据库的连接，并保持打开状态直到请求完成。这种架构扩展性不好。我们可以运行数百个Web容器来支持高用户负载，但最终我们会达到一个极限，即使用所有可用的数据库连接，应用程序将开始失败。
+- en: 'This is where a message queue helps with performance and scale. The new version
+    of the to-do app uses asynchronous messaging for the save workflow--when users
+    add a new to-do item, the web app publishes a message on a queue. The queue can
+    handle many more connections than the database, and connections have a much shorter
+    lifespan, so the queue won’t get maxed out even under very high user load. We’ll
+    be using a different queue technology for this exercise: NATS, which is a Cloud
+    Native Computing Foundation (CNCF) project that’s mature and widely used. It stores
+    messages in memory, so it’s very fast and perfect for communication between containers.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是消息队列如何帮助提高性能和扩展性的地方。待办事项应用程序的新版本使用异步消息进行保存工作流程——当用户添加新的待办事项时，Web应用程序会在队列上发布消息。队列可以处理比数据库更多的连接，并且连接的生存周期要短得多，所以即使在非常高的用户负载下，队列也不会达到最大容量。我们将在这个练习中使用不同的队列技术：NATS，这是一个成熟且广泛使用的云原生计算基金会（CNCF）项目。它将消息存储在内存中，因此非常快，非常适合容器之间的通信。
+- en: 'Try it now Run NATS in a container. It has a simple admin API you can use to
+    see how many clients are connected to the queue:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试 Run NATS在一个容器中。它有一个简单的管理API，您可以使用它来查看连接到队列的客户数量：
+- en: '` # switch to the exercise folder:` ` cd ch21/exercises/todo-list`  ` # start
+    the message queue:` ` docker-compose up -d message-queue`  ` # check the logs:`
+    ` docker container logs todo-list_message-queue_1`  ` # and check active connections:`
+    ` curl http://localhost:8222/connz`'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 切换到练习文件夹:` ` cd ch21/exercises/todo-list`  ` # 启动消息队列:` ` docker-compose
+    up -d message-queue`  ` # 检查日志:` ` docker container logs todo-list_message-queue_1`
+     ` # 并检查活动连接:` ` curl http://localhost:8222/connz`'
+- en: The connections API call returns JSON details about the number of active connections.
+    There could be many thousands, so the response is paged, but in this case there’s
+    only one page of data because there are zero connections. You can see my output
+    in figure 21.5.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连接API调用返回有关活动连接数量的JSON详细信息。可能会有成千上万，因此响应是分页的，但在这个案例中，只有一个数据页，因为没有任何连接。您可以在图21.5中看到我的输出。
+- en: '![](../Images/21-5.jpg)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-5.jpg)'
+- en: Figure 21.5 NATS is an alternative message queue; it’s very lightweight and
+    has an admin API.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.5 NATS是一个替代的消息队列；它非常轻量级，并有一个管理API。
+- en: There’s development work involved when you move to async messaging, and for
+    the to-do app that meant some changes to the web application. Now when users add
+    a to-do item, the web app publishes a message to NATS, rather than inserting data
+    in the database. The changes are actually pretty small. Even if you’re not familiar
+    with .NET Core, you can see in listing 21.1 that there isn’t much work involved
+    in publishing a message.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您转向异步消息时，会涉及一些开发工作，对于待办事项应用程序来说，这意味着对Web应用程序的一些更改。现在当用户添加待办事项时，Web应用程序会向NATS发布消息，而不是在数据库中插入数据。这些更改实际上相当小。即使您不熟悉.NET
+    Core，您也可以在列表21.1中看到发布消息涉及的工作不多。
+- en: Listing 21.1 Publishing a message instead of writing data to the database
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表21.1 替代将数据写入数据库发布消息
+- en: '` public void AddToDo(ToDo todo)` `        {` `             MessageQueue.Publish(new
+    NewItemEvent(todo));` `             _NewTasksCounter.Inc();` `        }`'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`public void AddToDo(ToDo todo)` `        {` `             MessageQueue.Publish(new
+    NewItemEvent(todo));` `             _NewTasksCounter.Inc();` `        }`'
+- en: NATS doesn’t use the same channel concept as Redis. Instead, every message has
+    a subject, which is a string used to identify the type of the message. You can
+    choose your own naming scheme for message subjects. The subject for this one is
+    `events.todo` `.newitem` , which says it’s a new-item event in the to-do application.
+    Subscribers will be able to listen for messages with that subject if they’re interested
+    in new-item events, but even if there are no subscribers, the app will still publish
+    messages.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: NATS不使用与Redis相同的通道概念。相反，每条消息都有一个主题，这是一个用于标识消息类型的字符串。你可以为消息主题选择自己的命名方案。这个主题是`events.todo`
+    `.newitem`，表示这是待办应用中的新项目事件。如果订阅者对新项目事件感兴趣，他们将能够监听带有该主题的消息，但即使没有订阅者，应用仍然会发布消息。
+- en: 'Try it now Run the new version of the to-do web application and the database.
+    You’ll see that the app loads and you can use it without any errors, but it doesn’t
+    quite work correctly:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 运行待办Web应用的新版本和数据库。你会发现应用可以加载，你可以使用它而不会出现任何错误，但它并不完全正确地工作：
+- en: '` # start the web and database containers:` ` docker-compose up -d todo-web
+    todo-db`  ` # browse to http://localhost:8080 and add some items`'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 启动Web和数据库容器：` ` docker-compose up -d todo-web todo-db`  ` # 浏览到http://localhost:8080并添加一些项目`'
+- en: You’ll find that the app gladly lets you add new items, but when you browse
+    to the list, there are none. That’s because the list page fetches data from the
+    database, but the new-item page doesn’t insert data into the database any more.
+    New-item event messages are being published to the NATS message queue, but nothing
+    is listening to them. You can see my empty to-do list (which is not representative
+    of real life at all) in figure 21.6.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你会发现这个应用很乐意让你添加新项目，但当你浏览到列表时，却一个也没有。那是因为列表页面是从数据库中获取数据的，但新项目页面不再将数据插入数据库。新项目事件消息正在发布到NATS消息队列中，但没有人在监听它们。你可以在图21.6中看到我的空待办事项列表（这根本不代表现实生活）。
+- en: '![](../Images/21-6.jpg)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-6.jpg)'
+- en: Figure 21.6 The to-do app with messaging publishing; without any subscribers,
+    there are missing features.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.6 待办事项应用的消息发布；没有任何订阅者，缺少了功能。
+- en: There are lots of message queue technologies with different approaches for dealing
+    with this situation--where a message is published but there are no subscribers.
+    Some queues move them to dead-letter queues for admins to manage, others store
+    the messages so they can deliver them when a client connects and subscribes. Redis
+    and NATS effectively swallow those messages--they acknowledge receipt to the client,
+    but there’s nowhere to send them, so they get dropped. New subscribers to Redis
+    or NATS queues only receive messages that get published after they start listening.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多消息队列技术以不同的方式处理这种情况——即消息被发布但没有订阅者。有些队列将它们移动到死信队列供管理员管理，其他则存储消息以便在客户端连接并订阅时交付。Redis和NATS有效地吞没了这些消息——它们向客户端确认收到，但没有地方可以发送，因此它们被丢弃。新订阅Redis或NATS队列的订阅者只会接收到它们开始监听后发布的消息。
+- en: 'Try it Now There’s a simple NATS subscriber tool from the project’s examples
+    on GitHub. You can use it to listen for messages with a particular subject, so
+    we can check that the to-do events are actually being published:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 GitHub上的项目示例中有一个简单的NATS订阅者工具。你可以用它来监听特定主题的消息，这样我们就可以检查待办事件是否实际上被发布了：
+- en: '` # run a subscriber listening for "events.todo.newitem" messages` ` docker
+    container run -d --name todo-sub --network todo-list_app-net diamol/nats-sub events.todo.newitem`
+     ` # check the subscriber logs:` ` docker container logs todo-sub`  ` # browse
+    to http://localhost:8080 and add some new items`  ` # check that the new item
+    events are published:` ` docker container logs todo-sub`'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 运行一个监听"events.todo.newitem"消息的订阅者` `docker container run -d --name todo-sub
+    --network todo-list_app-net diamol/nats-sub events.todo.newitem`  ` # 检查订阅者日志：`
+    ` docker container logs todo-sub`  ` # 浏览到http://localhost:8080并添加一些新项目`  ` #
+    检查新项目事件是否已发布：` ` docker container logs todo-sub`'
+- en: The user experience is exactly the same--the web app still doesn’t work. It
+    publishes messages and doesn’t know what happens to them, but now there is a subscriber
+    that receives a copy of each message. If you enter some to-do items in the website,
+    you’ll see them listed in the logs for the subscriber--mine are shown in figure
+    21.7.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户体验完全相同——Web应用仍然不起作用。它发布消息，但不知道它们会发生什么，但现在有一个订阅者接收了每条消息的副本。如果你在网站上输入一些待办事项，你将在订阅者的日志中看到它们被列出——我的显示在图21.7中。
+- en: '![](../Images/21-7.jpg)'
+  id: totrans-50
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-7.jpg)'
+- en: Figure 21.7 A simple subscriber that logs messages is a good to way to check
+    that they’re being published.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.7 一个简单的记录消息的订阅者是一个很好的方法来检查它们是否被发布。
+- en: 'You’ll have realized by now that the to-do app is lacking a component that
+    acts on the messages being published. There are three pieces of work you need
+    to do to move to asynchronous messaging: run a message queue, publish messages
+    when interesting events happen, and subscribe to those messages so you can do
+    some work when the events happen. The to-do app is missing the final part, which
+    we’ll add next.'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到现在为止，你应该已经意识到待办事项应用缺少一个对发布的消息进行操作的组件。你需要做三件工作来迁移到异步消息：运行消息队列，在有趣的事件发生时发布消息，并订阅这些消息，以便在事件发生时做一些工作。待办事项应用缺少最后一部分，我们将在下一部分添加。
+- en: 21.3 Consuming and handling messages
+  id: totrans-53
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 21.3 消费和处理消息
+- en: The component that subscribes to the queue is called a message handler, and
+    typically you’ll have one handler for each type of message (each channel in Redis
+    or subject in NATS). The to-do app needs a message handler that listens for new-item
+    events and inserts the data in the database. Figure 21.8 shows the completed architecture.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 订阅队列的组件被称为消息处理器，通常你会有一个处理器用于每种类型的消息（Redis中的每个频道或NATS中的每个主题）。待办事项应用需要一个消息处理器来监听新项目事件并在数据库中插入数据。图21.8显示了完成的架构。
+- en: '![](../Images/21-8.jpg)'
+  id: totrans-55
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-8.jpg)'
+- en: Figure 21.8 Asynchronous processing uses a message handler as well as an event
+    publisher.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.8 异步处理使用消息处理器以及事件发布者。
+- en: This design does scale because the queue acts like a buffer, smoothing out any
+    peaks from the incoming user load. You could have hundreds of web containers but
+    only 10 message-handler containers--the handlers are in a group, so the queue
+    shares the messages around, and each message is handled by a single container.
+    Containers handle messages one at a time, so that would limit the maximum number
+    of SQL connections used for inserting data to 10, no matter how many thousands
+    of users there are, wildly clicking buttons. If there’s more load coming in than
+    those 10 handlers can deal with, the messages get saved in the queue until the
+    handlers are ready to process more. The app keeps working, and the data gets saved
+    eventually.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种设计是可以扩展的，因为队列就像一个缓冲区，可以平滑掉来自用户负载的任何峰值。你可以有数百个Web容器，但只有10个消息处理器容器——处理器在一个组中，所以队列共享消息，每个消息由单个容器处理。容器一次处理一个消息，所以插入数据时使用的最大SQL连接数限制为10，无论有多少用户疯狂点击按钮。如果进入的负载超过这10个处理器可以处理的，消息就会被保存在队列中，直到处理器准备好处理更多。应用会继续工作，数据最终会被保存。
+- en: 'Try it now The message handler for the to-do app is already built and published
+    to Docker Hub, so it’s ready to go. Run it now and see how the app works with
+    async messaging:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看！待办事项应用的消息处理器已经构建并发布到Docker Hub，所以它已经准备好了。现在运行它，看看应用如何使用异步消息工作：
+- en: '` # start the message handler:` ` docker-compose up -d save-handler`  ` # check
+    the connection from the container logs:` ` docker logs todo-list_save-handler_1`
+     ` # browse to http://localhost:8080 and add some new items`    ` # check that
+    the events have been handled:` ` docker logs todo-list_save-handler_1`'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 启动消息处理器：` ` docker-compose up -d save-handler`  ` # 检查容器日志中的连接：` ` docker
+    logs todo-list_save-handler_1`  ` # 浏览到 http://localhost:8080 并添加一些新项目`    ` #
+    检查事件是否已被处理：` ` docker logs todo-list_save-handler_1`'
+- en: The app is working again! Almost. You’ll find that you can add new items, and
+    they appear in the list page, but not immediately. When you save an item, the
+    web app redirects to the list page, which loads while the message is still working
+    its way through the queue and the handler. The new item hasn’t been saved by the
+    time the query runs on the database, so the new data isn’t shown. You can see
+    my output in figure 21.9--at this point my web page showed no items, even though
+    a new one had been saved.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用再次工作！几乎。你会发现你可以添加新项目，它们会出现在列表页面上，但不是立即出现。当你保存一个项目时，Web应用会重定向到列表页面，该页面在消息仍在队列中处理和处理器处理时加载。在数据库查询运行时，新项目还没有被保存，所以新数据不会显示。你可以在图21.9中看到我的输出——在这个时候，我的网页上没有显示任何项目，尽管已经保存了一个新项目。
+- en: '![](../Images/21-9.jpg)'
+  id: totrans-61
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-9.jpg)'
+- en: Figure 21.9 Message handlers subscribe to the queue, receive a copy of every
+    message, and act on it.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.9 消息处理器订阅队列，接收每条消息的副本，并对其采取行动。
+- en: This is a side effect of async messaging called eventual consistency --the state
+    of your application data will be correct when all messages have been processed,
+    but until then you may get inconsistent results. There are ways to fix this that
+    work toward making the whole UI async, so the to-do web app would listen for an
+    event stating that the list has changed and then refresh itself. That push model
+    can be a lot more efficient than polling queries, but it’s too much for this book.
+    We can just hit refresh for now.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一种异步消息的副作用，称为最终一致性——当所有消息都已被处理时，您的应用程序数据的状态将是正确的，但在那时之前，您可能会得到不一致的结果。有方法可以解决这个问题，使整个UI异步，因此待办事项Web应用会监听一个表示列表已更改的事件，然后刷新自己。这种推送模型可能比轮询查询更有效率，但本书中涉及的内容太多。我们现在只需刷新即可。
+- en: It’s a fairly big architectural change to move to asynchronous messaging, but
+    it opens a lot of opportunities, so it’s definitely worth knowing how this works.
+    Message handlers are small, focused components that can be updated or scaled independently
+    of the main application or each other. In this exercise we’ve used the queue to
+    solve a scale-out problem, and now we can run multiple instances of the save message
+    handler to work through the incoming load, while effectively rate-limiting the
+    number of SQL connections we use.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将架构迁移到异步消息是一个相当大的变化，但它开辟了许多机会，所以了解它是绝对值得的。消息处理器是小型、专注的组件，可以独立于主应用程序或彼此进行更新或扩展。在这个练习中，我们使用队列来解决扩展问题，现在我们可以运行多个保存消息处理器的实例来处理传入的负载，同时有效地限制我们使用的SQL连接数量。
+- en: 'Try it now Message handlers are internal components; they don’t listen on any
+    ports, so you can run them at scale with multiple containers on a single machine.
+    NATS supports load balancing to share messages if there are several instances
+    of the same handler running:'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 消息处理器是内部组件；它们不监听任何端口，因此您可以在单台机器上以多个容器的规模运行它们。如果运行了相同处理器的多个实例，NATS支持负载均衡来共享消息：
+- en: '` # scale up the handlers:` ` docker-compose up -d --scale save-handler=3`
+     ` # check that one of the new handlers has connected:` ` docker logs todo-list_save-handler_2`
+     ` # browse to http://localhost:8080 and add some new items`  ` # see which handlers
+    have processed the messages:` ` docker-compose logs --tail=1 save-handler`'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 扩展处理器：` ` docker-compose up -d --scale save-handler=3`  ` # 检查是否有新的处理器已连接：`
+    ` docker logs todo-list_save-handler_2`  ` # 浏览到 http://localhost:8080 并添加一些新项目`
+     ` # 查看哪些处理器已处理消息：` ` docker-compose logs --tail=1 save-handler`'
+- en: You’ll see that messages are sent to different containers. NATS uses round-robin
+    load balancing to share the load between connected subscribers, and you’ll find
+    that the more load you put through, the more evenly distributed it will be. My
+    output in figure 21.10 shows that containers 1 and 2 have processed messages,
+    but not container 3.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您会看到消息被发送到不同的容器中。NATS使用轮询负载均衡在连接的订阅者之间共享负载，您会发现您投入的负载越多，分布就越均匀。图21.10中的我的输出显示容器1和2已经处理了消息，但容器3没有。
+- en: '![](../Images/21-10.jpg)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图21-10](../Images/21-10.jpg)'
+- en: Figure 21.10 Multiple message handlers share the workload so you can scale to
+    meet demand.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.10 多个消息处理器分担工作负载，以便您可以根据需求进行扩展。
+- en: It’s important to realize that I didn’t change anything to get three times as
+    much processing power for my new-item feature--the web site and message handler
+    code is exactly the same. I’m just running more instances of the same message-handler
+    container. If you have another feature that is triggered by the same event, you
+    can run a different message handler that subscribes to the same message subject.
+    That opens up the interesting option of being able to deploy new features to your
+    app without changing existing code.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要意识到，我没有对我的新功能进行任何更改以获得三倍的处理能力——网站和消息处理器代码完全相同。我只是运行了更多相同消息处理器容器的实例。如果您有另一个由相同事件触发的功能，您可以运行一个订阅相同消息主题的不同消息处理器。这为在不更改现有代码的情况下将新功能部署到您的应用中提供了有趣的选择。
+- en: 21.4 Adding new features with message handlers
+  id: totrans-71
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 21.4 使用消息处理器添加新功能
+- en: We’ve moved the to-do app towards an event-driven architecture, which is a design
+    where the application publishes events to say that things have happened, rather
+    than processing everything as soon as it happens. It’s a nice way of building
+    a loosely coupled application, because you can change what happens in response
+    to events without changing the logic that publishes the event. We’re just using
+    it for a single type of event in this application, but that still brings the flexibility
+    to add new features without changing the existing app.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将待办事项应用程序推向了事件驱动架构，这是一种设计，其中应用程序发布事件来说明事情已经发生，而不是立即处理所有事情。这是一种构建松散耦合应用程序的好方法，因为您可以在不更改发布事件的逻辑的情况下更改对事件的响应。我们只是在这个应用程序中使用它来处理一种类型的事件，但这仍然提供了在不更改现有应用程序的情况下添加新功能的灵活性。
+- en: The simplest way to do that is to add a new message handler in a new group that
+    gets a copy of every event but does something different in response. The existing
+    message handler saves the data in a SQL database; a new message handler could
+    save the data in Elasticsearch to make it easy for users to query in Kibana, or
+    it could add the item as a reminder in a Google Calendar. We have a much simpler
+    example for the next exercise--a handler that works like an audit trail, writing
+    log entries for every new to-do item.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要做到这一点，最简单的方法是在一个新组中添加一个新的消息处理器，该处理器接收每个事件的副本，但对其执行不同的操作。现有的消息处理器将数据保存到 SQL
+    数据库中；新的消息处理器可以将数据保存到 Elasticsearch 中，以便用户在 Kibana 中轻松查询，或者它可以将项目添加到 Google 日历中的提醒。我们为下一个练习有一个更简单的例子--一个像审计跟踪一样工作的处理器，为每个新的待办事项写入日志条目。
+- en: 'Try it now The new message handler is in a Compose override file. When you
+    deploy it, you’ll see that this is an additive deployment. Compose creates one
+    new container, but none of the other containers change:'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 新的消息处理器位于一个 Compose 覆盖文件中。当你部署它时，你会发现这是一个增量部署。Compose 创建了一个新的容器，但其他所有容器都没有改变：
+- en: '` # run the audit message handler, keeping same scale for the save`  ` # handler:`
+    ` docker-compose -f docker-compose.yml -f docker-compose-audit.yml up -d --scale
+    save-handler=3`  ` # check that the audit handler is listening:` ` docker logs
+    todo-list_audit-handler_1`  ` # browse to http://localhost:8080 and add some new
+    items`  ` # check the audit trail:` ` docker logs todo-list_audit-handler_1`'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 运行审计消息处理器，保持保存处理器的相同规模`  ` # 处理器：` ` docker-compose -f docker-compose.yml
+    -f docker-compose-audit.yml up -d --scale save-handler=3`  ` # 检查审计处理器是否正在监听：`
+    ` docker logs todo-list_audit-handler_1`  ` # 浏览到 http://localhost:8080 并添加一些新项目`
+     ` # 检查审计记录：` ` docker logs todo-list_audit-handler_1`'
+- en: This is a zero-downtime deployment; the original app containers are unchanged,
+    and the new feature gets implemented in a new container. The audit handler subscribes
+    to the same message subject as the save handler, so it gets a copy of every message,
+    while another copy of the message is sent to one of the save handler containers.
+    You can see my output in figure 21.11, where the audit handler writes out the
+    to-do item date and text.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个零停机时间部署；原始的应用容器保持不变，新功能在一个新的容器中实现。审计处理器订阅与保存处理器相同的消息主题，因此它接收每条消息的副本，而另一份消息副本则发送到保存处理器容器之一。您可以在图
+    21.11 中看到我的输出，其中审计处理器写出了待办事项的日期和文本。
+- en: '![](../Images/21-11.jpg)'
+  id: totrans-77
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/21-11.jpg)'
+- en: Figure 21.11 Publishing events decouples the components of your app and lets
+    you add new features.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 21.11 发布事件解耦了您的应用程序组件，并允许您添加新功能。
+- en: Now two processes are triggered in response to the user creating a to-do item,
+    and they both get actioned in separate components running in separate containers.
+    Those processes could take any length of time and it wouldn’t impact the user
+    experience, because the web UI doesn’t wait for them (or even know about them)--it
+    just publishes the event to the queue, and that behavior has the same latency
+    no matter how many subscribers are listening for it.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在有两个进程在用户创建待办事项时被触发，并且它们都在不同的容器中运行的独立组件中执行。这些进程可能需要任何长度的时间，但这不会影响用户体验，因为 Web
+    UI 不等待它们（甚至不知道它们）--它只是将事件发布到队列中，并且无论有多少订阅者监听，这种行为都具有相同的延迟。
+- en: You should get some idea of how powerful this architecture is, even from this
+    simple example. Once your app is publishing key events as messages to the queue,
+    you can build whole new features without touching existing components. The new
+    feature can be independently built and tested, and it can be deployed with no
+    impact to the running application. If there’s an issue with the feature, you can
+    just undeploy it by stopping the message handlers.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您应该对这种架构的强大之处有一个大致的了解，即使是从这个简单的例子中也能看出。一旦您的应用程序将关键事件作为消息发布到队列中，您就可以在不接触现有组件的情况下构建全新的功能。新功能可以独立构建和测试，并且可以在不影响运行中的应用程序的情况下部署。如果功能存在问题，您只需停止消息处理程序即可取消部署。
+- en: We’ll look at one last exercise for this chapter to help convince you that async
+    messaging is a pattern you should consider for your apps. We can have multiple
+    subscribers for a certain type of event, but we can also have multiple publishers.
+    The new-item event is a fixed structure in code, so any component can publish
+    that event, which gives us new options for creating to-do items. We’ll use that
+    to deploy a REST API for the app without changing any existing parts.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将查看本章的最后一个练习，以帮助您相信异步消息是您应该考虑的应用程序模式。对于某种类型的事件，我们可以有多个订阅者，但也可以有多个发布者。新项事件在代码中是一个固定结构，因此任何组件都可以发布该事件，这为我们创建待办事项提供了新的选项。我们将利用这一点来部署应用程序的REST
+    API，而无需更改任何现有部分。
+- en: 'Try it now The to-do list API is already written and ready to deploy. It listens
+    on port 8081 and publishes a new-item event when users make HTTP `POST` requests:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试吧，待办事项列表API已经编写完毕并准备好部署。它监听8081端口，当用户发起HTTP `POST`请求时，会发布一个新项事件：
+- en: '` # start the API container, defined in the override file:` ` docker-compose
+    -f docker-compose.yml -f docker-compose-audit.yml -f docker-compose-api.yml up
+    -d todo-api`  ` # add a new item through the API:` ` curl http://localhost:8081/todo
+    -d ''{"item":"Record promo video"}'' -H ''Content-Type: application/json''`  ` #
+    check the audit log:` ` docker logs todo-list_audit-handler_1`'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '` # 启动API容器，定义在覆盖文件中：` ` docker-compose -f docker-compose.yml -f docker-compose-audit.yml
+    -f docker-compose-api.yml up -d todo-api`  ` # 通过API添加新项目：` ` curl http://localhost:8081/todo
+    -d ''{"item":"Record promo video"}'' -H ''Content-Type: application/json''`  ` #
+    检查审计日志：` ` docker logs todo-list_audit-handler_1`'
+- en: The new API is a simple HTTP server, and the only real logic in there is to
+    publish an event to the queue using the same message-queue method from listing
+    21.1\. You’ll see that new items entered through the API get processed by the
+    audit handler and the save handler, so there are audit entries, and when you refresh
+    the web app you’ll see the new items are in the database. My output is in figure
+    21.12.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新的API是一个简单的HTTP服务器，其中唯一的真正逻辑是使用列表21.1中的相同消息队列方法将事件发布到队列中。您将看到通过API输入的新项目会被审计处理程序和保存处理程序处理，因此会有审计条目，当您刷新Web应用程序时，您会看到新项目已存在于数据库中。我的输出如图21.12所示。
+- en: '![](../Images/21-12.jpg)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/21-12.jpg)'
+- en: Figure 21.12 Events can have many subscribers and many publishers, which makes
+    for loose coupling.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.12 事件可以有多个订阅者和多个发布者，这实现了松耦合。
+- en: This is powerful stuff, and it’s all from a single event being published in
+    the app. Async messaging enables you to build more flexible applications, which
+    are easier to scale and update, and you can add all this goodness to your existing
+    apps too, starting with just a few key events and building from there.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是非常强大的功能，这一切都来自于应用程序中发布的一个单一事件。异步消息使您能够构建更灵活的应用程序，这些应用程序更容易扩展和更新，您还可以将所有这些优点添加到现有的应用程序中，只需从几个关键事件开始构建即可。
+- en: Before you head off to the whiteboard, we’ll finish the chapter with a closer
+    look at messaging patterns so you’re aware of what you might be heading into.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在您去白板之前，我们将通过更详细地研究消息模式来结束本章，让您了解您可能面临的情况。
+- en: 21.5 Understanding async messaging patterns
+  id: totrans-89
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 21.5 理解异步消息模式
+- en: Asynchronous messaging is an advanced topic, but Docker really lowers the entry
+    bar because it’s so easy to run a queue in a container, and you can quickly prototype
+    how your app might work with event publishing. There are different ways to send
+    and receive messages on a queue, and it’s worth understanding a couple of alternatives.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 异步消息是一个高级话题，但Docker大大降低了入门门槛，因为运行队列在容器中非常容易，您可以快速原型化应用程序如何与事件发布一起工作。在队列上发送和接收消息有不同的方式，了解几种替代方案是值得的。
+- en: The pattern we’ve used in this chapter is called publish-subscribe (or “pub-sub”),
+    and it allows zero or more subscribers to receive published messages, as in figure
+    21.13.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中使用的模式被称为发布-订阅（或“pub-sub”），它允许零个或多个订阅者接收发布的消息，如图21.13所示。
+- en: '![](../Images/21-13.jpg)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图21.13](../Images/21-13.jpg)'
+- en: Figure 21.13 Pub-sub messaging lets many processes act on the same message being
+    published.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.13 Pub-sub消息允许许多进程对同一被发布的消息进行操作。
+- en: This pattern doesn’t fit every scenario, because the message publisher has no
+    knowledge of who consumes the message, what they do with it, or when they’ve finished.
+    An alternative is request-response messaging, where the client sends a message
+    to the queue and waits for a response. The handler processes the request message
+    and then sends a response message that the queue routes back to the client. This
+    can be used to replace standard synchronous service calls, with the advantage
+    that handlers won’t get overloaded and clients can be doing other work while they
+    wait for a response. Figure 21.14 shows this pattern.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种模式并不适合每个场景，因为消息发布者不知道谁消费了消息，他们如何处理它，或者他们何时完成。一个替代方案是请求-响应消息，客户端向队列发送消息并等待响应。处理器处理请求消息，然后发送一个响应消息，队列将其路由回客户端。这可以用来替换标准同步服务调用，其优点是处理器不会过载，客户端可以在等待响应时做其他工作。图21.14展示了这种模式。
+- en: '![](../Images/21-14.jpg)'
+  id: totrans-95
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图21.14](../Images/21-14.jpg)'
+- en: Figure 21.14 Request-response messaging is client-service communication without
+    a direct connection.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图21.14 请求-响应消息是客户端-服务通信，没有直接连接。
+- en: 'Pretty much all queue technologies support these patterns, as well as variations
+    like fire-and-forget (where the client sends a command request in a message rather
+    than publishing an event, but doesn’t care about the response) and scatter-gather
+    (where the client publishes a message that several subscribers act on, and then
+    collates all the responses). We’ve looked at Redis and NATS in this chapter, but
+    there’s one more technology you should also consider: RabbitMQ. RabbitMQ is a
+    more advanced queue that supports complex routing and persistent messaging, so
+    messages are saved to disk and the queue contents survive a container restart.
+    All these queue technologies are available as official images on Docker Hub.'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 几乎所有队列技术都支持这些模式，以及像“fire-and-forget”（客户端在消息中发送命令请求而不是发布事件，但不在乎响应）和“scatter-gather”（客户端发布一个消息，多个订阅者对其操作，然后汇总所有响应）这样的变体。我们在本章中探讨了Redis和NATS，但还有一项技术你也应该考虑：RabbitMQ。RabbitMQ是一个更高级的队列，支持复杂的路由和持久消息，因此消息被保存到磁盘上，队列内容在容器重启后仍然存在。所有这些队列技术都在Docker
+    Hub上提供官方镜像。
+- en: Message queue technology can liberate your application design. You can build
+    in an event-driven architecture from the start, or gradually evolve toward one,
+    or just use messages for key events. When you start deploying new features with
+    no downtime, or scaling down handlers to protect a starved database without crashing
+    your app, you’ll realize the power of the patterns and you’ll be glad you made
+    it to the end of this chapter.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消息队列技术可以解放你的应用程序设计。你可以从一开始就构建一个事件驱动的架构，或者逐渐向其演变，或者只是使用消息来处理关键事件。当你开始部署新功能而无需停机，或者缩小处理器的规模以保护数据库免受饥饿而不会崩溃应用程序时，你会意识到这些模式的力量，你也会为完成了这一章而感到高兴。
+- en: 21.6 Lab
+  id: totrans-99
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 21.6 实验室
+- en: It’s the final lab of the book, and this one’s a little bit sneaky. The goal
+    is to add another message handler for the to-do app--one that changes the text
+    for items after they’ve been saved. That handler already exists, so this is mostly
+    about wiring the new service into the Compose file, but there are some configuration
+    settings you’ll need to dig around for too.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是本书的最后一个实验室，这个实验室有点狡猾。目标是为待办事项应用程序添加另一个消息处理器——一个在项目保存后更改文本的处理器。这个处理器已经存在，所以这主要关于将新服务连接到Docker
+    Compose文件，但还有一些配置设置你需要挖掘。
+- en: 'Your solution needs to run a new handler using the image `diamol/ch21-mutating-handler`
+    from Docker Hub, and when you have that working there are a couple of things to
+    investigate:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你的解决方案需要使用来自Docker Hub的镜像`diamol/ch21-mutating-handler`运行一个新的处理器，当你使其工作后，有几个问题需要调查：
+- en: The new component listens for events called `events.todo.itemsaved` , but nothing
+    publishes those events yet. You’ll need to search for a config setting you can
+    apply to one of the existing components to make it publish those events.
+  id: totrans-102
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 新组件监听名为`events.todo.itemsaved`的事件，但目前还没有什么发布这些事件。你需要搜索一个可以应用于现有组件的配置设置，使其发布这些事件。
+- en: The new component has a bad set of default configuration, so it’s not using
+    the right address for the message queue. You’ll need to search for the setting
+    and fix that too.
+  id: totrans-103
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 新组件有一组糟糕的默认配置，因此它没有使用正确的地址来访问消息队列。你需要搜索设置并修复它。
+- en: This is not as nasty as it seems; the answers you need are all in the Dockerfiles,
+    and you’re just going to set values in your Compose file--no need to change source
+    code or rebuild images. It’s a useful exercise, because you’ll certainly spend
+    some time trying to figure out config settings when you use Docker for real, and
+    the final message handler adds a useful feature to the to-do app.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这并不像看起来那么糟糕；你需要的所有答案都在 Dockerfile 中，你只需在你的 Compose 文件中设置值——无需更改源代码或重建镜像。这是一个有用的练习，因为当你真正使用
+    Docker 时，你肯定会花一些时间试图弄清楚配置设置，并且最终的消息处理器为待办事项应用添加了一个有用的功能。
+- en: 'My solution is up on GitHub as always, with a screenshot to prove it works:
+    *[https://github.com/sixeyed/diamol/blob/master/ch21/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch21/lab/README.md)*.'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我的解决方案始终在 GitHub 上，附有截图以证明其工作：*[https://github.com/sixeyed/diamol/blob/master/ch21/lab/README.md](https://github.com/sixeyed/diamol/blob/master/ch21/lab/README.md)*。

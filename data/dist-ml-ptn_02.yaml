@@ -1,0 +1,1558 @@
+- en: 2 Data ingestion patterns
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 2 数据摄取模式
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Understanding data ingestion and its responsibilities
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解数据摄取及其责任
+- en: Handling large datasets in memory by consuming smaller datasets in batches (the
+    batching pattern)
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过批量消耗较小的数据集来在内存中处理大规模数据集（批量模式）
+- en: Preprocessing extremely large datasets as smaller chunks on multiple machines
+    (the sharding pattern)
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在多台机器上将极大规模的数据集预处理为更小的数据块（分片模式）
+- en: Fetching and re-accessing the same dataset for multiple training rounds (the
+    caching pattern)
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为多次训练轮次检索和重新访问相同的dataset（缓存模式）
+- en: Chapter 1 discussed the growing scale of modern machine learning applications
+    such as larger datasets and heavier traffic for model serving. It also talked
+    about the complexity and challenges of building distributed systems--distributed
+    systems for machine learning applications in particular. We learned that a distributed
+    machine learning system is usually a pipeline of many components, such as data
+    ingestion, model training, serving, and monitoring, and that some established
+    patterns are available for designing each component to handle the scale and complexity
+    of real-world machine learning applications.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第1章讨论了现代机器学习应用的增长规模，如更大的数据集和更重的模型服务流量。它还讨论了构建分布式系统的复杂性和挑战，特别是针对机器学习应用的分布式系统。我们了解到，分布式机器学习系统通常是一个由许多组件组成的管道，如数据摄取、模型训练、服务、监控，并且有一些既定的模式可用于设计每个组件以处理现实世界机器学习应用的规模和复杂性。
+- en: All data analysts and scientists should have some level of exposure to data
+    ingestion, either hands-on experience in building a data ingestion component or
+    simply using a dataset from the engineering team or customer. Designing a good
+    data ingestion component is nontrivial and requires understanding the characteristics
+    of the dataset we want to use for building a machine learning model. Fortunately,
+    we can follow established patterns to build that model on a reliable and efficient
+    foundation.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有数据分析师和科学家都应该对数据摄取有一定程度的了解，无论是通过实际构建数据摄取组件的动手经验，还是简单地使用来自工程团队或客户的dataset。设计一个好的数据摄取组件并不简单，需要理解我们想要用于构建机器学习模型的dataset的特征。幸运的是，我们可以遵循既定的模式，在可靠和高效的基础上构建该模型。
+- en: This chapter explores some of the challenges involved in the data ingestion
+    process and introduces a few established patterns adopted heavily in industries.
+    In section 2.3, we will use the batching pattern in cases where we want to handle
+    and prepare large datasets for model training, either when the machine learning
+    framework we are using cannot handle large datasets or requires domain expertise
+    in the underlying implementation of the framework. In section 2.4, we will learn
+    how to apply the sharding pattern to split extremely large datasets into multiple
+    data shards spread among multiple worker machines; then we speed up the training
+    process as we add worker machines that are responsible for model training on each
+    data shard independently. Section 2.5 introduces the caching pattern, which could
+    greatly speed up the data ingestion process when a previously used dataset is
+    re-accessed and processed for multi-epoch model training.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章探讨了数据摄取过程中的一些挑战，并介绍了一些在行业中广泛采用的既定模式。在第2.3节中，我们将使用批量模式来处理和准备大型数据集以进行模型训练，无论是我们使用的机器学习框架无法处理大型数据集，还是需要框架底层实现的领域专业知识。在第2.4节中，我们将学习如何应用分片模式将极大规模的数据集分割成多个数据分片，这些数据分片分布在多个工作机器上；然后，随着我们添加负责独立在每个数据分片上训练模型的工作机器，我们加快了训练过程。第2.5节介绍了缓存模式，当重新访问和处理用于多轮模型训练的先前使用的dataset时，它可以大大加快数据摄取过程。
+- en: 2.1 What is data ingestion?
+  id: totrans-9
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 2.1 什么是数据摄取？
+- en: 'Let’s assume that we have a dataset at hand, and we would like to build a machine
+    learning system that builds a machine learning model from it. What is the first
+    thing we should think about? The answer is quite intuitive: first, we should get
+    a better understanding of the dataset. Where did the dataset come from, and how
+    was it collected? Are the source and the size of the dataset changing over time?
+    What are the infrastructure requirements for handling the dataset? We should ask
+    these types of questions first. We should also consider different perspectives
+    that might affect the process of handling the dataset before we start building
+    a distributed machine learning system. We will walk through these questions and
+    considerations in the examples in the remaining sections of this chapter and learn
+    how to address some of the problems we may encounter by using different established
+    patterns.'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们手头有一个数据集，我们希望构建一个机器学习系统，从这个数据集中构建机器学习模型。我们首先应该考虑什么？答案是相当直观的：首先，我们应该更好地理解数据集。数据集是从哪里来的，是如何收集的？数据集的来源和大小是否随时间变化？处理数据集的基础设施需求是什么？我们应该首先提出这些问题。在我们开始构建分布式机器学习系统之前，我们还应该考虑可能影响处理数据集过程的不同观点。我们将在本章剩余部分的示例中探讨这些问题和考虑因素，并学习如何通过使用不同的既定模式来解决我们可能遇到的一些问题。
+- en: '*Data ingestion* is the process that monitors the data source, consumes the
+    data all at once (nonstreaming) or in a streaming fashion, and performs preprocessing
+    to prepare for the training process of machine learning models. In short, streaming
+    data ingestion often requires long-running processes to monitor the changes in
+    data sources; nonstreaming data ingestion happens in the form of offline batch
+    jobs that process datasets on demand. Additionally, the data grows over time in
+    streaming data ingestion, whereas the size of the dataset is fixed in nonstreaming
+    data ingestion. Table 2.1 summarizes the differences.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*数据摄取* 是一个监控数据源、一次性（非流式）或以流式方式消费数据，并为机器学习模型的训练过程进行预处理的流程。简而言之，流式数据摄取通常需要长时间运行的过程来监控数据源的变化；非流式数据摄取以离线批处理作业的形式发生，按需处理数据集。此外，在流式数据摄取中，数据随时间增长，而非流式数据摄取中数据集的大小是固定的。表2.1总结了这些差异。'
+- en: Table 2.1 Comparison of streaming and nonstreaming data ingestion in machine
+    learning applications
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表2.1 比较机器学习应用中的流式和非流式数据摄取
+- en: '|  | Streaming data ingestion | Nonstreaming data Ingestion |'
+  id: totrans-13
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 流式数据摄取 | 非流式数据摄取 |'
+- en: '| Dataset size | Increases over time | Fixed size |'
+  id: totrans-14
+  prefs: []
+  type: TYPE_TB
+  zh: '| 数据集大小 | 随时间增加 | 大小固定 |'
+- en: '| Infrastructure requirements | Long-running processes to monitor the changes
+    in data source | Offline batch jobs to process datasets on demand |'
+  id: totrans-15
+  prefs: []
+  type: TYPE_TB
+  zh: '| 基础设施需求 | 长时间运行的过程来监控数据源的变化 | 离线批处理作业来按需处理数据集 |'
+- en: The remaining sections of this chapter focus on data ingestion patterns from
+    a nonstreaming perspective, but they can be applied to streaming data ingestion
+    as well.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章剩余部分将专注于从非流式视角的数据摄取模式，但它们也可以应用于流式数据摄取。
+- en: Data ingestion is the first step and an inevitable step in a machine learning
+    pipeline, as shown in figure 2.1\. Without a properly ingested dataset, the rest
+    of the processes in a machine learning pipeline would not be able to proceed.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据摄取是机器学习流程中的第一步，也是不可避免的一步，如图2.1所示。如果没有正确摄取的数据集，机器学习流程中的其余过程将无法进行。
+- en: '![02-01](../../OEBPS/Images/02-01.png)'
+  id: totrans-18
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-01](../../OEBPS/Images/02-01.png)'
+- en: Figure 2.1 A flowchart that represents the machine learning pipeline. Note that
+    data ingestion is the first step in the pipeline.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.1 表示机器学习流程的流程图。请注意，数据摄取是流程中的第一步。
+- en: The next section introduces the Fashion-MNIST dataset, which I use to illustrate
+    the patterns in the remaining sections of this chapter. I focus on building patterns
+    around data ingestion in distributed machine learning applications, which are
+    distinct from data ingestion that happens on local machines or laptops. Data ingestion
+    in distributed machine learning applications is often more complex and requires
+    careful design to handle large-scale datasets or datasets that are growing rapidly.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下一个部分介绍了Fashion-MNIST数据集，我将用它来展示本章剩余部分中的模式。我专注于构建分布式机器学习应用中的数据摄取模式，这些模式与在本地机器或笔记本电脑上发生的数据摄取不同。分布式机器学习应用中的数据摄取通常更复杂，需要精心设计来处理大规模数据集或快速增长的数据集。
+- en: 2.2 The Fashion-MNIST dataset
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 2.2 The Fashion-MNIST dataset
+- en: The MNIST dataset by LeCun et al. ([http://yann.lecun.com/exdb/mnist/](http://yann.lecun.com/exdb/mnist/))
+    is one of the most widely used datasets for image classification. It contains
+    60,000 training images and 10,000 testing images extracted from images of handwritten
+    digits; it is used widely in the machine learning research community as a benchmark
+    dataset to validate state-of-art algorithms and machine learning models. Figure
+    2.2 shows some example images of handwritten digits, with each row representing
+    images of a particular handwritten digit.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: LeCun 等人创建的 MNIST 数据集([http://yann.lecun.com/exdb/mnist/](http://yann.lecun.com/exdb/mnist/))是图像分类中最广泛使用的数据库之一。它包含从手写数字图像中提取的
+    60,000 张训练图像和 10,000 张测试图像；在机器学习研究社区中广泛用作基准数据集，以验证最先进的算法和机器学习模型。图 2.2 展示了一些手写数字的示例图像，每行代表特定手写数字的图像。
+- en: '![02-02](../../OEBPS/Images/02-02.png)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-02](../../OEBPS/Images/02-02.png)'
+- en: 'Figure 2.2 A screenshot of some example images for handwritten digits from
+    0 to 9, with each row representing images of a particular handwritten digit (Source:
+    Josep Steffan, licensed under CC BY-SA 4.0)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.2 手写数字 0 到 9 的示例图像截图，每行代表特定手写数字的图像（来源：Josep Steffan，许可协议为 CC BY-SA 4.0）
+- en: Despite wide adoption in the community, researchers have found this dataset
+    to be unsuitable for distinguishing between stronger models and weaker ones; many
+    simple models nowadays can achieve good classification accuracy over 95%. As a
+    result, the MNIST dataset now serves as more a sanity check than a benchmark.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管在社区中得到了广泛的应用，研究人员发现这个数据集不适合区分强模型和弱模型；现在许多简单的模型都能达到超过 95% 的分类准确率。因此，MNIST 数据集现在更多地作为一项理智检查，而不是基准。
+- en: Note The creators of the MNIST dataset kept a list of the machine learning methods
+    tested on the dataset. In the original paper, “Gradient-Based Learning Applied
+    to Document Recognition,” published in 1998 on the MNIST dataset ([http://yann.lecun.com/exdb/publis/index.xhtml#lecun-98](http://yann.lecun.com/exdb/publis/index.xhtml#lecun-98)),
+    LeCun et al. stated that they used a support-vector machine model to get an error
+    rate of 0.8%. A similar but extended dataset called EMNIST was published in 2017\.
+    EMNIST contains 240,000 training images and 40,000 testing images of handwritten
+    digits and characters.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：MNIST 数据集的创建者保留了一份在数据集上测试过的机器学习方法的列表。在 1998 年发表的关于 MNIST 数据集的原始论文“应用于文档识别的基于梯度的学习”中([http://yann.lecun.com/exdb/publis/index.xhtml#lecun-98](http://yann.lecun.com/exdb/publis/index.xhtml#lecun-98))，LeCun
+    等人表示他们使用支持向量机模型将错误率降至 0.8%。2017 年发布了一个类似但扩展的数据集，称为 EMNIST。EMNIST 包含 240,000 张训练图像和
+    40,000 张测试图像的手写数字和字符。
+- en: 'Instead of using MNIST in several examples throughout this book, I will focus
+    on a quantitatively similar but relatively more complex dataset: the Fashion-MNIST
+    dataset, which was released in 2017 ([https://github.com/zalandoresearch/fashion-mnist](https://github.com/zalandoresearch/fashion-mnist)).
+    Fashion-MNIST is a dataset of Zalando’s article images consisting of a training
+    set of 60,000 examples and a test set of 10,000 examples. Each example is a 28 × 28
+    grayscale image associated with a label from ten classes. The Fashion-MNIST dataset
+    is designed to serve as a direct drop-in replacement for the original MNIST dataset
+    for benchmarking machine learning algorithms. It uses the same image size and
+    structure for training and testing splits.'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本书的多个示例中，我将不会使用 MNIST 数据集，而是将重点放在一个数量级相似但相对更复杂的数据集上：2017 年发布的 Fashion-MNIST
+    数据集([https://github.com/zalandoresearch/fashion-mnist](https://github.com/zalandoresearch/fashion-mnist))。Fashion-MNIST
+    是由 Zalando 的文章图像组成的数据库，包括 60,000 个示例的训练集和 10,000 个示例的测试集。每个示例是一个与十个类别之一的标签相关联的
+    28 × 28 灰度图像。Fashion-MNIST 数据集旨在作为原始 MNIST 数据集的直接替代品，用于基准测试机器学习算法。它使用相同的图像大小和结构进行训练和测试分割。
+- en: Figure 2.3 shows the collection of images for all 10 classes (T-shirt/top, trouser,
+    pullover, dress, coat, sandal, shirt, sneaker, bag, and ankle boot) from Fashion-MNIST.
+    Each class takes up three rows of the screenshot.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.3 展示了 Fashion-MNIST 中所有 10 个类别（T恤/上衣、裤子、开衫、连衣裙、外套、凉鞋、衬衫、运动鞋、包和踝靴）的图像集合。每个类别占据了截图的三行。
+- en: '![02-03](../../OEBPS/Images/02-03.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-03](../../OEBPS/Images/02-03.png)'
+- en: 'Figure 2.3 A screenshot of the collection of images from Fashion-MNIST dataset
+    for all 10 classes: T-shirt/top, trouser, pullover, dress, coat, sandal, shirt,
+    sneaker, bag, and ankle boot (Source: Zalando SE, licensed under MIT License)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 2.3 Fashion-MNIST 数据集中所有 10 个类别（T恤/上衣、裤子、开衫、连衣裙、外套、凉鞋、衬衫、运动鞋、包和踝靴）的图像集合截图（来源：Zalando
+    SE，许可协议为 MIT 许可证）
+- en: Figure 2.4 provides a closer look at the first few example images in the training
+    set, together with their corresponding text labels. Next, I discuss the scenario
+    for the case study.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.4提供了对训练集中前几个示例图像及其相应文本标签的近距离观察。接下来，我将讨论案例研究的场景。
+- en: '![02-04](../../OEBPS/Images/02-04.png)'
+  id: totrans-32
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-04](../../OEBPS/Images/02-04.png)'
+- en: 'Figure 2.4 The first few example images in the training set (Source: Zalando
+    SE, licensed under MIT License)'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.4 训练集中的前几个示例图像（来源：Zalando SE，MIT许可证授权）
+- en: Assume that we’ve downloaded the Fashion-MNIST dataset. The compressed version
+    should only take 30 MB on disk. Even though the dataset is small, it’s trivial
+    to load the downloaded dataset into memory at one time by using available implementations.
+    If we’re using a machine learning framework like TensorFlow, for example, we can
+    download and load the entire Fashion-MNIST dataset into memory with a couple of
+    lines of Python code, as shown in the following listing.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们已经下载了Fashion-MNIST数据集。压缩版本在磁盘上应该只占用30 MB。尽管数据集很小，但使用现有的实现一次性将下载的数据集加载到内存中是微不足道的。例如，如果我们使用TensorFlow这样的机器学习框架，我们可以用几行Python代码下载并加载整个Fashion-MNIST数据集到内存中，如下所示。
+- en: Listing 2.1 Loading the Fashion-MNIST dataset into memory with TensorFlow
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.1 使用TensorFlow将Fashion-MNIST数据集加载到内存中
+- en: '[PRE0]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Loads the TensorFlow library
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 加载TensorFlow库
+- en: ❷ Downloads the Fashion-MNIST dataset and then loads it into memory
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 下载Fashion-MNIST数据集并将其加载到内存中
+- en: Alternatively, if the dataset is already in memory--in the form of NumPy ([https://numpy.org](https://numpy.org))
+    arrays, for example--we can load the dataset from an in-memory array representation
+    into formats that the machine learning framework accepts, such as tf.Tensor objects,
+    which can easily be used for model training later. The following listing shows
+    an example.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，如果数据集已经存在于内存中——例如以NumPy ([https://numpy.org](https://numpy.org)) 数组的形式——我们可以从内存中的数组表示形式加载数据集到机器学习框架接受的格式中，例如tf.Tensor对象，这可以很容易地用于后续的模型训练。以下列表展示了示例。
+- en: Listing 2.2 Loading the Fashion-MNIST dataset from memory into TensorFlow
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.2 将Fashion-MNIST数据集从内存加载到TensorFlow中
+- en: '[PRE1]'
+  id: totrans-41
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Splits the training dataset object into images and labels
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将训练数据集对象拆分为图像和标签
+- en: ❷ Normalizes the images
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 标准化图像
+- en: ❸ Loads in-memory array representation into a tf.data.Dataset object that will
+    make it easier to use for training in TensorFlow
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将内存中的数组表示形式加载到tf.data.Dataset对象中，这将使其更容易在TensorFlow中进行训练
+- en: ❹ Inspects the dataset’s information, such as shapes and data types
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 检查数据集的信息，例如形状和数据类型
+- en: 2.3 Batching pattern
+  id: totrans-46
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 2.3 批处理模式
+- en: Now that we know what the Fashion-MNIST dataset looks like, let’s examine a
+    potential problem we might face in a real-world scenario.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经知道了Fashion-MNIST数据集的样子，让我们考察一下在现实场景中可能会遇到的一个潜在问题。
+- en: '2.3.1 The problem: Performing expensive operations for Fashion MNIST dataset
+    with limited memory'
+  id: totrans-48
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.3.1 问题：在内存有限的情况下对Fashion MNIST数据集执行昂贵的操作
+- en: Even though it’s easy to load a small dataset like Fashion-MNIST into memory
+    to prepare for model training, in real-world machine learning applications, this
+    process can be challenging. The code snippet in listing 2.1, for example, can
+    be used to load the Fashion-MNIST into memory to prepare for model training in
+    TensorFlow; it embeds the features and labels arrays in our TensorFlow graph as
+    tf.constant() operations. This process works well for a small dataset, but it
+    wastes memory because the contents of the NumPy array will be copied multiple
+    times and can run into the 2 GB limit for the tf.GraphDef protocol buffer that
+    TensorFlow uses. In real-world applications, the datasets are much larger, especially
+    in distributed machine learning systems in which datasets grow over time.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然将像Fashion-MNIST这样的小型数据集加载到内存中以便为模型训练做准备很容易，但在现实世界的机器学习应用中，这个过程可能具有挑战性。例如，列表2.1中的代码片段可以用来将Fashion-MNIST加载到内存中，以便在TensorFlow中进行模型训练；它将特征和标签数组嵌入我们的TensorFlow图中作为tf.constant()操作。这个过程对于小型数据集来说效果很好，但它浪费了内存，因为NumPy数组的内容将被复制多次，并且可能会遇到TensorFlow使用的tf.GraphDef协议缓冲区的2
+    GB限制。在现实世界的应用中，数据集通常要大得多，尤其是在数据集随时间增长的分步机器学习系统中。
+- en: Figure 2.5 shows a 1.5-GB in-memory NumPy array representation that will be
+    copied two times with a tf.constant() operation. This operation would result in
+    an out-of-memory error because the total 3 GB exceeds the maximum size of the
+    tf.GraphDef protocol buffer that TensorFlow uses.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.5显示了1.5GB的内存中NumPy数组表示，该表示将使用tf.constant()操作复制两次。这个操作会导致内存不足错误，因为总大小3GB超过了TensorFlow使用的tf.GraphDef协议缓冲区的最大大小。
+- en: '![02-05](../../OEBPS/Images/02-05.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-05](../../OEBPS/Images/02-05.png)'
+- en: Figure 2.5 An example 1.5-GB in-memory NumPy array representation that hits
+    an out-of-memory error when being converted to a tf.GraphDef protocol buffer
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.5 一个1.5GB内存中NumPy数组表示的示例，当转换为tf.GraphDef协议缓冲区时遇到内存不足错误
+- en: Problems like this one happen often in different machine learning or data loading
+    frameworks. Users may not be using the specific framework in an optimal way, or
+    the framework may not be able to handle larger datasets.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在不同的机器学习或数据加载框架中，这类问题经常发生。用户可能没有以最佳方式使用特定框架，或者框架可能无法处理更大的数据集。
+- en: In addition, even for small datasets like Fashion-MNIST, we may perform additional
+    computations before feeding the dataset into the model, which is common in tasks
+    that require additional transformations and cleaning. For computer vision tasks,
+    images often need to be resized, normalized, or converted to grayscale, or they
+    may require even more complex mathematical operations, such as convolution operations.
+    These operations may require a lot of additional memory space allocation, but
+    we may not have many computational resources available after we load the entire
+    dataset into memory.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，即使是像Fashion-MNIST这样的小型数据集，在将数据集输入到模型之前，我们也可能执行额外的计算，这在需要额外转换和清理的任务中很常见。对于计算机视觉任务，图像通常需要调整大小、归一化或转换为灰度，或者可能需要更复杂的数学运算，例如卷积运算。这些操作可能需要大量的额外内存空间分配，但我们可能没有很多计算资源可用，在将整个数据集加载到内存之后。
+- en: 2.3.2 The solution
+  id: totrans-55
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.3.2 解决方案
+- en: Consider the first problem mentioned in section 2.2\. We’d like to use TensorFlow’s
+    from_tensor_slices() API to load the Fashion-MNIST dataset from an in-memory NumPy
+    array representation to a tf.Dataset object that TensorFlow’s model training program
+    can use. Because the contents of the NumPy array will be copied multiple times,
+    however, we can run into the 2 GB limit for the tf.GraphDef protocol buffer. As
+    a result, we cannot load larger datasets that go beyond this limit.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到2.2节中提到的第一个问题。我们希望使用TensorFlow的from_tensor_slices() API将Fashion-MNIST数据集从内存中的NumPy数组表示加载到TensorFlow模型训练程序可以使用的tf.Dataset对象中。然而，由于NumPy数组的内容将被多次复制，我们可能会遇到tf.GraphDef协议缓冲区的2GB限制。因此，我们无法加载超过此限制的更大数据集。
+- en: It’s not uncommon to see problems like this one for specific frameworks like
+    TensorFlow. In this case, the solution is simple because we are not making the
+    best use of TensorFlow. Other APIs allow us to load large datasets without loading
+    the entire dataset into in-memory representation first.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于像TensorFlow这样的特定框架，看到这类问题并不罕见。在这种情况下，解决方案很简单，因为我们没有充分利用TensorFlow。其他API允许我们在不首先将整个数据集加载到内存表示的情况下加载大型数据集。
+- en: TensorFlow’s I/O library, for example, is a collection of filesystems and file
+    formats that are not available in TensorFlow’s built-in support. We can load datasets
+    like MNIST from a URL to access the dataset files that are passed directly to
+    the tfio.IODataset.from_mnist() API call, as shown in the following listing. This
+    ability is due to the inherent support that TensorFlow ([https://github.com/tensorflow/io](https://github.com/tensorflow/io))
+    I/O library provides for the HTTP filesystem, eliminating the need to download
+    and save datasets in a local directory.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，TensorFlow的I/O库是一个包含文件系统和文件格式的集合，这些在TensorFlow的内置支持中是不可用的。我们可以从URL加载像MNIST这样的数据集，以便直接访问传递给tfio.IODataset.from_mnist()
+    API调用的数据集文件，如下面的列表所示。这种能力归功于TensorFlow ([https://github.com/tensorflow/io](https://github.com/tensorflow/io))
+    I/O库对HTTP文件系统的固有支持，消除了在本地目录中下载和保存数据集的需要。
+- en: Listing 2.3 Loading the MNIST dataset with TensorFlow I/O
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.3 使用TensorFlow I/O加载MNIST数据集
+- en: '[PRE2]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Loads the TensorFlow I/O library
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 加载TensorFlow I/O库
+- en: ❷ Loads the MNIST dataset from a URL to access dataset files directly without
+    downloading via HTTP filesystem support
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从URL加载MNIST数据集以直接访问数据集文件，无需通过HTTP文件系统支持下载
+- en: For larger datasets that might be stored in distributed file systems or databases,
+    some APIs can load them without having to download everything at one time, which
+    could cause memory- or disk-related problems. For demonstration purposes, without
+    going into too many details here, the following listing shows how to load a dataset
+    from a PostgreSQL database ([https://www.postgresql.org](https://www.postgresql.org)).
+    (You’ll need to set up your own PostgreSQL database and provide the required environment
+    variables to run this example.)
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于可能存储在分布式文件系统或数据库中的大型数据集，一些API可以在不一次性下载所有内容的情况下加载它们，这可能会引起内存或磁盘相关的问题。为了演示目的，在此不深入细节，以下列表展示了如何从PostgreSQL数据库加载数据集([https://www.postgresql.org](https://www.postgresql.org))。（您需要设置自己的PostgreSQL数据库并提供运行此示例所需的环境变量。）
+- en: Listing 2.4 Loading a dataset from the PostgreSQL database
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.4 从PostgreSQL数据库加载数据集
+- en: '[PRE3]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Loads Python’s built-in OS library for loading environment variables related
+    to the PostgreSQL database
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 加载Python的内置OS库，用于加载与PostgreSQL数据库相关的环境变量
+- en: ❷ Loads the TensorFlow I/O library
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 加载TensorFlow I/O库
+- en: ❸ Constructs the endpoint for accessing the PostgreSQL database
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 构建访问PostgreSQL数据库的端点
+- en: ❹ Selects two columns from the AirQualityUCI table in the database and instantiates
+    a tf.data.Dataset object
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 从数据库中的AirQualityUCI表中选取两列并实例化一个tf.data.Dataset对象
+- en: ❺ Inspects the specification of the dataset, such as the shape and data type
+    of each column
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 检查数据集的规范，例如每列的形状和数据类型
+- en: Now let’s go back to our scenario. In this case, assume that TensorFlow does
+    not provide APIs like TensorFlow I/O that can deal with large datasets. Given
+    that we don’t have too much free memory, we should not load the entire Fashion-MNIST
+    dataset into memory directly. Let’s assume that the mathematical operations we
+    would like to perform on the dataset can be performed on subsets of the entire
+    dataset. Then we can divide the dataset into smaller subsets (*mini-batches*),
+    load each mini-batch of example images, perform expensive mathematical operations
+    on each batch, and use only one mini-batch of images in each model training iteration.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们回到我们的场景。在这种情况下，假设TensorFlow不提供像TensorFlow I/O这样的API来处理大数据集。鉴于我们没有太多的空闲内存，我们不应直接将整个Fashion-MNIST数据集加载到内存中。让我们假设我们想要在数据集上执行的数学运算可以在整个数据集的子集上执行。然后我们可以将数据集划分为更小的子集（*mini-batches*），加载每个示例图像的mini-batch，对每个批次执行昂贵的数学运算，并在每个模型训练迭代中仅使用一个mini-batch的图像。
+- en: If the first mini-batch consists of the 19 example images in figure 2.4, we
+    can perform convolution or other heavy mathematical operations on those images
+    first and then send the transformed images to the machine learning model for model
+    training. We repeat the same process for the remaining mini-batches while continuing
+    model training in the meantime.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果第一个mini-batch包含图2.4中的19个示例图像，我们可以首先对这些图像执行卷积或其他复杂的数学运算，然后将转换后的图像发送到机器学习模型进行模型训练。我们在同时继续模型训练的过程中重复对剩余的mini-batches执行相同的操作。
+- en: Because we’ve divided the dataset into many small subsets or mini-batches, we
+    avoid potential out-of-memory problems when performing the heavy mathematical
+    operations necessary for achieving an accurate classification model. Then we can
+    handle even larger datasets by reducing the size of the mini-batches. This approach
+    is called *batching*. In data ingestion, batching involves grouping data records
+    from the entire dataset into batches that will be used to train the machine learning
+    model sequentially.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们将数据集划分为许多小的子集或mini-batches，我们在执行达到准确分类模型所需的复杂数学运算时避免了潜在的内存不足问题。然后我们可以通过减小mini-batch的大小来处理更大的数据集。这种方法称为*批处理*。在数据摄取过程中，批处理涉及将整个数据集中的数据记录分组到将要依次用于训练机器学习模型的批次中。
+- en: If we have a dataset with 100 records, we can take 50 of the 100 records to
+    form a batch and then train the model using this batch of records. We repeat this
+    batching and model training process for the remaining records. In other words,
+    we make two batches in total; each batch consists of 50 records, and the model
+    we are training consumes the batches one by one. Figure 2.6 illustrates the process
+    of dividing the original dataset into two batches. The first batch gets consumed
+    to train the model at time t0, and the second batch gets consumed at time t1\.
+    As a result, we don’t have to load the entire dataset into memory at one time;
+    instead, we are consuming the dataset sequentially, batch by batch.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们有一个包含100条记录的数据集，我们可以从100条记录中取出50条来形成一个批次，然后使用这个记录批次来训练模型。我们重复此批处理和模型训练过程，直到处理完剩余的记录。换句话说，我们总共制作了两个批次；每个批次包含50条记录，我们正在训练的模型逐个消耗这些批次。图2.6说明了将原始数据集分为两个批次的过程。第一个批次在时间t0被消耗以训练模型，第二个批次在时间t1被消耗。因此，我们不必一次性将整个数据集加载到内存中；相反，我们是按顺序，批次批次地消耗数据集。
+- en: '![02-06](../../OEBPS/Images/02-06.png)'
+  id: totrans-75
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-06](../../OEBPS/Images/02-06.png)'
+- en: Figure 2.6 The dataset gets divided into two batches. The first batch gets consumed
+    to train the model at time t0, and the second batch gets consumed at time t1.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.6 数据集被分为两个批次。第一个批次在时间t0被消耗以训练模型，第二个批次在时间t1被消耗。
+- en: This *batching pattern* can be summarized as the pseudocode in the following
+    listing, where we continuously try to read the next batch from the dataset and
+    train the model, using the batches until no more are left.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种**批处理模式**可以总结为以下列表中的伪代码，其中我们持续尝试从数据集中读取下一个批次并训练模型，直到没有更多批次为止。
+- en: Listing 2.5 Pseudocode for batching
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.5 批处理的伪代码
+- en: '[PRE4]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Reads the next batch in the dataset
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从数据集中读取下一个批次
+- en: ❷ Trains the model with this batch
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用这个批次训练模型
+- en: ❸ Reads the next batch after training the current batch
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在训练当前批次之后读取下一个批次
+- en: We can apply the batching pattern when we want to handle and prepare large datasets
+    for model training. When the framework we are using can handle only in-memory
+    datasets, we can process small batches of the entire large datasets to ensure
+    that each batch can be handled within limited memory. In addition, if a dataset
+    is divided into batches, we can perform heavy computations on each batch sequentially
+    without requiring a huge amount of computational resources. We’ll apply this pattern
+    in section 9.1.2.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们想要处理和准备大型数据集以进行模型训练时，我们可以应用批处理模式。当我们使用的框架只能处理内存中的数据集时，我们可以处理整个大型数据集的小批次，以确保每个批次都可以在有限的内存中处理。此外，如果数据集被分为批次，我们可以对每个批次进行顺序的密集计算，而不需要大量的计算资源。我们将在第9.1.2节中应用此模式。
+- en: 2.3.3 Discussion
+  id: totrans-84
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.3.3 讨论
+- en: Other considerations need to be taken into account when performing batching.
+    This approach is feasible only if the mathematical operations or algorithms we
+    are performing can be done on subsets of the entire dataset in a streaming fashion.
+    If an algorithm requires knowledge of the entire dataset, such as the sum of a
+    particular feature over the entire dataset, batching would no longer be a feasible
+    approach, as it’s not possible to obtain this information over a subset of the
+    entire dataset.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在执行批处理时，需要考虑其他因素。这种方法只有在所执行的数学运算或算法可以在整个数据集的子集上以流式方式执行时才是可行的。如果一个算法需要了解整个数据集，例如整个数据集中某个特征的求和，那么批处理就不再是一个可行的方案，因为无法从整个数据集的子集中获得此类信息。
+- en: In addition, machine learning researchers and practitioners often try different
+    machine learning models on the Fashion-MNIST dataset to get a better-performing,
+    more accurate model. If an algorithm would like to see at least 10 examples for
+    each class to initialize some of its model parameters, for example, batching is
+    not an appropriate approach. There is no guarantee that every mini-batch contains
+    at least 10 examples from each class, especially when batch sizes are small. In
+    an extreme case, the batch size would be 10, and it would be rare to see at least
+    one image from each class in all batches.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，机器学习研究人员和从业者经常在Fashion-MNIST数据集上尝试不同的机器学习模型，以获得性能更好、更准确的模型。如果一个算法希望为每个类别至少看到10个示例来初始化其模型参数，例如，批处理不是一种合适的方法。不能保证每个小批次都包含至少来自每个类别的10个示例，尤其是在批次大小较小时。在极端情况下，批次大小为10，并且很难在所有批次中至少看到每个类别的至少一个图像。
+- en: Another thing to keep in mind is that the batch size of a machine learning model,
+    especially for deep learning models, depends strongly on allocation of resources,
+    making it particularly difficult to decide in advance in shared-resource environments.
+    Also, the allocation of resources that a machine learning job can use efficiently
+    depends not only on the structure of the model being trained but also on the batch
+    size. This codependency between the resources and the batch size creates a complex
+    web of considerations that a machine learning practitioner must make to configure
+    their job for efficient execution and resource use.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个需要记住的是，机器学习模型的批大小，尤其是对于深度学习模型，强烈依赖于资源分配，这使得在共享资源环境中预先决定特别困难。此外，机器学习作业可以高效使用的资源分配不仅取决于正在训练的模型的结构，还取决于批大小。这种资源和批大小之间的相互依赖关系，为机器学习从业者配置作业以实现高效执行和资源使用创造了一个复杂的考虑因素网络。
+- en: Fortunately, algorithms and frameworks are available that eliminate manual tuning
+    of batch size. AdaptDL ([https://github.com/petuum/adaptdl](https://github.com/petuum/adaptdl)),
+    for example, offers automatic batch-size scaling, enabling efficient distributed
+    training without requiring any effort to tune the batch size manually. It measures
+    the system performance and gradient noise scale during training and adaptively
+    selects the most efficient batch size. Figure 2.7 compares the effects of automatically
+    and manually tuned batch sizes on the overall training time of the ResNet18 model
+    ([https://arxiv.org/abs/1512.03385](https://arxiv.org/abs/1512.03385)).
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，有一些算法和框架可以消除手动调整批量大小的需求。例如，AdaptDL ([https://github.com/petuum/adaptdl](https://github.com/petuum/adaptdl))
+    提供了自动批量大小的缩放功能，使得在不需要手动调整批量大小的努力下，能够进行高效的分布式训练。它在训练过程中测量系统性能和梯度噪声尺度，并自适应地选择最有效的批大小。图2.7比较了自动和手动调整批大小对ResNet18模型整体训练时间的影响
+    ([https://arxiv.org/abs/1512.03385](https://arxiv.org/abs/1512.03385))。
+- en: '![02-07](../../OEBPS/Images/02-07.png)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-07](../../OEBPS/Images/02-07.png)'
+- en: 'Figure 2.7 A comparison of the effect of automatically and manually tuned batch
+    sizes on the overall training time of the ResNet18 model (Source: Petuum, licensed
+    under Apache License 2.0)'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.7 自动和手动调整批大小对ResNet18模型整体训练时间影响的比较（来源：Petuum，许可协议为Apache License 2.0）
+- en: The batching pattern provides a great way to extract subsets of the entire dataset
+    so that we can feed the batches sequentially for model training. For extremely
+    large datasets that may not fit in a single machine, we’ll need other techniques.
+    The next section introduces a new pattern in that addresses the challenges.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批处理模式提供了一种很好的方法来提取整个数据集的子集，以便我们可以顺序地提供批次进行模型训练。对于可能不适合单台机器的极大规模数据集，我们需要其他技术。下一节将介绍一种新的模式，该模式解决了这些挑战。
+- en: 2.3.4 Exercises
+  id: totrans-92
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.3.4 练习
+- en: Are we training the model using the batches in parallel or sequentially?
+  id: totrans-93
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们是并行还是顺序地使用批次来训练模型？
+- en: If the machine learning framework we are using does not handle large datasets,
+    can we use the batching pattern?
+  id: totrans-94
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果我们使用的机器学习框架无法处理大型数据集，我们能否使用批处理模式？
+- en: If a machine learning model requires knowing the mean of a feature of the entire
+    dataset, can we still use the batching pattern?
+  id: totrans-95
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果一个机器学习模型需要知道整个数据集特征的均值，我们还能使用批处理模式吗？
+- en: '2.4 Sharding pattern: Splitting extremely large datasets among multiple machines'
+  id: totrans-96
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 2.4 分片模式：在多台机器之间分割极大规模的数据集
+- en: Section 2.3 introduced the Fashion-MNIST dataset, the compressed version of
+    which takes only 30 MB on disk. Even though it is trivial to load the whole dataset
+    into memory at one time, it’s challenging to load larger datasets for model training.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第2.3节介绍了Fashion-MNIST数据集，其压缩版本在磁盘上仅占用30 MB。尽管一次性将整个数据集加载到内存中是微不足道的，但加载用于模型训练的大型数据集却具有挑战性。
+- en: The batching pattern covered in section 2.3 addresses the problem by grouping
+    data records from the entire dataset into batches that will be used to train the
+    machine learning model sequentially. We can apply the batching pattern when we
+    want to handle and prepare large datasets for model training, either when the
+    framework we are using cannot handle large datasets or when the underlying implementation
+    of the framework requires domain expertise.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第2.3节中讨论的批处理模式通过将整个数据集的数据记录分组到将要用于顺序训练模型的批次中，来解决这一问题。当我们想要处理和准备大型数据集以进行模型训练时，无论是我们使用的框架无法处理大型数据集，还是框架的底层实现需要领域专业知识，我们都可以应用批处理模式。
+- en: Suppose that we have a much larger dataset at hand. This dataset is about 1,000
+    times bigger than the Fashion-MNIST dataset. In other words, the compressed version
+    of it takes 30 MB × 1,000 = 30 GB on disk, and it’s about 50 GB when it’s decompressed.
+    This new dataset has 60,000 × 1,000 = 60,000,000 training examples.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们手头有一个更大的数据集。这个数据集比Fashion-MNIST数据集大1000倍。换句话说，它的压缩版本在磁盘上占用30 MB × 1,000
+    = 30 GB，解压缩后大约是50 GB。这个新的数据集有60,000 × 1,000 = 60,000,000个训练样本。
+- en: We’ll try to use this larger dataset to train our machine learning model to
+    classify images into classes in the expanded Fashion-MNIST dataset (T-shirts,
+    bags, and so on). For now, I won’t address the detailed architecture of the machine
+    learning model (chapter 3); instead, I’ll focus on its data ingestion component.
+    Assume that we are allowed to use three machines for any potential speed-ups.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将尝试使用这个更大的数据集来训练我们的机器学习模型，以便将图像分类到扩展的Fashion-MNIST数据集（T恤、包等）中的类别。现在，我不会详细讨论机器学习模型的架构（第3章）；相反，我将专注于其数据摄取组件。假设我们可以使用三台机器来加速任何潜在的过程。
+- en: Given our experience, because the dataset is large, we could try applying the
+    batching pattern first, dividing the entire dataset into batches small enough
+    to load into memory for model training. Let’s assume that our laptop has enough
+    resources to store the entire 50 GB decompressed dataset on disk. We divide the
+    dataset into 10 small batches (5 GB each). With this batching approach, we can
+    handle large datasets as long as our laptop can store the large datasets and divide
+    them into batches.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们的经验，由于数据集很大，我们可以先尝试应用批处理模式，将整个数据集分成足够小，可以加载到内存中进行模型训练的批次。假设我们的笔记本电脑有足够的资源来存储整个50
+    GB的未压缩数据集。我们将数据集分成10个小批次（每个5 GB）。使用这种批处理方法，只要我们的笔记本电脑可以存储大型数据集并将它们分成批次，我们就可以处理大型数据集。
+- en: Next, we start the model training process by using the batches of data. In section
+    2.3, we trained the model sequentially. In other words, one batch was completely
+    consumed by the machine learning model before the next batch was consumed. In
+    figure 2.8, the second batch is consumed at time t1 by model fitting only after
+    the first batch has been completely consumed by the model at time t0\. t0 and
+    t1 represent two consecutive time points in this process.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们开始使用数据批次进行模型训练过程。在第2.3节中，我们按顺序训练了模型。换句话说，在下一个批次被消耗之前，机器学习模型已经完全消耗了一个批次。在图2.8中，第二个批次在时间t1被模型拟合消耗，而第一个批次在时间t0已经被模型完全消耗。t0和t1代表这个过程中的两个连续时间点。
+- en: '![02-08](../../OEBPS/Images/02-08.png)'
+  id: totrans-103
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-08](../../OEBPS/Images/02-08.png)'
+- en: Figure 2.8 The dataset gets divided into two batches. The first batch gets consumed
+    to train the model at time t0, and the second batch gets consumed at time t1.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.8 数据集被分成两个批次。第一个批次在时间t0被消耗以训练模型，第二个批次在时间t1被消耗。
+- en: 2.4.1 The problem
+  id: totrans-105
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.4.1 问题
+- en: Unfortunately, this sequential process of consuming data can be slow. If each
+    5 GB batch of data takes about 1 hour to complete for the specific model we are
+    training, it would take 10 hours to finish the model training process on the entire
+    dataset. In other words, the batching approach may work well if we have enough
+    time to train the model sequentially, batch by batch. In real-world applications,
+    however, there’s always demand for more efficient model training, which will be
+    affected by the time spent ingesting batches of data.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，这种按顺序处理数据的过程可能会很慢。如果我们训练的特定模型中，每个5 GB的数据批次需要大约1小时来完成，那么在整个数据集上完成模型训练过程将需要10小时。换句话说，如果我们有足够的时间按批次顺序训练模型，批处理方法可能效果很好。然而，在现实世界的应用中，总是需要更高效的模型训练，而这将受到处理数据批次所需时间的影响。
+- en: 2.4.2 The solution
+  id: totrans-107
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.4.2 解决方案
+- en: Now that we understand the slowness of training the model sequentially by using
+    the batching pattern alone, what can we do to speed up the data ingestion part,
+    which will greatly affect the model training process? The major problem is that
+    we need to train the model sequentially, batch by batch. Can we prepare multiple
+    batches and then send them to the machine learning model for consumption at the
+    same time? Figure 2.9 shows that the dataset gets divided into two batches, with
+    each batch being consumed to train the model at the same time. This approach does
+    not work yet, as we cannot keep the entire dataset (two batches) in memory at
+    the same time, but it is close to the solution.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 既然我们已经理解了仅使用批处理模式按顺序训练模型的速度较慢，我们可以做些什么来加快数据摄入部分，这将极大地影响模型训练过程？主要问题是我们需要按顺序，批次批次地训练模型。我们能否准备多个批次，然后同时将它们发送到机器学习模型进行消费？图2.9显示数据集被分成两个批次，每个批次同时被用于训练模型。这种方法目前还不适用，因为我们不能同时将整个数据集（两个批次）保存在内存中，但它接近解决方案。
+- en: '![02-09](../../OEBPS/Images/02-09.png)'
+  id: totrans-109
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-09](../../OEBPS/Images/02-09.png)'
+- en: Figure 2.9 The dataset gets divided into two batches; each batch is consumed
+    to train the model at the same time.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.9 数据集被分成两个批次；每个批次同时被用于训练模型。
+- en: Let’s assume that we have multiple worker machines, each of which contains a
+    copy of the machine learning model. Each copy can consume one batch of the original
+    dataset; hence, the worker machines can consume multiple batches independently.
+    Figure 2.10 shows an architecture diagram of multiple worker machines; each consumes
+    batches independently to train the copy of the model located on it.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们有多个工作机器，每个机器上都包含一个机器学习模型的副本。每个副本可以消费原始数据集的一个批次；因此，工作机器可以独立消费多个批次。图2.10显示了多个工作机器的架构图；每个机器独立消费批次以训练其上的模型副本。
+- en: '![02-10](../../OEBPS/Images/02-10.png)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-10](../../OEBPS/Images/02-10.png)'
+- en: Figure 2.10 An architecture diagram of multiple worker machines. Each worker
+    machine consumes batches independently to train the copy of the model located
+    on it.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.10 多个工作机器的架构图。每个工作机器独立消费批次以训练其上的模型副本。
+- en: You may wonder how multiple model copies would work if they consumed multiple
+    different batches independently and where we would obtain the final machine learning
+    model from these model copies. These are great questions. Rest assured that I
+    will go through how the model training process works in chapter 3\. For now, assume
+    that we have patterns that allow multiple worker machines to consume multiple
+    batches of datasets independently. These patterns will greatly speed up the model
+    training process, which was slowed down due to the nature of sequential model
+    training.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可能会想知道，如果多个模型副本独立消费多个不同的批次，我们将从这些模型副本中获得最终的机器学习模型，这是一个很好的问题。请放心，我将在第3章中详细介绍模型训练过程。现在，假设我们有允许多个工作机器独立消费多个数据集批次的模式。这些模式将极大地加快模型训练过程，因为顺序模型训练的性质而减慢。
+- en: Note We will be using a pattern called the *collection communication pattern*
+    in chapter 3 to train models with multiple model copies located on multiple worker
+    machines. The collective communication pattern, for example, will be responsible
+    for communicating updates of gradient calculations among worker machines and keeping
+    the model copies in sync.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在第3章中，我们将使用名为*收集通信模式*的模式来训练位于多个工作机器上的多个模型副本。例如，集体通信模式将负责在工作机器之间通信梯度计算的更新，并保持模型副本同步。
+- en: How would we produce the batches used by those worker machines? In our scenario,
+    the dataset has 60 million training examples, and three worker machines are available.
+    It’s simple to split the dataset into multiple non-overlapping subsets and then
+    send each to the three worker machines, as shown in figure 2.11\. The process
+    of breaking large datasets into smaller chunks spread across multiple machines
+    is called *sharding,* and the smaller data chunks are called *data shards*. Figure
+    2.11 shows the original dataset being sharded into multiple non-overlapping data
+    shards and then consumed by multiple worker machines.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何生产那些工作机器使用的批次呢？在我们的场景中，数据集有6000万个训练示例，并且有3个工作机器可用。将数据集分成多个非重叠的子集，然后将每个子集发送到三个工作机器，就像图2.11所示，这个过程很简单。将大型数据集拆分成多个分散在多个机器上的小数据块的过程被称为*分片*，而较小的数据块被称为*数据分片*。图2.11显示了原始数据集被分片成多个非重叠的数据分片，然后被多个工作机器消费。
+- en: '![02-11](../../OEBPS/Images/02-11.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-11](../../OEBPS/Images/02-11.png)'
+- en: Figure 2.11 An architecture diagram in which the original dataset gets sharded
+    into multiple non-overlapping data shards and then consumed by multiple worker
+    machines
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.11 一个架构图，其中原始数据集被分割成多个非重叠的数据分片，然后由多个工作机器消费
+- en: Note Although I am introducing sharding here, the concept isn’t new; it’s often
+    used in distributed databases. Sharding in distributed databases is extremely
+    useful for solving scaling challenges such as providing high availability of the
+    databases, increasing throughput, and reducing query response time.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：尽管我在这里介绍了分片，但这个概念并不新颖；它通常用于分布式数据库中。在分布式数据库中的分片对于解决诸如提供数据库高可用性、增加吞吐量和减少查询响应时间等扩展挑战非常有用。
+- en: A shard is essentially a horizontal data partition that contains a subset of
+    the entire dataset, and sharding is also referred to as *horizontal partitioning*.
+    The distinction between horizontal and vertical comes from the traditional tabular
+    view of a database. A database can be split vertically--storing different table
+    columns in a separate database--or horizontally--storing rows of the same table
+    in multiple databases. Figure 2.12 compares vertical partitioning and horizontal
+    partitioning. Note that for vertical partitioning, we split the database into
+    columns. Some of the columns may be empty, which is why we see only three of the
+    five rows in the partition on the right side of the figure.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分片本质上是一个水平数据分区，包含整个数据集的子集，分片也被称为*水平分区*。水平与垂直的区别来自于数据库的传统表格视图。数据库可以垂直分割——将不同的表列存储在不同的数据库中——或者水平分割——将同一表的行存储在多个数据库中。图2.12比较了垂直分区和水平分区。请注意，对于垂直分区，我们将数据库分割成列。一些列可能为空，这就是为什么我们看到图右侧分区中只有五行中的三行。
+- en: '![02-12](../../OEBPS/Images/02-12.png)'
+  id: totrans-121
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-12](../../OEBPS/Images/02-12.png)'
+- en: 'Figure 2.12 Vertical partitioning vs. horizontal partitioning (Source: YugabyteDB,
+    licensed under Apache License 2.0)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.12 垂直分区与水平分区（来源：YugabyteDB，Apache License 2.0许可）
+- en: This *sharding pattern* can be summarized in the pseudocode in listing 2.6,
+    where, first, we create data shards from one of the worker machines (in this case,
+    worker machine with rank 0) and then send it to all other worker machines. Next,
+    on each worker machine, we continuously try to read the next shard locally that
+    will be used to train the model until no more shards are left locally.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种*分片模式*可以在列表2.6中的伪代码中总结，其中首先，我们从其中一个工作机器（在这种情况下，是排名为0的工作机器）创建数据分片，然后将其发送到所有其他工作机器。接下来，在每个工作机器上，我们持续尝试读取本地将用于训练模型的下一个分片，直到没有更多分片留在本地。
+- en: Listing 2.6 Pseudocode for sharding
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.6 分片伪代码
+- en: '[PRE5]'
+  id: totrans-125
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Creates and sends shards to all other worker machines from the worker machine
+    with rank 0
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从排名为0的工作机器创建并发送分片到所有其他工作机器
+- en: ❷ Reads the next shard available locally in this worker machine
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在此工作机器上读取下一个可用的分片
+- en: ❸ Trains the model using the shard we just read from the worker machine locally
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 使用从本地工作机器读取的最后一个分片来训练模型
+- en: ❹ Reads the next shard once we are done training with the current shard
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 完成当前分片训练后，读取下一个分片
+- en: With the help of the sharding pattern, we can split extremely large datasets
+    into multiple data shards that can be spread among multiple worker machines, and
+    then each of the worker machines is responsible for consuming individual data
+    shards independently. As a result, we have just avoided the slowness of sequential
+    model training due to the batching pattern. Sometimes it’s also useful to shard
+    large datasets into subsets of different sizes so that each shard can run different
+    computational workloads depending on the amount of computational resource available
+    in each worker machine. We’ll apply this pattern in section 9.1.2.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用分片模式，我们可以将极其庞大的数据集分割成多个数据分片，这些分片可以分散在多个工作机器上，然后每个工作机器独立负责消费单个数据分片。因此，我们避免了由于批处理模式导致的顺序模型训练缓慢的问题。有时，将大型数据集分割成不同大小的子集也是有用的，这样每个分片可以根据每个工作机器中可用的计算资源量运行不同的计算工作负载。我们将在第9.1.2节中应用此模式。
+- en: 2.4.3 Discussion
+  id: totrans-131
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.4.3 讨论
+- en: We have successfully used the sharding pattern to split an extremely large dataset
+    into multiple data shards that spread among multiple worker machines and then
+    sped up the training process as we add additional worker machines that are responsible
+    for model training on each of the data shards independently. This is great, and
+    with this approach, we can train machine learning models on extremely large datasets.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经成功使用分片模式将一个非常大的数据集分割成多个数据分片，这些分片分布在多个工作机之间，并在添加负责独立在每个数据分片上训练模型的额外工作机时加速了训练过程。这很好，并且使用这种方法，我们可以在非常大的数据集上训练机器学习模型。
+- en: 'Now here comes the question: What if the dataset is growing continuously and
+    we need to incorporate the new data that just arrived into the model training
+    process? In this case, we’ll have to reshard every once in a while if the dataset
+    has been updated to rebalance each data shard to make sure they are split relatively
+    evenly among the different worker machines.'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在问题来了：如果数据集持续增长，并且我们需要将刚刚到达的新数据纳入模型训练过程中，该怎么办？在这种情况下，如果数据集已经更新，我们不得不不时地重新分片，以重新平衡每个数据分片，确保它们在不同工作机之间相对均匀地分割。
+- en: In section 2.3.2, we simply divided the dataset into two non-overlapping shards,
+    but unfortunately in real-world systems, this manual approach is not ideal and
+    may not work at all. One of the most significant challenges with manual sharding
+    is uneven shard allocation. The disproportionate distribution of data could cause
+    shards to become unbalanced, with some overloaded while others remain relatively
+    empty. This imbalance could cause unexpected hanging of the model training process
+    that involves multiple worker machines, which we’ll talk about further in the
+    next chapter. Figure 2.13 is an example where the original dataset gets sharded
+    into multiple imbalanced data shards and then consumed by multiple worker machines.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在2.3.2节中，我们只是简单地将数据集分为两个不重叠的分片，但不幸的是，在现实世界的系统中，这种方法并不理想，甚至可能根本不起作用。手动分片的最大挑战之一是不均匀的分片分配。数据的不均匀分布可能导致分片不平衡，一些分片过载，而另一些则相对空闲。这种不平衡可能导致涉及多个工作机的模型训练过程意外挂起，我们将在下一章中进一步讨论。图2.13是一个示例，其中原始数据集被分割成多个不平衡的数据分片，然后由多个工作机消费。
+- en: '![02-13](../../OEBPS/Images/02-13.png)'
+  id: totrans-135
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-13](../../OEBPS/Images/02-13.png)'
+- en: Figure 2.13 The original dataset gets sharded into multiple imbalanced data
+    shards and then consumed by multiple worker machines.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.13 原始数据集被分割成多个不平衡的数据分片，然后由多个工作机消费。
+- en: It’s best to avoid having too much data in one individual shard, which could
+    lead to slowdowns and machine crashes. This problem could also happen when we
+    force the dataset to be spread across too few shards. This approach is acceptable
+    in development and testing environments but not ideal in production.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好避免在一个单独的数据分片中存储过多的数据，这可能会导致速度减慢和机器崩溃。当我们将数据集强制分散到过少的分片中时，这个问题也可能发生。这种方法在开发和测试环境中是可以接受的，但在生产环境中并不理想。
+- en: In addition, when manual sharding is used every time we see an update in the
+    growing dataset, the operational process is nontrivial. Now we will have to perform
+    backups for multiple worker machines, and we must carefully coordinate data migration
+    and schema changes to ensure that all shards have the same schema copy.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，每次我们在不断增长的数据集中看到更新时，如果使用手动分片，操作过程就变得非同小可。现在我们不得不为多个工作机进行备份，并且我们必须仔细协调数据迁移和模式更改，以确保所有分片都有相同的模式副本。
+- en: To address that problem, we can apply autosharding based on algorithms instead
+    of manually sharding datasets. Hash sharding, shown in figure 2.14, takes the
+    key value of a data shard, which generates a hash value. Then the generated hash
+    value is used to determine where a subset of the dataset should be located. With
+    a uniform hashing algorithm, the hash function can distribute data evenly across
+    different machines, reducing the problems mentioned earlier. In addition, data
+    with shard keys that are close to one another are unlikely to be placed in the
+    same shard.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这个问题，我们可以基于算法而不是手动分片数据集来应用自动分片。图2.14所示的哈希分片取数据分片的关键值，生成一个哈希值。然后，生成的哈希值用于确定数据集的子集应该位于何处。使用均匀的哈希算法，哈希函数可以在不同的机器上均匀分布数据，减少前面提到的问题。此外，具有接近的分片键的数据不太可能被放置在同一个分片中。
+- en: '![02-14](../../OEBPS/Images/02-14.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-14](../../OEBPS/Images/02-14.png)'
+- en: 'Figure 2.14 A diagram of hash sharding. A hash value is generated to determine
+    where a subset of the dataset should be located. (Source: YugabyteDB, licensed
+    under Apache License 2.0)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.14 哈希分片的示意图。生成一个哈希值以确定数据集的子集应位于何处。（来源：YugabyteDB，Apache License 2.0许可）
+- en: The sharding pattern works by splitting extremely large datasets into multiple
+    data shards spread among multiple worker machines; then each of the worker machines
+    is responsible for consuming individual data shards independently. With this approach,
+    we can avoid the slowness of sequential model training due to the batching pattern.
+    Both the batching and sharding patterns work well for the model training process;
+    eventually, the dataset will be iterated thoroughly. Some machine learning algorithms,
+    however, require multiple scans of the dataset, which means that we might perform
+    batching and sharding twice. The next section introduces a pattern to speed up
+    this process.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分片模式通过将极其大的数据集分割成多个数据分片，这些分片分散在多个工作机器上来实现；然后每个工作机器负责独立消耗单个数据分片。采用这种方法，我们可以避免由于批处理模式导致的顺序模型训练的缓慢。批处理和分片模式都对模型训练过程有效；最终，数据集将被彻底迭代。然而，一些机器学习算法需要多次扫描数据集，这意味着我们可能需要执行两次批处理和分片。下一节将介绍一种加快此过程的方法。
+- en: 2.4.4 Exercises
+  id: totrans-143
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.4.4 练习
+- en: Does the sharding pattern introduced in this section use horizontal partitioning
+    or vertical partitioning?
+  id: totrans-144
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 本节中引入的分片模式是使用水平分区还是垂直分区？
+- en: Where does the model read each shard from?
+  id: totrans-145
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 模型是从哪里读取每个分片的？
+- en: Is there any alternative to manual sharding?
+  id: totrans-146
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 是否有手动分片之外的替代方案？
+- en: 2.5 Caching pattern
+  id: totrans-147
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 2.5 缓存模式
+- en: Let’s recap the patterns we’ve learned so far. In section 2.3, we successfully
+    used the batching pattern to handle and prepare large datasets for model training
+    when the machine learning framework could not handle large datasets or the underlying
+    implementation of the framework required domain expertise. With the help of batching,
+    we can process large datasets and perform expensive operations under limited memory.
+    In section 2.4, we applied the sharding pattern to split large datasets into multiple
+    data shards spread among multiple worker machines. We speed up the training process
+    as we add more worker machines that are responsible for model training on each
+    data shard independently. Both of these patterns are great approaches that allow
+    us to train machine learning models on large datasets that won’t fit on a single
+    machine or that slows down the model training process.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回顾一下我们迄今为止学到的模式。在2.3节中，我们成功使用了批处理模式来处理和准备大型数据集以供模型训练，当机器学习框架无法处理大型数据集或框架的底层实现需要领域专业知识时。借助批处理，我们可以在有限的内存下处理大型数据集并执行昂贵的操作。在2.4节中，我们应用了分片模式将大型数据集分割成多个数据分片，这些分片分散在多个工作机器上。随着我们添加更多负责独立在每个数据分片上执行模型训练的工作机器，我们加快了训练过程。这两种模式都是很好的方法，使我们能够在单个机器上无法容纳或会减慢模型训练过程的大型数据集上训练机器学习模型。
+- en: One fact that I haven’t mentioned is that modern machine learning algorithms,
+    such as tree-based algorithms and deep learning algorithms, often require training
+    for multiple epochs. Each *epoch* is a full pass-through of all the data we are
+    training on, when every sample has been seen once. A single epoch refers to the
+    single time the model sees all examples in the dataset. A single epoch in the
+    Fashion-MNIST dataset means that the model we are training has processed and consumed
+    all the 60,000 examples once. Figure 2.15 shows model training for multiple epochs.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我还没有提到的一个事实是，现代机器学习算法，例如基于树的算法和深度学习算法，通常需要多次训练。每个**epoch**是对我们正在训练的所有数据的完整遍历，当每个样本都已被看到一次。单个epoch指的是模型看到数据集中所有示例的唯一一次。在Fashion-MNIST数据集中，单个epoch意味着我们正在训练的模型已经处理并消耗了所有60,000个示例一次。图2.15显示了多epoch的模型训练。
+- en: '![02-15](../../OEBPS/Images/02-15.png)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-15](../../OEBPS/Images/02-15.png)'
+- en: Figure 2.15 A diagram of model training for multiple epochs at time t0, t1,
+    and so on
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.15 在时间t0、t1等时刻，模型进行多epoch训练的示意图
+- en: Training these types of machine learning algorithms usually involves optimizing
+    a large set of parameters that are heavily interdependent. In fact, it can require
+    a lot of labeled training examples to get the model close to the optimal solution.
+    This problem is exacerbated by the stochastic nature of batch gradient descent
+    in deep learning algorithms, in which the underlying optimization algorithm is
+    data-hungry.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 训练这类机器学习算法通常涉及优化大量高度相互依赖的参数。实际上，可能需要大量的标记训练示例才能使模型接近最优解。在深度学习算法中，由于批量梯度下降的随机性，这个问题变得更加严重，其底层优化算法对数据有很强的需求。
+- en: Unfortunately, the types of multidimensional data that these algorithms require,
+    such as the data in the Fashion-MNIST dataset, may be expensive to label and take
+    up large amounts of storage space. As a result, even though we need to feed the
+    model lots of data, the number of samples available is generally much smaller
+    than the number of samples that the optimization algorithm needs to reach a good-enough
+    solution. There may be enough information in these training samples, but the gradient
+    descent algorithm takes time to extract it.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，这些算法需要的多维数据类型，例如Fashion-MNIST数据集中的数据，可能难以标记并且占用大量的存储空间。因此，尽管我们需要向模型提供大量数据，但可用的样本数量通常远小于优化算法达到足够好的解所需的样本数量。这些训练样本中可能包含足够的信息，但梯度下降算法需要时间来提取它。
+- en: Fortunately, we can compensate for the limited number of samples by making multiple
+    passes over the data. This approach gives the algorithm time to converge without
+    requiring an impractical amount of data. In other words, we can train a good-enough
+    model that consumes the training dataset for multiple epochs.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，我们可以通过多次遍历数据来补偿样本数量的限制。这种方法给算法提供了收敛的时间，而不需要不切实际的数据量。换句话说，我们可以训练一个足够好的模型，该模型可以多次消耗训练数据集。
+- en: '2.5.1 The problem: Re-accessing previously used data for efficient multi-epoch
+    model training'
+  id: totrans-155
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.5.1 问题：为了高效的多迭代模型训练而重新访问之前使用的数据
+- en: Now that we know that we can train a machine learning model for multiple epochs
+    on the training dataset, let’s assume that we want to do this on the Fashion-MNIST
+    dataset. If training one epoch on the entire training dataset takes 3 hours, we
+    need to double the amount of time spent on model training if we want to train
+    two epochs, as shown in figure 2.16\. In real-world machine learning systems,
+    an even larger number of epochs is often required, so this approach is not efficient.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 既然我们知道我们可以在训练数据集上对机器学习模型进行多次迭代训练，那么假设我们想在Fashion-MNIST数据集上这样做。如果在整个训练数据集上训练一个迭代需要3小时，那么如果我们想训练两个迭代，我们需要将模型训练的时间翻倍，如图2.16所示。在现实世界的机器学习系统中，通常需要更多的迭代次数，因此这种方法并不高效。
+- en: '![02-16](../../OEBPS/Images/02-16.png)'
+  id: totrans-157
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-16](../../OEBPS/Images/02-16.png)'
+- en: Figure 2.16 A diagram of model training for multiple epochs at time t0, t1,
+    and so on. We spent 3 hours on each epoch.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.16 在时间t0、t1等多次迭代训练模型的示意图。我们每个迭代花费了3小时。
+- en: 2.5.2 The solution
+  id: totrans-159
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.5.2 解决方案
+- en: Given the unreasonable amount of time needed to train a machine learning model
+    for multiple epochs, is there anything we can do to speed up the process? There
+    isn’t anything we can do to improve the process for the first epoch because that
+    epoch is the first time that the machine learning model sees the entire set of
+    training datasets. What about the second epoch? Can we make use of the fact that
+    the model has already seen the entire training dataset once?
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到多次迭代训练机器学习模型所需的不合理时间，我们能否做些什么来加快这个过程？对于第一个迭代，我们无法改进过程，因为这是机器学习模型第一次看到整个训练数据集。那么第二个迭代呢？我们能利用模型已经见过整个训练数据集一次的事实吗？
+- en: Assume that the laptop we are using to train the model has sufficient computational
+    resources, such as memory and disk space. As soon as the machine learning model
+    consumes each training example from the entire dataset, we can hold off recycling,
+    instead keeping the consumed training examples in memory. In other words, we are
+    storing a *cache* of the training examples in the form of in-memory representation,
+    which could provide speed-ups when we access it again in the following training
+    epochs.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们用来训练模型的笔记本电脑有足够的计算资源，例如内存和磁盘空间。一旦机器学习模型从整个数据集中消耗了每个训练示例，我们可以推迟回收，而是将消耗的训练示例保留在内存中。换句话说，我们正在以内存表示的形式存储训练示例的缓存，这在我们随后在后续训练迭代中再次访问时可以提供加速。
+- en: In figure 2.17, after we finish fitting the model for the first epoch, we store
+    a cache for both of the batches that we used for the first epoch of model training.
+    Then we can start training the model for the second epoch by feeding the stored
+    in-memory cache to the model directly without having to read from the data source
+    again for future epochs.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图2.17中，我们在完成第一个epoch的模型拟合后，存储了我们用于第一个epoch模型训练的两个批次缓存。然后我们可以通过直接将存储在内存中的缓存提供给模型来开始第二个epoch的模型训练，而无需再次从数据源读取未来epochs的数据。
+- en: '![02-17](../../OEBPS/Images/02-17.png)'
+  id: totrans-163
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-17](../../OEBPS/Images/02-17.png)'
+- en: Figure 2.17 A diagram of model training for multiple epochs at time t0, t1,
+    and so on, using a cache instead of reading from the data source again
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.17：在时间t0、t1等使用缓存而不是再次从数据源读取，进行多个epochs的模型训练的示意图
+- en: This *caching pattern* can be summarized as the pseudocode in the following
+    listing. We read the next batch to train the model and then append this batch
+    to the initialized cache during the first epoch. For the remaining epochs, we
+    read batches from the cache and then use those batches for model training.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种**缓存模式**可以总结为以下列表中的伪代码。我们读取下一批数据以训练模型，然后在第一个epoch期间将此批次追加到初始化的缓存中。对于剩余的epochs，我们从缓存中读取批次，然后使用这些批次进行模型训练。
+- en: Listing 2.7 Pseudocode for caching
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.7：缓存伪代码
+- en: '[PRE6]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Reads the next batch of the dataset
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 读取数据集的下一批
+- en: ❷ Initializes the cache for this batch
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 为此批次初始化缓存
+- en: ❸ Trains the model by iterating through the batches
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 通过迭代批次来训练模型
+- en: ❹ Trains the model for additional epochs, using the batches that were cached
+    previously
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用先前缓存的批次进行额外的epochs训练模型
+- en: If we have performed expensive preprocessing steps on the original dataset,
+    we could cache the processed dataset instead of the original dataset and avoid
+    wasting time by processing the dataset again. The pseudocode is shown in the following
+    listing.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们对原始数据集执行了昂贵的预处理步骤，我们可以缓存处理过的数据集而不是原始数据集，从而避免再次处理数据集而浪费时间。伪代码如下所示。
+- en: Listing 2.8 Pseudocode for caching with preprocessing
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表2.8：带有预处理的缓存伪代码
+- en: '[PRE7]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Initializes the cache with the preprocessed batch
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用预处理的批次初始化缓存
+- en: ❷ Retrieves the processed batch from the cache and uses it for model training
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从缓存中检索处理过的批次并用于模型训练
+- en: Note that listing 2.8 is similar to listing 2.7\. Two slight differences are
+    that we initialize the cache with the preprocessed batch instead of the raw batch,
+    as in listing 2.7, and we read the processed batch from the batch directly without
+    having to preprocess the batch again before model training.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，列表2.8与列表2.7相似。两个细微的区别是，我们使用预处理的批次而不是原始批次初始化缓存，就像列表2.7中那样，并且我们从批次直接读取处理过的批次，而无需在模型训练之前再次预处理批次。
+- en: With the help of the caching pattern, we can greatly speed up re-access to the
+    dataset for a model training process that involves training on the same dataset
+    for multiple epochs. Caching can also be useful for recovering from any failures
+    quickly; a machine learning system can easily re-access the cached dataset and
+    continue the rest of the processes in the pipeline. We’ll apply this pattern in
+    section 9.1.1.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在涉及在多个epochs上对同一数据集进行训练的模型训练过程中，借助缓存模式，我们可以极大地加快对数据集的重新访问。缓存对于快速恢复任何故障也很有用；机器学习系统可以轻松地重新访问缓存的数据库，并继续管道中的其余过程。我们将在第9.1.1节中应用此模式。
+- en: 2.5.3 Discussion
+  id: totrans-179
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.5.3 讨论
+- en: We have successfully used the caching pattern to store the cache in memory on
+    each worker machine, speeding up the process of accessing previously used data
+    for multiple epochs of model training. What if a failure happens on the worker
+    machine? If the training process gets killed due to an out-of-memory error, for
+    example, we would lose all the previously stored cache in memory.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经成功使用缓存模式将缓存存储在每个工作机器的内存中，从而加快了在多个epoch的模型训练中访问先前使用数据的速度。如果工作机器发生故障怎么办？例如，如果由于内存不足错误而终止训练过程，我们就会丢失之前存储在内存中的所有缓存。
+- en: To avoid losing the previously stored cache, we can write the cache to disk
+    instead of storing it in memory and persist it as long as the model training process
+    still needs it. This way, we can easily recover the training process by using
+    a previously stored cache of training data on disk. Chapter 3 discusses in depth
+    how to recover the training process or make the training process more tolerant
+    of failure.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免丢失之前存储的缓存，我们可以将缓存写入磁盘而不是存储在内存中，并持续保留直到模型训练过程仍然需要它。这样，我们可以通过使用磁盘上之前存储的训练数据缓存来轻松恢复训练过程。第3章深入讨论了如何恢复训练过程或使训练过程更具容错性。
+- en: Storing the cache on disk is a good solution. One thing to note, however, that
+    reading from or writing to memory is about six times faster when we are doing
+    sequential access but about 100,000 times faster when we are doing random access
+    rather than accessing from disk. Random-access memory (RAM) takes nanoseconds,
+    whereas hard drive access speed is measured in milliseconds. In other words, there’s
+    a tradeoff between storing a cache in memory and storing it on a disk due to the
+    difference in access speedspeed. Figure 2.18 provides a diagram of model training
+    with an on-disk cache.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将缓存存储在磁盘上是一个很好的解决方案。然而，需要注意的是，当我们进行顺序访问时，从内存中读取或写入大约快六倍，但当我们进行随机访问而不是从磁盘访问时，大约快100,000倍。随机访问内存（RAM）的访问速度以纳秒计算，而硬盘的访问速度以毫秒计算。换句话说，由于访问速度的差异，在内存中存储缓存和在磁盘上存储缓存之间存在权衡。图2.18提供了使用磁盘缓存的模型训练图。
+- en: '![02-18](../../OEBPS/Images/02-18.png)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![02-18](../../OEBPS/Images/02-18.png)'
+- en: Figure 2.18 A diagram of model training for multiple epochs at time t0, t1,
+    and so on with an on-disk cache
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图2.18 在时间t0、t1等时刻使用磁盘缓存的多次迭代模型训练图
+- en: Generally speaking, storing a cache on disk is preferable if we want to build
+    a more reliable and fault-tolerant system; storing a cache in memory is preferable
+    when we want to have more efficient model training and data ingestion processes.
+    An on-disk cache can be extremely useful when the machine learning system requires
+    reading from remote databases, whereas reading from memory cache is much faster
+    than reading from remote databases, especially when the network connection isn’t
+    fast and stable enough.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般而言，如果我们想构建一个更可靠和容错的系统，则将缓存存储在磁盘上更可取；如果我们想拥有更高效的模型训练和数据摄取过程，则将缓存存储在内存中更可取。当机器学习系统需要从远程数据库读取时，磁盘缓存可以非常有用，而读取内存缓存比读取远程数据库快得多，尤其是在网络连接不够快和稳定的情况下。
+- en: What if the dataset gets updated and accumulated over time, as in section 2.3.3,
+    where the data shard on each worker machine needs to be redistributed and balanced?
+    In this case, we should take the freshness of the cache into account and update
+    it on a schedule based on the specific application.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果数据集随着时间的推移更新并累积，就像第2.3.3节中描述的那样，其中每个工作机的数据分片需要重新分配和平衡，该怎么办？在这种情况下，我们应该考虑缓存的时效性，并根据具体应用定期更新它。
+- en: 2.5.4 Exercises
+  id: totrans-187
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 2.5.4 练习
+- en: Is caching useful for model training that requires training on the same dataset
+    or on a different dataset for multiple epochs?
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 缓存对于需要使用相同数据集进行训练或在不同数据集上多次迭代的模型训练是否有用？
+- en: What should we store in the cache if the dataset needs to be preprocessed?
+  id: totrans-189
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果数据集需要预处理，我们应该在缓存中存储什么？
+- en: Is an on-disk cache faster to access than an in-memory cache?
+  id: totrans-190
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 磁盘缓存比内存缓存访问速度更快吗？
+- en: 2.6 Answers to exercises
+  id: totrans-191
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 2.6 练习答案
+- en: Section 2.3.4
+  id: totrans-192
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第2.3.4节
+- en: Sequentially
+  id: totrans-193
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 顺序地
+- en: Yes. That’s one of the main use cases of batching.
+  id: totrans-194
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 是的。这是批处理的主要用例之一。
+- en: 'No'
+  id: totrans-195
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 否
+- en: Section 2.4.4
+  id: totrans-196
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第2.4.4节
+- en: Horizontal partitioning
+  id: totrans-197
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 水平分区
+- en: Locally on each worker machine
+  id: totrans-198
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在每个工作机上本地
+- en: Automatic sharding, such as hash sharding
+  id: totrans-199
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 自动分片，例如哈希分片
+- en: Section 2.5.4
+  id: totrans-200
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 第2.5.4节
+- en: Same dataset
+  id: totrans-201
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 相同数据集
+- en: We should store the preprocessed batches in the cache to avoid wasting time
+    on preprocessing again in the following epochs.
+  id: totrans-202
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 我们应该将预处理后的批次存储在缓存中，以避免在后续迭代中再次浪费预处理时间。
+- en: No. Generally, an in-memory cache is faster to access.
+  id: totrans-203
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 否。一般来说，内存缓存访问速度更快。
+- en: Summary
+  id: totrans-204
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Data ingestion is usually the beginning process of a machine learning system,
+    responsible for monitoring any incoming data and performing necessary processing
+    steps to prepare for model training.
+  id: totrans-205
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据摄取通常是机器学习系统的开始过程，负责监控任何传入的数据，并执行必要的处理步骤以准备模型训练。
+- en: The batching pattern helps handle large datasets in memory by consuming datasets
+    in small batches.
+  id: totrans-206
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 批处理模式通过以小批量消耗数据集来帮助在内存中处理大型数据集。
+- en: The sharding pattern prepares extremely large datasets as smaller chunks that
+    are located on different machines.
+  id: totrans-207
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 分片模式将极其庞大的数据集准备成更小的块，这些块位于不同的机器上。
+- en: The caching pattern makes data fetching for multiple training rounds more efficient
+    by caching previously accessed data that can be reused for the additional rounds
+    of model training on the same dataset.
+  id: totrans-208
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 缓存模式通过缓存之前访问过的数据，使得在相同数据集上进行模型训练的额外轮次的数据获取更加高效。

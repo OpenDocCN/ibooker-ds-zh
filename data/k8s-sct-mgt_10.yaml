@@ -1,0 +1,1630 @@
+- en: 7 Kubernetes-native continuous integration and Secrets
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 7 Kubernetes-native continuous integration and Secrets
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Integrating the application for any change using continuous integration methodology
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用持续集成方法对任何更改进行应用程序集成
+- en: Implementing continuous integration pipelines with Kubernetes-native Tekton
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Kubernetes本地的Tekton实现持续集成管道
+- en: Testing, building, and pushing a Linux container to an external registry with
+    a Kubernetes-native CI pipeline
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Kubernetes本地的CI管道测试、构建并将Linux容器推送到外部注册库
+- en: In the previous chapter you saw how to inject secrets from a secret store to
+    containers, and in earlier chapters, you learned how to keep secrets secret in
+    the different phases of the lifecycle of an application. Now it’s time to bring
+    these concepts together and start applying them.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，您学习了如何从密钥存储库向容器注入机密，而在前面的章节中，您也了解了如何在应用程序生命周期的不同阶段保持机密的安全。现在，是时候将这些概念结合起来并开始应用它们了。
+- en: We’ll demonstrate how to implement a Kubernetes-native continous integration
+    pipeline to release an application or service continuously and automatically,
+    yet keeping the secrets secret using Tekton. In this chapter, we want to achieve
+    delivering quality applications rapidly to hit the market sooner and better, while
+    managing the secrets correctly during the whole pipeline, so no secrets leak in
+    this phase of the development.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将演示如何使用Tekton实现一个Kubernetes本地的持续集成管道，以持续和自动地发布应用程序或服务，同时保持机密的安全。在本章中，我们希望快速交付高质量的应用程序，以便更快更好地进入市场，在整个管道中正确管理机密，以确保在开发阶段不会泄露任何机密。
+- en: 7.1 Introduction to continuous integration
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.1 持续集成简介
+- en: Developing software isn’t an individual task but a team task with many people
+    working together and concurrently to create an application. Integrating all the
+    work done by each developer at the end of the process might not be the best strategy,
+    as several problems may emerge, including a merge hell, components not integrating
+    together correctly, and working parts breaking down. The best integration strategy
+    is integrating as much and as soon as possible, so any error will be detected
+    quickly and can be located and fixed more easily.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 开发软件不是一项个人任务，而是一项团队任务，许多人共同且并行工作以创建一个应用程序。在过程结束时整合每个开发者的所有工作可能不是最佳策略，因为可能会出现一些问题，包括合并地狱、组件无法正确集成以及工作部分崩溃。最佳的集成策略是尽可能早地尽可能多地集成，这样任何错误都可以快速检测到，并且可以更容易地定位和修复。
+- en: Continuous integration (or CI) is a set of practices that automates the integration
+    of code changes from multiple developers into a single repository. The commits
+    to the repository must occur frequently (usually several times per day), and it
+    must trigger an automated process to verify the correctness of the new code.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续集成（或CI）是一组实践，它自动化了来自多个开发者的代码更改到单个存储库的集成。对存储库的提交必须频繁发生（通常每天几次），并且必须触发一个自动化的过程来验证新代码的正确性。
+- en: The ultimate goal of CI is establishing a steady and automated way to build,
+    package, and test applications, so any change to the source code can be integrated
+    quickly, without waiting weeks, and validated after the commit. Therefore any
+    break in the integration process is detected in the early stages.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CI的最终目标是建立一个稳定和自动化的方式来构建、打包和测试应用程序，以便任何源代码的更改都可以快速集成，无需等待数周，并在提交后进行验证。因此，任何集成过程中的中断都会在早期阶段被发现。
+- en: 'For every commit, the code should run in the following stages:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于每个提交，代码应在以下阶段运行：
+- en: '*Build*—The code is compiled and packaged. The output depends on the platform
+    and language used to develop the application—in the case of Java, it can be a
+    JAR or WAR file, and in Go, it will be a binary executable.'
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*构建*—代码被编译和打包。输出取决于开发应用程序所使用的平台和语言——在Java的情况下，它可以是JAR或WAR文件，而在Go的情况下，它将是一个二进制可执行文件。'
+- en: '*Test*—The application runs the first batch of tests. These tests aren’t end-to-end
+    tests or long tests but unit tests, some component tests, and a minimal subset
+    of end-to-end tests validating the green path of core business functionalities.'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*测试*—应用程序运行第一轮测试。这些测试不是端到端测试或长时间测试，而是单元测试、一些组件测试以及验证核心业务功能绿色路径的最小子集的端到端测试。'
+- en: '*Security Checks*—In this stage, the code is analyzed for vulnerabilities and
+    bad practices, typically using static code analysis tools.'
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*安全检查*—在这个阶段，代码将进行分析以查找漏洞和不良实践，通常使用静态代码分析工具。'
+- en: '*Release*—The delivery artifact is published in an artifact repository. It
+    can be the JAR file, the Go executable, or a Linux container.'
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*发布*—交付工件被发布在工件存储库中。它可以是一个 JAR 文件、Go 可执行文件或 Linux 容器。'
+- en: Figure 7.1 summarizes each step in a continuous integration pipeline.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.1 总结了持续集成管道中的每个步骤。
+- en: '![](../Images/CH07_F01_Sotobueno3.png)'
+  id: totrans-17
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 7.1 Sotobueno3](../Images/CH07_F01_Sotobueno3.png)'
+- en: Figure 7.1 Common steps that composes a continuous integration pipeline
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.1 组成持续集成管道的常见步骤
+- en: 'The benefits of continuous integration include the following:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持续集成的优点包括以下内容：
+- en: Integration bugs are detected in the early stages and are easy to fix, as the
+    original code didn’t change it much.
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 集成错误在早期阶段就被检测到，并且很容易修复，因为原始代码没有对其进行太多更改。
+- en: Application is integrated continuously, so weeks or months are not required
+    to integrate all the pieces.
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序持续集成，因此不需要几周或几个月来集成所有组件。
+- en: When a test failure is detected, it’s easier to find the cause (as only small
+    changes are done), and in the case of rolling back to a previous version, only
+    a small number of features are lost.
+  id: totrans-22
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当检测到测试失败时，更容易找到原因（因为只有少量更改），并且在回滚到先前版本的情况下，只有少量功能会丢失。
+- en: Since the application is integrated frequently, there is always a version ready
+    for deploying (or releasing) to any of the environments (staging, preproduction,
+    and production).
+  id: totrans-23
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于应用程序经常集成，总有一个版本准备好部署（或发布）到任何环境（测试、预生产和生产）。
+- en: ImportanT A CI pipeline must provide quick feedback, meaning it must not take
+    more than 10 minutes, since the main goal of this pipeline is providing fast feedback
+    to the developer and notifying them of any integration error as quickly as possible.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要 A CI 管道必须提供快速反馈，这意味着它不应超过 10 分钟，因为该管道的主要目标是快速向开发者提供反馈，并尽快通知他们任何集成错误。
+- en: After this brief introduction to continuous integration, it’s time to implement
+    it in a Kubernetes-native way using Tekton.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在对持续集成进行简要介绍之后，现在是时候以 Kubernetes 原生的方式使用 Tekton 来实现它了。
+- en: 7.2 Tekton
+  id: totrans-26
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.2 Tekton
+- en: You’ll implement a simple CI pipeline for a Java application using Tekton, a
+    Kubernetes-native framework to create cloud-native CI pipelines. This pipeline
+    will build the application, containerize it, and push the container to a container
+    registry.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将使用 Tekton，一个用于创建云原生 CI 管道的 Kubernetes 原生框架，为 Java 应用程序实现一个简单的 CI 管道。此管道将构建应用程序，将其容器化，并将容器推送到容器注册库。
+- en: 'Tekton ([https://tekton.dev/](https://tekton.dev)) is an open source, Kubernetes-native
+    project for building continuous integration/continuous delivery (CI/CD) pipelines,
+    which provide custom resource definitions (CRDs) that define the building blocks
+    you can create and reuse in your pipelines. The Tekton CRDs can be grouped into
+    two big blocks: one group that represents any element that define a pipeline and
+    another group that represents the pipeline execution.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tekton ([https://tekton.dev/](https://tekton.dev)) 是一个开源的 Kubernetes 原生项目，用于构建持续集成/持续交付
+    (CI/CD) 管道，它提供了自定义资源定义 (CRDs)，这些定义了您可以在管道中创建和重用的构建块。Tekton CRDs 可以分为两大块：一组代表定义管道的任何元素，另一组代表管道执行。
+- en: 'If this separation of elements seems confusing to you, consider the analogy
+    of classes and instances in programming languages: the class object is the definition
+    of a concept, while an instance of the class is the real object in memory, with
+    specific parameters, and can be instantiated multiple times. The definition of
+    a developer class and the creation of two instances of the class is shown in figure
+    7.2.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果这种元素分离对你来说似乎很困惑，可以考虑编程语言中类和实例的类比：类对象是一个概念的定义，而类的实例是在内存中的实际对象，具有特定的参数，并且可以被实例化多次。开发者类定义和创建两个类实例的过程如图
+    7.2 所示。
+- en: '![](../Images/CH07_F02_Sotobueno3.png)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 7.2 Sotobueno3](../Images/CH07_F02_Sotobueno3.png)'
+- en: Figure 7.2 Class definition vs. class instance
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.2 类定义与类实例
+- en: Before installing Tekton, you need to create a Kubernetes cluster and deploy
+    a Git server and a container registry.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在安装 Tekton 之前，你需要创建一个 Kubernetes 集群并部署一个 Git 服务器和一个容器注册库。
+- en: 7.2.1 Installing prerequisites
+  id: totrans-33
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.1 安装先决条件
+- en: Start a new minikube instance by running the following command in a terminal
+    window.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在终端窗口中运行以下命令以启动一个新的 minikube 实例。
+- en: Listing 7.1 Start minikube
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.1 启动 minikube
+- en: '[PRE0]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ① Creates a Kubernetes cluster under the argo profile
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 在 argo 配置文件下创建一个 Kubernetes 集群
+- en: In this chapter, you’ll need a Git repository with writing permissions to some
+    repositories. To avoid relying on an external service (e.g., GitHub or GitLab),
+    you will need to deploy a Git server ([https://gitea.io/en-us/](https://gitea.io/en-us/))
+    into the Kubernetes cluster.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您需要一个具有对某些仓库写权限的 Git 仓库。为了避免依赖于外部服务（例如 GitHub 或 GitLab），您需要在 Kubernetes
+    集群中部署一个 Git 服务器 ([https://gitea.io/en-us/](https://gitea.io/en-us/))。
+- en: Listing 7.2 Deploying Gitea
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.2 部署 Gitea
+- en: '[PRE1]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ① Applying the Gitea deployment script
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 应用 Gitea 部署脚本
+- en: Wait until Gitea deployment is up and running.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 等待 Gitea 部署启动并运行。
+- en: Listing 7.3 Waiting until Gitea is ready
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.3 等待 Gitea 准备就绪
+- en: '[PRE2]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ① Waiting until Gitea is deployed
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 等待 Gitea 部署完成
+- en: A Git server is accessible within the Kubernetes cluster through the `gitea`
+    DNS name. Register a new user to the system with the username `gitea` and password
+    `gitea1234`, using the rights to push the source code used in the chapter.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Git 服务器可以通过 Kubernetes 集群中的 `gitea` DNS 名称访问。使用用户名 `gitea` 和密码 `gitea1234`，以推送章节中使用的源代码的权限注册新用户到系统中。
+- en: Listing 7.4 Creating a Gitea user
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.4 创建 Gitea 用户
+- en: '[PRE3]'
+  id: totrans-48
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ① Executing the creation of a user in the Gitea container
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 在 Gitea 容器中执行用户创建操作
+- en: Finally, the source code used is migrated from GitHub to the internal Git server.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，使用的源代码已从 GitHub 迁移到内部 Git 服务器。
+- en: Listing 7.5 Migrating the application to Gitea
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.5 将应用程序迁移到 Gitea
+- en: '[PRE4]'
+  id: totrans-52
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ① Executing the migration of the Git repository in the Gitea container
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 在 Gitea 容器中执行 Git 仓库迁移
+- en: Moreover, a container registry is required to store the containers build during
+    the CI phase. To avoid relying on an external service, deploy a container registry
+    ([https://docs.docker.com/registry/](https://docs.docker.com/registry/)) into
+    the Kubernetes cluster.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，还需要一个容器注册表来存储 CI 阶段构建的容器。为了避免依赖于外部服务，您需要在 Kubernetes 集群中部署一个容器注册表 ([https://docs.docker.com/registry/](https://docs.docker.com/registry/))。
+- en: Listing 7.6 Installing a Docker registry
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.6 安装 Docker 注册表
+- en: '[PRE5]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ① Applying a Docker registry deployment script
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 应用 Docker 注册表部署脚本
+- en: Wait until the registry deployment is up and running.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 等待注册表部署启动并运行。
+- en: Listing 7.7 Waiting until the registry is ready
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.7 等待注册表准备就绪
+- en: '[PRE6]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ① Waiting until the Docker registry is deployed
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 等待 Docker 注册表部署完成
+- en: Container images are pulled by Kubernetes nodes, which means DNS names used
+    in Kubernetes services are not valid in the physical machines (in this example,
+    in the minikube node). To make containers pushed to the registry pullable from
+    nodes, you need to add a `/etc/hosts` entry with the DNS name and the Kubernetes
+    service IP of `registry` service to the Kubernetes node. Get the `registry` service
+    IP by running the following command.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器镜像由 Kubernetes 节点拉取，这意味着在 Kubernetes 服务中使用的 DNS 名称在物理机器（例如，在本例中的 minikube
+    节点）中是无效的。为了使推送到注册表的容器可以从节点拉取，您需要向 Kubernetes 节点添加一个包含 DNS 名称和 `registry` 服务 IP
+    的 `/etc/hosts` 条目。通过运行以下命令获取 `registry` 服务 IP。
+- en: Listing 7.8 Getting the registry IP
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.8 获取注册表 IP
+- en: '[PRE7]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ① Getting the service IP
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 获取服务 IP
+- en: Then access the minikube machine, and add the following entry to `/etc/hosts`.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后访问 minikube 机器，并将以下条目添加到 `/etc/hosts`。
+- en: Listing 7.9 Registering the registry IP to the host
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.9 将注册表 IP 注册到主机
+- en: '[PRE8]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: ① Substitute the IP with the correct value.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 用正确的值替换 IP。
+- en: You are now ready to install Tekton in the Kubernetes cluster.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您已准备好在 Kubernetes 集群中安装 Tekton。
+- en: 7.2.2 Installing Tekton
+  id: totrans-71
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.2 安装 Tekton
+- en: Install Tekton 0.20.1 by applying the code in listing 7.10\. This command will
+    install all role-based access controls (RBAC), Custom Resource Definitions (CRD),
+    ConfigMaps, and Deployments to use Tekton.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过应用列表 7.10 中的代码安装 Tekton 0.20.1。此命令将安装所有基于角色的访问控制 (RBAC)、自定义资源定义 (CRD)、ConfigMaps
+    和部署以使用 Tekton。
+- en: Listing 7.10 Installing Tekton
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.10 安装 Tekton
+- en: '[PRE9]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ① Applying the Tekton deployment script
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 应用 Tekton 部署脚本
+- en: TIP Tekton CLI is command-line utility used to interact with Tekton resources.
+    Although it isn’t mandatory to install, it is very helpful, especially for viewing
+    what’s happening in the pipeline. To install it, visit [https://github.com/tektoncd/cli/releases/tag/v0.16.0](https://github.com/tektoncd/cli/releases/tag/v0.16.0),
+    download the package for your platform, uncompress it, and copy the `tkn` file
+    into a `PATH` directory, so it can be accessed anywhere.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：Tekton CLI 是用于与 Tekton 资源交互的命令行实用程序。尽管安装它不是强制性的，但它非常有帮助，尤其是在查看管道中发生的事情时。要安装它，请访问
+    [https://github.com/tektoncd/cli/releases/tag/v0.16.0](https://github.com/tektoncd/cli/releases/tag/v0.16.0)，下载您平台的包，解压缩它，并将
+    `tkn` 文件复制到 `PATH` 目录中，以便在任何地方都可以访问。
+- en: The overall picture of what you’ve installed so far is shown in figure 7.3.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止你安装的整体情况如图7.3所示。
+- en: '![](../Images/CH07_F03_Sotobueno3.png)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图7.4 Tekton元素之间的关系](../Images/CH07_F03_Sotobueno3.png)'
+- en: Figure 7.3 Services deployed inside the cluster (Tekton, SCM, and Container
+    Registry)
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.3 集群内部部署的服务（Tekton、SCM和容器注册库）
+- en: At this point, you’re ready to start learning and using Tekton in the Kubernetes
+    cluster.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，你已经准备好开始在Kubernetes集群中学习和使用Tekton了。
+- en: 7.2.3 Tekton pipelines
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.2.3 Tekton管道
+- en: In summary, Tekton provides two group of Kubernetes objects to define and execute
+    pipelines. The first group is a collection of Kubernetes objects for defining
+    the `tasks` and `steps` used to compose a CI pipeline. The most important objects
+    are `Pipelines`, which are composed of `Tasks`, which are composed of `Steps`,
+    as shown in figure 7.4.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总结来说，Tekton提供了两组Kubernetes对象来定义和执行管道。第一组是用于定义组成CI管道的`tasks`和`steps`的Kubernetes对象集合。最重要的对象是`Pipelines`，它由`Tasks`组成，而`Tasks`又由`Steps`组成，如图7.4所示。
+- en: '![](../Images/CH07_F04_Sotobueno3.png)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图7.4 Tekton元素之间的关系](../Images/CH07_F04_Sotobueno3.png)'
+- en: Figure 7.4 The relationship between Tekton elements
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.4 Tekton元素之间的关系
+- en: The second group is a collection of Kubernetes objects for instantiating `tasks`
+    and `pipelines`. The most important objects are `PipelineRun`, `TaskRun`, and
+    `Triggers`. `Triggers` are not covered in this book, as they are out of its scope,
+    but suffice it to say that triggers enable the execution of a `pipeline` because
+    of an external event (e.g., a commit to the source repository).
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二组是用于实例化`tasks`和`pipelines`的Kubernetes对象集合。最重要的对象是`PipelineRun`、`TaskRun`和`Triggers`。`Triggers`在本书中没有涉及，因为它们超出了本书的范围，但可以简单地说，触发器可以通过外部事件（例如，对源仓库的提交）来执行`pipeline`。
+- en: The PipelineResource
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PipelineResource
+- en: A `PipelineResource` is a Kubernetes object that defines a set of resources
+    used as input and output parameters for a `task`. Examples of input resources
+    include Git repositories and container images. Examples of output resources include
+    container images and files.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`PipelineResource` 是一个Kubernetes对象，它定义了一组用作`task`输入和输出参数的资源。输入资源的例子包括Git仓库和容器镜像。输出资源的例子包括容器镜像和文件。'
+- en: To set the URL of the Git repository, create a `PipelineResource`, setting the
+    type to `git` and the `url` parameter to the Git Repository location as shown
+    in the following listing.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要设置Git仓库的URL，创建一个`PipelineResource`，将类型设置为`git`并将`url`参数设置为Git仓库位置，如下所示。
+- en: Listing 7.11 build-resources.yaml
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.11 build-resources.yaml
+- en: '[PRE10]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ① Sets the PipelineResource to the git type
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 将PipelineResource设置为git类型
+- en: ② The Git resource has the url configuration parameter.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② Git资源有url配置参数。
+- en: The newly created `PipelineResource` is named git-source; you’ll refer to it
+    later.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 新创建的`PipelineResource`命名为git-source；你稍后会用到它。
+- en: Steps
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Steps
+- en: A `step` represents an operation in the `pipeline`; for example, some `steps`
+    include compiling an application, running tests, and building a Linux container
+    image. Each `step` is executed within a provided container image, and any step
+    can mount volumes or use environment variables.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`step` 代表`pipeline`中的操作；例如，一些`steps`包括编译应用程序、运行测试和构建Linux容器镜像。每个`step`都在提供的容器镜像内执行，并且任何`step`都可以挂载卷或使用环境变量。'
+- en: A `step` is defined in the `steps` section, in which you set the name of the
+    `step`, the container image used in the `step`, and the command to execute inside
+    that container. Furthermore, you can set the directory where the command is run
+    by using the `workingDir` attribute. An example of building a Java application
+    using Apache Maven is shown in the following listing.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`step` 在`steps`部分定义，其中设置`step`的名称、在`step`中使用的容器镜像以及在该容器内执行的命令。此外，你可以通过使用`workingDir`属性来设置命令运行的目录。以下是一个使用Apache
+    Maven构建Java应用程序的示例。'
+- en: Listing 7.12 build-app-task.yaml
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.12 build-app-task.yaml
+- en: '[PRE11]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ① The Maven docker image is used to build the application.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 使用Maven docker镜像来构建应用程序。
+- en: ② The Maven command is invoked inside the container.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 在容器内调用Maven命令。
+- en: ③ The working directory is set externally, using the inputs.params.contextDir
+    input parameter.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 工作目录通过外部输入参数`inputs.params.contextDir`设置。
+- en: Tasks
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tasks
+- en: A `task` is a Kubernetes object composed of a list of `steps` in order. Each
+    `task` is executed in a Kubernetes Pod, where it runs a container in the Pod.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`task` 是一个由一系列按顺序排列的`steps`组成的Kubernetes对象。每个`task`都在一个Kubernetes Pod中执行，在该Pod中运行一个容器。'
+- en: Since all containers within a Pod share resources (e.g., CPU, disk, and memory),
+    and a `task` is composed of several `steps` (containers) running in the same Pod,
+    anything written in the disk by one `step` is accessible inside any `step` of
+    the `tas`k. Figure 7.5 shows how all these elements are interconnected.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Pod内的所有容器共享资源（例如，CPU、磁盘和内存），并且一个`task`由在同一个Pod中运行的几个`步骤`（容器）组成，因此一个`步骤`写入磁盘的内容可以在`task`的任何`步骤`内部访问。图7.5显示了所有这些元素是如何相互关联的。
+- en: '![](../Images/CH07_F05_Sotobueno3.png)'
+  id: totrans-105
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F05_Sotobueno3.png)'
+- en: Figure 7.5 Tekton `Task`, Pod, and container relationships
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.5 Tekton `任务`、Pod和容器之间的关系
+- en: A `task` is configured in the `spec` section, where you set the list of `steps`
+    to execute and optional configuration parameters, like input parameters, the input
+    and output resources required by the `task`, and volumes. An example of a `task`
+    registering the `step` defined in the previous section, defining the input parameter
+    for the `workingDir` attribute and defining an input resource of Git type to clone
+    a repository before any `step` is executed is shown in the following listing.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`spec`部分配置了一个`task`，在那里你设置要执行的`步骤`列表和可选的配置参数，如输入参数、`task`所需的输入和输出资源以及卷。以下列表展示了如何注册上一节中定义的`步骤`，为`workingDir`属性定义输入参数，并在执行任何`步骤`之前定义一个Git类型的输入资源来克隆仓库的示例。
+- en: Listing 7.13 build-app-task.yaml
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.13 build-app-task.yaml
+- en: '[PRE12]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ① A list of input params are registered. In this case, the contextDir param
+    is required by the maven-build step to set the working directory.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 注册了一个输入参数列表。在这种情况下，contextDir参数由maven-build步骤需要来设置工作目录。
+- en: ② Sets the default value if the parameter isn’t set externally
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 如果未在外部设置参数，则设置默认值
+- en: ③ The Git input resource is defined with the name source.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 使用名称source定义了Git输入资源。
+- en: ④ Steps definition
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 步骤定义
+- en: 'After arriving at this point, you might be wondering two things:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到达这一点后，你可能会有两个疑问：
+- en: Where do you set the Git project repository?
+  id: totrans-115
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 你在哪里设置Git项目仓库？
+- en: Where is the project cloned?
+  id: totrans-116
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 项目被克隆在哪里？
+- en: To answer the first question, the Git repository is configured externally in
+    a `PipelineResource` object. The second question is easier. The content is cloned
+    at the /workspace/<name> directory, where `name` is the input name value given
+    in the `git` type. Hence, the Git resource defined previously is cloned at the
+    /workspace/source directory.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了回答第一个问题，Git仓库是在一个`PipelineResource`对象中外部配置的。第二个问题更容易回答。内容被克隆到/workspace/<name>目录中，其中`name`是在`git`类型中给出的输入名称值。因此，之前定义的Git资源被克隆到/workspace/source目录中。
+- en: A `Task` is just the definition, or the description of the `steps` to execute.
+    To execute it, you need to create a `TaskRun` object.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个`Task`只是定义，或者执行`步骤`的描述。要执行它，你需要创建一个`TaskRun`对象。
+- en: TaskRun
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TaskRun
+- en: A `TaskRun` is a Kubernetes object that instantiates and executes a Tekton `Task`
+    on a cluster. A `TaskRun` executes each of the `steps` defined in the `Task` with
+    the order defined until all of them are executed.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TaskRun`是一个Kubernetes对象，它在集群上实例化和执行Tekton `Task`。`TaskRun`按照定义的顺序执行`Task`中定义的每个`步骤`，直到所有步骤都执行完毕。'
+- en: To execute the `build-appTask` created previously, you need a `TaskRun` object.
+    This object will reference the `Task` and set up the input parameters and resources
+    with specific values, as shown in the following listing.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要执行之前创建的`build-appTask`，你需要一个`TaskRun`对象。此对象将引用`Task`并使用特定值设置输入参数和资源，如下面的列表所示。
+- en: Listing 7.14 build-app-task-run.yaml
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.14 build-app-task-run.yaml
+- en: '[PRE13]'
+  id: totrans-123
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ① The contextDir param is set to the name-generator directory.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 将contextDir参数设置为name-generator目录。
+- en: ② The source resource is set by referencing the git-source PipelineResource
+    created previously.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 通过引用之前创建的git-source PipelineResource设置源资源。
+- en: ③ A reference to the Task
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 对Task的引用
+- en: 'NOTE You might wondering why `contextDir` needs to be set to a specific value
+    instead of being left with its default value (the root of the repository). This
+    is due to the way the [https://github.com/lordofthejars/kubernetes-secrets-source.git](https://github.com/lordofthejars/kubernetes-secrets-source.git)
+    repository is organized. If you take a close look at the directory hierarchy,
+    you’ll notice the repository contains both services (Name and Welcome Message)
+    in a directory:'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：你可能想知道为什么`contextDir`需要设置为一个特定的值，而不是保留其默认值（仓库的根目录）。这是由于[https://github.com/lordofthejars/kubernetes-secrets-source.git](https://github.com/lordofthejars/kubernetes-secrets-source.git)仓库的组织方式。如果你仔细查看目录层次结构，你会注意到仓库中包含在目录中的服务（名称和欢迎信息）：
+- en: '[PRE14]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ① Service location under construction
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 服务位置正在建设中
+- en: Since you are building the Name Generator service, set the Maven’s working directory
+    to `name-generator`.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于你正在构建名称生成器服务，因此将 Maven 的工作目录设置为 `name-generator`。
+- en: '`TaskRun` is the way to execute a single task. Sometimes you might use them
+    to execute or test a specific task, but most of the time, you want to execute
+    the full `pipeline` with all `tasks` defined on it.'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TaskRun` 是执行单个任务的方式。有时你可能使用它们来执行或测试特定的任务，但大多数时候，你希望执行包含在其上的所有 `tasks` 的完整
+    `pipeline`。'
+- en: Pipeline
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pipeline
+- en: A `Pipeline` is a Kubernetes object composed of a list of `tasks` connected
+    in a directed acyclic graph. In the `Pipeline` definition, you have full control
+    on the execution order and conditions of `tasks`, making it possible to set up
+    fan-in/fan-out scenarios for running `tasks` in parallel or setting up conditions
+    to a `Task` that should meet before executing it.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Pipeline` 是一个由一系列 `tasks` 组成的 Kubernetes 对象，这些 `tasks` 以有向无环图的形式连接。在 `Pipeline`
+    定义中，你可以完全控制 `tasks` 的执行顺序和条件，这使得可以设置并行运行 `tasks` 的扇入/扇出场景，或者设置在执行之前应该满足的条件。'
+- en: Now create a simple `Pipeline` using the `build-appTask` created in the previous
+    section. As with the `tasks`, a `Pipeline` can have input parameters and input
+    resources, making the `pipeline` extendable. For this specific example, only the
+    input parameter (the Git resource) is configurable from outside the `pipeline`,
+    and the `contextDir` parameter value is hardcoded in the `task`. Finally, the
+    `build-apptask` is registered as a `pipeline` `task` with the input parameter
+    and resource set. The `Pipeline` definition should be similar to the one shown
+    in the following listing.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在创建一个简单的 `Pipeline`，使用上一节中创建的 `build-appTask`。与 `tasks` 一样，`Pipeline` 也可以有输入参数和输入资源，这使得
+    `pipeline` 可扩展。对于这个特定的例子，只有输入参数（Git 资源）可以从 `pipeline` 外部进行配置，而 `contextDir` 参数的值是在
+    `task` 中硬编码的。最后，`build-apptask` 被注册为具有输入参数和资源的 `pipeline` `task`。`Pipeline` 定义应类似于以下列表所示。
+- en: Listing 7.15 pipeline-name-app.yaml
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.15 pipeline-name-app.yaml
+- en: '[PRE15]'
+  id: totrans-136
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ① Defines an input resource of the Git type
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 定义一个 Git 类型的输入资源
+- en: ② Registers the build-app task to the current pipeline
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 将 build-app 任务注册到当前 pipeline
+- en: ③ Sets a static value to the task input parameter
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 为任务输入参数设置一个静态值
+- en: ④ Links the Git resource from Pipeline definition to the Task
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 将 Pipeline 定义中的 Git 资源链接到 Task
+- en: So far, you’ve seen how to define a CI pipeline using Tekton, but no execution
+    has happened yet, as the pipeline needs to be instantiated and input parameters
+    and resources need to be provided. In the following section, you’ll see how to
+    execute a Tekton `pipeline`.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，你已经看到了如何使用 Tekton 定义 CI 管道，但还没有发生执行，因为管道需要被实例化，并且需要提供输入参数和资源。在下一节中，你将看到如何执行
+    Tekton `pipeline`。
+- en: PipelineRun
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PipelineRun
+- en: A `PipelineRun` is a Kubernetes object to instantiate and execute a Tekton `Pipeline`
+    on a cluster. A `PipelineRun` executes each of the defined `tasks` in the `Pipeline`,
+    automatically creating a `TaskRun` for each of them, as shown in the following
+    listing.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`PipelineRun` 是一个 Kubernetes 对象，用于在集群上实例化和执行 Tekton `Pipeline`。`PipelineRun`
+    执行 `Pipeline` 中定义的每个 `tasks`，并为每个 `tasks` 自动创建一个 `TaskRun`，如下所示。'
+- en: Listing 7.16 pipeline-run-name-app.yaml
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.16 pipeline-run-name-app.yaml
+- en: '[PRE16]'
+  id: totrans-145
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ① An appSource resource is set by referencing the git-source PipelineResource.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 通过引用 git-source PipelineResource 设置 appSource 资源。
+- en: ② A reference to the pipeline
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 对 pipeline 的引用
+- en: Figure 7.6 summarizes the basic Tekton elements and how they are related to
+    one another.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.6 总结了基本的 Tekton 元素以及它们之间的关系。
+- en: '![](../Images/CH07_F06_Sotobueno3.png)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F06_Sotobueno3.png)'
+- en: Figure 7.6 The relationship between a `PipelineRun` and Tekton resources
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.6 `PipelineRun` 与 Tekton 资源之间的关系
+- en: You’ve now seen the most important Tekton resources for building a basic CI
+    pipeline, but this is far from a real pipeline.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你现在已经看到了构建基本 CI 管道最重要的 Tekton 资源，但这还远非一个真正的管道。
+- en: 7.3 Continuous integration for a welcome message
+  id: totrans-152
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 7.3 欢迎消息的持续集成
+- en: 'A real CI pipeline in Kubernetes needs at least the following steps:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Kubernetes 中，一个真正的 CI 管道至少需要以下步骤：
+- en: Checking out of the code using a Tekton Git resource
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 Tekton Git 资源检出代码
+- en: Defining an Apache Maven container in a Tekton `step` to build and test the
+    application
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Tekton `步骤` 中定义一个 Apache Maven 容器以构建和测试应用程序
+- en: Setting the container registry credentials as Kubernetes Secrets and defining
+    a Buildah container in a Tekton `step` to build and push the container
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将容器注册表的凭证设置为 Kubernetes Secrets，并在 Tekton `步骤` 中定义一个 Buildah 容器以构建和推送容器
+- en: 'The application used in this chapter is a simple service architecture composed
+    of two services producing a welcome message:'
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中使用的应用程序是一个由两个服务组成的简单服务架构，这两个服务生成欢迎信息：
+- en: '*A name generator service*—A service that randomly selects a name from a list
+    of names, as shown in the following listing.'
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*名称生成服务*——一个从名称列表中随机选择名称的服务，如下面的列表所示。'
+- en: Listing 7.17 NameGeneratorResource.java
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.17 NameGeneratorResource.java
+- en: '[PRE17]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ① List of names
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 名称列表
+- en: ② Securing the method, so only a user with the Subscriber role can access it
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 保护该方法，以确保只有具有订阅者角色的用户才能访问
+- en: ③ Generating a random name((CO18-3))
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 生成随机名称((CO18-3))
+- en: A *welcome message service*—A service that randomly chooses the welcome message
+    from a database and delegates to the name of the person to whom you dedicate the
+    greeting to a name service, as shown in the following listing.
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*欢迎信息服务*——一个从数据库中随机选择欢迎信息并将问候的人的姓名委托给名称服务的服务，如下面的列表所示。'
+- en: Listing 7.18 WelcomeResource.java
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.18 WelcomeResource.java
+- en: '[PRE18]'
+  id: totrans-166
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ① The interface for communicating with the Name Generator service
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 与名称生成服务通信的接口
+- en: ② The API key required to access the Name Generator service
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 访问名称生成服务所需的API密钥
+- en: ③ Finding all welcome messages from the database
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 从数据库中查找所有欢迎信息
+- en: ④ Making a request to the Name Generator service passing the API key
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 通过传递API密钥向名称生成服务发送请求
+- en: Figure 7.7 shows an overview of the application.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.7显示了应用程序的概述。
+- en: '![](../Images/CH07_F07_Sotobueno3.png)'
+  id: totrans-172
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F07_Sotobueno3.png)'
+- en: Figure 7.7 Overview of the interactions between Welcome and Name services
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.7 名称服务和欢迎服务之间交互的概述
+- en: 'The following considerations are taken to maximize security:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了最大化安全性，以下考虑因素被采纳：
+- en: You need to provide an API key to access the Name Generator service. This API
+    key is a secret and is stored in the HashiCorp Vault instance.
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您需要提供一个API密钥来访问名称生成服务。此API密钥是秘密的，并存储在HashiCorp Vault实例中。
+- en: The database credentials of the Welcome Message service are managed by HashiCorp
+    Vault dynamic database credentials.
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 欢迎信息服务的数据库凭据由HashiCorp Vault动态数据库凭据管理。
+- en: Services authenticate against HashiCorp Vault using the Kubernetes authentication
+    method.
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 服务使用Kubernetes身份验证方法对HashiCorp Vault进行身份验证。
+- en: Figure 7.8 shows an overview of these elements.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.8显示了这些元素的概述。
+- en: '![](../Images/CH07_F08_Sotobueno3.png)'
+  id: totrans-179
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F08_Sotobueno3.png)'
+- en: Figure 7.8 Security elements
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.8 安全元素
+- en: We’ll assume you have some experience with CI/CD as well as basic knowledge
+    of Git and Linux containers. The principles described in this chapter apply to
+    which- ever technology you may end up choosing.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们假设您对CI/CD有一些经验，以及Git和Linux容器的基本知识。本章中描述的原则适用于您最终可能选择的技术。
+- en: The pipeline excution for Tekton and Kubernetes elements is shown in figure
+    7.9\. A Pod is created with three containers; the first one clones the project
+    from the Gitea server, the project is packaged in the second container, and the
+    Linux container with the service is built and pushed to container registry in
+    the third container. The three containers with commands that are executed are
+    shown in figure 7.9.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Tekton和Kubernetes元素的管道执行在图7.9中显示。创建了一个包含三个容器的Pod；第一个容器从Gitea服务器克隆项目，项目在第二个容器中打包，服务所在的Linux容器在第三个容器中构建并推送到容器注册库。执行命令的三个容器在图7.9中显示。
+- en: '![](../Images/CH07_F09_Sotobueno3.png)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F09_Sotobueno3.png)'
+- en: Figure 7.9 A list of the containers running inside a Pod for the Welcome Message
+    service
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7.9 欢迎信息服务Pod内运行的容器列表
+- en: Each of these steps are implemented as a Tekton `step`. Let’s implement them
+    in the following sections.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些步骤都实现为Tekton `step`。让我们在以下章节中实现它们。
+- en: 7.3.1 Compiling and Running tests
+  id: totrans-186
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.1 编译和运行测试
+- en: You’ve already seen how to compile and run tests in the previous section using
+    Apache Maven. The Welcome Message service is developed in Java, and Apache Maven
+    is used as a building tool.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您已经在上一节中看到了如何使用Apache Maven编译和运行测试。欢迎信息服务是用Java开发的，Apache Maven用作构建工具。
+- en: Listing 7.19 Building a service Tekton `step`
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表7.19 构建服务Tekton `step`
+- en: '[PRE19]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 7.3.2 Building and Pushing the container image
+  id: totrans-190
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.2 构建和推送容器镜像
+- en: Building a container image inside a running container (remember that each `step`
+    is executed inside a container) is a bit complicated because a Docker daemon is
+    required to build a container image. To avoid having to deal with the Docker-inside-Docker
+    problem or to build container images within environments where you can’t run a
+    Docker host, such as a Kubernetes cluster, easily, there are some Dockerless tools
+    that permit building container images without depending on a Docker daemon. *Buildah*
+    ([https://buildah.io/](https://buildah.io/)), for example, is a tool for building
+    container images from a `Dockerfile` inside a container without requiring a Docker
+    daemon.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行中的容器内构建容器镜像（记住每个 `step` 都是在容器内执行的）有些复杂，因为需要 Docker 守护进程来构建容器镜像。为了避免处理 Docker-inside-Docker
+    问题，或者在不方便运行 Docker 主机（如 Kubernetes 集群）的环境中构建容器镜像，有一些无 Docker 工具允许在不依赖 Docker 守护进程的情况下构建容器镜像。例如，*Buildah*
+    ([https://buildah.io/](https://buildah.io/)) 是一个在容器内从 `Dockerfile` 构建容器镜像的工具，无需
+    Docker 守护进程。
+- en: In the `step` definition shown in listing 7.20, Buildah is used to build and
+    push the Welcome Message container to the container registry. The container name,
+    in the form of `registry:group:name:tag`, and the location of the `Dockerfile`
+    are provided as parameters.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表 7.20 中显示的 `step` 定义中，使用 Buildah 构建并推送欢迎信息容器到容器注册库。容器名称以 `registry:group:name:tag`
+    的形式提供，`Dockerfile` 的位置作为参数提供。
+- en: Listing 7.20 Building and pushing a container image Tekton `step`
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.20 构建并推送容器镜像 Tekton `step`
+- en: '[PRE20]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ① A script can be embedded in a step definition.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 可以在步骤定义中嵌入脚本。
+- en: ② Building the container image
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 构建容器镜像
+- en: ③ Pushing the container image
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 推送容器镜像
+- en: ④ Parameters are set as environment variables, so they are accessed during script
+    execution.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 参数设置为环境变量，因此在脚本执行期间可以访问它们。
+- en: ⑤ Running Buildah requires it to be run as a root user and privilege escalation.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑤ 运行 Buildah 需要以 root 用户身份运行并启用权限提升。
+- en: ⑥ Linux container layers are saved in the local file system at /var/lib/containers.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑥ Linux 容器层保存在本地文件系统中的 /var/lib/containers 目录下。
+- en: Create a new file named `welcome-service-task.yaml` containing both `steps`
+    defined previously, as shown in the following listing.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个名为 `welcome-service-task.yaml` 的新文件，包含之前定义的 `steps`，如下所示。
+- en: Listing 7.21 welcome-service-task.yaml
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.21 welcome-service-task.yaml
+- en: '[PRE21]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ① Task name
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 任务名称
+- en: ② Task parameters
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 任务参数
+- en: ③ Source code relative path within the repository
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 仓库内的源代码相对路径
+- en: ④ Name of the container image
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ④ 容器镜像名称
+- en: ⑤ Clone repository from the Git server
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑤ 从 Git 服务器克隆仓库
+- en: ⑥ Packaging the step using Maven
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑥ 使用 Maven 打包步骤
+- en: ⑦ Creation of Container image step
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⑦ 创建容器镜像步骤
+- en: Execute the following command to register the `Task` into the Kubernetes cluster.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行以下命令将 `Task` 注册到 Kubernetes 集群。
+- en: Listing 7.22 Registering the task
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.22 注册任务
+- en: '[PRE22]'
+  id: totrans-213
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ① Registering the Tekton task definition
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 注册 Tekton 任务定义
+- en: 7.3.3 The PipelineResource
+  id: totrans-215
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.3 管道资源
+- en: The Welcome Message service repository is stored in the local Git server (Gitea)
+    deployed in the Kubernetes cluster. Set the Git location of the service in a `PipelineResource`.
+    Create a new file named `welcome-service-resource.yaml`, as shown in the following
+    listing.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 欢迎信息服务的仓库存储在 Kubernetes 集群中部署的本地 Git 服务器（Gitea）上。在 `PipelineResource` 中设置服务的
+    Git 位置。创建一个名为 `welcome-service-resource.yaml` 的新文件，如下所示。
+- en: Listing 7.23 welcome-service-resource.yaml
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.23 welcome-service-resource.yaml
+- en: '[PRE23]'
+  id: totrans-218
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ① Points to the internal repository
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 指向内部仓库
+- en: Execute the following command to register the `PipelineResource` into the Kubernetes
+    cluster.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行以下命令将 `PipelineResource` 注册到 Kubernetes 集群。
+- en: Listing 7.24 Registering the `pipeline` resource
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.24 注册 `pipeline` 资源
+- en: '[PRE24]'
+  id: totrans-222
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ① Registering the Tekton pipeline resource
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 注册 Tekton 管道资源
+- en: 7.3.4 Pipeline
+  id: totrans-224
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.4 管道
+- en: The last step is defining a `pipeline` to implement the CI pipeline for the
+    Welcome Message service. Create a new file named `welcome-service-pipeline.yaml`,
+    as shown in the following listing.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一步是定义一个 `pipeline` 来实现欢迎信息服务的 CI 管道。创建一个名为 `welcome-service-pipeline.yaml`
+    的新文件，如下所示。
+- en: Listing 7.25 welcome-service-pipeline.yaml
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.25 welcome-service-pipeline.yaml
+- en: '[PRE25]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Execute the following command to register the `Pipeline` into the Kubernetes
+    cluster.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行以下命令将 `Pipeline` 注册到 Kubernetes 集群。
+- en: Listing 7.26 Registering the `Pipeline`
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.26 注册 `Pipeline`
+- en: '[PRE26]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: ① Registering the Tekton pipeline definition
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 注册 Tekton 管道定义
+- en: Figure 7.10 shows the relationship between `Pipeline` and `Task` parameters.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.10 显示了 `Pipeline` 和 `Task` 参数之间的关系。
+- en: '![](../Images/CH07_F10_Sotobueno3.png)'
+  id: totrans-233
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F10_Sotobueno3.png)'
+- en: Figure 7.10 Relationship between the `Pipeline` and `Task` parameters
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.10 `Pipeline` 和 `Task` 参数之间的关系
+- en: 7.3.5 PipelineRun
+  id: totrans-235
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 7.3.5 PipelineRun
+- en: Create a `PipelineRun` to trigger the `welcome-deploymentpipeline` defined in
+    the previous step. In this `PipelineRun`, in addition to setting the Git repository
+    location, the container image tag is also provided.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个 `PipelineRun` 来触发之前步骤中定义的 `welcome-deploymentpipeline`。在这个 `PipelineRun`
+    中，除了设置 Git 仓库位置外，还提供了容器镜像标签。
+- en: Listing 7.27 welcome-service-pipeline-run.yaml
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.27 welcome-service-pipeline-run.yaml
+- en: '[PRE27]'
+  id: totrans-238
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: ① Sets the image tag to version 1.0.0.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 将镜像标签设置为版本 1.0.0。
+- en: Figure 7.11 shows the relationship between the `PipelineRun` and `PipelineResource`
+    parameters.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.11 显示了 `PipelineRun` 和 `PipelineResource` 参数之间的关系。
+- en: '![](../Images/CH07_F11_Sotobueno3.png)'
+  id: totrans-241
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH07_F11_Sotobueno3.png)'
+- en: Figure 7.11 The relationship between `PipelineRun` and `PipelineResource`
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 7.11 `PipelineRun` 和 `PipelineResource` 之间的关系
+- en: Execute the following command to trigger the `Pipeline` into the Kubernetes
+    cluster.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行以下命令以触发 `Pipeline` 进入 Kubernetes 集群。
+- en: Listing 7.28 Registering the `PipelineRun`
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.28 注册 `PipelineRun`
+- en: '[PRE28]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: ① Starts the pipeline
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 启动管道
+- en: At this point, a `TaskRun` is automatically created and executed for each `task`
+    defined in the `tasks` section of the `Pipeline` object. To list them, run the
+    following command in a terminal window.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一点上，对于 `Pipeline` 对象 `tasks` 部分中定义的每个 `task`，都会自动创建并执行一个 `TaskRun`。要列出它们，请在终端窗口中运行以下命令。
+- en: Listing 7.29 Listing all `TaskRuns`
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.29 列出所有 `TaskRuns`
+- en: '[PRE29]'
+  id: totrans-249
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: ① List all TaskRuns
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 列出所有 TaskRuns
+- en: 'The output provides a list of all `TaskRuns` executed in the Kubernetes cluster
+    with its status:'
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出提供了一个列表，列出了在 Kubernetes 集群中执行的所有 `TaskRuns` 及其状态：
+- en: '[PRE30]'
+  id: totrans-252
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: '`tkn` allows us to inspect the logs of a `TaskRun` and, in case of a failure,
+    find the error cause. In a terminal, run the following command, with the `-f`
+    option used to stream live logs of the current execution.'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`tkn` 允许我们检查 `TaskRun` 的日志，并在出现故障时找到错误原因。在终端中运行以下命令，使用 `-f` 选项以流式传输当前执行的实时日志。'
+- en: Listing 7.30 Streaming logs from `PipelineRun`
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.30 从 `PipelineRun` 流式传输日志
+- en: '[PRE31]'
+  id: totrans-255
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: ① Changing the TaskRun ID to the correct one showed in the previous command
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 将 TaskRun ID 更改为前一个命令中显示的正确 ID
+- en: 'You’ll see the `pipeline` logs in the console:'
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你将在控制台看到 `pipeline` 的日志：
+- en: '[PRE32]'
+  id: totrans-258
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: ① The Maven process is started for building the service.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 启动 Maven 进程以构建服务。
+- en: ② Buildah builds the container image.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② Buildah 构建容器镜像。
+- en: ③ Pushing the container image to the container registry
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 将容器镜像推送到容器注册库
+- en: Remember that `Task` is executed as a Pod, and each `step` is executed inside
+    a container within that Pod. This can be seen when running the following command.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，`Task` 作为 Pod 执行，每个 `step` 都在该 Pod 内的容器中执行。这可以在运行以下命令时看到。
+- en: Listing 7.31 Get all Pods
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 7.31 获取所有 Pods
+- en: '[PRE33]'
+  id: totrans-264
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: ① Gets all Pods created during the pipeline execution
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 获取管道执行期间创建的所有 Pods
+- en: Since the `welcome-service-apptask` is composed of three `steps` (Git clone,
+    Maven build, and Docker build/push), three containers were created during the
+    `task` execution, as seen in the `READY` column.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 `welcome-service-apptask` 由三个 `steps`（Git 克隆、Maven 构建、Docker 构建/推送）组成，在 `task`
+    执行期间创建了三个容器，如 `READY` 列中所示。
+- en: The CI pipeline cycle finishes when the container image is published to the
+    container registry. But the service is not deployed, nor is it released yet to
+    the Kubernetes cluster. In the following chapter, you’ll see how to use continuous
+    deployment and GitOps methodology to deploy and release the service to the cluster.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当容器镜像发布到容器注册库时，CI 管道周期结束。但服务尚未部署，也尚未发布到 Kubernetes 集群。在下一章中，你将看到如何使用持续部署和 GitOps
+    方法将服务部署和发布到集群。
+- en: Summary
+  id: totrans-268
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Kubernetes Secrets are used either in the application code (e.g., usernames,
+    passwords, and API keys) and in the CI pipelines (e.g., usernames and passwords
+    of external services).
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kubernetes Secrets 既可以用于应用程序代码（例如，用户名、密码和 API 密钥），也可以用于 CI 管道（例如，外部服务的用户名和密码）。
+- en: Continuous integration secrets need to be protected, like any other secret.
+    You can use `SealSecrets` in Tekton and Argo CD to store encrypted secrets in
+    Git. Enable Kubernetes data encryption at rest to store encrypted secrets inside
+    Kubernetes.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 持续集成密钥需要得到保护，就像其他任何密钥一样。你可以在 Tekton 和 Argo CD 中使用 `SealSecrets` 将加密的密钥存储在 Git
+    中。启用 Kubernetes 数据加密以存储 Kubernetes 中的加密密钥。
+- en: Tekton is the Kubernetes-native platform for implementing the CI pipeline.
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Tekton 是实现 CI 管道的 Kubernetes 原生平台。
+- en: Git is used as a single source of truth—not only for the source code but also
+    for the `pipeline` scripts.
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Git 被用作单一的事实来源——不仅用于源代码，也用于 `pipeline` 脚本。

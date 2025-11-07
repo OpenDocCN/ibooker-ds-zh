@@ -1,0 +1,1482 @@
+- en: 3 Thread communication using memory sharing
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 3 使用内存共享进行线程通信
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Using inter-thread communication with our hardware architecture
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用我们的硬件架构进行线程间通信
+- en: Communicating with memory sharing
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过内存共享进行通信
+- en: Recognizing race conditions
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 识别竞态条件
+- en: 'Threads of execution working together to solve a common problem require some
+    form of communication. This is what is known as *inter-thread communication* (ITC),
+    or *inter-process communication* (IPC) when referring to processes. This type
+    of communication falls under two main classes: memory sharing and message passing.
+    In this chapter, we will focus on the former.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 共同解决一个问题的执行线程需要某种形式的通信。这就是所谓的*线程间通信*（ITC），或者当提到进程时称为*进程间通信*（IPC）。这种通信分为两大类：内存共享和消息传递。在本章中，我们将重点关注前者。
+- en: Memory sharing is similar to having all our executions share a large, empty
+    canvas (the process’s memory) on which each execution gets to write the results
+    of its own computation. We can coordinate the executions in such a way that they
+    collaborate using this empty canvas. In contrast, message passing is exactly what
+    it sounds like. Just like people, threads can communicate by sending messages
+    to each other. In chapter 8, we’ll investigate message passing in Go using channels.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 内存共享类似于所有我们的执行共享一个大的、空白的画布（进程的内存），每个执行都可以在这个画布上写下自己计算的结果。我们可以协调执行，使它们能够使用这个空白的画布进行协作。相比之下，消息传递正如其名。就像人一样，线程可以通过向彼此发送消息来进行通信。在第8章中，我们将研究使用通道在Go语言中的消息传递。
+- en: The type of thread communication we use in our applications will depend on the
+    type of problem we’re trying to solve. Memory sharing is a common approach to
+    ITC, but as we shall see in this chapter, it comes with a certain set of challenges.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在应用程序中使用的线程通信类型将取决于我们试图解决的问题类型。内存共享是ITC（内部线程通信）的一种常见方法，但正如我们在本章中将要看到的，它带来了一系列挑战。
+- en: 3.1 Sharing memory
+  id: totrans-8
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.1 内存共享
+- en: Communication via memory sharing is like trying to talk to a friend, but instead
+    of exchanging messages, we’re using a whiteboard (or a large piece of paper),
+    and we’re exchanging ideas, symbols, and abstractions (see figure 3.1).
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过内存共享进行通信就像试图和朋友交谈，但不是通过交换消息，而是使用白板（或一大张纸），我们交换想法、符号和抽象（见图3.1）。
+- en: '![](../../OEBPS/Images/CH03_F01_Cutajar.png)'
+  id: totrans-10
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F01_Cutajar.png)'
+- en: Figure 3.1 Communication via memory sharing
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.1 通过内存共享进行通信
+- en: In concurrent programming using memory sharing, we allocate a part of the process’s
+    memory—for example, a shared data structure or a variable—and we have different
+    goroutines work concurrently on this memory. In our analogy, the whiteboard is
+    the shared memory used by the various goroutines.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用内存共享的并发编程中，我们为进程的内存分配一部分——例如，共享数据结构或变量——并且让不同的goroutines在此内存上并发工作。在我们的类比中，白板是各种goroutines使用的共享内存。
+- en: In Go, our goroutines may live under several kernel-level threads. Thus, the
+    hardware and operating system architecture on which we run our multithreaded application
+    needs to enable this type of memory sharing between threads belonging to the same
+    process. If our system has only a single processor, the architecture can be simple.
+    We can give the same memory access to all kernel-level threads on the same process,
+    and we can context-switch between threads, letting each thread read and write
+    to memory as it pleases. However, the situation grows more complex when we have
+    a system with more than one processor (or a multicore system) because computer
+    architecture usually involves various layers of caches between the CPUs and main
+    memory.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Go语言中，我们的goroutines可能位于多个内核级线程之下。因此，我们运行多线程应用程序的硬件和操作系统架构需要启用同一进程所属线程之间的此类内存共享。如果我们的系统只有一个处理器，架构可以很简单。我们可以将相同的内存访问权限赋予同一进程的所有内核级线程，并且我们可以在线程之间进行上下文切换，让每个线程按自己的意愿读取和写入内存。然而，当我们有一个多处理器（或多核系统）的系统时，情况变得更加复杂，因为计算机架构通常涉及CPU和主内存之间各种缓存层。
+- en: Figure 3.2 shows a simplified example of a typical bus architecture. Here, the
+    processor uses a system bus when it needs to read or write from main memory. Before
+    a processor uses the bus, it listens to make sure the bus is idle and not in use
+    by another processor. Once the bus is free, the processor places a request for
+    a memory location and goes back to listening and waiting for a reply on the bus.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.2展示了典型总线架构的简化示例。在这里，处理器在需要从主内存中读取或写入时使用系统总线。在处理器使用总线之前，它会监听以确保总线空闲且未被其他处理器使用。一旦总线空闲，处理器就会向内存位置发出请求，然后返回监听并在总线上等待回复。
+- en: '![](../../OEBPS/Images/CH03_F02_Cutajar.png)'
+  id: totrans-15
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图3.2](../../OEBPS/Images/CH03_F02_Cutajar.png)'
+- en: Figure 3.2 Bus architecture with two CPUs and one cache layer
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.2 具有两个CPU和一层缓存的总线架构
+- en: As we scale the number of processors in the system, this bus becomes busier
+    and acts as a bottleneck on our ability to add more processors. To reduce the
+    load on the bus, we can use caches to bring memory contents closer to where they’re
+    needed and thus improve performance. The caches also reduce the load on the system
+    bus since the CPU can now read most of the required data from cache instead of
+    querying the memory. This prevents the bus from acting as a bottleneck. The example
+    shown in figure 3.2 is a simplified architecture with two CPUs and one layer of
+    caching. Typically, modern architectures contain many more processors and multiple
+    layers of caching.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着我们增加系统中处理器的数量，总线变得更加繁忙，并成为我们添加更多处理器的瓶颈。为了减少总线负载，我们可以使用缓存将内存内容更靠近所需位置，从而提高性能。缓存还减少了系统总线的负载，因为CPU现在可以从缓存中读取大部分所需数据，而不是查询内存。这防止了总线成为瓶颈。图3.2所示的示例是一个包含两个CPU和一层缓存的简化架构。通常，现代架构包含更多的处理器和多层缓存。
+- en: In figure 3.2, we have two threads running in parallel that want to communicate
+    via memory sharing. Let’s assume that thread 1 tries to read a variable from main
+    memory. The system will bring the contents of a block of memory, containing the
+    variable, into a cache closer to the CPU (via the bus). Then, when thread 1 needs
+    to read again or update that variable, it will be able to perform that operation
+    faster using the cache. It will not need to overload the system bus by trying
+    to read the variable from the main memory again. This is shown in figure 3.3.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图3.2中，我们有两个并行运行的线程，它们希望通过内存共享进行通信。假设线程1试图从主内存中读取一个变量。系统会将包含该变量的内存块内容加载到更靠近CPU的缓存中（通过总线）。然后，当线程1需要再次读取或更新该变量时，它将能够通过缓存更快地执行该操作。它不需要再次通过从主内存中读取变量来过载系统总线。这如图3.3所示。
+- en: '![](../../OEBPS/Images/CH03_F03_Cutajar.png)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图3.3](../../OEBPS/Images/CH03_F03_Cutajar.png)'
+- en: Figure 3.3 Reading a memory block from main memory and storing it on the processor’s
+    cache for faster retrieval
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.3 从主内存读取内存块并将其存储在处理器缓存中以实现更快的检索
+- en: Let’s now suppose thread 1 decides to update the value of this variable. This
+    results in the contents of the cache being updated with this change. If we don’t
+    do anything else, thread 2 might want to read this very same variable, and when
+    it fetches it from main memory, it will have an outdated value, without the changes
+    made by thread 1.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在假设线程1决定更新这个变量的值。这会导致缓存内容更新为这个变化。如果我们不做任何其他事情，线程2可能想要读取这个相同的变量，当它从主内存中获取它时，它将有一个过时的值，而没有线程1所做的更改。
+- en: 'One solution to this problem is to perform what is known as a *cache write-through*:
+    when thread 1 updates the cache contents, we mirror the update back to the main
+    memory. However, this doesn’t solve the problem if thread 2 has an outdated copy
+    of the same memory block in another local CPU cache. To address this case, we
+    can make caches listen to bus memory update messages. When a cache notices an
+    update to the memory that it has replicated in its cache space, it either applies
+    the update or invalidates the cache line containing the updated memory. If we
+    invalidate the cache line, the next time the thread requires the variable, it
+    will have to fetch it from memory, obtaining an updated copy. This system is shown
+    in figure 3.4.'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决这个问题的方法之一是执行所谓的*缓存写通*：当线程1更新缓存内容时，我们将更新镜像回主内存。然而，如果线程2在另一个本地CPU缓存中有该内存块的过时副本，这并不能解决问题。为了解决这个问题，我们可以让缓存监听总线内存更新消息。当一个缓存注意到它在其缓存空间中复制的内存更新时，它会应用更新或使包含更新内存的缓存行无效。如果我们使缓存行无效，那么下一次线程需要该变量时，它将不得不从内存中获取它，从而获得一个更新副本。这个系统如图3.4所示。
+- en: '![](../../OEBPS/Images/CH03_F04_Cutajar.png)'
+  id: totrans-23
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F04_Cutajar.png)'
+- en: Figure 3.4 Updating shared variables in an architecture with caches
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.4 在具有缓存的架构中更新共享变量
+- en: The mechanism for dealing with reads and writes on memory and caches in a multiprocessor
+    system is known as the *cache-coherency protocols*. The write-back with invalidation,
+    mentioned previously, is an outline of one such protocol. Modern architectures
+    typically use a mixture of these protocols.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在多处理器系统中处理内存和缓存的读写机制称为*缓存一致性协议*。之前提到的写回并失效是此类协议的一个概述。现代架构通常使用这些协议的混合。
+- en: Coherency wall
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一致性墙
+- en: Microchip engineers worry that cache coherence will be the limiting factor as
+    they scale the number of processor cores. With many more processors, implementing
+    cache coherence will become a lot more complex and costly and might eventually
+    limit performance. This limit is known as the *coherency wall*.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 微芯片工程师担心，随着他们扩展处理器核心的数量，缓存一致性将成为限制因素。随着处理器数量的增加，实现缓存一致性将变得更加复杂和昂贵，并可能最终限制性能。这个限制被称为*一致性墙*。
+- en: 3.2 Memory sharing in practice
+  id: totrans-28
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.2 实践中的内存共享
+- en: Let’s examine a couple of examples showing how we can use shared memory amongst
+    goroutines in our concurrent Go programs. First, we’ll look at simple variable
+    sharing between two goroutines, illustrating the concept of memory escape analysis.
+    Then we’ll look at a more complex application where multiple goroutines work together
+    to download and process several web pages in parallel.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们考察几个示例，展示我们如何在并发Go程序中使用共享内存。首先，我们将查看两个goroutine之间简单的变量共享，说明内存逃逸分析的概念。然后，我们将查看一个更复杂的应用，其中多个goroutine协同工作，并行下载和处理多个网页。
+- en: 3.2.1 Sharing a variable between goroutines
+  id: totrans-30
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.2.1 在goroutine之间共享变量
+- en: How do we get two goroutines to share memory? In this first example, we’ll create
+    one goroutine that will share a variable in memory with the `main()` goroutine
+    (executing the `main()` function). The variable will act like a countdown timer.
+    One goroutine will decrease the value of this variable every second, and another
+    goroutine will read the variable more frequently and output it on the console.
+    Figure 3.5 shows the two goroutines doing this.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何让两个goroutine共享内存？在这个第一个例子中，我们将创建一个goroutine，它将与执行`main()`函数的`main()` goroutine在内存中共享一个变量。这个变量将充当倒计时计时器。一个goroutine将每秒减少这个变量的值，另一个goroutine将更频繁地读取这个变量并在控制台上输出它。图3.5显示了这两个goroutine正在执行此操作。
+- en: '![](../../OEBPS/Images/CH03_F05_Cutajar.png)'
+  id: totrans-32
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F05_Cutajar.png)'
+- en: Figure 3.5 Two goroutines sharing a countdown timer variable
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.5 两个goroutine共享倒计时计时器变量
+- en: In listing 3.1, the main thread allocates space for an integer variable, called
+    `count`, and then shares a memory pointer reference, called `*seconds`, with a
+    newly created goroutine, calling the `countdown()` function. This function updates
+    the shared variable every 1 second, decreasing its value by `1` until it’s `0`.
+    The `main()` goroutine reads this shared variable every half second and outputs
+    it. In this way, the two goroutines share the memory at the pointer location.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表3.1中，主线程为名为`count`的整数变量分配空间，然后与一个新创建的goroutine共享内存指针引用，称为`*seconds`，调用`countdown()`函数。这个函数每秒更新一次共享变量，将其值减少`1`直到它变为`0`。`main()`
+    goroutine每半秒读取这个共享变量并输出它。这样，两个goroutine就在指针位置共享内存。
+- en: Listing 3.1 Goroutines sharing a variable in memory
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.1 Goroutine在内存中共享变量
+- en: '[PRE0]'
+  id: totrans-36
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Allocates memory space for an integer variable
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为整数变量分配内存空间
+- en: ❷ Starts goroutine and shares memory at the variable reference
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在变量引用处启动goroutine并共享内存
+- en: ❸ The main() goroutine reads the value of the shared variable every half second.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ `main()` goroutine每半秒读取共享变量的值。
+- en: ❹ The goroutine updates the value of the shared variable.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ goroutine更新共享变量的值。
+- en: NOTE You can visit [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    to see any of the listings in this book.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：您可以访问[http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)以查看本书中的任何列表。
+- en: 'Since we read the value for the shared variable more frequently than we update
+    it, the same value is recorded more than once in our console output:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们读取共享变量的频率高于更新它的频率，相同的值在我们的控制台输出中记录了多次：
+- en: '[PRE1]'
+  id: totrans-43
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: What happens here is that we have a very simple memory-sharing concurrent program.
+    One goroutine updates the contents of a particular memory location, and another
+    thread reads its contents.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里发生的情况是我们有一个非常简单的内存共享并发程序。一个goroutine更新特定内存位置的值，另一个goroutine读取它的内容。
+- en: If you removed the `go` keyword from listing 3.1, the program would become sequential.
+    It would create the variable `count` on the main stack, and it would pass a reference
+    to it to the `countdown()` function. The `countdown()` function would take 5 seconds
+    to return, during which it would update the value on the `main()` function’s stack
+    every second by subtracting 1\. When the function returns, the `count` variable
+    would have a value of `0` and the `main()` function would not enter the loop but
+    instead would terminate since the `count`’s value would be `0`.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你从列表3.1中移除了`go`关键字，程序将变为顺序执行。它会在主栈上创建变量`count`，并将它的引用传递给`countdown()`函数。`countdown()`函数将花费5秒钟返回，在这期间，它每秒通过减1来更新`main()`函数栈上的值。当函数返回时，`count`变量将具有`0`的值，而`main()`函数不会进入循环，而是会终止，因为`count`的值将是`0`。
+- en: 3.2.2 Escape analysis
+  id: totrans-46
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.2.2 逃逸分析
+- en: 'Where should we allocate memory space for the variable `count`? This is a decision
+    that the Go compiler must make for every new variable we create. It has two choices:
+    allocate space on the function’s stack or in the main process’s memory, which
+    we call the *heap* *space.*'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该在哪里为变量`count`分配内存空间？这是一个Go编译器必须为每个新创建的变量做出的决定。它有两个选择：在函数的栈上分配空间或在主进程的内存中，我们称之为*堆*
+    *空间*。
+- en: In the previous chapter, we talked about threads sharing the same memory space,
+    and we saw that each thread has its own stack space but shares the main memory
+    of the process. When we execute the `countdown()` function in a separate goroutine,
+    the `count` variable cannot exist on the `main()` function’s stack. It doesn’t
+    make sense for Go’s runtime to allow a goroutine to read or modify the memory
+    contents of another goroutine’s stack because the goroutines might have completely
+    different lifecycles. One goroutine’s stack might not be available anymore by
+    the time another goroutine needs to modify it. Go’s compiler is smart enough to
+    realize when we are sharing memory between goroutines. When it notices this, it
+    allocates memory on the heap instead of the stack, even though our variables might
+    look like they are local ones belonging on the stack.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们讨论了线程共享相同的内存空间，并看到每个线程都有自己的栈空间，但共享进程的主内存。当我们在一个单独的goroutine中执行`countdown()`函数时，`count`变量不能存在于`main()`函数的栈上。Go的运行时允许goroutine读取或修改另一个goroutine栈的内存内容是没有意义的，因为goroutines可能有完全不同的生命周期。一个goroutine的栈可能在另一个goroutine需要修改它的时候已经不再可用。Go的编译器足够智能，能够意识到我们在goroutines之间共享内存。当它注意到这一点时，它会将内存分配在堆上而不是栈上，即使我们的变量看起来像是属于栈上的局部变量。
+- en: Definition In technical speak, when we declare a variable that looks like it
+    belongs to the local function’s stack but instead is allocated in the heap memory,
+    we say that the variable has *escaped* to the heap. *Escape analysis* consists
+    of the compiler algorithms that decide whether a variable should be allocated
+    on the heap instead of the stack.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 在技术术语中，当我们声明一个看起来属于局部函数栈的变量，但实际上是在堆内存中分配时，我们说这个变量已经*逃逸*到堆上了。*逃逸分析*包括编译器算法，这些算法决定一个变量是否应该分配在堆上而不是栈上。
+- en: There are many instances where a variable escapes to the heap. Anytime a variable
+    is shared outside the scope of a function’s stack frame, the variable is allocated
+    on the heap. Sharing a variable’s reference between goroutines is one such example,
+    as illustrated in figure 3.6.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多情况会导致变量逃逸到堆上。任何时间一个变量在函数栈帧的作用域外被共享，该变量就会在堆上分配。在goroutines之间共享变量的引用就是一个例子，如图3.6所示。
+- en: '![](../../OEBPS/Images/CH03_F06_Cutajar.png)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F06_Cutajar.png)'
+- en: Figure 3.6 Goroutines sharing variables on the heap memory
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.6 Goroutines在堆内存中共享变量
+- en: In Go, there is an additional small cost to using memory on the heap as opposed
+    to the stack. This is because when we are done using the memory, the heap needs
+    to be cleaned up by Go’s garbage collection. The garbage collector goes through
+    the objects in the heap that are no longer referenced by any goroutine and marks
+    the space as free so that it can be reused. When we use space on the stack, this
+    memory is reclaimed when the function finishes.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Go中，与使用栈相比，使用堆上的内存会有额外的微小成本。这是因为当我们完成对内存的使用后，堆需要由Go的垃圾回收器进行清理。垃圾回收器会遍历堆中不再被任何goroutine引用的对象，并将空间标记为空闲，以便可以重用。当我们使用栈上的空间时，当函数结束时，此内存会被回收。
+- en: 'We can tell that a variable has escaped to heap memory by asking the compiler
+    to show its optimization decisions. We can do this by using the `-m` compile-time
+    option:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过要求编译器显示其优化决策来判断一个变量是否已逃逸到堆内存。我们可以通过使用`-m`编译时选项来完成此操作：
+- en: '[PRE2]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Here the compiler is telling us which variables are escaping to heap memory
+    and which ones are staying on the stack. At line 7, the `seconds` pointer variable
+    is not escaping to the heap and is thus staying on the stack of our `countdown()`
+    function. However, the compiler is placing the `count` variable on the heap since
+    we are sharing the variable with another goroutine.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，编译器告诉我们哪些变量正在逃逸到堆内存，哪些变量保持在栈上。在第7行，`seconds`指针变量没有逃逸到堆上，因此保持在`countdown()`函数的栈上。然而，编译器将`count`变量放在堆上，因为我们与另一个goroutine共享该变量。
+- en: 'If we remove the `go` call from our code, turning it into a sequential program,
+    the compiler will not move the `count` variable to the heap. Here is the output
+    after we remove the `go` keyword:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们从代码中移除`go`调用，将其转换为顺序程序，编译器不会将`count`变量移动到堆上。以下是移除`go`关键字后的输出：
+- en: '[PRE3]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Notice that we no longer get the message `moved to heap` for the `count` variable.
+    The other change is that we now get a message saying the compiler is inlining
+    the function call to `countdown()`. *Inlining* is an optimization where, under
+    certain conditions, the compiler replaces the function call with the contents
+    of the function. The compiler does this to improve performance since calling a
+    function has a slight overhead, which comes from preparing the new function stack,
+    passing the input params onto the new stack, and making the program jump to the
+    new instructions on the function. When we execute the function in parallel, it
+    doesn’t make sense to inline the function, since the function is executed using
+    a separate stack, potentially on another kernel-level thread.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，我们不再收到`count`变量`moved to heap`的消息。另一个变化是我们现在收到一条消息，说明编译器正在内联`countdown()`函数调用。**内联**是一种优化，在特定条件下，编译器会替换函数调用为函数的内容。编译器这样做是为了提高性能，因为调用函数会有轻微的开销，这来自准备新的函数栈，将输入参数传递到新的栈上，以及使程序跳转到函数上的新指令。当我们并行执行函数时，内联函数没有意义，因为函数是使用单独的栈执行的，可能是在另一个内核级线程上。
+- en: By using goroutines, we are forfeiting some compiler optimizations, such as
+    inlining, and we are increasing overhead by putting our shared variable on the
+    heap. The tradeoff is that by executing our code concurrently, we potentially
+    achieve a speedup.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用goroutines，我们放弃了某些编译器优化，例如内联，并且通过将我们的共享变量放在堆上增加了开销。这种权衡是通过并发执行我们的代码，我们可能实现加速。
+- en: 3.2.3 Updating shared variables from multiple goroutines
+  id: totrans-61
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.2.3 从多个goroutines更新共享变量
+- en: Let’s now look at an example involving more than two goroutines, where the goroutines
+    are updating the same variables at the same time. For this example, we’ll write
+    a program to find out how often the English alphabet letters appear in common
+    text. The program will process web pages by downloading them and then counting
+    how often each letter in the alphabet appears on the pages. When the program completes,
+    it should give us a frequency table with a count of how often each character occurs.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们看看一个涉及多个goroutines的例子，其中goroutines同时更新相同的变量。对于这个例子，我们将编写一个程序来找出英文字母在常见文本中出现的频率。该程序将通过下载网页并计算字母表中每个字母在网页上出现的频率来处理网页。当程序完成后，它应该给出一个频率表，显示每个字符出现的次数。
+- en: Let’s start by first developing this in a normal sequential manner and then
+    changing our code so that it runs in a concurrent fashion. The steps and data
+    structures needed to develop such a program are shown in figure 3.7\. We’ll use
+    a slice integer data structure as our letter table, containing the results of
+    each letter count. Our program will examine a list of web pages, one at a time,
+    downloading and scanning the web page’s contents, and reading and updating the
+    count of each English letter encountered on the page.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们先以正常的顺序开发这个程序，然后再修改我们的代码，使其以并发方式运行。开发此类程序所需的步骤和数据结构如图3.7所示。我们将使用切片整数数据结构作为我们的字母表，包含每个字母计数的结果。我们的程序将逐个检查网页列表，下载和扫描网页的内容，并读取和更新页面上遇到的每个英语字母的计数。
+- en: '![](../../OEBPS/Images/CH03_F07_Cutajar.png)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F07_Cutajar.png)'
+- en: Figure 3.7 A single goroutine counting letters on various web pages
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.7 单个goroutine在各个网页上统计字母
+- en: We can start by writing a simple function that downloads all the text from a
+    URL and then iterates over every character in the downloaded text, as shown in
+    the next listing. While we’re doing this, we can update the letter frequency count
+    table for any characters in the English alphabet (excluding punctuation marks,
+    spaces, etc.).
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以先编写一个简单的函数，从URL下载所有文本，然后遍历下载文本中的每个字符，如下一列表所示。在执行此操作的同时，我们可以更新任何英文字母（不包括标点符号、空格等）的字母频率计数表。
+- en: Listing 3.2 Function producing a letter-frequency count for a web page
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.2 生成网页字母频率计数的函数
+- en: '[PRE4]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Downloads the web page from the given URL
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从给定的URL下载网页
+- en: ❷ Closes the response at the end of the function
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在函数结束时关闭响应
+- en: ❸ Iterates over every downloaded character
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 遍历每个下载的字符
+- en: ❹ Finds the index of the character in the alphabet
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 找到字符在字母表中的索引
+- en: ❺ If the character is part of the alphabet, increments the count by 1
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 如果字符是字母表的一部分，则将计数增加1
+- en: Note For the sake of conciseness, we are ignoring some error handling in these
+    listings.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：为了简洁起见，我们在这些列表中忽略了某些错误处理。
+- en: The function starts by downloading the contents of the URL in its input argument.
+    It then iterates over every single character, using the `for` loop, and converts
+    each to lowercase. We do this so that we count uppercase and lowercase characters
+    as equivalent. If we find the character in the string containing the English alphabet,
+    then we increment the count of that character in the Go slice entry represented
+    by that character. Here we are using the Go slice as our character frequency table.
+    In this table, the element 0 represents the count of the letter *a*, element 1
+    is *b*, 2 is *c,* and so on. At the end of our function, after we have processed
+    the entire downloaded document, we output a message showing which URL the function
+    completed.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数首先通过其输入参数下载URL的内容。然后使用`for`循环遍历每个字符，并将其转换为小写。我们这样做是为了将大写和小写字符视为等效。如果我们发现该字符在包含英语字母的字符串中，那么我们就增加该字符在Go切片条目中的计数。在这里，我们使用Go切片作为我们的字符频率表。在这个表中，元素0代表字母*a*的计数，元素1是*b*，2是*c*，依此类推。在函数结束时，在处理完整个下载的文档之后，我们输出一条消息，显示函数完成的URL。
+- en: Let’s run this function using some web pages. Ideally, we want static pages
+    that never change. It would also be good if the contents of the web pages were
+    just text with no document formatting, images, links, etc. For example, a news
+    web page would not suffice, since the content changes frequently and is rich in
+    formatting.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们使用一些网页来运行这个函数。理想情况下，我们希望是永远不会改变的静态页面。如果网页的内容只是文本，没有文档格式、图片、链接等，那就更好了。例如，新闻网页就不够，因为内容经常变化，格式丰富。
+- en: The [www.rfc-editor.org](https://www.rfc-editor.org/) website contains a database
+    of technical documents (called *requests* *for comments*, or RFCs) about the internet,
+    including specifications, standards, policies, and memos. It’s a good source for
+    this exercise because the documents do not change, and we can download text-only
+    documents with no formatting. The other advantage is that the URLs have incremental
+    document IDs, which make them predictable. We can use the URL format of `rfc-editor.org/rfc/rfc{ID}.txt`.
+    For example, we can get document ID 1001 with the URL `rfc-editor.org/rfc/rfc1001.txt`.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[www.rfc-editor.org](https://www.rfc-editor.org/)网站包含一个关于互联网的技术文档数据库（称为*请求评论*，或RFC），包括规范、标准、政策和备忘录。它是这个练习的好来源，因为文档不会改变，我们可以下载没有格式的纯文本文档。另一个优点是URL具有递增的文档ID，这使得它们可预测。我们可以使用`rfc-editor.org/rfc/rfc{ID}.txt`的URL格式。例如，我们可以通过URL
+    `rfc-editor.org/rfc/rfc1001.txt`获取文档ID 1001。'
+- en: Now we just need a `main()` function that runs our `countLetters()` function
+    many times, each time with a different URL, passing in the same frequency table
+    and letting it update the character counts. The following listing shows this `main()`
+    function.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们只需要一个`main()`函数来多次运行`countLetters()`函数，每次使用不同的URL，传入相同的频率表，并让它更新字符计数。下面的列表显示了此`main()`函数。
+- en: Listing 3.3 `main()` function calling `countLetters()` with different URLs
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.3 `main()`函数调用`countLetters()`使用不同的URL
+- en: '[PRE5]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Initializes slice space for the frequency table
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 为频率表初始化切片空间
+- en: ❷ Iterates from document ID 1000 to 1030 to download 31 docs
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从文档ID 1000迭代到1030以下载31个文档
+- en: ❸ Calls the countLetters() function sequentially
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 依次调用countLetters()函数
+- en: ❹ Outputs each letter with its frequency
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 输出每个字母及其频率
+- en: 'In the `main()` function, we create a new slice that will store the results,
+    containing the letter frequency table. Then we specify downloading 31 documents
+    from `rfc1000.txt` to `rfc1030.txt`. The program calls our `countLetters()` function
+    sequentially to download and process each web page (i.e., one after the other).
+    Depending on the speed of our internet connection, the program can take anywhere
+    from a few seconds to a couple of minutes. Once it’s finished, the `main()` function
+    will output the contents of the `frequency` slice variable:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`main()`函数中，我们创建一个新的切片来存储结果，包含字母频率表。然后我们指定从`rfc1000.txt`到`rfc1030.txt`下载31个文档。程序依次调用我们的`countLetters()`函数来下载和处理每个网页（即一个接一个）。根据我们的互联网连接速度，程序可能需要几秒钟到几分钟的时间。一旦完成，`main()`函数将输出`frequency`切片变量的内容：
+- en: '[PRE6]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: The last line of the program output (before the times) contains the count of
+    each letter in all 31 documents. The first entry in the list represents the count
+    for the letter *a*, the second for *b,* and so on. A quick glance tells us that
+    the letter *e* is the most frequent letter in our documents. The program took
+    about 17 seconds to complete.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 程序输出的最后一行（在时间之前）包含所有31个文档中每个字母的计数。列表中的第一个条目代表字母*a*的计数，第二个为*b*，以此类推。快速浏览告诉我们，字母*e*是我们文档中最频繁的字母。程序完成大约需要17秒。
+- en: Let’s now try to improve the speed of our program by using concurrent programming.
+    Figure 3.8 shows how we can use multiple goroutines to download and process each
+    web page concurrently instead of one after the other. The trick here is to run
+    our `countLetters()` function concurrently by using the `go` keyword.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们现在尝试通过使用并发编程来提高我们程序的速度。图3.8显示了我们可以如何使用多个goroutines并发地下载和处理每个网页，而不是一个接一个。这里的技巧是使用`go`关键字并发运行我们的`countLetters()`函数。
+- en: '![](../../OEBPS/Images/CH03_F08_Cutajar.png)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F08_Cutajar.png)'
+- en: Figure 3.8 Goroutines working together to count characters
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.8 Goroutines协同计数字符
+- en: To implement this, we have to make two changes to our `main()` function, as
+    shown in listing 3.4\. The first is that we’ll add `go` to our `countLetters()`
+    function call. This just means that we will be creating 31 goroutines, one per
+    web page. Each goroutine will then download and process its document concurrently
+    (i.e., all at the same time, instead of one after the other). The second change
+    is that we’ll wait for a few seconds until all the goroutines are complete. We
+    need this step; otherwise, when the `main()` goroutine finishes, the process would
+    terminate before we had finished processing all the downloads. This is because
+    in Go, when the `main()` goroutine completes, the entire process terminates. This
+    happens even if other goroutines are still executing.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现这一点，我们必须对我们的`main()`函数进行两项更改，如列表3.4所示。第一项是，我们将在`countLetters()`函数调用中添加`go`。这意味着我们将创建31个goroutines，每个网页一个。然后，每个goroutine将并发（即同时，而不是一个接一个）下载和处理其文档。第二项更改是我们将等待几秒钟，直到所有goroutines都完成。我们需要这一步；否则，当`main()`
+    goroutine完成时，在完成所有下载之前，进程就会终止。这是因为Go中，当`main()` goroutine完成时，整个进程都会终止。即使其他goroutines仍在执行也是如此。
+- en: WARNING Using the `countLetters()` function from multiple goroutines will produce
+    erroneous results due to a race condition that will be discussed in the next section.
+    We are doing this here for demonstration purposes only.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：由于将在下一节讨论的竞态条件，从多个goroutines中使用`countLetters()`函数会产生错误的结果。我们在这里这样做只是为了演示目的。
+- en: Listing 3.4 `main()` function creating goroutines and sharing the frequency
+    slice
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.4 `main()`函数创建goroutines并共享频率切片
+- en: '[PRE7]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Starts a goroutine that calls the countLetters() function
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 启动一个调用countLetters()函数的goroutine
+- en: ❷ Waits for the goroutines to finish
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待goroutines完成
+- en: ❸ Outputs each letter with its frequency
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 输出每个字母及其频率
+- en: NOTE Using `Sleep()` is not a great way to wait for another goroutine to complete.
+    In fact, if you have a slow internet connection, you might need to increase the
+    wait time in listing 3.4\. In chapter 5, we’ll discuss how to use condition variables
+    and semaphores for this task. Additionally, in chapter 6, we will introduce the
+    concept of waitgroups, which allow us to block the execution of a goroutine until
+    certain tasks have completed.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：使用`Sleep()`等待另一个goroutine完成并不是一个好方法。实际上，如果你有慢速的互联网连接，你可能需要增加列表3.4中的等待时间。在第5章中，我们将讨论如何使用条件变量和信号量来完成这项任务。此外，在第6章中，我们将介绍等待组的概念，它允许我们在某些任务完成之前阻塞goroutine的执行。
+- en: Notice how, in this example, the goroutines all share the same data structure
+    in memory. When we initialize the Go slice in the `main()` function, we allocate
+    space for it on the heap. When we create the goroutines, we pass them all the
+    same reference to the memory location containing the Go slice. The 31 goroutines
+    then go about reading and writing to the same frequency slice concurrently. In
+    this way, the threads are cooperating and working together to update the same
+    memory space. That’s all there is to thread memory sharing. You have a data structure
+    or a variable that you’re sharing with other threads. The difference compared
+    to sequential programming is that a goroutine might write a value to a variable,
+    but when it reads it back, the value might be different since another goroutine
+    might have changed it.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意在这个例子中，所有的goroutines都在内存中共享相同的数据结构。当我们初始化`main()`函数中的Go切片时，我们在堆上为其分配空间。当我们创建goroutines时，我们将包含Go切片的内存位置的相同引用传递给它们。然后，31个goroutines并发地读取和写入相同的频率切片。这样，线程正在合作并共同更新相同的内存空间。这就是线程内存共享的全部内容。你有一个数据结构或变量，你正在与其他线程共享。与顺序编程相比，不同之处在于goroutine可能会向变量写入值，但当我们再次读取它时，值可能不同，因为另一个goroutine可能已经更改了它。
+- en: 'If you ran this program, you might have noticed a problem with it. Here’s what
+    the output looks like after running it:'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你运行了这个程序，你可能已经注意到它的问题。以下是运行后的输出结果：
+- en: '[PRE8]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: First, you’ll notice that the downloads finish much faster than in the sequential
+    version. We were expecting this. Doing the downloads all in one go should be faster
+    than doing them one after the other. Second, the output messages are no longer
+    in order. Since we start downloading all the documents at the same time, some
+    will finish earlier than others because they all have different sizes. The ones
+    that finish earlier output their completed messages first. The order in which
+    we process the pages doesn’t really matter for this application.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，你会注意到下载完成得比顺序版本快得多。我们预料到了这一点。一次性完成所有下载应该比一个接一个地下载要快。其次，输出消息不再按顺序排列。由于我们同时开始下载所有文档，由于它们的大小不同，一些文档会比其他文档先完成。先完成的文档会先输出完成消息。在这个应用程序中，我们处理页面的顺序实际上并不重要。
+- en: 'The problem is in the result. When we compare the character counts of the sequential
+    run against the concurrent one, we notice a difference: most characters have a
+    lower count in the concurrent version. For example, the letter *e* has a count
+    of 181,360 in the sequential run and a count of 179,936 in the concurrent one
+    (your concurrent results may differ).'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 问题出在结果上。当我们将顺序运行和并发运行的字符计数进行比较时，我们注意到一个差异：大多数字符在并发版本中的计数较低。例如，字母 *e* 在顺序运行中的计数为
+    181,360，而在并发版本中的计数为 179,936（你的并发结果可能会有所不同）。
+- en: We can try running both the sequential and concurrent programs multiple times.
+    The results will vary depending on the computer setup, such as the internet connection
+    and processor speed. However, when we compare them, we’ll see that the sequential
+    version gives us the same results each time, but the parallel version gives us
+    slightly different values on each run. What is going on?
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以尝试多次运行顺序和并发程序。结果将取决于计算机设置，如互联网连接和处理器速度。然而，当我们比较它们时，我们会看到顺序版本每次都给出相同的结果，但并行版本每次运行都会给出略有不同的值。这是怎么回事？
+- en: This is the result of what’s known as a *race condition*—when we have multiple
+    threads (or processes) sharing a resource and they step over each other, giving
+    us unexpected results. Let’s go into more detail on why race conditions happen.
+    (In the next chapter, we’ll see how we can fix this problem with our concurrent
+    letter frequency program.)
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是所谓的竞争条件的结果——当我们有多个线程（或进程）共享资源并且它们相互干扰时，会给出意外的结果。让我们更详细地探讨为什么会出现竞争条件。（在下一章中，我们将看到如何通过我们的并发字母频率程序解决这个问题。）
+- en: 3.3 Race conditions
+  id: totrans-106
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.3 竞争条件
+- en: Race conditions are what happens when your program is trying to do many things
+    at the same time, and its behavior is dependent on the exact timing of independent
+    unpredictable events. As we saw in the previous section, our letter frequency
+    program ends up giving unexpected results, but sometimes the outcome is even more
+    dramatic. Our concurrent code might be happily running for a long period, and
+    then one day it may crash, resulting in more serious data corruption. This can
+    happen because the concurrent executions are lacking proper synchronization and
+    are stepping over each other.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 竞争条件发生在你的程序试图同时做很多事情时，其行为依赖于独立不可预测事件的确切时间。正如我们在上一节中看到的，我们的字母频率程序最终给出了意外的结果，但有时结果甚至更为戏剧化。我们的并发代码可能长时间稳定运行，但有一天可能会崩溃，导致更严重的数据损坏。这可能是因为并发执行缺乏适当的同步，相互干扰。
+- en: System-wide outage
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 全系统故障
+- en: The mood in the meeting on the 24th floor of Turner Belfort, a huge international
+    investment bank, was as bleak as it gets. The firm’s software developers met to
+    discuss the best way forward after a critical core application failed and caused
+    a system-wide outage. The system failure caused client accounts to report erroneous
+    amounts in their holdings.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特纳贝尔福特大厦24楼的会议气氛如同最糟糕的情况一样阴郁。这家大型国际投资银行的软件开发人员聚集在一起，讨论在关键核心应用程序失败并导致全系统故障后如何前进。系统故障导致客户账户报告了其持仓中的错误金额。
+- en: “Guys, we have a serious issue here. I found that the outage was caused by a
+    race condition in our code, introduced a while ago and triggered last night,”
+    said Mark Adams, senior developer.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “各位，我们这里有个严重的问题。我发现这次故障是由我们代码中的竞争条件引起的，这个条件是在一段时间前引入的，昨晚触发的，”高级开发者马克·亚当斯说。
+- en: The room went silent. The tiny cars outside the floor-to-ceiling windows slowly
+    and silently crept along in the heavy city traffic. The senior developers immediately
+    understood the severity of the situation, realizing that they would now be working
+    around the clock to fix the problem and sort out the mess in the datastore. The
+    less experienced developers understood that a race condition was serious, but
+    they didn’t know exactly what caused it and, therefore, kept their mouths shut.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 整个房间都安静了下来。在从地板到天花板的大窗户外面，微型汽车在繁忙的城市交通中缓慢而安静地行驶。资深开发者立即意识到情况的严重性，意识到他们现在将全天候工作以修复问题并整理数据存储库中的混乱。经验较少的开发者知道竞态条件很严重，但他们不知道确切的原因，因此闭口不言。
+- en: 'Eventually, David Holmes, delivery manager, broke the silence with this question:
+    “The application has been running for months without any problems, and we haven’t
+    released any code recently, so how on earth is it possible that the software just
+    broke down?”'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，交付经理大卫·霍姆斯打破了沉默，提出了这个问题：“该应用程序已经运行了几个月而没有出现任何问题，我们最近也没有发布任何代码，那么软件究竟是如何突然崩溃的呢？”
+- en: Everyone shook their heads and returned to their desks, leaving David in the
+    room alone, puzzled. He took out his phone and searched for the term “race condition.”
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个人都摇了摇头，回到了自己的桌子旁，留下大卫一个人在房间里感到困惑。他拿出手机并搜索了“竞态条件”这个术语。
+- en: This type of error doesn’t just apply to computer programs. Sometimes we see
+    examples of this in real life when we have concurrent actors interacting. For
+    example, a couple might share a household shopping list, such as a list of groceries
+    written on the fridge door. In the morning, before both head out to the office,
+    they independently decide that they’ll shop for groceries after work. The two
+    take a picture of the list and later drop by the shops to purchase all the items.
+    Unbeknownst to each, the other has decided to do the same thing. This is how they
+    end up with two of everything they need (see figure 3.9).
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种错误不仅适用于计算机程序。有时我们在现实生活中看到这种例子，当我们有并发参与者相互作用时。例如，一对夫妇可能会共享一个家庭购物清单，比如写在冰箱门上的购物清单。在早上，在他们各自去办公室之前，他们独立决定下班后去购物。两人拍下清单的照片，后来去商店购买所有物品。他们各自并不知道对方已经决定做同样的事情。这就是他们如何结束于拥有两份所需的一切（见图3.9）。
+- en: '![](../../OEBPS/Images/CH03_F09_Cutajar.png)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH03_F09_Cutajar.png)'
+- en: Figure 3.9 Race conditions happen in real life too, sometimes.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.9 竞态条件在现实生活中也时有发生。
+- en: Other race conditions
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其他竞态条件
+- en: A *software race condition* is one that occurs in a concurrent program. Race
+    conditions occur in other environments as well, such as in distributed systems,
+    electronic circuits, and sometimes even in human interactions.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*软件竞态条件*是在并发程序中发生的一种情况。竞态条件也发生在其他环境中，例如在分布式系统、电子电路中，有时甚至在人类互动中。'
+- en: In the letter-frequency application, we had a race condition that resulted in
+    the program underreporting the letter counts. Let’s write a simpler concurrent
+    program that highlights a race condition so that we can understand this problem
+    better. In the upcoming chapters, we’ll discuss different ways to avoid race conditions,
+    such as fixing the letter counter program using mutexes (discussed in the next
+    chapter).
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在字母频率应用中，我们遇到了一个竞态条件，导致程序未能准确报告字母计数。让我们编写一个更简单的并发程序，以突出显示竞态条件，以便我们更好地理解这个问题。在接下来的章节中，我们将讨论避免竞态条件的不同方法，例如使用互斥锁修复字母计数程序（将在下一章讨论）。
+- en: '3.3.1 Stingy and Spendy: Creating a race condition'
+  id: totrans-120
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.3.1 吝啬与挥霍：创建竞态条件
+- en: Stingy and Spendy are two separate goroutines. Stingy works hard and earns the
+    cash but never spends a single dollar. Spendy is the opposite, spending money
+    without earning anything. Both goroutines share a common bank account. To demonstrate
+    a race condition, we’ll make Stingy and Spendy earn and spend 10 dollars each
+    time for 1 million times. Since Spendy is spending the same exact amount that
+    Stingy is earning, we should finish with the same amount we started with if our
+    programming is correct (see figure 3.10).
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 吝啬与挥霍是两个独立的goroutine。吝啬的人努力工作并赚取现金，但从未花过一美元。挥霍的人正好相反，花钱而不赚钱。这两个goroutine共享一个共同的银行账户。为了演示竞态条件，我们将让吝啬与挥霍每次各自赚取和花费10美元，共1百万次。由于挥霍的花费与吝啬的赚取相同，如果我们的编程正确，我们应该以与开始时相同的金额结束（见图3.10）。
+- en: '![](../../OEBPS/Images/CH03_F10_Cutajar.png)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH03_F10_Cutajar.png)'
+- en: Figure 3.10 A race condition with two goroutines
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.10 两个goroutine的竞态条件
+- en: In listing 3.5, we first create the Stingy and Spendy functions. Both `stingy()`
+    and `spendy()` iterate 1 million times, adjusting a shared money variable each
+    time—the `stingy()` function adding 10 dollars each time and the `spendy()` function
+    subtract- ing it.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表3.5中，我们首先创建了Stingy和Spendy函数。`stingy()`和`spendy()`函数都迭代一百万次，每次调整共享的money变量——`stingy()`函数每次增加10美元，而`spendy()`函数则减去它。
+- en: WARNING Using the following `stingy()` and `spendy()` functions from multiple
+    goroutines will produce race conditions. We are doing it here for demonstration
+    purposes only.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：从多个goroutines中使用以下`stingy()`和`spendy()`函数将产生竞争条件。我们在这里仅为了演示目的。
+- en: Listing 3.5 Stingy and Spendy functions
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.5 Stingy和Spendy函数
+- en: '[PRE9]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ The function accepts a pointer to the variable holding the sum in the bank
+    account.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 函数接受一个指向银行账户中总和变量的指针。
+- en: ❷ stingy() function adds 10 dollars
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ stingy()函数每次增加10美元
+- en: ❸ spendy() function subtracts 10 dollars
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ spendy()函数减去10美元
+- en: We now need to call these two functions using a separate goroutine for each.
+    We can write a `main()` function that initializes the shared `money` variable,
+    creates the goroutines, and passes the variable reference to the newly created
+    goroutines.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在需要使用单独的goroutine调用这两个函数。我们可以编写一个`main()`函数，初始化共享的`money`变量，创建goroutines，并将变量引用传递给新创建的goroutines。
+- en: In listing 3.6, we initialize the common bank account to have 100 dollars. We
+    also have the `main()` goroutine sleep for 2 seconds after creating the goroutines
+    to wait for them to terminate. (In chapter 6, we will discuss waitgroups, which
+    will allow us to block until a task has finished instead of having to sleep for
+    several seconds.) After the main thread reawakens, it prints the amount of money
+    in the `money` variable.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表3.6中，我们初始化共同的银行账户为100美元。我们还让`main()` goroutine在创建goroutines后睡眠2秒钟，以等待它们终止。（在第6章中，我们将讨论waitgroups，这将允许我们阻塞直到任务完成，而不是需要睡眠几秒钟。）在主线程重新唤醒后，它打印`money`变量中的金额。
+- en: Listing 3.6 Stingy and Spendy `main()` function
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表3.6 Stingy和Spendy `main()`函数
+- en: '[PRE10]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: ❶ Initializes money value to have 100 dollars
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将银行账户中的金额初始化为100美元
+- en: ❷ Starts goroutines and passes a reference to the money variable
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动goroutines并传递money变量的引用
+- en: ❸ Waits for 2 seconds for the goroutines to complete
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 等待2秒钟，直到goroutines完成
+- en: 'In this listing, we expect that it will output 100 dollars as a result. After
+    all, we are just adding and subtracting 10 to the variable 1 million times. This
+    is simulating Stingy earning 10 million and Spendy spending the same amount, leaving
+    us with the initial value of 100\. However, here’s the output of the program:'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个列表中，我们期望它会输出100美元作为结果。毕竟，我们只是在变量上重复加10和减10一百万次。这模拟了Stingy赚取一千万美元和Spendy花费相同金额，留下我们初始的100美元。然而，这里是程序的输出：
+- en: '[PRE11]'
+  id: totrans-139
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'More than $4 million remains in the account! Stingy would be very happy with
+    this outcome. However, this result was pure chance. In fact, if we run it again,
+    our account might end up below zero:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 账户中剩余超过400万美元！Stingy对这个结果会非常满意。然而，这个结果是纯粹的偶然。事实上，如果我们再次运行它，我们的账户可能会降到零以下：
+- en: '[PRE12]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Heisenbugs
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 海森堡虫
+- en: We can try to debug what is going on in our Stingy and Spendy program by putting
+    some breakpoints in key places. However, it would be very unlikely that we would
+    spot the problem, since pausing on the breakpoints would slow down the execution,
+    making it less likely for the race condition to occur.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过在关键位置设置断点来尝试调试我们的Stingy和Spendy程序中正在发生的事情。然而，我们不太可能发现这个问题，因为暂停在断点上会减慢执行速度，使得竞争条件发生的可能性降低。
+- en: A race condition is a good example of a *Heisenbug**.* Named after the physicist
+    Werner Heisenberg, with reference to his quantum mechanics uncertainty principle,
+    a Heisenbug is a bug that disappears or changes behavior when we attempt to debug
+    and isolate it. Since they’re very hard to debug, the best way to deal with Heisenbugs
+    is to not have them at all. Thus, it’s vital to understand what causes race conditions
+    and learn techniques for preventing them in our code.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 竞争条件是*海森堡虫*的一个很好的例子。这个名字来源于物理学家维尔纳·海森堡，与他的量子力学不确定性原理有关，海森堡虫是在我们尝试调试和隔离它时消失或改变行为的bug。由于它们很难调试，处理海森堡虫的最佳方式是根本不出现。因此，了解导致竞争条件的原因并学习防止它们在代码中出现的技巧至关重要。
+- en: Let’s try to understand why we’re getting these weird results by walking through
+    a scenario. To keep things simple for now, let’s assume we have only one processor,
+    so no processing is happening in parallel. Figure 3.11 shows one such race condition
+    that is happening in our Stingy and Spendy program.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们通过一个场景来尝试理解为什么我们会得到这些奇怪的结果。为了使事情简单起见，现在让我们假设我们只有一个处理器，因此没有并行处理发生。图3.11显示了在我们的Stingy和Spendy程序中发生的一个这样的竞争条件。
+- en: '![](../../OEBPS/Images/CH03_F11_Cutajar.png)'
+  id: totrans-146
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图3.11 Stingy和Spendy之间的竞争条件解释](../../OEBPS/Images/CH03_F11_Cutajar.png)'
+- en: Figure 3.11 Race condition between Stingy and Spendy explained
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.11 Stingy和Spendy之间的竞争条件解释
+- en: At timestamps 1 through 3, Spendy is executing. The thread reads the value of
+    `100` from shared memory and puts it on the processor’s register. Then it subtracts
+    10 and writes back `90` dollars to the shared memory. At timestamps 4 through
+    6, it’s Stingy’s turn. It reads the value of `90`, adds 10, and writes back `100`
+    to the shared variable on the heap. Timestamps 7 through 11 are when things start
+    to go bad. At timestamp 7, Spendy reads the value of `100` from main memory and
+    writes this value to its processor registers. At timestamp 8, a context switch
+    happens, and Stingy’s goroutine starts executing on the processor. It goes about
+    reading the value of `100` from the shared variable since Stingy’s thread didn’t
+    get the chance to update it yet. At timestamps 9 and 10, the goroutines subtract
+    and add 10\. Spendy then writes back the value of `90`, and at time 11, Stingy’s
+    thread overwrites this by writing `110` to the shared variable. In total, we have
+    spent $20 and earned back $20, but we ended up with an extra $10 in our account.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在时间戳1到3之间，Spendy正在执行。线程从共享内存中读取`100`的值并将其放入处理器的寄存器中。然后它减去10，并将`90`美元写回共享内存。在时间戳4到6之间，轮到Stingy。它读取`90`的值，加上10，并将`100`写回堆上的共享变量。时间戳7到11是事情开始变坏的时候。在时间戳7，Spendy从主内存中读取`100`的值并将其写入其处理器寄存器。在时间戳8，发生上下文切换，Stingy的goroutine开始在处理器上执行。由于Stingy的线程还没有机会更新它，它开始从共享变量中读取`100`的值。在时间戳9和10之间，goroutines减去和加上10。然后Spendy将值写回`90`，在时间11，Stingy的线程通过将`110`写入共享变量来覆盖这个值。总的来说，我们花费了$20并赚回了$20，但我们的账户中多出了$10。
+- en: Definition The word *atomic* has its origins in the ancient Greek language,
+    meaning “indivisible.” In computer science, when we mention an *atomic operation*,
+    we mean an operation that cannot be interrupted.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义单词*原子*起源于古希腊语，意为“不可分割的”。在计算机科学中，当我们提到*原子操作*时，我们指的是不能被中断的操作。
+- en: We are having this problem because the operations `*money += 10` and `*money
+    -= 10` are not atomic; after compilation, they translate to more than one instruction.
+    An interruption in the execution can occur in between the instructions. Different
+    instructions from another goroutine can interfere and cause race conditions. When
+    this overstepping happens, we get unpredictable results.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们遇到这个问题是因为操作`*money += 10`和`*money -= 10`不是原子的；在编译后，它们转换成多个指令。执行中的中断可能发生在这些指令之间。来自另一个goroutine的不同指令可能会干扰并导致竞争条件。当这种越界发生时，我们会得到不可预测的结果。
+- en: Definition A *critical section* in our code is a set of instructions that should
+    be executed without interference from other executions affecting the state used
+    in that section. When this interference is allowed to happen, race conditions
+    may arise.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义在我们的代码中，*临界区*是一组应该在没有其他执行干扰该部分使用的状态的情况下执行的指令。当允许这种干扰发生时，可能会出现竞争条件。
+- en: Even if the instructions were atomic, we might still run into issues. Remember
+    how at the start of this chapter, we talked about processor caches and registers?
+    Each processor core has a local cache and registers to store the variables that
+    are used frequently. When we compile our code, the compiler sometimes applies
+    optimizations to keep the variables on the CPU registers or caches before giving
+    instructions to flush them back to memory. This means that there is a possibility
+    that the two goroutines operating on separate CPUs are not seeing each other’s
+    changes until they complete the periodic flush to memory.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使指令是原子的，我们仍然可能会遇到问题。记得在本章开头我们讨论了处理器缓存和寄存器吗？每个处理器核心都有一个局部缓存和寄存器来存储频繁使用的变量。当我们编译我们的代码时，编译器有时会应用优化，以保持变量在CPU寄存器或缓存中，在给出指令将其刷新回内存之前。这意味着两个在单独CPU上操作的goroutine可能直到它们完成周期性的内存刷新才看不到彼此的变化。
+- en: When we are executing a badly written concurrent program in a parallel environment,
+    it is even more likely that these types of errors will arise. Goroutines running
+    in parallel increase the chance of these types of race conditions happening since
+    now we will be performing some steps at the same time. In our Stingy and Spendy
+    program, the two goroutines are more likely to read the money variable at the
+    same time before writing it back when running in parallel.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在并行环境中执行一个编写糟糕的并发程序时，这些类型的错误出现的可能性更大。并行运行的 Goroutines 增加了这些类型的竞态条件发生的几率，因为现在我们将同时执行一些步骤。在我们的
+    Stingy 和 Spendy 程序中，当并行运行时，两个 Goroutines 更有可能在写回之前同时读取 money 变量。
+- en: When we are using goroutines (or any user-level threads) and we are running
+    only on a single processor, it is unlikely that the runtime will interrupt the
+    execution in the middle of these instructions. This is because user-level scheduling
+    is usually non-preemptive; it will only do a context switch in specific cases
+    such as I/O or when the application calls a thread yield (`Gosched()` in Go).
+    This is unlike the OS scheduling, which is usually preemptive and can interrupt
+    the execution at any time. It’s also unlikely that any goroutine will see an outdated
+    version of a variable, since all the goroutines will be running on the same processor,
+    using the same caches. In fact, if you try listing 3.6 with `runtime.GOMAXPROCS(1)`,
+    you probably won’t see the same issue.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们使用 Goroutines（或任何用户级线程）并且只在单个处理器上运行时，运行时不太可能在这些指令的中间中断执行。这是因为用户级调度通常是不可抢占的；它只会在特定情况下进行上下文切换，例如
+    I/O 或当应用程序调用线程释放（在 Go 中为 `Gosched()`）时。这与操作系统调度不同，操作系统调度通常是可抢占的，可以在任何时间中断执行。也不太可能任何
+    Goroutine 会看到变量的过时版本，因为所有 Goroutines 都将在同一个处理器上运行，使用相同的缓存。实际上，如果你尝试使用 `runtime.GOMAXPROCS(1)`
+    列出 3.6，你可能不会看到相同的问题。
+- en: Obviously, this is not a good solution, mainly because we would be giving up
+    the advantage of having multiple processors, but also because there is no guarantee
+    that it will solve the problem completely. A different or a future version of
+    Go might do scheduling differently and then break our program. Regardless of the
+    scheduling system we are using, we should guard against race conditions. This
+    way, we are safe from problems regardless of the environment that the program
+    will run on.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显然，这不是一个好的解决方案，主要是因为我们会放弃拥有多个处理器的优势，而且也没有保证它能完全解决问题。Go 的不同版本或未来版本可能会以不同的方式调度，从而破坏我们的程序。无论我们使用哪种调度系统，我们都应该防范竞态条件。这样，无论程序将在哪种环境中运行，我们都能确保安全。
+- en: 3.3.2 Yielding execution does not help with race conditions
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.3.2 释放执行并不能帮助解决竞态条件
+- en: What if we tell Go’s runtime exactly when it should run the scheduler? In the
+    previous chapter, we saw how we could use the `runtime.Gosched()` call to invoke
+    the scheduler so that we might yield execution to another goroutine. The following
+    listing shows how we could modify our two functions and make this call.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们告诉 Go 的运行时它应该在什么时候运行调度器会怎样？在前一章中，我们看到了如何使用 `runtime.Gosched()` 调用调度器，以便我们可以将执行权让给另一个
+    Goroutine。下面的列表显示了我们可以如何修改我们的两个函数并执行这个调用。
+- en: Listing 3.7 Stingy and Spendy functions invoking Go’s scheduler
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.7 Stingy 和 Spendy 函数调用 Go 的调度器
+- en: '[PRE13]'
+  id: totrans-159
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Calls the Go scheduler after we perform the addition
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在执行加法操作后调用 Go 调度器
+- en: ❷ Calls the Go scheduler after we perform the subtraction
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在执行减法操作后调用 Go 调度器
+- en: 'Unfortunately, this does not solve our problem. The output of this listing
+    will vary depending on system differences (the number of processors, the Go version
+    and implementation, the type of operating system, etc.). However, on a multicore
+    system, this was the output:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，这并没有解决我们的问题。这个列表的输出将根据系统差异（处理器的数量、Go 版本和实现、操作系统的类型等）而变化。然而，在多核系统中，这是输出结果：
+- en: '[PRE14]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'Running this one more time produced this result:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次运行这个程序产生了以下结果：
+- en: '[PRE15]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'It looks like the race condition is happening less frequently, but it’s still
+    occurring. In this snippet, the two goroutines were running in parallel on separate
+    processors. There are various reasons why the race condition might occur less
+    frequently, but it’s unlikely to be because we are instructing the scheduler when
+    to run. Let’s first remind ourselves what this call does by looking at the Go
+    documentation at [https://pkg.go.dev/runtime#Gosched](https://pkg.go.dev/runtime#Gosched):'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看起来竞态条件发生的频率降低了，但它仍然在发生。在这个片段中，两个goroutines在单独的处理器上并行运行。竞态条件发生频率降低可能有各种原因，但不太可能是由于我们指示调度器何时运行。让我们首先通过查看Go文档来提醒自己这个调用做了什么，文档地址为[https://pkg.go.dev/runtime#Gosched](https://pkg.go.dev/runtime#Gosched)：
+- en: '[PRE16]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Gosched yields the processor, allowing other goroutines to run. It does not
+    suspend the current goroutine, so execution resumes automatically.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Gosched让出处理器，允许其他goroutines运行。它不会挂起当前goroutine，因此执行会自动恢复。
+- en: Our program is now spending a smaller proportion of time on the critical sections
+    (addition and subtraction). It’s spending a considerable amount of time invoking
+    the Go scheduler, so it’s much less likely that the two goroutines read or write
+    the shared variable at the same time.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们程序现在在关键部分（加法和减法）上花费的时间比例更小。它在调用Go调度器上花费了相当多的时间，因此两个goroutines同时读取或写入共享变量的可能性大大降低。
+- en: Another reason why the race condition happens less often might be that the compiler
+    has fewer options to optimize the code in the loop since we’re now calling `runtime.Gosched()`.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 竞态条件发生频率降低的另一个原因可能是，由于我们现在调用了`runtime.Gosched()`，编译器在循环中优化代码的选项更少。
+- en: WARNING Never rely on telling the runtime when to yield the processor to solve
+    race conditions. There is no guarantee that another parallel thread will not interfere.
+    In addition, even if the system has one processor, if we were using more than
+    one kernel-level thread—for example, by setting a different value using `runtime.GOMAXPROCS(n)`—the
+    OS could interrupt the execution at any time.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：永远不要依赖告诉运行时何时让处理器让出以解决竞态条件。没有保证另一个并行线程不会干扰。此外，即使系统只有一个处理器，如果我们使用了超过一个内核级线程——例如，通过使用`runtime.GOMAXPROCS(n)`设置不同的值——操作系统可以在任何时候中断执行。
+- en: 3.3.3 Proper synchronization and communication eliminate race conditions
+  id: totrans-172
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.3.3 正确的同步和通信消除了竞态条件
+- en: How can we write concurrent programs that avoid race conditions? There is no
+    magic bullet here. There is no single technique best used to solve every case.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们如何编写避免竞态条件的并发程序？这里没有灵丹妙药。没有一种单一的技术最适合解决每个案例。
+- en: The first step is to make sure that we’re using the right tool for the job.
+    Is memory sharing really needed for the problem? Is there another way we can communicate
+    between goroutines? In chapter 7 of this book, we will look at a different way
+    of communicating—using channels and communicating sequential processes. This manner
+    of modeling concurrency eliminates many of these types of errors.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一步是确保我们使用了正确的工具来完成这项工作。内存共享对于这个问题真的需要吗？我们是否有其他方式可以在goroutines之间进行通信？在本书的第7章中，我们将探讨另一种通信方式——使用通道和通信顺序进程。这种方式建模并发消除了许多这类错误。
+- en: The second step to good concurrent programming is recognizing when a race condition
+    can occur. We must be mindful when we are sharing resources with other goroutines.
+    Once we know where these critical code parts are, we can think about the best
+    practices to employ so that the resources are shared safely.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 良好并发编程的第二步是识别何时可能发生竞态条件。当我们与其他goroutines共享资源时，我们必须保持警觉。一旦我们知道这些关键代码部分在哪里，我们就可以考虑采用最佳实践来确保资源安全共享。
+- en: Earlier we discussed a real-life race condition involving two people sharing
+    a shopping list. This led to them buying the groceries twice since they didn’t
+    know that the other person had also decided to do the shopping. We can prevent
+    this situation from occurring again by having a better way of synchronizing and
+    communicating, as shown in figure 3.12.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前我们讨论了一个涉及两个人共享购物清单的真实竞态条件。这导致他们买了两次杂货，因为他们不知道另一个人也决定去购物。我们可以通过采用更好的同步和通信方式来防止这种情况再次发生，如图3.12所示。
+- en: '![](../../OEBPS/Images/CH03_F12_Cutajar.png)'
+  id: totrans-177
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH03_F12_Cutajar.png)'
+- en: Figure 3.12 Proper synchronization and communication eliminates race conditions.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3.12 正确的同步和通信消除了竞态条件。
+- en: For example, we could leave a note or a mark on the shopping list to show that
+    someone is already doing the shopping. This would indicate to others that there
+    is no need to shop again. To avoid race conditions in our programming, we need
+    good synchronization and communication with the rest of the goroutines to make
+    sure they don’t step over each other. Good concurrent programming involves effectively
+    synchronizing your concurrent executions to eliminate race conditions while improving
+    performance and throughput. In later chapters of this book, we’ll use different
+    techniques and tools to synchronize and coordinate the threads in our programs.
+    In this way, we can work around these race conditions and synchronization problems,
+    sometimes avoiding them altogether.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们可以在购物清单上留下便条或标记，以表明有人已经在购物。这将向其他人表明没有必要再次购物。为了在我们的编程中避免竞态条件，我们需要与 goroutine
+    的其他部分有良好的同步和通信，以确保它们不会相互干扰。良好的并发编程涉及有效地同步你的并发执行，以消除竞态条件，同时提高性能和吞吐量。在本书的后续章节中，我们将使用不同的技术和工具来同步和协调程序中的线程。通过这种方式，我们可以绕过这些竞态条件和同步问题，有时甚至可以完全避免它们。
+- en: 3.3.4 The Go race detector
+  id: totrans-180
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 3.3.4 Go 竞态检测器
+- en: 'Go gives us a tool to detect race conditions in our code: we can run the Go
+    compiler with the `-race` command-line flag. With this flag, the compiler adds
+    special code to all memory accesses to track when different goroutines are reading
+    from and writing to memory. When we use this flag and a race condition is detected,
+    it outputs a warning message on the console. If we try running with this flag
+    on our Stingy and Spendy program (listings 3.5 and 3.6), we’ll get this result:'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go 给我们提供了一个检测代码中竞态条件的工具：我们可以通过使用 `-race` 命令行标志来运行 Go 编译器。使用此标志时，编译器会向所有内存访问添加特殊代码以跟踪不同的
+    goroutine 在何时从内存中读取和写入。当我们使用此标志并且检测到竞态条件时，它会在控制台上输出警告信息。如果我们尝试在 Stingy 和 Spendy
+    程序（列表 3.5 和 3.6）上使用此标志运行，我们会得到以下结果：
+- en: '[PRE17]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: In this example, Go’s race detector found our one race condition. It points
+    to critical sections in our code on lines 21 and 14, the parts where we add to
+    and subtract from the `money` variable in our `stingy()` and `spendy()` functions.
+    It also gives us information about the reads from and writes to memory. In the
+    preceding snippet, we can see that memory location `0x00c00001a0f8` was first
+    written by goroutine 6 (running `stingy()`) and then later read by goroutine 7
+    (running `spendy()`).
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，Go 的竞态检测器找到了我们的一个竞态条件。它指向代码中的关键部分，在第 21 行和第 14 行，这是我们向 `money` 变量添加和减去的部分。它还提供了关于内存读取和写入的信息。在前面的代码片段中，我们可以看到内存位置
+    `0x00c00001a0f8` 首先被 goroutine 6（运行 `stingy()`）写入，然后后来被 goroutine 7（运行 `spendy()`）读取。
+- en: WARNING Go’s race detector finds race conditions only when a particular race
+    condition is triggered. For this reason, the detector is not infallible. When
+    using the race detector, you should test your code with production-like scenarios,
+    but enabling it in a production environment is usually not desirable, since it
+    slows performance and uses a lot more memory.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：Go 的竞态检测器仅在特定的竞态条件被触发时才能找到竞态条件。因此，检测器并非完美无缺。在使用竞态检测器时，你应该使用类似生产环境的场景测试你的代码，但在生产环境中启用它通常是不受欢迎的，因为它会降低性能并使用更多的内存。
+- en: Recognizing race conditions gets easier with experience as you write more concurrent
+    code. It’s important to remember that whenever you are sharing resources (such
+    as memory) with other goroutines in a critical section of code, race conditions
+    may arise unless you synchronize access to the shared resource.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着你编写更多的并发代码，识别竞态条件会变得更加容易。重要的是要记住，无论何时你在代码的关键部分与其他 goroutine 共享资源（如内存），除非你同步对共享资源的访问，否则可能会出现竞态条件。
+- en: 3.4 Exercises
+  id: totrans-186
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 3.4 练习
+- en: NOTE Visit [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    to see all the code solutions.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 备注：访问 [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    以查看所有代码解决方案。
+- en: 'Modify our sequential-letter frequency program to produce a list of word frequencies
+    rather than letter frequencies. You can use the same URLs for the RFC web pages
+    as were used in listing 3.3\. Once it’s finished, the program should output a
+    list of words with the frequency with which each word appears in the web page.
+    Here’s some sample output:'
+  id: totrans-188
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 修改我们的顺序字母频率程序，以生成单词频率列表而不是字母频率列表。你可以使用与列表 3.3 中相同的 RFC 网页 URL。一旦完成，程序应该输出一个单词列表，其中包含每个单词在网页中出现的频率。以下是一些示例输出：
+- en: '[PRE18]'
+  id: totrans-189
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: What happens when you try to convert the sequential program into a concurrent
+    one, creating a goroutine for each page? We will fix these errors in the next
+    chapter.
+  id: totrans-190
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 当你尝试将顺序程序转换为并发程序，为每一页创建一个goroutine时，会发生什么？我们将在下一章中修复这些错误。
+- en: Run Go’s race detector on listing 3.1\. Does the result contain a race condition?
+    If it does, can you explain why it happens?
+  id: totrans-191
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表 3.1 上运行Go的竞态检测器。结果是否包含竞态条件？如果是，你能解释为什么会发生吗？
+- en: 'Consider the following listing. Can you find the race condition in this program
+    without running the race detector? Hint: Try running the program several times
+    to see if it results in a race condition.'
+  id: totrans-192
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 考虑以下列表。你能在不运行竞态检测器的情况下找到这个程序中的竞态条件吗？提示：尝试运行程序几次，看看是否会导致竞态条件。
+- en: Listing 3.8 Find the race condition
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 3.8 寻找竞态条件
+- en: '[PRE19]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Summary
+  id: totrans-195
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Memory sharing is one way in which multiple goroutines can communicate to accomplish
+    a task.
+  id: totrans-196
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 内存共享是多个goroutine之间进行通信以完成任务的一种方式。
+- en: Multiprocessor and multicore systems give us hardware support and systems to
+    share memory between threads.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 多处理器和多核系统为我们提供了硬件支持和系统，可以在线程之间共享内存。
+- en: Race conditions are when unexpected results arise due to sharing resources,
+    such as memory, between goroutines.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 竞态条件是指由于goroutine之间共享资源（如内存）而出现意外结果的情况。
+- en: A critical section is a set of instructions that should execute without interference
+    from other concurrent executions. When interference is allowed to happen, race
+    conditions might occur.
+  id: totrans-199
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 临界区是一组应该在没有其他并发执行干扰的情况下执行的指令。当允许发生干扰时，可能会出现竞态条件。
+- en: Invoking the Go scheduler outside critical sections is not a solution to the
+    problem of race conditions.
+  id: totrans-200
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在临界区外调用Go调度器不是解决竞态条件问题的方法。
+- en: Using proper synchronization and communication eliminates race conditions.
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用适当的同步和通信可以消除竞态条件。
+- en: Go gives us a race detector tool that helps us spot race conditions in our code.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Go 语言为我们提供了一个竞态检测工具，帮助我们检测代码中的竞态条件。

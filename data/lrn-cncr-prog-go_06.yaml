@@ -1,0 +1,1782 @@
+- en: 5 Condition variables and semaphores
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 5 条件变量和信号量
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Waiting on conditions with condition variables
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用条件变量等待条件
+- en: Implementing a write-preferring readers–writer lock
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实现偏向写者的读者-写者锁
+- en: Storing signals with counting semaphores
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用计数信号量存储信号
+- en: 'In the previous chapter, we saw how we can use mutexes to protect critical
+    sections of our code and prevent multiple goroutines from executing at the same
+    time. Mutexes are not the only synchronization tool that we have available: condition
+    variables give us extra controls that complement exclusive locking. They give
+    us the ability to wait for a certain condition to occur before unblocking the
+    execution. Semaphores go one step further than mutexes in that they allow us to
+    control how many concurrent goroutines can execute a certain section at the same
+    time. In addition, semaphores can be used to store a signal (of an occurring event)
+    for later access by an execution.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们看到了如何使用互斥锁来保护代码的关键部分，并防止多个goroutine同时执行。互斥锁并不是我们拥有的唯一同步工具：条件变量为我们提供了额外的控制，以补充独占锁定。它们使我们能够在解除阻塞执行之前等待某个条件的发生。信号量在互斥锁的基础上更进一步，因为它们允许我们控制多少个并发goroutine可以同时执行某个部分。此外，信号量还可以用来存储一个信号（发生事件的信号），以便稍后由执行过程访问。
+- en: Apart from being useful in our concurrent applications, condition variables
+    and semaphores are additional primitive building blocks that we can use to build
+    more complex tools and abstractions. In this chapter, we will also re-examine
+    our readers-writer lock, developed in the previous chapter, and improve it using
+    condition variables.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了在并发应用程序中很有用之外，条件变量和信号量还是我们可以用来构建更复杂工具和抽象的额外原始构建块。在本章中，我们还将重新审视上一章中开发的读者-写者锁，并使用条件变量对其进行改进。
+- en: 5.1 Condition variables
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.1 条件变量
+- en: Condition variables give us extra functionality on top of mutexes. We can use
+    them in situations where a goroutine needs to block and wait for a particular
+    condition to occur. Let’s look at an example to understand how they’re used.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 条件变量在互斥锁的基础上提供了额外的功能。我们可以在goroutine需要阻塞并等待特定条件发生的情况下使用它们。让我们通过一个例子来了解它们是如何使用的。
+- en: 5.1.1 Combining mutexes with condition variables
+  id: totrans-9
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.1 将互斥锁与条件变量结合
+- en: In previous chapters, we saw examples of two goroutines (Stingy and Spendy)
+    sharing the same bank account. Stingy’s and Spendy’s goroutines would repeatedly
+    earn and spend $10 respectively. What if we try to create an imbalance where Spendy
+    is spending at a faster rate than Stingy is earning? Previously we had the total
+    earnings and expenditure balanced at $10 million. In this example, we’ll keep
+    the same total amount balanced at $10 million, but we’ll increase the rate of
+    spending to $50 and reduce the total number of iterations to 200,000\. In this
+    way, the bank account will go into the negative very quickly (see figure 5.1)
+    since we’re now spending at a faster rate than we’re earning. The bank might also
+    have additional costs when we go into a negative balance. Ideally, we need a way
+    to slow down the spending so that the balance doesn’t go below zero.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的章节中，我们看到了两个goroutine（Stingy 和 Spendy）共享同一个银行账户的例子。Stingy 和 Spendy 的 goroutine
+    会反复赚取和花费 10 美元。如果我们尝试创建一个不平衡的情况，其中 Spendy 的花费速度比 Stingy 的赚取速度快呢？之前我们的总收入和总支出平衡在
+    1000 万美元。在这个例子中，我们将保持相同的总金额平衡在 1000 万美元，但我们将花费率提高到 50，并将总迭代次数减少到 20 万次。这样，银行账户会很快出现负数（见图
+    5.1），因为我们现在花费的速度比赚取的速度快。当我们的账户出现负数时，银行也可能会有额外的成本。理想情况下，我们需要一种方法来减缓花费，以防止余额低于零。
+- en: '![](../../OEBPS/Images/CH05_F01_Cutajar.png)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH05_F01_Cutajar.png)'
+- en: Figure 5.1 The Spendy goroutine spends the same amount as Stingy earns, but
+    at a faster rate.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.1 花费者goroutine花费的金额与 stingy 赚到的金额相同，但速度更快。
+- en: Listing 5.1 shows a modified `spendy()` function to show this scenario. In this
+    listing, when the bank account goes negative, we print a message and exit the
+    program. Notice that in both functions, the value earned and spent is the same.
+    It’s just that at the start, Spendy is spending at a faster rate than Stingy is
+    earning. If we omit `os.Exit()`, the `spendy()` function will complete earlier,
+    and then the `stingy()` function will eventually fill up the bank account to the
+    original value.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.1展示了修改后的`spendy()`函数以展示这种场景。在这个列表中，当银行账户变成负数时，我们打印一条消息并退出程序。注意，在这两个函数中，赚取和花费的金额是相同的。只是在开始时，Spendy的花费速度比Stingy的赚取速度快。如果我们省略`os.Exit()`，`spendy()`函数将更早完成，然后Stingy函数最终会将银行账户填满到原始值。
+- en: Listing 5.1 Spending at a faster rate (`main()` function omitted for brevity)
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.1：以更快的速度花费（省略了`main()`函数以节省篇幅）
+- en: '[PRE0]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Spends 50 while earning 10
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 花费50元，而收入只有10元
+- en: ❷ When the money variable goes negative, outputs message and terminates program
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当金钱变量变成负数时，输出消息并终止程序
+- en: 'When we run listing 5.1 using the `main()` method from chapter 4, the balance
+    goes into the negative quickly, and the program terminates:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们使用第4章中的`main()`方法运行列表5.1时，余额迅速变成负数，程序终止：
+- en: '[PRE1]'
+  id: totrans-19
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Is there anything we can do to stop the balance from going into the negative?
+    Ideally, we want a system that doesn’t spend money we don’t have. We can try to
+    have the `spendy()` function check if there is enough money before it goes ahead
+    and spends it. If there isn’t enough, we can have the goroutine sleep for some
+    time and then check again. This approach for the `spendy()` function is shown
+    in the next listing.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能做些什么来阻止余额变成负数吗？理想情况下，我们希望有一个系统不会花费我们没有的钱。我们可以尝试让`spendy()`函数在继续花费之前检查是否有足够的钱。如果没有足够的钱，我们可以让goroutine休眠一段时间，然后再次检查。`spendy()`函数的这种处理方式在下一列表中展示。
+- en: Listing 5.2 Spendy function retrying when it runs out of money
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.2：当金钱用尽时`spendy()`函数的重试
+- en: '[PRE2]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: ❶ Keeps trying if there isn’t enough money
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 如果没有足够的钱，会持续尝试
+- en: ❷ Unlocks mutex, allowing the other goroutine access to the money variable
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 解锁互斥锁，允许其他goroutine访问金钱变量
+- en: ❸ Sleeps for a short while
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 短暂休眠
+- en: ❹ Locks the mutex again to ensure we access the latest money value
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 再次锁定互斥锁以确保我们访问最新的金钱值
+- en: This solution will work for our use case, but it’s not ideal. In our example,
+    we choose the arbitrary sleep value of 10 milliseconds, but what would be the
+    optimal number to choose? At one extreme, we can choose not to sleep at all. This
+    ends up wasting CPU resources, as the CPU would be cycling needlessly, checking
+    the `money` variable even if it doesn’t change. At the other extreme, if the goroutine
+    sleeps for too long, we might waste time waiting for a change in the `money` variable
+    that has already happened.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个解决方案将适用于我们的用例，但并不理想。在我们的例子中，我们选择了任意的休眠值为10毫秒，但我们应该选择什么才是最佳数值呢？在一种极端情况下，我们可以选择完全不休眠。这会导致CPU资源浪费，因为CPU会无谓地循环，检查`money`变量即使它没有变化。在另一种极端情况下，如果goroutine休眠时间过长，我们可能会浪费时间等待已经发生的`money`变量变化。
+- en: This is where condition variables come in. Condition variables work together
+    with mutexes and give us the ability to suspend the current execution until we
+    have a signal that a particular condition has changed. Figure 5.2 shows a common
+    pattern for using a condition variable with a mutex.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这就是条件变量发挥作用的地方。条件变量与互斥锁协同工作，使我们能够挂起当前执行，直到我们收到特定条件已更改的信号。图5.2展示了使用条件变量与互斥锁的常见模式。
+- en: '![](../../OEBPS/Images/CH05_F02_Cutajar.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F02_Cutajar.png)'
+- en: Figure 5.2 Common pattern for using a condition variable with a mutex
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.2：使用条件变量与互斥锁的常见模式
+- en: 'Let’s go into the details of each step in figure 5.2 to understand this common
+    pattern for using condition variables:'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们深入到图5.2中每个步骤的细节，以了解使用条件变量的这种常见模式：
+- en: While holding a mutex, goroutine A checks for a particular condition on some
+    shared state. In our example, the condition would be “Is there enough money in
+    the shared bank account variable?”
+  id: totrans-32
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当持有互斥锁时，goroutine A检查共享状态上的特定条件。在我们的例子中，条件将是“共享银行账户变量中是否有足够的钱？”
+- en: If the condition is not met, goroutine A calls the `Wait()` function on the
+    condition variable.
+  id: totrans-33
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果条件不满足，goroutine A会在条件变量上调用`Wait()`函数。
+- en: 'The `Wait()` function performs two operations *atomically* (defined after this
+    list):'
+  id: totrans-34
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '`Wait()`函数执行两个操作*原子性地*（定义在列表之后）：'
+- en: It releases the mutex.
+  id: totrans-35
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它释放互斥锁。
+- en: It blocks the current execution, effectively putting the goroutine to sleep.
+  id: totrans-36
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它阻塞当前执行，实际上是将 Go 程置于睡眠状态。
+- en: Since the mutex is now available, another goroutine (goroutine B) acquires it
+    to update the shared state. For example, goroutine B increases the amount of funds
+    available in the shared bank account variable.
+  id: totrans-37
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 由于互斥锁现在可用，另一个 Go 程（Go 程B）获取它以更新共享状态。例如，Go 程B增加共享银行账户变量中可用的资金量。
+- en: After updating the shared state, goroutine B calls `Signal()` or `Broadcast()`
+    on the condition variable and then unlocks the mutex.
+  id: totrans-38
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在更新共享状态后，Go 程B在条件变量上调用 `Signal()` 或 `Broadcast()`，然后解锁互斥锁。
+- en: Upon receiving `Signal()` or `Broadcast()`, goroutine A wakes up and automatically
+    reacquires the mutex. Goroutine A can recheck the condition on the shared state,
+    such as by checking whether there is enough money in the shared bank account before
+    spending it. Steps 2 through 6 might repeat until the condition is met.
+  id: totrans-39
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当接收到 `Signal()` 或 `Broadcast()` 时，Go 程A会醒来并自动重新获取互斥锁。Go 程A可以重新检查共享状态上的条件，例如在花费之前检查共享银行账户中是否有足够的资金。步骤
+    2 到 6 可能会重复，直到条件得到满足。
+- en: The condition is eventually met.
+  id: totrans-40
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 条件最终会被满足。
+- en: The goroutine continues executing its logic, such as by spending the money now
+    available in the bank account.
+  id: totrans-41
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Go 程继续执行其逻辑，例如通过使用银行账户中现在可用的资金。
+- en: NoTE The key to understanding condition variables is to grasp that the `Wait()`
+    function releases the mutex and suspends the execution in an *atomic* manner.
+    This means that another execution cannot come in between these two operations,
+    acquire the lock, and call the `Signal()` function before the execution calling
+    `Wait()` has been suspended.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：理解条件变量的关键是理解 `Wait()` 函数以原子方式释放互斥锁并暂停执行。这意味着在这两个操作之间，另一个执行不能进来获取锁并调用 `Signal()`
+    函数，在调用 `Wait()` 的执行被暂停之前。
+- en: 'An implementation of a condition variable in Go can be found in the `sync.Cond`
+    type. If we look at the functions available on this type, we find the following:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go 中的条件变量实现可以在 `sync.Cond` 类型中找到。如果我们查看此类型上可用的函数，我们会发现以下内容：
+- en: '[PRE3]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Creating a new Go condition variable requires a `Locker`, which defines two
+    functions:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个新的 Go 条件变量需要一个 `Locker`，它定义了两个函数：
+- en: '[PRE4]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: To use Go’s condition variable, we need something that implements these two
+    functions, and a mutex is one such type. The following listing shows a `main()`
+    function that creates a mutex and then uses it in a condition variable. Later
+    it passes the condition variable to the `stingy()` and `spendy()` goroutines.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用 Go 的条件变量，我们需要实现这两个函数的东西，而互斥锁就是这样一种类型。以下列表显示了一个 `main()` 函数，它创建了一个互斥锁，然后将其用于条件变量。稍后，它将条件变量传递给
+    `stingy()` 和 `spendy()` Go 程中。
+- en: Listing 5.3 `main()` function creating a condition variable with a mutex
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.3 `main()` 函数使用互斥锁创建条件变量
+- en: '[PRE5]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Creates a new mutex
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的互斥锁
+- en: ❷ Creates a new condition variable using a mutex
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 使用互斥锁创建一个新的条件变量
+- en: ❸ Passes the condition variable to both goroutines
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将条件变量传递给两个 Go 程中
+- en: We can use the pattern outlined previously in figure 5.2 in our `stingy()` and
+    `spendy()` functions by using the functions available on the Go’s `sync.Cond`
+    type. Figure 5.3 shows the timings of a run with both goroutines using this pattern.
+    If we have the Spendy goroutine check the condition before subtracting $50, we
+    are protecting the balance from ever going negative. If there aren’t enough funds,
+    the goroutine waits, suspending its execution until more money is available. When
+    Stingy adds money, it sends a signal to resume any execution that is waiting for
+    more funds.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用 Go 的 `sync.Cond` 类型提供的函数，在我们的 `stingy()` 和 `spendy()` 函数中应用之前在图 5.2
+    中概述的模式。图 5.3 展示了使用此模式的两个 Go 程的运行时间。如果我们让 Spendy Go 程在减去 50 美元之前检查条件，我们就可以保护余额不会变成负数。如果没有足够的资金，Go
+    程会等待，暂停其执行，直到有更多的资金可用。当 Stingy 添加资金时，它会向等待更多资金的任何执行发送信号以恢复。
+- en: '![](../../OEBPS/Images/CH05_F03_Cutajar.png)'
+  id: totrans-54
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH05_F03_Cutajar.png)'
+- en: Figure 5.3 Stingy and Spendy using condition variables to prevent the balance
+    from going negative
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.3 显示了 Stingy 和 Spendy 使用条件变量防止余额变为负数
+- en: Changing the Stingy goroutine is simpler because we only need to signal. Listing
+    5.4 shows our modifications to this goroutine. Every time we add money to our
+    shared `money` variable, we send a signal by calling the `Signal()` function on
+    the condition variable. The other change is that we’re using the mutex present
+    on the condition variable to protect access to our critical section.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 修改节俭 goroutine 更简单，因为我们只需要发出信号。列表 5.4 显示了我们对此 goroutine 的修改。每次我们向共享的 `money`
+    变量添加资金时，我们通过在条件变量上调用 `Signal()` 函数来发送信号。另一个变化是我们正在使用条件变量上存在的互斥锁来保护对临界区的访问。
+- en: Listing 5.4 Stingy function signaling that more funds are available
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.4 节俭函数发出更多资金可用的信号
+- en: '[PRE6]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: ❶ Uses mutex on the condition variable
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用条件变量上的互斥锁
+- en: ❷ Signals on the condition variable every time we add to the shared money variable
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 每次向共享资金变量添加资金时，在条件变量上发出信号
+- en: Next, we can modify our `spendy()` function so that it waits until we have enough
+    funds in our `money` variable. We can implement this condition-checking using
+    a loop that calls `Wait()` every time the money amount is below the $50 mark.
+    In listing 5.5, we use a `for` loop that continues to iterate as long as `*money`
+    is less than $50\. In each iteration, it calls `Wait()`. The function also now
+    makes use of the mutexes contained on the condition variable type.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们可以修改我们的 `spendy()` 函数，使其等待直到我们的 `money` 变量中有足够的资金。我们可以通过一个循环来实现这个条件检查，每次资金金额低于
+    50 美元时，就调用 `Wait()`。在列表 5.5 中，我们使用了一个 `for` 循环，只要 `*money` 小于 50 美元，它就会持续迭代。在每次迭代中，它会调用
+    `Wait()`。该函数现在还利用了条件变量类型中包含的互斥锁。
+- en: Listing 5.5 Spendy waiting for more funds to be available
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.5 节俭等待更多资金可用
+- en: '[PRE7]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Uses the mutex on the condition variable
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用条件变量上的互斥锁
+- en: ❷ Waits while we don’t have enough money, releasing mutex and suspending execution
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当我们没有足够的资金时等待，释放互斥锁并挂起执行
+- en: ❸ Returning from Wait(), reacquires the mutex and subtracts money once there
+    is enough money
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 从 Wait() 返回时，一旦有足够的资金，就重新获取互斥锁并减去资金
+- en: NOTE Whenever a waiting goroutine receives a signal or broadcast, it will try
+    to reacquire the mutex. If another execution is holding on to the mutex, the goroutine
+    will remain suspended until the mutex becomes available.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：每当一个等待的 goroutine 收到信号或广播时，它都会尝试重新获取互斥锁。如果另一个执行正在持有互斥锁，那么 goroutine 将保持挂起状态，直到互斥锁变得可用。
+- en: 'When we execute listings 5.3, 5.4, and 5.5 together, the program does not exit
+    with a negative balance. Instead, we get the following output:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们执行列表 5.3、5.4 和 5.5 时，程序不会因为负余额而退出。相反，我们得到以下输出：
+- en: '[PRE8]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Monitors
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监视器
+- en: Sometimes we hear the term *monitor* used in the context of condition variables
+    and mutexes. A *monitor* is a synchronization pattern that has a mutex with an
+    associated condition variable. We can use these to wait or signal other threads
+    waiting on the condition, just as we have done in this section. Some languages,
+    such as Java, have a monitor construct on every object instance. In Go, we use
+    the monitor pattern every time we use a mutex with a condition variable.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时我们在条件变量和互斥锁的上下文中听到 *monitor* 这个术语。*monitor* 是一种同步模式，它有一个与相关条件变量关联的互斥锁。我们可以使用这些来等待或向正在等待条件的其他线程发出信号，就像我们在本节中所做的那样。一些语言，如
+    Java，在每个对象实例上都有一个 monitor 构造。在 Go 中，每次我们使用带有条件变量的互斥锁时，都使用 monitor 模式。
+- en: 5.1.2 Missing the signal
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.2 丢失信号
+- en: What happens if a goroutine calls `Signal()` or `Broadcast()` and there is no
+    execution waiting for it? Will it be lost or stored for the next goroutine to
+    call `Wait()`? The answer is shown in figure 5.4\. If there is no goroutine in
+    a waiting state, the `Signal()` or `Broadcast()` call will be missed. Let’s look
+    at this scenario by using condition variables to solve another problem—that of
+    waiting for our goroutines to complete their tasks.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个 goroutine 调用 `Signal()` 或 `Broadcast()` 而没有等待执行的执行，会发生什么？它会被丢失还是存储以供下一个
+    goroutine 调用 `Wait()`？答案如图 5.4 所示。如果没有处于等待状态的 goroutine，`Signal()` 或 `Broadcast()`
+    调用将会丢失。让我们通过使用条件变量来解决另一个问题——等待我们的 goroutine 完成它们的任务。
+- en: '![](../../OEBPS/Images/CH05_F04_Cutajar.png)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F04_Cutajar.png)'
+- en: Figure 5.4 Calling `Signal()` without `Wait()` will result in a missed signal.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.4 显示，在没有 `Wait()` 的情况下调用 `Signal()` 将导致信号丢失。
+- en: So far, we have been using `time.Sleep()` in our `main()` function to wait for
+    our goroutines to complete. This is not great, since we’re only estimating how
+    long the goroutines will take. If we run our code on a slower computer, we will
+    have to increase the amount of time we have to sleep.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直在`main()`函数中使用`time.Sleep()`来等待我们的goroutine完成。这并不好，因为我们只是在估计goroutine将花费多长时间。如果我们在一个较慢的计算机上运行我们的代码，我们将不得不增加我们睡眠的时间量。
+- en: Instead of using sleep, we can have our `main()` function wait on a condition
+    variable and then have the child goroutine send a signal when it’s ready. The
+    following listing shows an incorrect way of doing this.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以修改`doWork()`函数，使其在准备好后通过条件变量让`main()`函数等待，然后子goroutine发送信号。以下列表显示了这种做法的不正确方式。
+- en: Listing 5.6 Incorrect way of signaling
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.6 信号的不正确方式
+- en: '[PRE9]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Goroutine signals that it has finished the work.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ Goroutine发出信号，表明它已完成工作。
+- en: ❷ Repeats 50,000 times
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 重复50,000次
+- en: ❸ Starts a goroutine, simulating doing some work
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 启动一个goroutine，模拟做一些工作
+- en: ❹ Waits for a finished signal from the goroutine
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待goroutine发送完成信号
+- en: 'When we run listing 5.6, we get the following output:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们运行列表5.6时，我们得到以下输出：
+- en: '[PRE10]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: TIP Listing 5.6 might behave differently depending on the hardware and operating
+    system we run it on. To increase the chance of the preceding error happening,
+    we can insert a `runtime.Gosched()` call just before `cond.Wait()` in the `main()`
+    function. This gives the child goroutine more chances to execute before the `main()`
+    goroutine is in a wait state.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：列表5.6的行为可能取决于我们运行它的硬件和操作系统。为了增加前一个错误发生的可能性，我们可以在`main()`函数中的`cond.Wait()`之前插入一个`runtime.Gosched()`调用。这给了子goroutine在`main()`
+    goroutine进入等待状态之前执行更多机会。
+- en: The problem in the preceding output is that we might end up signaling when the
+    `main()` goroutine is not waiting on the condition variable. When this happens,
+    we miss the signal. Go’s runtime detects that a goroutine is waiting in vain since
+    there are no other goroutines that might call the signal function, and it throws
+    a fatal error.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前一个输出中的问题是，我们可能在`main()` goroutine没有在条件变量上等待时发出信号。当这种情况发生时，我们会错过信号。Go的运行时会检测到一个goroutine在徒劳地等待，因为没有其他goroutine可能调用信号函数，并且它会抛出一个致命错误。
+- en: NOTE We need to ensure that when we call the signal or broadcast function, there
+    is another goroutine waiting for it; otherwise, the signal or broadcast is not
+    received by any goroutine, and it’s missed.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：我们需要确保在调用信号或广播函数时，有另一个goroutine正在等待它；否则，信号或广播不会被任何goroutine接收，并且会错过。
+- en: 'To ensure that we don’t miss any signals and broadcasts, we need to use them
+    in conjunction with mutexes. That is, we should call these functions only when
+    we’re holding the associated mutex. In this way, we know for sure that the `main()`
+    goroutine is in a waiting state because the mutex is only released when the goroutine
+    calls `Wait()`. Figure 5.5 shows both scenarios: missing the signal and signaling
+    with a mutex.'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了确保我们不错过任何信号和广播，我们需要将它们与互斥锁结合使用。也就是说，我们应该只在持有相关互斥锁时调用这些函数。这样，我们可以确信`main()`
+    goroutine处于等待状态，因为互斥锁只有在goroutine调用`Wait()`时才会释放。图5.5显示了两种场景：错过信号和使用互斥锁发出信号。
+- en: '![](../../OEBPS/Images/CH05_F05_Cutajar.png)'
+  id: totrans-90
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F05_Cutajar.png)'
+- en: Figure 5.5 (a) Missing the signal when no goroutine is waiting; (b) using a
+    mutex in the `doWork()` goroutine and calling a signal when holding the mutex
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.5 (a) 没有goroutine等待时错过信号；(b) 在`doWork()` goroutine中使用互斥锁并在持有互斥锁时调用信号
+- en: We can modify the `doWork()` function from listing 5.6 so that it locks the
+    mutex before calling `signal``()`, as shown on the right side of figure 5.5\.
+    This ensures that the `main()` goroutine is in a waiting state, as shown in the
+    next listing.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以修改列表5.6中的`doWork()`函数，使其在调用`signal()`之前锁定互斥锁，如图5.5的右侧所示。这确保了`main()` goroutine处于等待状态，如下一个列表所示。
+- en: Listing 5.7 Holding a mutex while signalling
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.7 在信号时持有互斥锁
+- en: '[PRE11]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: ❶ Locks mutex before signaling
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在信号前锁定互斥锁
+- en: ❷ Signals on condition variable
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在条件变量上发出信号
+- en: ❸ Unlocks mutex after signaling
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 信号后解锁互斥锁
+- en: TIP Always use `Signal()`, `Broadcast()`, and `Wait()` when holding the mutex
+    lock to avoid synchronization problems.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：始终在持有互斥锁时使用`Signal()`、`Broadcast()`和`Wait()`，以避免同步问题。
+- en: 5.1.3 Synchronizing multiple goroutines with waits and broadcasts
+  id: totrans-99
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.3 使用等待和广播同步多个goroutine
+- en: We have only looked at examples using `Signal()` instead of `Broadcast()` so
+    far. When we have multiple goroutines suspended on a condition variable’s `Wait()`,
+    `Signal()` will arbitrarily wake up one of these goroutines. The `Broadcast()`
+    call, on the other hand, will wake up all goroutines that are suspended on a `Wait()`.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们到目前为止只看了使用`Signal()`而不是`Broadcast()`的示例。当我们有多个goroutine在条件变量的`Wait()`上挂起时，`Signal()`将任意唤醒这些goroutine中的一个。另一方面，`Broadcast()`调用将唤醒所有挂起在`Wait()`上的goroutine。
+- en: NOTE When a group of goroutines is suspended on `Wait()` and we call `Signal()`,
+    we only wake up one of the goroutines. We have no control over which goroutine
+    the system will resume, and we should assume that it can be *any* goroutine blocked
+    on the condition variable’s `Wait()`. Using `Broadcast()``,` we ensure that all
+    suspended goroutines on the condition variable are resumed.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：当一个goroutine组在`Wait()`上挂起时，我们调用`Signal()`，我们只会唤醒其中一个goroutine。我们无法控制系统将恢复哪个goroutine，我们应该假设它可以是条件变量的`Wait()`上挂起的**任何**goroutine。使用`Broadcast()`，我们确保所有挂起的goroutine都会被恢复。
+- en: Let’s now demonstrate the `Broadcast()` functionality with an example. Figure
+    5.6 shows a game that has players waiting for everyone to join before the game
+    begins. This is a common scenario in both online multiplayer gaming and game consoles.
+    Let’s imagine our program has a goroutine handling interactions with each player.
+    How can we write our code to suspend execution to each goroutine until all the
+    players have joined the game?
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们现在用一个例子来演示`Broadcast()`功能。图5.6显示了一个游戏，玩家在游戏开始前等待所有人加入。这在在线多人游戏和游戏机中都是一个常见的场景。让我们想象我们的程序有一个goroutine处理与每个玩家的交互。我们如何编写代码来挂起执行直到所有玩家都加入游戏？
+- en: '![](../../OEBPS/Images/CH05_F06_Cutajar.png)'
+  id: totrans-103
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH05_F06_Cutajar.png)'
+- en: Figure 5.6 Server waiting for four players to join before starting game play
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.6 服务器在开始游戏之前等待四个玩家加入
+- en: To simulate the goroutines handling four players, with each player connecting
+    to the game at a different time, we can have a `main()` function creating each
+    of the goroutines at a time interval (see listing 5.8). In our `main()` function,
+    we are also sharing a `playersInGame` variable. This tells the goroutines how
+    many players are participating in the game. Each goroutine executes a `playerHandler()`
+    function, which we’ll implement later.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了模拟处理四个玩家的goroutine，每个玩家在游戏中的连接时间不同，我们可以在`main()`函数中以时间间隔创建每个goroutine（参见列表5.8）。在我们的`main()`函数中，我们还在共享一个`playersInGame`变量。这告诉goroutine有多少玩家正在参加游戏。每个goroutine执行一个`playerHandler()`函数，我们将在稍后实现。
+- en: Listing 5.8 `main()` function starting player handlers with a time interval
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.8 `main()`函数以时间间隔启动玩家处理器
+- en: '[PRE12]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Creates a new condition variable
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个新的条件变量
+- en: ❷ Initializes the total number of players to be 4
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 初始化玩家总数为4
+- en: ❸ Starts goroutine sharing a condition variable, players in game, and player
+    ID
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 开始一个共享条件变量、游戏玩家和玩家ID的goroutine
+- en: ❹ Sleeps for a 1-second interval before the next player connects
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在下一个玩家连接之前暂停1秒
+- en: We can make use of condition variables by having more than one goroutine wait
+    on the same condition. Since we have a goroutine handling each player, we can
+    have each one wait on a condition that tells us when all the players have connected.
+    We can then use the same condition variable to check if all the players are connected,
+    and if not, we call `Wait()`. Each time a new goroutine connects to a new player,
+    we reduce this shared variable by `1`. When it reaches a count of `0`, we can
+    wake up all the suspended threads by calling `Broadcast()`.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过让多个goroutine等待同一个条件来使用条件变量。由于我们有一个处理每个玩家的goroutine，我们可以让每个goroutine等待一个条件，告诉我们所有玩家都已连接。然后我们可以使用相同的条件变量来检查所有玩家是否已连接，如果没有，我们调用`Wait()`。每次一个新的goroutine连接到新的玩家时，我们通过`1`减少这个共享变量的计数。当它达到`0`的计数时，我们可以通过调用`Broadcast()`唤醒所有挂起的线程。
+- en: Figure 5.7 shows the four different goroutines checking a `playersRemaining`
+    variable and waiting until the last player connects and its goroutine calls `Broadcast()`.
+    The last goroutine knows that it’s the last one since the `playersRemaining` shared
+    variable has a value of `0`.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.7显示了四个不同的goroutine检查`playersRemaining`变量，并等待最后一个玩家连接并且其goroutine调用`Broadcast()`。最后一个goroutine知道它是最后一个，因为共享变量`playersRemaining`的值为`0`。
+- en: '![](../../OEBPS/Images/CH05_F07_Cutajar.png)'
+  id: totrans-114
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH05_F07_Cutajar.png)'
+- en: Figure 5.7 Using the `Wait()` and `Broadcast()` pattern to wait for four players
+    to connect
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.7 使用`Wait()`和`Broadcast()`模式等待四个玩家连接
+- en: The player handler goroutine is shown in listing 5.9\. Each goroutine follows
+    the same condition variable pattern. We hold the mutex lock while subtracting
+    a count from the `playersRemaining` variable and checking to see if more players
+    need to connect. We also release this mutex atomically when we call `Wait()`.
+    The difference here is that a goroutine will call `Broadcast()` if it finds out
+    that there are no more players remaining to connect. The goroutine knows that
+    there are no more players to connect because the `playersRemaining` variable is
+    `0`.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 玩家处理 goroutine 显示在列表 5.9 中。每个 goroutine 都遵循相同的条件变量模式。我们在从 `playersRemaining`
+    变量中减去计数并检查是否还有更多玩家需要连接时持有互斥锁。我们还在调用 `Wait()` 时原子性地释放这个互斥锁。这里的区别是，如果 goroutine
+    发现没有更多玩家剩余要连接，它将调用 `Broadcast()`。goroutine 知道没有更多玩家要连接，因为 `playersRemaining` 变量是
+    `0`。
+- en: When all the other goroutines unblock from the `Wait()`, as a result of the
+    `Broadcast()`, they exit the condition-checking loop and release the mutex. From
+    this point onward, if this were a real multiplayer game, we would have code that
+    handles game play.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当所有其他 goroutine 由于 `Broadcast()` 而从 `Wait()` 中解除阻塞时，它们退出条件检查循环并释放互斥锁。从这一点开始，如果这是一个真正的多人游戏，我们将有处理游戏玩法的代码。
+- en: Listing 5.9 Player handler function
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.9 玩家处理函数
+- en: '[PRE13]'
+  id: totrans-119
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Locks the mutex on the condition variable to avoid race conditions
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 锁定条件变量的互斥锁以避免竞争条件
+- en: ❷ Subtracts 1 from the shared remaining players variable
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 从共享剩余玩家变量中减去 1
+- en: ❸ Sends a broadcast when all players have connected
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 当所有玩家都连接后发送广播
+- en: ❹ Waits on a condition variable as long as there are more players to connect
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 只要还有玩家要连接，就在条件变量上等待
+- en: ❺ Unlocks the mutex so that all goroutines can resume execution and start the
+    game
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 解锁互斥锁，以便所有 goroutine 可以继续执行并开始游戏
+- en: 'When we run the code in listings 5.8 and 5.9 together, each goroutine waits
+    for all the players to join until the last goroutine sends the broadcast and unblocks
+    all the goroutines. Here is the output:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们同时运行列表 5.8 和 5.9 中的代码时，每个 goroutine 都会等待所有玩家加入，直到最后一个 goroutine 发送广播并解除所有
+    goroutine 的阻塞。以下是输出：
+- en: '[PRE14]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 5.1.4 Revisiting readers–writer locks using condition variables
+  id: totrans-127
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.1.4 使用条件变量重新审视读者-写者锁
+- en: In the previous chapter, we used mutexes to develop our own implementation of
+    a readers–writer lock. That implementation was read-preferring, meaning that as
+    long as we have at least one reader goroutine holding the lock, the writer goroutine
+    can’t access the resource in its critical section. A writer goroutine can only
+    acquire the lock if all the readers have released their locks. If we don’t have
+    a readers’ free window, the writer will be left out. Figure 5.8 shows a scenario
+    where two goroutines take turns holding the reader’s lock, blocking the writer
+    from acquiring a lock.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们使用互斥锁开发了自己的读者-写者锁实现。该实现是偏好读的，这意味着只要至少有一个读者 goroutine 持有锁，写者 goroutine
+    就无法在其关键部分访问资源。写者 goroutine 只有在所有读者都释放了它们的锁之后才能获取锁。如果没有读者空闲窗口，写者将被排除在外。图 5.8 展示了一个场景，其中两个
+    goroutine 交替持有读者锁，阻止写者获取锁。
+- en: '![](../../OEBPS/Images/CH05_F08_Cutajar.png)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F08_Cutajar.png)'
+- en: Figure 5.8 The writer goroutine is unable to access the resource indefinitely
+    due to readers hogging resource access.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.8 由于读者占用资源访问，写者 goroutine 无法无限期地访问资源。
+- en: In technical-speak, we call this scenario *write-starvation*—we can’t update
+    our shared data structures because the reader parts of the execution are continuously
+    accessing them, blocking access to the writer. The following listing simulates
+    this scenario.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在技术术语中，我们称这种情况为 *写饥饿*——我们无法更新我们的共享数据结构，因为执行中的读者部分持续访问它们，阻止了写者的访问。以下列表模拟了这种情况。
+- en: Listing 5.10 Reader goroutines hogging the reader’s lock, blocking write access
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.10 读者 goroutine 占用读者锁，阻止写访问
+- en: '[PRE15]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Uses readers–writer mutex developed in chapter 4
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用第 4 章中开发的读者-写者互斥锁
+- en: ❷ Starts two goroutines
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动两个 goroutine
+- en: ❸ Repeats forever
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 无限重复
+- en: ❹ Sleeps for 1 second while holding the reader lock
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在持有读者锁的同时睡眠 1 秒
+- en: ❺ Tries to acquire the writer’s lock from the main() goroutine
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 尝试从 main() goroutine 获取写者锁
+- en: ❻ After the writer’s lock is acquired, outputs message and terminates
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 在获取写者锁后，输出消息并终止
+- en: 'Even though we have an infinite loop in our goroutines, we expect that eventually
+    the `main()` goroutine will acquire a hold on the writer’s lock, output the message
+    `Write finished`, and terminate. This should happen because in Go, whenever the
+    `main()` goroutine terminates, the entire process exits. However, when we run
+    listing 5.10, this is what happens:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管我们的goroutine中有一个无限循环，但我们期望最终`main()` goroutine会获取写者锁，输出消息`Write finished`，并终止。这应该会发生，因为在Go中，每当`main()`
+    goroutine终止时，整个进程都会退出。然而，当我们运行列表5.10时，这是发生的情况：
+- en: '[PRE16]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Our two goroutines constantly hold the reader part of our mutex, which prevents
+    our `main()` goroutine from ever acquiring the writer’s part of the lock. If we
+    are lucky, the readers might release the readers´ lock at the same time, enabling
+    the writer goroutine to acquire it. However, in practice, it is unlikely that
+    both reader threads will release the lock at the same time. This leads to the
+    writer-starvation of our `main()` goroutine.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的两个goroutine持续持有互斥锁的读者部分，这阻止了`main()` goroutine获取锁的写部分。如果我们很幸运，读者可能会同时释放读者锁，使写者goroutine能够获取它。然而，在实践中，两个读者线程同时释放锁的可能性不大。这导致我们的`main()`
+    goroutine发生写者饥饿。
+- en: DEFINITION *Starvation* is a situation where an execution is blocked from gaining
+    access to a shared resource because the resource is made unavailable for a long
+    time (or indefinitely) by other greedy executions.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义*饥饿*是一种情况，其中执行被阻止访问共享资源，因为资源由于其他贪婪执行长时间（或无限期）不可用。
+- en: 'We need a different design for a readers–writer lock that is not read-preferred—one
+    that doesn’t starve our writer goroutines. We could block new readers from acquiring
+    the read lock as soon as a writer calls the `WriteLock()` function. To achieve
+    this, instead of having the goroutines block on a mutex, we could have them suspended
+    using a condition variable. With a condition variable, we can have different conditions
+    on when to block readers and writers. To design a write-preferred lock, we need
+    a few properties:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要一个不同的设计来处理一个不是优先读取的读者-写者锁，一个不会饿死写者goroutine的锁。我们可以在写者调用`WriteLock()`函数时立即阻止新读者获取读锁。为了实现这一点，我们可以在条件变量上挂起goroutine，而不是让它们在互斥锁上阻塞。使用条件变量，我们可以设置不同的条件来决定何时阻塞读者和写者。要设计一个优先写锁，我们需要一些属性：
+- en: '*Readers’ counter*—Initially set to `0`, this tells us how many reader goroutines
+    are actively accessing the shared resources.'
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*读者计数器*—初始设置为`0`，这告诉我们有多少读者goroutine正在积极访问共享资源。'
+- en: '*Writers’ waiting counter*—Initially set to `0`, this tells us how many writer
+    goroutines are suspended waiting to access the shared resource.'
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*写者等待计数器*—初始设置为`0`，这告诉我们有多少写者goroutine正在挂起等待访问共享资源。'
+- en: '*Writer active indicator*—Initially set to `false`, this flag tells us if the
+    resource is currently being updated by a writer goroutine.'
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*写者活跃指示器*—初始设置为`false`，这个标志告诉我们资源当前是否正在被写者goroutine更新。'
+- en: '*Condition variable with mutex*—This allows us to set various conditions on
+    the preceding properties, suspending execution when the conditions aren’t met.'
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*带有互斥锁的条件变量*—这允许我们在前面的属性上设置各种条件，当条件不满足时挂起执行。'
+- en: Go’s `RWMutex`
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go的`RWMutex`
+- en: 'The `RWMutex` bundled with Go is write-preferring. This is highlighted in Go’s
+    documentation (from [https://pkg.go.dev/sync#RWMutex;](https://pkg.go.dev/sync#RWMutex)
+    calling `Lock()` acquires the writer’s part of the mutex):'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go附带`RWMutex`优先写。这在Go的文档中有突出显示（从[https://pkg.go.dev/sync#RWMutex](https://pkg.go.dev/sync#RWMutex)调用`Lock()`获取互斥锁的写部分）：
+- en: '*If a goroutine holds a RWMutex for reading and another goroutine might call
+    Lock, no goroutine should expect to be able to acquire a read lock until the initial
+    read lock is released. In particular, this prohibits recursive read locking. This
+    is to ensure that the lock eventually becomes available; a blocked Lock call excludes
+    new readers from acquiring the lock.*'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*如果一个goroutine持有RWMutex进行读取，而另一个goroutine可能会调用Lock，那么没有任何goroutine应该期望能够获取读锁，直到最初的读锁被释放。特别是，这禁止了递归读锁定。这是为了确保锁最终可用；阻塞的Lock调用排除了新读者获取锁的可能性。*'
+- en: Let’s look at different scenarios to help us understand the implementation.
+    The first scenario is when nothing is accessing the critical sections and no goroutines
+    are requesting write access. In this case, we allow reader goroutines to acquire
+    the read part of the lock and access the shared resource. This scenario is shown
+    on the left side of figure 5.9.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看不同的场景，以帮助我们理解实现。第一个场景是当没有访问临界区且没有goroutine请求写访问时。在这种情况下，我们允许读者goroutine获取读锁的部分并访问共享资源。这个场景在图
+    5.9 的左侧显示。
+- en: '![](../../OEBPS/Images/CH05_F09_Cutajar.png)'
+  id: totrans-153
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F09_Cutajar.png)'
+- en: Figure 5.9 (a) Readers can access the shared resource when no writers are active
+    or waiting. (b) We block writers from accessing the shared resource when readers
+    or a writer are using it. We also block new readers when writers are waiting.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.9 (a) 当没有写者活动或等待时，读者可以访问共享资源。(b) 当读者或写者正在使用时，我们阻止写者访问共享资源。当写者等待时，我们也阻止新的读者。
+- en: We know that there are no writers using the resource because the writer active
+    indicator is off. We can implement the writer active indicator as a Boolean flag
+    that is set to `true` when the writer acquires access to the lock. We also know
+    that no writers are waiting to acquire the lock because the writers’ waiting counter
+    is set to `0`. This waiting counter can be implemented as an integer data type.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们知道没有写者正在使用资源，因为写者活动指示器是关闭的。我们可以将写者活动指示器实现为一个布尔标志，当写者获取对锁的访问时设置为 `true`。我们还知道没有写者正在等待获取锁，因为写者等待计数器设置为
+    `0`。这个等待计数器可以作为一个整型数据类型实现。
+- en: The second scenario, shown on the right side of figure 5.9, is when readers
+    acquire the lock. When this happens, they must increment the readers’ counter.
+    This indicates to any writers wanting to acquire the writer’s lock that the resource
+    is busy being read. If a writer tries to acquire the lock at this time, it must
+    wait on a condition variable as long as readers are using the resource. It must
+    also update the writers’ waiting counter by incrementing it.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.9 的右侧显示的第二个场景是当读者获取锁时。当发生这种情况时，他们必须增加读者计数器。这向任何想要获取写锁的写者表明资源正在被读取。如果写者在此时尝试获取锁，它必须等待条件变量，直到读者使用资源。它还必须通过增加它来更新写者等待计数器。
+- en: The writers’ waiting counter ensures that any newcomer reader will know there
+    are waiting writers. The reader will then give priority to the writer by blocking
+    until the writers’ waiting counter is back to `0`. This is what makes our readers–writer
+    mutex write-preferring.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 写者等待计数器确保任何新来的读者都知道有等待的写者。然后读者将通过阻塞直到写者等待计数器回到 `0` 来优先考虑写者。这就是我们的读者-写者互斥锁优先考虑写者的原因。
+- en: To implement these two scenarios, we first need to create the properties we
+    have outlined. In the following listing, we set up a new struct with the required
+    properties and a function that initializes the condition variable and mutex.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现这两个场景，我们首先需要创建我们概述的属性。在下面的列表中，我们设置了一个新的结构体，其中包含所需的属性和一个初始化条件变量和互斥锁的函数。
+- en: Listing 5.11 Write-preferring readers–writer mutex type
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.11 优先写读者的读写互斥锁类型
+- en: '[PRE17]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: ❶ Stores the number of readers currently holding the read lock
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 存储当前持有读锁的读者数量
+- en: ❷ Stores the number of writers currently waiting
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 存储当前等待的写者数量
+- en: ❸ Indicates if a writer is holding the write lock
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 指示是否有写者持有写锁
+- en: ❹ Initializes a new ReadWriteMutex with a new condition variable and associated
+    mutex
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 使用新的条件变量和相关的互斥锁初始化一个新的ReadWriteMutex
+- en: Listing 5.12 shows the implementation of the read-locking function. When acquiring
+    the readers’ lock, the `ReadLock()` function uses the mutex on the condition variable
+    and then conditionally waits as long as there are writers waiting or active. Waiting
+    for the `writersWaiting` count to be `0` ensures we give priority to writer goroutines.
+    Once the reader checks these two conditions, the `readersCounter` is incremented
+    and the mutex is released.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.12 展示了读锁定函数的实现。在获取读者锁时，`ReadLock()` 函数使用条件变量的互斥锁，然后在有写者等待或活动的情况下条件性地等待。等待
+    `writersWaiting` 计数达到 `0` 确保我们优先给予写者goroutine。一旦读者检查这两个条件，`readersCounter` 就会增加，并且互斥锁被释放。
+- en: Listing 5.12 Readers’ lock function
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.12 读者锁函数
+- en: '[PRE18]'
+  id: totrans-167
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Acquires mutex
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取互斥锁
+- en: ❷ Waits on condition variable while writers are waiting or active
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当写者等待或活动时等待条件变量
+- en: ❸ Increments readers’ counter
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 增加读者计数器
+- en: ❹ Releases mutex
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 释放互斥锁
+- en: In the `WriteLock()` function, shown in listing 5.13, we use the same mutex
+    and condition variable to wait as long as readers or a writer are active. In addition,
+    the function increments the writers’ waiting counter variable to indicate that
+    it’s waiting for the lock to become available. Once we can acquire the writer’s
+    lock, we decrement the writers’ waiting counter by `1` and set the `writeActive`
+    flag to `true`.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`WriteLock()`函数中，如列表5.13所示，我们使用相同的互斥锁和条件变量等待，直到有读者或写入者活跃。此外，该函数增加写入者等待计数器变量以指示它在等待锁变得可用。一旦我们可以获取写入者的锁，我们就将写入者等待计数器减`1`并将`writeActive`标志设置为`true`。
+- en: Listing 5.13 Writer’s lock function
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.13 写入者的锁定函数
+- en: '[PRE19]'
+  id: totrans-174
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: ❶ Acquires mutex
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取互斥锁
+- en: ❷ Increments the writers’ waiting counter
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 增加写入者等待计数器
+- en: ❸ Waits on condition variable as long as there are readers or an active writer
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 只要存在读者或活跃的写入者，就在条件变量上等待
+- en: ❹ Once the wait is over, decrements the writers’ waiting counter
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待结束后，递减写入者等待计数器
+- en: ❺ Once the wait is over, marks writer active flag
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 等待结束后，标记写入者活跃标志
+- en: ❻ Releases mutex
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 释放互斥锁
+- en: The goroutine calling the `WriteLock()` function sets the `writeActive` flag
+    to `true` so that no other goroutine tries to access the lock at the same time.
+    A `writeActive` flag set to `true` will block both readers’ and writers’ goroutines
+    from acquiring the lock. This scenario is shown on the left side of figure 5.10.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调用`WriteLock()`函数的goroutine将`writeActive`标志设置为`true`，这样就没有其他goroutine会尝试同时访问锁。设置为`true`的`writeActive`标志将阻止读者和写入者的goroutine获取锁。这种情况在图5.10的左侧显示。
+- en: '![](../../OEBPS/Images/CH05_F10_Cutajar.png)'
+  id: totrans-182
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F10_Cutajar.png)'
+- en: Figure 5.10 (a) Readers and writers blocked when writer has access; (b) last
+    reader broadcasts to resume any writer so that it can have access
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.10 (a) 当写入者有访问权限时，读者和写入者被阻塞；(b) 最后一个读者广播以恢复任何写入者，使其能够访问
+- en: The last scenario is what we do when our goroutines release the lock. When the
+    last reader releases the lock, we can notify any suspended writer by broadcasting
+    on the conditional variable. A goroutine knows that it’s the last reader because
+    the readers’ counter will be `0` after it decrements it. This scenario is shown
+    on the right side of figure 5.10\. The `ReadUnlock()` function is shown in the
+    following listing.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一种情况是我们goroutines释放锁时的情况。当最后一个读者释放锁时，我们可以通过在条件变量上广播来通知任何挂起的写入者。goroutine知道它是最后一个读者，因为读者计数器在它递减后会变成`0`。这种情况在图5.10的右侧显示。`ReadUnlock()`函数在下面的列表中展示。
+- en: Listing 5.14 Readers’ unlock function
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.14 读者的解锁函数
+- en: '[PRE20]'
+  id: totrans-186
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Acquires mutex
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取互斥锁
+- en: ❷ Decrements readers’ counter by 1
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 递减读者计数器1
+- en: ❸ Sends broadcast if the goroutine is the last remaining reader
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果goroutine是最后一个剩余的读者，则发送广播
+- en: ❹ Releases mutex
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 释放互斥锁
+- en: The writer’s unlock function is simpler. Since there can only ever be one writer
+    active at any point in time, we can send a broadcast every time we unlock. This
+    will wake up any writers or readers that are currently waiting on the condition
+    variable. If there are both readers and writers waiting, a writer will be preferred
+    since the readers will go back into suspension when the writers’ waiting counter
+    is above `0`. The `WriteUnlock()` function is shown in the following listing.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 写入者的解锁函数更简单。由于在任何时候都只能有一个活跃的写入者，因此我们每次解锁时都可以发送广播。这将唤醒任何正在等待条件变量的写入者或读者。如果有读者和写入者都在等待，由于读者会在写入者等待计数器大于`0`时重新进入挂起状态，因此将优先选择写入者。`WriteUnlock()`函数在下面的列表中展示。
+- en: Listing 5.15 Writer’s unlock function
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.15 写入者的解锁函数
+- en: '[PRE21]'
+  id: totrans-193
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ Acquires mutex
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取互斥锁
+- en: ❷ Unmarks writer active flag
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 取消标记写入者活跃标志
+- en: ❸ Sends a broadcast
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 发送广播
+- en: ❹ Releases mutex
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 释放互斥锁
+- en: 'With this new writer-preferred implementation, we can rerun our code from listing
+    5.10 to confirm that we don’t get writer starvation. As expected, as soon as we
+    have a goroutine asking for write access, the reader goroutines wait and give
+    way to the writer. Our `main()` goroutine then completes, and the process terminates:'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种新的写入者优先实现，我们可以重新运行列表5.10中的代码以确认我们没有写入者饥饿。正如预期的那样，一旦有goroutine请求写入访问，读者goroutine就会等待并让出空间给写入者。然后我们的`main()`
+    goroutine完成，进程终止：
+- en: '[PRE22]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 5.2 Counting semaphores
+  id: totrans-200
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.2 计数信号量
+- en: In the previous chapter, we saw how mutexes allow only one goroutine to have
+    access to a shared resource, while a readers–writer mutex allows us to specify
+    multiple concurrent reads but exclusive writes. Semaphores give us a different
+    type of concurrency control, in that we can specify the number of concurrent executions
+    that are permitted. Semaphores can also be used as building blocks for developing
+    more complex concurrency tools, as we shall see in the following chapters.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在上一章中，我们看到了互斥锁（mutexes）如何允许只有一个goroutine访问共享资源，而读写互斥锁（readers–writer mutex）则允许我们指定多个并发读取但独占写入。信号量（semaphores）为我们提供了不同类型的并发控制，因为我们能够指定允许的并发执行的数量。信号量还可以作为构建更复杂并发工具的基石，正如我们将在接下来的章节中看到的。
+- en: 5.2.1 What’s a semaphore?
+  id: totrans-202
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.1 什么是信号量？
+- en: Mutexes give us a way to allow only one execution to happen at a time. What
+    if we need to allow a variable number of executions to happen concurrently? Is
+    there a mechanism that can allow us to specify how many goroutines can access
+    our resource? A mechanism that allows us to limit concurrency would enable us
+    to limit the load on a system. Think, for example, about a slow database that
+    only accepts a certain number of simultaneous connections. We could limit the
+    number of interactions by allowing a fixed number of goroutines to access the
+    database. Once the limit is reached, we can either make the goroutines wait or
+    return an error message to the client saying the system is at capacity.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 互斥锁（mutexes）为我们提供了一种允许一次只发生一个执行的方法。如果我们需要允许可变数量的执行并发发生呢？是否存在一种机制可以让我们指定可以访问我们资源的goroutine数量？一种允许我们限制并发的机制将使我们能够限制系统负载。例如，考虑一个慢速数据库，它只接受一定数量的并发连接。我们可以通过允许固定数量的goroutine访问数据库来限制交互次数。一旦达到限制，我们既可以让goroutine等待，也可以向客户端返回一个错误消息，说明系统已满负荷运行。
+- en: This is where *semaphores* come in handy. They allow a fixed number of permits
+    that enable concurrent executions to access shared resources. Once all the permits
+    are used, further requests for access will have to wait until a permit is freed
+    again (see figure 5.11).
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这正是*信号量*发挥作用的地方。它们允许固定数量的许可，使得并发执行能够访问共享资源。一旦所有许可都被使用，进一步的访问请求将不得不等待，直到有许可被释放（见图5.11）。
+- en: '![](../../OEBPS/Images/CH05_F11_Cutajar.png)'
+  id: totrans-205
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH05_F11_Cutajar.png)'
+- en: Figure 5.11 A fixed number of goroutines are allowed to have access.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5.11 允许固定数量的goroutine访问。
+- en: To better understand semaphores, let’s compare them to mutexes. A mutex ensures
+    that only a single goroutine has exclusive access, whereas a semaphore ensures
+    that at most *N* goroutines have access. In fact, a mutex gives the same functionality
+    as a semaphore where *N* has a value of 1\. A counting semaphore allows us the
+    flexibility to choose any value of *N*.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了更好地理解信号量，让我们将它们与互斥锁进行比较。互斥锁确保只有一个goroutine具有独占访问权，而信号量确保最多有*N*个goroutine可以访问。实际上，互斥锁提供了与信号量相同的功能，其中*N*的值为1。计数信号量允许我们选择*N*的任何值。
+- en: Definition A semaphore with only one permit is sometimes called a *binary semaphore*.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 只有一个许可的信号量有时被称为*二进制信号量*。
+- en: Note Although a mutex is a special case of a semaphore with one permit, there
+    is a slight difference in how they are expected to be used. When using mutexes,
+    the execution that is holding a mutex should also be the one to release it. When
+    using semaphores, this is not always the case.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意 虽然互斥锁是只有一个许可的信号量的特殊情况，但它们的使用预期存在细微差别。当使用互斥锁时，持有互斥锁的执行也应该负责释放它。当使用信号量时，情况并不总是如此。
+- en: 'To understand how we can use semaphores, let’s first have a look at the three
+    functions it provides:'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了理解我们如何使用信号量，让我们首先看看它提供的三个函数：
+- en: '*New semaphore function*—Creates a new semaphore with *X* permits.'
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*新的信号量函数*—创建一个具有*X*个许可的新的信号量。'
+- en: '*Acquire permit* *function*—A goroutine will take one permit from the semaphore.
+    If none are available, the goroutine will suspend and wait until one becomes available.'
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*获取许可* *函数*—goroutine将从信号量中获取一个许可。如果没有可用的许可，goroutine将挂起并等待，直到有许可变得可用。'
+- en: '*Release permit* *function*—Releases one permit so a goroutine can use it again
+    with the acquire function.'
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*释放许可* *函数*—释放一个许可，以便goroutine可以使用它再次通过获取函数。'
+- en: 5.2.2 Building a semaphore
+  id: totrans-214
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.2 构建信号量
+- en: In this section, we will implement our own semaphore so that we can better understand
+    how they work. Go does not come with a semaphore type in its bundled libraries,
+    but there is an extension `sync` package at [https://pkg.go.dev/golang.org/x/sync](https://pkg.go.dev/golang.org/x/sync)
+    containing an implementation of a semaphore. This package is part of the Go project,
+    but it is developed under looser compatibility requirements than the core packages.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将实现自己的信号量，以便我们更好地理解它们是如何工作的。Go的捆绑库中没有信号量类型，但有一个扩展的`sync`包在[https://pkg.go.dev/golang.org/x/sync](https://pkg.go.dev/golang.org/x/sync)，其中包含信号量的实现。这个包是Go项目的一部分，但它是在比核心包更宽松的兼容性要求下开发的。
+- en: To build a semaphore, we need to record how many permits we have left, and we
+    can also use a condition variable to help us wait when we don’t have enough permits.
+    The following listing shows the type structure of our semaphore, containing the
+    permit counter and the condition variable. There is also a create semaphore function
+    that accepts the initial number of permits contained on the semaphore.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要构建一个信号量，我们需要记录我们还有多少许可，我们还可以使用一个条件变量来帮助我们等待，当我们没有足够的许可时。以下列表显示了我们的信号量的类型结构，包含许可计数器和条件变量。还有一个创建信号量的函数，它接受信号量上包含的初始许可数。
+- en: Listing 5.16 The `Semaphore` type
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.16 `Semaphore`类型
+- en: '[PRE23]'
+  id: totrans-218
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: ❶ Permits remaining on the semaphore
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 信号量上剩余的许可
+- en: ❷ Condition variable used for waiting when there are not enough permits
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 当没有足够的许可时使用的条件变量
+- en: ❸ Initial number of permits on the new semaphore
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 新信号量上的初始许可数
+- en: ❹ Initializes a new condition variable and associated mutex on the new semaphore
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在新的信号量上初始化一个新的条件变量和相关的互斥锁
+- en: 'To implement the `Acquire()` function, we need to call `wait()` on a condition
+    variable whenever the permits are `0` (or less). If there are enough permits,
+    we simply subtract `1` from the permit count. The `Release()` function does the
+    opposite: it increases the permit count by `1` and signals that a new permit is
+    available. We use the `Signal()` function instead of `Broadcast()` since only
+    one permit is released and we only want one goroutine to be unblocked.'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要实现`Acquire()`函数，我们需要在许可数为`0`（或更少）时在条件变量上调用`wait()`。如果有足够的许可，我们只需从许可计数中减去`1`。`Release()`函数做相反的操作：将许可计数增加`1`并发出一个新许可可用的信号。我们使用`Signal()`函数而不是`Broadcast()`，因为只释放了一个许可，我们只想让一个goroutine被解除阻塞。
+- en: Listing 5.17 `Acquire()` and `Release()` functions
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表5.17 `Acquire()`和`Release()`函数
+- en: '[PRE24]'
+  id: totrans-225
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Acquires mutex to protect permits variable
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取互斥锁以保护许可变量
+- en: ❷ Waits until there is an available permit
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待直到有可用的许可
+- en: ❸ Decreases the number of available permits by 1
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将可用许可的数量减少1
+- en: ❹ Releases mutex
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 释放互斥锁
+- en: ❺ Acquires mutex to protect permits variable
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 获取互斥锁以保护许可变量
+- en: ❻ Increases the number of available permits by 1
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 将可用许可的数量增加1
+- en: ❼ Signals condition variable that one more permit is available
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❼ 信号条件变量表示还有一个许可可用
+- en: ❽ Releases mutex
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❽ 释放互斥锁
+- en: 5.2.3 Never miss a signal with semaphores
+  id: totrans-234
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 5.2.3 使用信号量永不错过信号
+- en: Looking at semaphores from another perspective, they provide similar functionality
+    to the wait and signal of a condition variable, with the added benefit of recording
+    a signal even if no goroutine is waiting.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从另一个角度来看信号量，它们提供了与条件变量的等待和信号类似的功能，并且还有一个附加的好处，即即使没有goroutine在等待，也能记录一个信号。
+- en: What’s in a name?
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 名字中有什么？
+- en: Semaphores were invented by the Dutch computer scientist Edsger Dijkstra in
+    his unpublished 1962 paper “Over Seinpalen” (“About Semaphores”). The name takes
+    inspiration from an early railway signaling system, which used a pivot arm to
+    signal train drivers. The signal had different meanings depending on the angle
+    of inclination of the pivoted arm.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 信号量是由荷兰计算机科学家Edsger Dijkstra在他的未发表1962年论文“Over Seinpalen”（“关于信号量”）中发明的。这个名字的灵感来源于一个早期的铁路信号系统，该系统使用一个枢轴臂来向火车司机发出信号。信号的含义取决于枢轴臂的倾斜角度。
+- en: In listing 5.6, we saw an example of using condition variables to wait for a
+    goroutine to finish its task. The problem we had was that we could end up calling
+    the `Signal()` function before the `main()` goroutine had called `Wait()`, resulting
+    in a missed signal.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表5.6中，我们看到了一个使用条件变量等待goroutine完成任务示例。我们遇到的问题是，我们可能会在`main()` goroutine调用`Wait()`之前调用`Signal()`函数，导致信号丢失。
+- en: We can solve this problem by using a semaphore initialized with `0` permits.
+    This gives us a system in which calling the `Release()` function acts as our signal
+    of work complete. The `Acquire()` function then acts as our `Wait()`. In this
+    system, it doesn’t matter if we call `Acquire()` before or after the work is complete,
+    as the semaphore keeps a record of how many times the `Release()` has been called
+    by using the permits count. If we call it before, the goroutine will block and
+    wait for the `Release()` signal. If we call it after, the goroutine will return
+    immediately since there is an available permit.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过使用初始化为 `0` 许可证的信号量来解决这个问题。这给我们一个系统，其中调用 `Release()` 函数作为我们的工作完成信号。然后 `Acquire()`
+    函数作为我们的 `Wait()`。在这个系统中，我们调用 `Acquire()` 的时间（在任务完成之前或之后）并不重要，因为信号量通过许可计数记录了 `Release()`
+    被调用的次数。如果我们先调用它，goroutine 将阻塞并等待 `Release()` 信号。如果我们之后调用它，由于有可用的许可，goroutine 将立即返回。
+- en: Figure 5.12 shows an example of using semaphores to wait for a concurrent task
+    to complete. It shows a goroutine executing a `doWork()` function, which calls
+    `Release()` after it finishes its task. Our goroutine executing `main()` wants
+    to know if this task is complete, but it’s still busy and hasn’t yet stopped to
+    wait and check. Since we’re using semaphores, this release call is recorded as
+    a permit. Later, when the `main()` goroutine calls `Acquire()`, the function will
+    return immediately, indicating that the `doWork()` goroutine has completed its
+    assigned work.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.12 展示了使用信号量等待并发任务完成的示例。它显示了一个执行 `doWork()` 函数的 goroutine，在完成其任务后调用 `Release()`。我们的执行
+    `main()` 的 goroutine 想要知道这个任务是否完成，但它仍然忙碌，还没有停下来等待并检查。由于我们使用信号量，这个释放调用被记录为一个许可。稍后，当
+    `main()` goroutine 调用 `Acquire()` 时，函数将立即返回，表示 `doWork()` goroutine 已经完成了其分配的工作。
+- en: '![](../../OEBPS/Images/CH05_F12_Cutajar.png)'
+  id: totrans-241
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH05_F12_Cutajar.png)'
+- en: Figure 5.12 Using a semaphore to know when a goroutine is done
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 5.12 使用信号量知道 goroutine 是否完成
+- en: Listing 5.18 shows the implementation of this. When we start the `doWork()`
+    goroutine, we pass a reference to our semaphore, which is used as shown in figure
+    5.11\. In this function, we are simulating the goroutine doing some concurrent
+    quick task. When the goroutine finishes its task, it calls `Release()` to signal
+    that it’s finished. In the `main()` function, we create many of these goroutines,
+    and after each creation, we wait for it to complete by calling `Acquire()` on
+    the semaphore.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.18 展示了这一实现的代码。当我们启动 `doWork()` goroutine 时，我们传递一个对信号量的引用，正如图 5.11 所示。在这个函数中，我们模拟
+    goroutine 执行一些并发快速任务。当 goroutine 完成其任务时，它调用 `Release()` 来表示已完成。在 `main()` 函数中，我们创建了许多这样的
+    goroutine，并在每个创建后，通过在信号量上调用 `Acquire()` 来等待其完成。
+- en: Listing 5.18 Using semaphores to signal completion of a task
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 5.18 使用信号量来指示任务完成
+- en: '[PRE25]'
+  id: totrans-245
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Creates a new semaphore using the previous implementation
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 使用之前的实现创建一个新的信号量
+- en: ❷ Repeats 50,000 times
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 重复 50,000 次
+- en: ❸ Starts the goroutine passing a reference to the semaphore
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 通过传递信号量的引用来启动 goroutine
+- en: ❹ Waits for an available permit on the semaphore indicating the task is complete
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待信号量上的可用许可，表示任务已完成
+- en: ❺ When the goroutine finishes, it releases a permit to notify the main() goroutine
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 当 goroutine 完成，它释放一个许可来通知 main() goroutine
+- en: If `Release()` is called first, the semaphore stores this release permit, and
+    when the `main()` goroutine calls the `Acquire()` function, it will immediately
+    return without blocking. If we were using a condition variable without mutex locking,
+    this would have resulted in our `main()` goroutine missing the signal.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果首先调用 `Release()`，信号量将存储这个释放许可，当 `main()` goroutine 调用 `Acquire()` 函数时，它将立即返回而不阻塞。如果我们使用没有互斥锁定的条件变量，这会导致我们的
+    `main()` goroutine 错过信号。
+- en: 5.3 Exercises
+  id: totrans-252
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 5.3 练习
+- en: NOTE You can see all code solutions at [https://github.com/cutajarj/ConcurrentProgrammingWithGo](https://github.com/cutajarj/ConcurrentProgrammingWithGo).
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：您可以在 [https://github.com/cutajarj/ConcurrentProgrammingWithGo](https://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    上看到所有代码解决方案。
+- en: In listing 5.4, Stingy’s goroutine is signaling on the condition variable every
+    time we add money to the bank account. Can you change the function so that it
+    signals only when there is $50 or more in the account?
+  id: totrans-254
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表 5.4 中，Stingy 的 goroutine 每次向银行账户添加钱时都会在条件变量上发出信号。你能修改这个函数，使其仅在账户中有 50 美元或更多时发出信号吗？
+- en: 'Change the game-sync listings 5.8 and 5.9 so that, still using condition variables,
+    the players wait for a fixed number of seconds. If the players haven’t all joined
+    within this time, the goroutines should stop waiting and let the game start without
+    all the players. Hint: try using another goroutine with an expiry timer.'
+  id: totrans-255
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将游戏同步列表 5.8 和 5.9 进行修改，使得，仍然使用条件变量，玩家需要等待固定的时间数。如果玩家没有在规定时间内全部加入，协程应停止等待，并允许游戏在没有所有玩家的情况下开始。提示：尝试使用另一个带有过期计时器的协程。
+- en: 'A *weighted semaphore* is a variation on a semaphore that allows you to acquire
+    and release more than one permit at the same time. The function signatures for
+    a weighted semaphore are as follows:'
+  id: totrans-256
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '**加权信号量**是信号量的一个变体，允许你同时获取和释放多个许可证。加权信号量的函数签名如下：'
+- en: '[PRE26]'
+  id: totrans-257
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: Use these function signatures to implement a weighted semaphore with a similar
+    functionality to a counting semaphore. It should allow you to acquire or release
+    more than one permit.
+  id: totrans-258
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 使用这些函数签名来实现一个具有类似计数信号量功能的加权信号量。它应该允许你获取或释放多个许可证。
+- en: Summary
+  id: totrans-259
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: An execution can be suspended, waiting until a condition is met, by using a
+    condition variable together with a mutex.
+  id: totrans-260
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过使用条件变量和互斥锁，一个执行可以被挂起，等待直到满足某个条件。
+- en: Calling `Wait()` on a condition variable *atomically* unlocks the mutex and
+    suspends the current execution.
+  id: totrans-261
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在条件变量上调用 `Wait()` 会**原子性地**解锁互斥锁并挂起当前执行。
+- en: Calling `Signal()` resumes the execution of *one* suspended goroutine that has
+    called `Wait()`.
+  id: totrans-262
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用 `Signal()` 会恢复一个已调用 `Wait()` 的挂起协程的执行。
+- en: Calling `Broadcast()` resumes the execution of *all* suspended goroutines that
+    have called `Wait()`.
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 调用 `Broadcast()` 会恢复所有已调用 `Wait()` 的挂起协程的执行。
+- en: If we call `Signal()` or `Broadcast()` and no goroutines are suspended on a
+    `Wait()` call, the signal or broadcast is missed.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果我们调用 `Signal()` 或 `Broadcast()`，但没有协程在 `Wait()` 调用上挂起，那么信号或广播就会被错过。
+- en: We can use condition variables and mutexes as building blocks to build more
+    complex concurrency tools, such as semaphores and write-preferring readers–writer
+    locks.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们可以使用条件变量和互斥锁作为构建块来构建更复杂的并发工具，例如信号量和优先写入的读写锁。
+- en: Starvation occurs when an execution is blocked from a shared resource because
+    the resource is made unavailable for a long time by other executions.
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当一个执行因为共享资源长时间不可用而被阻塞时，就会发生饥饿。
+- en: Write-preferring readers–writer mutexes solve the problem of write starvation.
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 优先写入的读写互斥锁解决了写饥饿问题。
+- en: Semaphores give us the ability to limit concurrency on a shared resource to
+    a fixed number of concurrent executions.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 信号量让我们能够限制对共享资源的并发访问，使其固定数量的并发执行。
+- en: Like condition variables, semaphores can be used to send a signal to another
+    execution.
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与条件变量一样，信号量可以用来向另一个执行发送信号。
+- en: When used to signal, semaphores have the added advantage that the signal is
+    stored if the execution is not yet waiting for it.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当用作信号时，信号量具有额外的优势，即如果执行尚未等待该信号，则信号会被存储。

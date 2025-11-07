@@ -1,0 +1,1850 @@
+- en: 11 Avoiding deadlocks
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 11 避免死锁
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖
+- en: Identifying deadlocks
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 识别死锁
+- en: Avoiding deadlocks
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 避免死锁
+- en: Deadlocking with channels
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用通道进行死锁
+- en: A *deadlock**,* in a concurrent program, occurs when executions block indefinitely,
+    waiting for each other to release resources. Deadlocks are an undesirable side
+    effect of certain concurrent programs where concurrent executions are trying to
+    acquire exclusive access to multiple resources at the same time. In this chapter,
+    we will analyze the conditions under which deadlocks might occur and offer strategies
+    to prevent them. We’ll also discuss certain deadlocking conditions that can occur
+    when using Go channels.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在并发程序中，*死锁*发生时，执行会无限期地阻塞，等待彼此释放资源。死锁是某些并发程序的不可取副作用，在这些程序中，并发执行尝试同时获取多个资源的独占访问权限。在本章中，我们将分析可能导致死锁的条件，并提出防止它们发生的策略。我们还将讨论在使用Go通道时可能发生的某些死锁条件。
+- en: Deadlocks can be quite tricky to identify and debug. As with race conditions,
+    we can have a program that runs without hitches for a long time, and then suddenly
+    the execution halts, for no obvious reason. Understanding the reasons why deadlocks
+    happen allows us to make programming decisions to avoid them.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 死锁可能非常难以识别和调试。与竞态条件一样，我们可能有一个长时间运行而没有任何问题的程序，然后突然执行停止，没有明显的原因。了解死锁发生的原因使我们能够做出编程决策来避免它们。
+- en: 11.1 Identifying deadlocks
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.1 识别死锁
+- en: What is the simplest concurrent program we can write that creates all the conditions
+    for a deadlock to occur? We can create a simple program with just two goroutines
+    competing for two exclusive resources, as shown in figure 11.1\. The two goroutines,
+    called `red()` and `blue()`, each try to hold two mutex locks at the same time.
+    Since the locks are exclusive, the only time one goroutine can acquire both locks
+    is when the other goroutine is not holding any of them.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以编写最简单的并发程序，创建所有可能导致死锁发生的条件是什么？我们可以创建一个简单的程序，其中包含两个协程竞争两个独占资源，如图11.1所示。这两个协程，称为`red()`和`blue()`，都试图同时持有两个互斥锁。由于锁是独占的，只有一个协程可以在另一个协程不持有任何锁的情况下获得这两个锁。
+- en: '![](../../OEBPS/Images/CH11_F01_Cutajar.png)'
+  id: totrans-9
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH11_F01_Cutajar.png)'
+- en: Figure 11.1 Two goroutines competing for two exclusive resources
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.1 两个协程竞争两个独占资源
+- en: Listing 11.1 shows a simple implementation of the `red()` and `blue()` goroutines.
+    The two functions accept our two mutexes, and when we run the functions as separate
+    goroutines, they will try to acquire both locks at the same time before releasing
+    them. This process repeats in an infinite loop. In the listing, there are multiple
+    messages to indicate when we are acquiring, holding, and releasing the locks.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.1显示了`red()`和`blue()`协程的简单实现。这两个函数接受我们的两个互斥锁，当我们以单独的协程运行这些函数时，它们将尝试同时获取这两个锁，然后再释放它们。这个过程会无限循环。在列表中，有多个消息指示我们何时获取、保持和释放锁。
+- en: Listing 11.1 `red()` and `blue()` goroutines (imports omitted for brevity)
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.1 `red()`和`blue()`协程（为了简洁省略了导入）
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ❶ Acquires and holds both locks
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 获取并保持两个锁
+- en: ❷ Releases both locks
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 释放两个锁
+- en: We can now create our two mutexes and start up the `red()` and `blue()` goroutines
+    in the `main()` function, as shown in listing 11.2\. After starting up the goroutines,
+    the `main()` function sleeps for 20 seconds, during which we expect the `red()`
+    and `blue()` goroutines to continuously output the console messages. After 20
+    seconds, the `main()` goroutine terminates, and the program exits.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以在`main()`函数中创建我们的两个互斥锁，并启动`red()`和`blue()`协程，如列表11.2所示。启动协程后，`main()`函数将休眠20秒，在此期间我们预计`red()`和`blue()`协程将连续输出控制台消息。20秒后，`main()`协程终止，程序退出。
+- en: Listing 11.2 `main()` function starting up `red()` and `blue()` goroutines
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.2 `main()`函数启动`red()`和`blue()`协程
+- en: '[PRE1]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: ❶ Starts red() goroutine
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 启动红色()协程
+- en: ❷ Starts blue() goroutine
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动蓝色()协程
+- en: ❸ Allows the red() and blue() goroutines to run for 20 seconds
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 允许红色()和蓝色()协程运行20秒
+- en: 'The following is an example of output from running listings 11.1 and 11.2:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是运行列表11.1和11.2的输出示例：
+- en: '[PRE2]'
+  id: totrans-23
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: After a while, the program stops outputting messages, and it appears to be stuck
+    prior to the end of the 20-second sleep period. At this point, our `red()` and
+    `blue()` goroutines are stuck in a deadlock, unable to proceed. After about 20
+    seconds have elapsed, the `main()` goroutine finishes and the program quits. To
+    understand what is going on and how the deadlock has occurred, we’ll look at a
+    resource allocation graph in the following section.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一段时间后，程序停止输出消息，看起来在20秒休眠期结束前就卡住了。此时，我们的`red()`和`blue()`协程陷入了死锁，无法继续进行。大约20秒后，`main()`协程完成并退出程序。为了理解发生了什么以及死锁是如何发生的，我们将在下一节中查看资源分配图。
+- en: NOTE Due to the non-deterministic nature of concurrent executions, running listings
+    11.1 and 11.2 will not always result in a deadlock. We can further increase the
+    chances of a deadlock by adding `Sleep()` calls in our `red()` and `blue()` goroutines
+    between the first and second `mutex.Lock()`calls.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：由于并发执行的非确定性，运行列表11.1和11.2并不总是会导致死锁。我们可以在`red()`和`blue()`协程的第一个和第二个`mutex.Lock()`调用之间添加`Sleep()`调用，以进一步提高死锁的可能性。
+- en: 11.1.1 Picturing deadlocks with resource allocation graphs
+  id: totrans-26
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.1.1 使用资源分配图描绘死锁
+- en: A *resource allocation graph* (RAG) shows the resources utilized by various
+    executions. They are used in operating systems for various functions, including
+    deadlock detection.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*资源分配图* (RAG)显示了各种执行所使用的资源。它们在操作系统中用于各种功能，包括死锁检测。'
+- en: Drawing these graphs can help us picture deadlocks in our concurrent programs.
+    Figure 11.2 shows the simple deadlock situation that occurs in listings 11.1 and
+    11.2.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 绘制这些图可以帮助我们想象并发程序中的死锁。图11.2显示了列表11.1和11.2中发生的简单死锁情况。
+- en: '![](../../OEBPS/Images/CH11_F02_Cutajar.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F02_Cutajar.png)'
+- en: Figure 11.2 Resource allocation graph of the `red()` and `blue()` goroutines
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.2 `red()`和`blue()`协程的资源分配图
+- en: In a resource allocation graph, the nodes represent the executions or resources.
+    For example, in figure 11.2, the nodes are our two goroutines, interacting with
+    the two exclusive locks. In the figure, we use rectangular nodes for resources
+    and circular ones for goroutines. The edges show us which resources are being
+    requested or held by the executions. An edge pointing from an execution to a resource
+    (the dashed lines in figure 11.2) means that the execution is requesting the use
+    of that resource. An edge pointing from a resource to an execution (the solid
+    lines) tells us that the resource is being used by that execution.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在资源分配图中，节点代表执行或资源。例如，在图11.2中，节点是我们的两个协程，与两个互斥锁进行交互。在图中，我们使用矩形节点表示资源，圆形节点表示协程。边显示了执行请求或持有哪些资源。从执行指向资源的边（图11.2中的虚线）表示执行正在请求使用该资源。从资源指向执行的边（实线）告诉我们资源正在被该执行使用。
+- en: Figure 11.2 shows how the deadlock happens in our simple program. After the
+    `blue()` goroutine acquires lock 2, it needs to request lock 1\. The `red()` goroutine
+    is holding lock 1, and it needs to request lock 2\. Each goroutine is holding
+    one lock, and then it goes ahead to request the other. Since the other lock is
+    held by another goroutine, the second lock is never acquired. This creates the
+    deadlock situation where the two goroutines will each be forever waiting for the
+    other goroutine to release its lock.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.2显示了我们的简单程序中死锁发生的情况。在`blue()`协程获取锁2之后，它需要请求锁1。`red()`协程持有锁1，并需要请求锁2。每个协程都持有一个锁，然后继续请求另一个锁。由于另一个锁被另一个协程持有，第二个锁永远不会被获取。这导致了两个协程将永远等待对方释放其锁的死锁情况。
+- en: 'NOTE Figure 11.2 contains a graph cycle: starting from any node, we can trace
+    a path along the edges that leads us back to our starting node. Whenever a resource
+    allocation graph contains such a cycle, it means that a deadlock has occurred.'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：图11.2包含一个图环：从任何节点开始，我们可以沿着边追踪一条路径，最终回到我们的起始节点。每当资源分配图中存在这样的环时，这意味着发生了死锁。
+- en: Deadlocks don’t just happen in software. Sometimes, real-life scenarios create
+    the conditions for a deadlock to occur. Consider, for example, a rail-crossing
+    layout, as shown in figure 11.3\. In this simple layout, a long train might need
+    to use more than one rail-crossing at a time.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 死锁不仅仅发生在软件中。有时，现实生活中的场景会创造死锁发生的条件。例如，考虑一个铁路交叉布局，如图11.3所示。在这个简单的布局中，一列长火车可能需要同时使用多个铁路交叉道。
+- en: '![](../../OEBPS/Images/CH11_F03_Cutajar.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F03_Cutajar.png)'
+- en: Figure 11.3 A rail-crossing layout that might cause a deadlock
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.3 可能导致死锁的铁路交叉路口布局
+- en: Rail crossings, by their nature, are exclusive resources—only one train can
+    use them at any point in time. Thus, a train approaching a crossing needs to request
+    and reserve access to it so that no other train can use it. If another train is
+    already using a crossing, any other train needing the same crossing must wait
+    until the crossing is free again.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 铁路交叉路口，从本质上讲，是排他性资源——在任何时候只能有一列火车使用它们。因此，接近交叉路口的火车需要请求并预留对其的访问权限，以便其他火车不能使用它。如果另一列火车已经在使用交叉路口，任何需要相同交叉路口的其他火车都必须等待交叉路口再次空闲。
+- en: A train that is long enough to span multiple crossings might need to use more
+    than one crossing at the same time. This is akin to our executions holding more
+    than one exclusive resource (such as a mutex) at the same time. Figure 11.3 shows
+    that each train approaching from a different direction will require the use of
+    two crossings at the same time. For example, train 1 moving from left to right
+    requires crossings A and B, train 2 moving from top to bottom requires crossings
+    B and C, and so on.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一列足够长以至于可以跨越多个交叉口的火车可能需要同时使用多个交叉路口。这类似于我们的执行同时持有多个排他性资源（如互斥锁）。图11.3显示，从不同方向接近的每列火车都需要同时使用两个交叉路口。例如，从左向右移动的火车1需要交叉A和B，从上向下移动的火车2需要交叉B和C，依此类推。
+- en: Acquiring the use of multiple crossings is not an atomic operation; train 1
+    will first acquire and use crossing A and then, later, crossing B. This might
+    create a situation where each train has a hold on its first crossing, but it’s
+    waiting for the train ahead to free the second crossing. Since the train tracks
+    are set up in a way that creates a circular resource (a crossing) dependency,
+    a deadlock situation might arise. A sample deadlock is shown in figure 11.4.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 获取多个交叉口的用途不是一个原子操作；火车1将首先获取并使用交叉A，然后，稍后，再使用交叉B。这可能会造成每种火车都对其第一个交叉路口持有控制权，但它在等待前面的火车释放第二个交叉路口。由于火车轨道是以创建循环资源（一个交叉路口）依赖关系的方式设置的，可能会出现死锁情况。图11.4展示了示例死锁。
+- en: '![](../../OEBPS/Images/CH11_F04_Cutajar.png)'
+  id: totrans-40
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F04_Cutajar.png)'
+- en: Figure 11.4 Deadlock occurring in a rail system
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.4 铁路系统中发生的死锁
+- en: Just as goroutines can get stuck waiting forever for a resource to be freed,
+    a train operator might not even know that the system is stuck in a deadlock. From
+    that person’s point of view, they are waiting for the train in front to move along
+    so that they can free the crossing. Again, we can identify that the system is
+    in a deadlock by using a resource allocation graph, as shown in figure 11.5.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如goroutines可能会永远等待资源被释放一样，火车司机甚至可能不知道系统已经陷入死锁。从那个人的角度来看，他们正在等待前面的火车移动，以便他们可以释放交叉路口。同样，我们可以通过使用资源分配图来识别系统是否处于死锁状态，如图11.5所示。
+- en: '![](../../OEBPS/Images/CH11_F05_Cutajar.png)'
+  id: totrans-43
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F05_Cutajar.png)'
+- en: Figure 11.5 Resource allocation graph for a rail deadlock
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.5 铁路死锁的资源分配图
+- en: The resource allocation graph clearly shows us that there is a cycle, signifying
+    that we have a deadlock. Each train has acquired the use of a crossing but is
+    waiting on the next train to release the next crossing. This is an example of
+    a deadlock with four separate executions (the trains), though a deadlock can happen
+    with any number greater than one. We can easily come up with a train layout that
+    would involve any number of trains simply by adding more crossings and trains
+    in a circular fashion.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 资源分配图清楚地显示，存在一个循环，这表明我们遇到了死锁。每列火车都获取了交叉路口的使用权，但正在等待下一列火车释放下一个交叉路口。这是一个具有四个单独执行（火车）的死锁示例，尽管死锁可以发生在任何大于一的数量。我们可以通过以循环方式添加更多交叉路口和火车来轻松地设计出涉及任何数量火车的火车布局。
+- en: 'In a 1971 paper titled “System Deadlocks,” Coffman et al. illustrate four conditions
+    that must *all* be present for deadlocks to occur:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在1971年发表的一篇题为“系统死锁”的论文中，Coffman等人阐述了必须**全部**满足以下四个条件才能发生死锁：
+- en: '*Mutual exclusion*—Every resource in the system is either being used by one
+    execution or is free.'
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**互斥**—系统中的每个资源要么被一个执行使用，要么是空闲的。'
+- en: '*Wait for condition*—Executions holding one or more resources can request more
+    resources.'
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**等待条件**—持有一个或多个资源的执行可以请求更多资源。'
+- en: '*No preemption*—Resources being held by an execution cannot be taken away.
+    Only the execution holding the resources can release them.'
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '**无抢占**—执行持有的资源不能被夺走。只有持有资源的执行可以释放它们。'
+- en: '*Circular wait*—There is a circular chain of two or more executions in which
+    each is blocked while waiting for a resource to be released from the next execution
+    in the chain.'
+  id: totrans-50
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*循环等待*——存在一个由两个或更多执行组成的循环链，其中每个执行都在等待链中下一个执行释放资源时被阻塞。'
+- en: In real life, we can see plenty of other examples of deadlocks. Examples include
+    relationship conflicts, negotiations, and road traffic. In fact, road engineers
+    spend a great deal of time and effort designing systems to minimize the risks
+    of traffic deadlocks. Let’s now look at a more complex example of deadlocking
+    in software.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在现实生活中，我们可以看到许多其他死锁的例子。这些例子包括关系冲突、谈判和道路交通。事实上，道路工程师花费大量时间和精力设计系统以最小化交通死锁的风险。现在让我们看看软件中更复杂的死锁例子。
+- en: 11.1.2 Deadlocking in a ledger
+  id: totrans-52
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.1.2 账本中的死锁
+- en: Imagine we work at a bank and are tasked with implementing software that reads
+    ledger transactions to move funds from one account to another. A transaction subtracts
+    the balance from a source account and adds it to a target account. For example,
+    Sam paying Paul $10 means that we need to
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们在一家银行工作，并被分配实施读取账本交易以将资金从一个账户转移到另一个账户的软件。一笔交易会从源账户中扣除余额并添加到目标账户。例如，山姆支付保罗
+    10 美元意味着我们需要
+- en: Read Sam’s account balance
+  id: totrans-54
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 读取山姆的账户余额
+- en: Subtract $10 from Sam’s account
+  id: totrans-55
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从山姆的账户中扣除 10 美元
+- en: Read Paul’s account balance
+  id: totrans-56
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 读取保罗的账户余额
+- en: Add $10 to Paul’s balance
+  id: totrans-57
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 向保罗的余额中添加 10 美元
+- en: Since we want to be able to handle large volumes of transactions, we will be
+    using multiple goroutines and shared memory to process transactions concurrently.
+    To avoid race conditions, we can use mutexes on both the source and target accounts.
+    This ensures that the goroutines are not interrupted while the money is being
+    subtracted from one account and added to another. Figure 11.6 shows the logic
+    of a goroutine handling a ledger transaction. The procedure is to acquire first
+    the mutex on the source account and then the mutex on the target account, and
+    only then to move the money.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们希望能够处理大量交易，我们将使用多个 goroutine 和共享内存来并发处理交易。为了避免竞态条件，我们可以在源账户和目标账户上使用互斥锁。这确保了在从某个账户中扣除资金并添加到另一个账户时，goroutine
+    不会被中断。图 11.6 展示了处理账本交易的 goroutine 的逻辑。程序是首先获取源账户的互斥锁，然后是目标账户的互斥锁，然后才移动资金。
+- en: '![](../../OEBPS/Images/CH11_F06_Cutajar.png)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH11_F06_Cutajar.png)'
+- en: Figure 11.6 Using mutexes to lock source and target accounts when handling ledger
+    transactions
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.6 在处理账本交易时使用互斥锁锁定源账户和目标账户
+- en: Separate mutex locks, one for each account, are used so that when we are processing
+    transactions, we only lock the accounts that are needed. Listing 11.3 shows a
+    `BankAccount` type structure containing this mutex, an identifier, and a balance.
+    The listing also contains a `NewBankAccount()` function, which instantiates a
+    new bank account with a default balance of $100 and a new mutex.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用单独的互斥锁，每个账户一个，这样当我们处理交易时，我们只锁定所需的账户。列表 11.3 展示了一个包含此互斥锁、标识符和余额的 `BankAccount`
+    类型结构。列表还包含一个 `NewBankAccount()` 函数，该函数实例化一个新的银行账户，默认余额为 100 美元和一个新的互斥锁。
+- en: Listing 11.3 Bank account type structure
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.3 银行账户类型结构
+- en: '[PRE3]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: ❶ Creates a new instance of a bank account with $100 and a new mutex
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个带有 100 美元和一个新互斥锁的银行账户实例
+- en: Listing 11.4 shows how we can implement a `Transfer()` function with the logic
+    outlined in figure 11.6\. The function transfers money, in the `amount` parameter,
+    from the source (`src`) to a target (`to`) bank account. For logging purposes,
+    the function also accepts an `exId` parameter. This parameter represents the execution
+    that is calling this function. A goroutine calling this function passes a unique
+    ID so we can log it on the console.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.4 展示了如何实现一个 `Transfer()` 函数，该函数的逻辑在图 11.6 中概述。该函数通过 `amount` 参数从源 (`src`)
+    银行账户向目标 (`to`) 银行账户转账。出于日志记录的目的，该函数还接受一个 `exId` 参数。此参数表示调用此函数的执行过程。调用此函数的 goroutine
+    会传递一个唯一 ID，以便我们可以在控制台上记录它。
+- en: Listing 11.4 Money transfer function
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.4 资金转账函数
+- en: '[PRE4]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ❶ Locks mutex on the source account
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 锁定源账户的互斥锁
+- en: ❷ Locks mutex on the target account
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 锁定目标账户的互斥锁
+- en: ❸ Subtracts money from the source and adds it to the target account
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 从源账户扣除资金并将其添加到目标账户
+- en: ❹ Unlocks both target and source accounts
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 解锁目标账户和源账户
+- en: We can now have a few goroutines executing randomly generated transfers, simulating
+    a scenario where we are receiving a high volume of transactions. Listing 11.5
+    creates four bank accounts and then starts four goroutines, each executing 1,000
+    transfers. Each goroutine generates a transfer by randomly selecting a source
+    and target bank account. If the source and target accounts happen to be the same,
+    another target account is picked. Each transfer has a value of $10.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以有几个goroutine执行随机生成的转移，模拟我们正在接收大量交易的场景。列表11.5创建了四个银行账户，然后启动了四个goroutine，每个goroutine执行1,000次转移。每个goroutine通过随机选择源账户和目标账户来生成转移。如果源账户和目标账户恰好相同，则选择另一个目标账户。每次转移的金额为10美元。
+- en: Listing 11.5 Goroutines executing randomly generated transfers
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.5：goroutine执行随机生成的转移
+- en: '[PRE5]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ❶ Creates a goroutine with a unique execution ID
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个具有唯一执行ID的goroutine
+- en: ❷ Executes 1,000 randomly generated transfers
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 执行1,000次随机生成的转移
+- en: ❸ Selects a source and a target account for the transfer
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 选择转移的源账户和目标账户
+- en: ❹ Performs the transfer
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 执行转移操作
+- en: ❺ Once all the 1,000 transfers are complete, outputs the complete message
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 一旦所有1,000次转移完成，输出完整消息
+- en: ❻ Waits 60 seconds before terminating the program
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 在终止程序前等待60秒
+- en: 'Running listing 11.5, we expect to see 1,000 transfers for each of our four
+    goroutines printed on the console and then the message `COMPLETE` outputted. Unfortunately,
+    our program gets itself into a deadlock, and the final message is not printed:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行列表11.5，我们期望在控制台上为我们的四个goroutine打印出1,000次转移，然后输出消息`COMPLETE`。不幸的是，我们的程序陷入了一个死锁，最后的消息没有被打印出来：
+- en: '[PRE6]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: NOTE Every time we run listing 11.5, we get slightly different output, not always
+    resulting in a deadlock. This is due to the non-deterministic nature of concurrent
+    executions.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：每次我们运行列表11.5时，我们都会得到略微不同的输出，并不总是导致死锁。这是由于并发执行的非确定性性质。
+- en: From our output, we can observe that some goroutines are holding locks on some
+    accounts and trying to acquire locks on others. The deadlock in our example happens
+    between goroutines 0, 2, and 3\. We can create a resource allocation graph to
+    better understand the deadlock (see figure 11.7).
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从我们的输出中，我们可以观察到一些goroutine正在持有某些账户的锁，并试图获取其他账户的锁。在我们的例子中，死锁发生在goroutine 0、2和3之间。我们可以创建一个资源分配图来更好地理解死锁（见图11.7）。
+- en: '![](../../OEBPS/Images/CH11_F07_Cutajar.png)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图11.7](../../OEBPS/Images/CH11_F07_Cutajar.png)'
+- en: Figure 11.7 Deadlocking while processing ledger transactions
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.7：处理账本交易时的死锁
+- en: Our resource allocation graph in figure 11.7 shows that the deadlock is caused
+    by goroutines 0, 2, and 3 since it contains a cycle with these goroutines as nodes.
+    It also shows that a deadlock can affect other goroutines by blocking access to
+    their resources. In this example, goroutine 1 is blocked while trying to acquire
+    a lock on Paul’s account.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在图11.7中的资源分配图显示，死锁是由goroutine 0、2和3引起的，因为它包含了一个以这些goroutine为节点的循环。它还显示死锁可以通过阻止对它们的资源访问来影响其他goroutine。在这个例子中，goroutine
+    1在尝试获取保罗的账户锁时被阻塞。
+- en: 11.2 Dealing with deadlocks
+  id: totrans-88
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.2 处理死锁
+- en: 'What should we do so that our programming does not suffer from deadlocks? We
+    have three main approaches: detection, using mechanisms that avoid deadlocks,
+    and writing our concurrent programming in a manner to prevent deadlock scenarios.
+    In the following sections, we’ll explore these three options.'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们应该怎么做才能确保我们的编程不会受到死锁的影响？我们有三种主要方法：检测、使用避免死锁的机制，以及以防止死锁场景的方式编写我们的并发编程。在接下来的几节中，我们将探讨这三种选项。
+- en: 'It’s also worth noting that there is one other approach when dealing with deadlocks:
+    do nothing. Some textbooks refer to this as the *ostrich method*, with reference
+    to ostriches sticking their heads in the sand when in danger (although this is
+    a popular misconception). Doing nothing to prevent deadlocks only makes sense
+    if we know for certain that in our system, deadlocks are rare, and when they do
+    occur, the consequences are not costly.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值得注意的是，在处理死锁时还有另一种方法：什么都不做。一些教科书将这种方法称为*鸵鸟法*，因为鸵鸟在危险时会将头埋在沙子里（尽管这是一个普遍的误解）。如果我们确定在我们的系统中，死锁很少发生，并且当它们发生时，后果并不严重，那么不采取任何措施来防止死锁才有意义。
+- en: 11.2.1 Detecting deadlocks
+  id: totrans-91
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.2.1 检测死锁
+- en: The first approach we can adopt is detecting deadlocks so that we can do something
+    about them. For example, after detecting that a deadlock has occurred, we can
+    have an alert that calls someone who can restart the process. Even better, we
+    can have logic in our code that is notified whenever there is a deadlock and performs
+    a retry operation.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以采取的第一种方法是检测死锁，这样我们就可以采取一些措施。例如，在检测到发生死锁后，我们可以有一个警报，通知可以重启进程的人。更好的是，我们可以在代码中添加逻辑，每当发生死锁时，就会执行重试操作。
+- en: Go has some deadlock detection built in. Go’s runtime checks to see which goroutine
+    it should execute next, and if it finds that all of them are blocked while waiting
+    for a resource (such as a mutex), it will throw a fatal error. Unfortunately,
+    this means that it will only catch a deadlock if all the goroutines are blocked.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Go内置了一些死锁检测机制。Go的运行时会检查下一个应该执行的goroutine是哪个，如果它发现所有的goroutine都在等待一个资源（例如互斥锁）而阻塞，它将抛出一个致命错误。不幸的是，这意味着它只能检测到所有goroutine都阻塞的情况。
+- en: Consider listing 11.6, in which the main goroutine is waiting on a waitgroup
+    for the two child goroutines to finish their work. Both goroutines are repeatedly
+    locking mutexes A and B at the same time to increase the risk of a deadlock occurring.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑列表11.6，其中主goroutine正在等待waitgroup，直到两个子goroutine完成它们的工作。这两个goroutine都会反复锁定互斥锁A和B，以增加发生死锁的风险。
+- en: Listing 11.6 Triggering Go’s deadlock detection
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.6 触发Go的死锁检测
+- en: '[PRE7]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: ❶ Locks and unlocks both mutexes
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 锁定和解锁两个互斥锁
+- en: ❷ Marks the waitgroup as done
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 标记waitgroup为完成
+- en: ❸ Starts two goroutines, locking both mutexes at the same time
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 同时启动两个goroutine，锁定两个互斥锁
+- en: ❹ Waits for the goroutine to terminate
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 等待goroutine终止
+- en: 'When running the previous listing, if a deadlock occurs, all the goroutines
+    will be blocked, including the main goroutine. The two goroutines will be blocked
+    in a deadlock waiting for each other, and the `main()` goroutine will be stuck
+    waiting on the waitgroup to be done. Here is a summary of the error message given
+    by Go:'
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当运行前面的代码示例时，如果发生死锁，所有goroutine都将阻塞，包括主goroutine。这两个goroutine将陷入死锁等待对方，而`main()`
+    goroutine将卡在等待waitgroup完成。以下是Go给出的错误消息摘要：
+- en: '[PRE8]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: In addition to telling us that we have a deadlock, Go outputs the details of
+    what the goroutines were doing when our program got stuck. In this example, we
+    can see that goroutines labeled 18 and 19 were both trying to lock a mutex while
+    our `main()` goroutine (labeled goroutine 1) was waiting on the waitgroup.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了告诉我们有死锁之外，Go还会输出我们的程序卡住时goroutine的详细信息。在这个例子中，我们可以看到标记为18和19的goroutine都在尝试锁定互斥锁，而我们的`main()`
+    goroutine（标记为goroutine 1）正在等待waitgroup。
+- en: We can easily write a program that works around this deadlock detection mechanism.
+    Consider the next listing, in which we have modified the `main()` function to
+    create another goroutine to wait for the waitgroup. The `main()` goroutine then
+    sleeps for 30 seconds, simulating doing some other work.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以轻松地编写一个绕过这种死锁检测机制的程序。考虑下面的代码示例，我们修改了`main()`函数以创建另一个goroutine来等待waitgroup。然后`main()`
+    goroutine休眠30秒，模拟执行其他工作。
+- en: Listing 11.7 Going around Go’s deadlock detection
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.7 绕过Go的死锁检测
+- en: '[PRE9]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: ❶ Creates a goroutine that waits on the waitgroup before outputting a message
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在输出消息之前创建一个等待waitgroup的goroutine
+- en: ❷ Waits for 30 seconds
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 等待30秒
+- en: ❸ Outputs a message, and then the program terminates
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 输出一条消息，然后程序终止
+- en: 'Since we now have the `main()` goroutine not really blocked but waiting on
+    the `sleep()` function, Go’s runtime will not detect the deadlock. When a deadlock
+    occurs, the message `"Done` `waiting` `on` `waitgroup``"` is not returned; instead,
+    30 seconds later, the `main()` goroutine outputs the `"Done"` message, and the
+    program terminates without any deadlock errors:'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于现在`main()` goroutine并没有真正阻塞，而是在等待`sleep()`函数，Go的运行时将不会检测到死锁。当发生死锁时，不会返回消息`"Done
+    waiting on waitgroup"`；相反，30秒后，`main()` goroutine输出`"Done"`消息，程序在没有死锁错误的情况下终止：
+- en: '[PRE10]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: A more complete way to detect a deadlock is to programmatically build a resource
+    allocation graph representing all the goroutines and resources as nodes connected
+    by edges, as you saw in figures 11.2, 11.5, and 11.7\. We can then have an algorithm
+    that detects cycles in the graph. If the graph contains a cycle, the system is
+    in a deadlock state.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检测死锁的一个更完整的方法是程序化地构建一个资源分配图，该图将所有goroutine和资源作为节点，通过边连接，正如你在图11.2、11.5和11.7中看到的。然后我们可以有一个检测图中循环的算法。如果图中包含循环，系统就处于死锁状态。
+- en: To detect a cycle in a graph, we can modify a depth-first search algorithm to
+    look for cycles. If we keep track of the nodes visited while performing the traversal
+    and we come across a node that was already visited, we know we have a cycle.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检测图中的循环，我们可以修改深度优先搜索算法以查找循环。如果我们跟踪在遍历过程中访问的节点，并且遇到已经访问过的节点，我们就知道存在循环。
+- en: 'This is the approach adopted by some other frameworks, runtimes, and systems
+    such as databases. The following is an error example returned by MySQL, a popular
+    open source database. In this case, the deadlock happens when we have two concurrent
+    sessions running transactions and trying to acquire the same locks at the same
+    time. MySQL keeps track of all its sessions and allocated resources, and when
+    it detects any deadlock, it returns the following error to the clients:'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一些其他框架、运行时和系统（如数据库）采用的方法。以下是一个由MySQL（一个流行的开源数据库）返回的错误示例。在这种情况下，当有两个并发会话同时运行事务并尝试同时获取相同的锁时，会发生死锁。MySQL跟踪所有会话和分配的资源，并在检测到任何死锁时，向客户端返回以下错误：
+- en: '[PRE11]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: If our runtime or system gives us deadlock detection, we can perform various
+    actions whenever it detects a deadlock. One option is to terminate the executions
+    stuck in the deadlock. This is similar to the approach Go’s runtime takes, with
+    the difference that Go terminates the entire process with all the goroutines.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的运行时或系统提供了死锁检测，我们可以在检测到死锁时执行各种操作。一个选项是终止陷入死锁的执行。这与Go运行时采取的方法类似，不同之处在于Go终止了包含所有goroutine的整个进程。
+- en: Another option is to return an error to the executions that are requesting the
+    resources whenever the request leads to a deadlock. The execution can then decide
+    to perform some action in response to the error, such as releasing the resources
+    and retrying after some time passes. This is the approach commonly adopted when
+    using many databases. Typically, when a database returns a deadlock error, the
+    database client can roll back the transaction and retry.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个选项是在请求资源时，如果请求导致死锁，则向请求资源的执行返回错误。然后，执行可以决定在一段时间后执行某些操作以响应错误，例如释放资源并重试。这种方法在许多数据库中使用时通常被采用。通常，当数据库返回死锁错误时，数据库客户端可以回滚事务并重试。
+- en: Why doesn’t Go’s runtime provide full deadlock detection?
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么Go的运行时不提供完整的死锁检测？
+- en: Having a mechanism to detect a deadlock by checking for any cycles in a resource
+    allocation graph is a relatively expensive operation in terms of performance.
+    Go’s runtime would have to maintain a resource allocation graph, and each time
+    there was a resource request or release, Go would have to run the cycle-check
+    algorithm on the graph. In an application where we have large numbers of goroutines
+    requesting and releasing resources, this deadlock detection check would slow things
+    down. It would also be unnecessary in many cases when the goroutines were not
+    using multiple exclusive resources at the same time.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过检查资源分配图中的任何循环来检测死锁是一种相对昂贵的性能操作。Go的运行时会维护一个资源分配图，并且每次有资源请求或释放时，Go都必须在图上运行循环检查算法。在一个有大量goroutine请求和释放资源的应用程序中，这种死锁检测检查会减慢速度。在许多情况下，当goroutine没有同时使用多个独占资源时，这也会是不必要的。
+- en: Implementing full deadlock detection in database transactions doesn’t typically
+    affect performance. This is because the detection algorithm is fast relative to
+    the slow database operations.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在数据库事务中实现完整的死锁检测通常不会影响性能。这是因为相对于缓慢的数据库操作，检测算法速度很快。
+- en: 11.2.2 Avoiding deadlocks
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.2.2 避免死锁
+- en: We can try to avoid deadlocks by scheduling executions in a manner that doesn’t
+    give rise to deadlocks. In figure 11.8, we again use the example of the train
+    deadlock, but this time, we show the timelines of each train when they get stuck
+    in the deadlock situation.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过以不会引起死锁的方式调度执行来尝试避免死锁。在图11.8中，我们再次使用列车死锁的例子，但这次，我们展示了每列火车在陷入死锁状态时的时间线。
+- en: '![](../../OEBPS/Images/CH11_F08_Cutajar.png)'
+  id: totrans-123
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F08_Cutajar.png)'
+- en: Figure 11.8 Train timelines leading to a deadlock
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.8 导致死锁的列车时间线
+- en: The system that is allocating resources (train crossings, in this example) can
+    have smarter logic to assign resources so as to avoid deadlocks. In our train
+    example, we know in advance the journey of each train and each train’s length.
+    So, when train 1 requests crossing A, we already know that crossing B might soon
+    be requested. When train 2 comes along and requests crossing B, instead of assigning
+    it and allowing the train to proceed, we can instruct the train to stop and wait.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分配资源（例如，在本例中为火车道口）的系统可以拥有更智能的逻辑来分配资源，从而避免死锁。在我们的火车例子中，我们事先知道每列火车的行程和长度。因此，当火车1请求道口A时，我们已经知道道口B可能很快就会被请求。当火车2到来并请求道口B时，我们不是分配给它并允许火车继续前进，而是可以指示火车停车等待。
+- en: The same can happen between trains 3 and 4\. When train 4 comes along and asks
+    for crossing D, we already know that it might later request crossing A, which
+    is currently being used by train 1\. So, again, we instruct train 4 to stop and
+    wait. However, train 3 can proceed with no interruption, since both crossings
+    C and D are free. No train is currently using a crossing that might request either
+    of them in the future.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样的事情也可能发生在火车3和4之间。当火车4到来并请求道口D时，我们已经知道它可能稍后会请求道口A，而道口A目前正在被火车1使用。因此，我们再次指示火车4停车等待。然而，火车3可以无干扰地继续前进，因为道口C和D都是空闲的。目前没有火车正在使用可能在未来请求其中任何一个的道口。
+- en: This train scheduling example is shown in figure 11.9\. Trains 1 and 3 pass
+    through the crossings uninterrupted while trains 2 and 4 stop and wait. Once the
+    crossings are free again, trains 2 and 4 can continue on their journey.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个火车调度示例在图11.9中展示。火车1和3无间断地通过道口，而火车2和4则停车等待。一旦道口再次空闲，火车2和4可以继续它们的行程。
+- en: '![](../../OEBPS/Images/CH11_F09_Cutajar.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F09_Cutajar.png)'
+- en: Figure 11.9 Avoiding deadlocks in the rail-crossing scenario
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.9 铁道交叉场景中的避免死锁
+- en: 'The *banker’s algorithm*, developed by Edsger Dijkstra, is one such algorithm
+    that can be used to check if a resource is safe to allocate and avoid deadlock.
+    The algorithm can be used only if the following information is known:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由Edsger Dijkstra开发的**银行家算法**就是这样一种算法，可以用来检查资源是否可以安全分配并避免死锁。只有当以下信息已知时，该算法才能使用：
+- en: The maximum number of each resource that each execution can request
+  id: totrans-131
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个执行可以请求的每种资源的最大数量
+- en: What resources each execution is currently holding
+  id: totrans-132
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个执行当前持有的资源
+- en: The available number of each resource
+  id: totrans-133
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每种资源的可用数量
+- en: Definition Using this information, we can decide if the system is in a *safe*
+    or *unsafe* state. Our system state is only *safe* if there is a way to schedule
+    our executions in which they all reach completion (thus avoiding deadlocks), even
+    if they request their maximum number of resources. Otherwise, the system state
+    is said to be *unsafe*.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义 使用这些信息，我们可以决定系统是处于*安全*还是*不可安全*状态。只有当存在一种方式可以调度我们的执行，使它们都能完成（从而避免死锁），即使它们请求最大数量的资源，我们的系统状态才被认为是*安全*的。否则，系统状态被认为是*不可安全*的。
+- en: The algorithm works by deciding whether to grant a request for resources. It
+    will grant a request for resources only if the system will still be in a safe
+    state after the resource is assigned. If it leads to an unsafe state, the execution
+    requesting the resources is suspended until it is safe to grant its request.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该算法通过决定是否授予资源请求来工作。只有在分配资源后系统仍然处于安全状态的情况下，它才会授予资源请求。如果会导致不可安全状态，请求资源的执行将被暂停，直到可以安全地授予其请求。
+- en: As an example, consider a resource that can be used by multiple executions in
+    a limited fashion, such as a database connection pool with a fixed number of sessions.
+    Figure 11.10 shows both a safe and an unsafe scenario. In scenario A, if execution
+    *a* requests and is granted another database session resource, the system ends
+    up in the unsafe state, shown in scenario B. This is because there is no way to
+    grant any execution its maximum number of resources. In scenario B, we only have
+    two resources left but executions *a*, *b*, and *c* can request a further five,
+    three, and five resources. There is now an unavoidable risk of ending up in a
+    deadlock.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，考虑一个可以以有限方式被多个执行使用的资源，例如具有固定会话数的数据库连接池。图11.10展示了安全和不可安全场景。在场景A中，如果执行*a*请求并获得另一个数据库会话资源，系统最终会进入不可安全状态，如场景B所示。这是因为没有方法可以授予任何执行其最大数量的资源。在场景B中，我们只剩下两个资源，但执行*a*、*b*和*c*可以请求额外的五个、三个和五个资源。现在不可避免地存在陷入死锁的风险。
+- en: '![](../../OEBPS/Images/CH11_F10_Cutajar.png)'
+  id: totrans-137
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F10_Cutajar.png)'
+- en: Figure 11.10 Examples of safe and unsafe state scenarios
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.10 安全和不安全状态情景的示例
+- en: Scenario A is said to still be in a safe state because there is scheduling that
+    we can apply that will lead all of the executions to complete. In scenario A,
+    we are still at a point where we can avoid a deadlock with careful resource allocation.
+    Applying the banker’s algorithm in scenario A of figure 11.10, we could suspend
+    the executions *a* and *c* when they request more resources because granting the
+    requests would lead to unsafe states. The algorithm would only allow requests
+    from *b* because granting these would leave the system in a safe state. Once *b*
+    frees enough resources, we can then grant them to *c* and later to *a* (see figure
+    11.11).
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 情景 A 被说成仍然处于安全状态，因为存在我们可以应用的调度，这将导致所有执行完成。在情景 A 中，我们仍然处于一个可以通过谨慎的资源分配来避免死锁的点。在图
+    11.10 的情景 A 中应用银行家算法，当它们请求更多资源时，我们可以挂起执行 *a* 和 *c*，因为批准这些请求会导致不安全状态。算法只会允许 *b*
+    的请求，因为批准这些请求将使系统处于安全状态。一旦 *b* 释放足够的资源，我们就可以将它们授予 *c*，然后是 *a*（见图 11.11）。
+- en: '![](../../OEBPS/Images/CH11_F11_Cutajar.png)'
+  id: totrans-140
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH11_F11_Cutajar.png)'
+- en: Figure 11.11 Sequence of safe resource allocations
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.11 安全资源分配的序列
+- en: The banker’s algorithm can also work with multiple resources, such as locking
+    the different bank accounts from our ledger application, described in section
+    11.1.2\. However, for our application, we do not need to implement the full banker’s
+    algorithm because we know in advance the full set of resources each goroutine
+    will need. Since we’re only locking two specific bank accounts, the source and
+    target accounts, our system can suspend the execution of a goroutine if either
+    of its two accounts are currently being used by another goroutine.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 银行家算法也可以与多种资源一起工作，例如锁定我们账本应用中的不同银行账户，如第 11.1.2 节所述。然而，对于我们的应用，我们不需要实现完整的银行家算法，因为我们事先知道每个
+    goroutine 将需要的全部资源集合。由于我们只锁定两个特定的银行账户，即源账户和目标账户，因此如果这两个账户中的任何一个当前正被另一个 goroutine
+    使用，我们的系统可以挂起 goroutine 的执行。
+- en: To implement this, we can create an arbitrator whose job it is to suspend the
+    execution of goroutines if they are requesting accounts that are currently in
+    use. Once the accounts become available, the arbitrator can then resume the goroutines.
+    The arbitrator can be implemented by using a condition variable to block the execution
+    of a goroutine until all accounts become available. This logic is shown in figure
+    11.12.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现这一点，我们可以创建一个仲裁者，其任务是挂起请求当前正在使用的账户的 goroutines 的执行。一旦账户变得可用，仲裁者可以恢复 goroutines
+    的执行。仲裁者可以通过使用条件变量来阻塞 goroutine 的执行，直到所有账户都变得可用。这种逻辑在图 11.12 中显示。
+- en: '![](../../OEBPS/Images/CH11_F12_Cutajar.png)'
+  id: totrans-144
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH11_F12_Cutajar.png)'
+- en: Figure 11.12 Using a condition variable to suspend goroutines when accounts
+    are unavailable
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 11.12 使用条件变量在账户不可用时挂起 goroutines
+- en: When a goroutine requests resources that are in use from an arbitrator, the
+    goroutine is made to wait on a condition variable. When another goroutine frees
+    resources, it broadcasts so that any suspended goroutine can check to see if the
+    required resource has become available. In this way, we avoid deadlocking, since
+    the resources are locked only if they are all available.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当一个 goroutine 从仲裁者请求正在使用的资源时，该 goroutine 被迫在条件变量上等待。当另一个 goroutine 释放资源时，它会广播，以便任何挂起的
+    goroutine 可以检查所需资源是否已变得可用。通过这种方式，我们避免了死锁，因为资源只有在全部可用时才会被锁定。
+- en: In listing 11.8, we define the structure that will be used in the arbitrator.
+    We also include a function to initialize the fields in the structure. The `accountsInUse`
+    map is there to mark any accounts that are currently being used for money transfers,
+    while the condition variable is used to suspend executions when accounts are in
+    use.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在列表 11.8 中，我们定义了将在仲裁者中使用的结构。我们还包括一个初始化结构体字段的函数。`accountsInUse` 映射用于标记任何当前正在用于资金转移的账户，而条件变量用于在账户在使用时挂起执行。
+- en: Listing 11.8 Building an arbitrator
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.8 构建仲裁者
+- en: '[PRE12]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: ❶ Stores accounts with their availability status, either free or in use
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 存储账户及其可用状态，要么是空闲的，要么是在使用中
+- en: ❷ Condition variable to be used to suspend goroutines if accounts are not available
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 用于在账户不可用时挂起 goroutines 的条件变量
+- en: Next, we need to implement a function that allows us to block the accounts if
+    they are free or to suspend the execution of the goroutine if they’re not. This
+    is shown in listing 11.9, which contains the `LockAccounts()` function. The function
+    acquires the mutex lock associated with the condition variable and checks to see
+    if all the accounts are free by using the `accountsInUse` map. If any of the accounts
+    are in use, the goroutine calls `Wait()` on the condition variable. This suspends
+    the execution of the goroutine and unlocks the mutex. Once the execution is resumed,
+    the goroutine reacquires the mutex, and this check is repeated until all the accounts
+    are free. At this point, the map is updated to indicate that the resources are
+    in use, and the mutex is unlocked. In this way, the goroutine never gets to execute
+    the transfer logic until it has acquired all the accounts it needs.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要实现一个函数，允许我们在账户空闲时阻塞它们，或者在账户不空闲时暂停goroutine的执行。这可以在列表 11.9 中看到，其中包含了`LockAccounts()`函数。该函数获取与条件变量关联的互斥锁，并使用`accountsInUse`映射检查所有账户是否空闲。如果任何账户正在使用中，goroutine将在条件变量上调用`Wait()`。这将暂停goroutine的执行并解锁互斥锁。一旦执行恢复，goroutine重新获取互斥锁，并重复此检查，直到所有账户都空闲。此时，映射被更新以指示资源正在使用中，互斥锁被解锁。这样，goroutine在获取所有所需的账户之前永远不会执行转账逻辑。
+- en: Listing 11.9 Suspending executions to avoid deadlocks
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.9 暂停执行以避免死锁
+- en: '[PRE13]'
+  id: totrans-154
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: ❶ Locks mutex on condition variable
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在条件变量上锁定互斥锁
+- en: ❷ Loops until all accounts are free
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 循环直到所有账户都空闲
+- en: ❸ If an account is in use, suspends the execution of the goroutine
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果账户正在使用中，则暂停goroutine的执行
+- en: ❹ Once all accounts are available, marks requested accounts as in use
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 一旦所有账户都可用，将请求的账户标记为正在使用中
+- en: ❺ Unlocks the mutex on the condition variable
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 在条件变量上解锁互斥锁
+- en: Once the goroutine is done with its transfer logic, it needs to mark the accounts
+    as no longer in use. Listing 11.10 shows the `UnlockAccounts()` function. A goroutine
+    calling this function holds the condition variable’s mutex, marks all required
+    accounts as free, and then broadcasts on the condition variable. This has the
+    effect of waking up any suspended goroutines, which will then go ahead and check
+    to see if their accounts have become available.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦goroutine完成了其转账逻辑，它需要将账户标记为不再使用。列表 11.10 展示了`UnlockAccounts()`函数。调用此函数的goroutine持有条件变量的互斥锁，将所有所需的账户标记为空闲，然后在条件变量上广播。这会唤醒任何挂起的goroutine，然后它们将继续检查其账户是否已可用。
+- en: Listing 11.10 Using broadcasts to resume goroutines
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.10 使用广播恢复goroutine
+- en: '[PRE14]'
+  id: totrans-162
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: ❶ Locks mutex on the condition variable
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 在条件变量上锁定互斥锁
+- en: ❷ Marks accounts as free
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将账户标记为空闲
+- en: ❸ Broadcasts to resume any suspended goroutines
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 向挂起的goroutine发送广播以恢复其执行
+- en: ❹ Unlocks the mutex on the condition variable
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 在条件变量上解锁互斥锁
+- en: We can now use these two functions in our money-transfer logic. The next listing
+    shows the modified `Transfer()` function that calls `LockAccounts()` before making
+    the money transfer and calls `UnlockAccounts()` afterward.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以在我们的货币转账逻辑中使用这两个函数。下一个列表显示了修改后的`Transfer()`函数，它在进行货币转账之前调用`LockAccounts()`，并在之后调用`UnlockAccounts()`。
+- en: Listing 11.11 Using the arbitrator to lock accounts during transfers
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.11 在转账期间使用仲裁者锁定账户
+- en: '[PRE15]'
+  id: totrans-169
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ❶ Locks both the source and target accounts
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 锁定源账户和目标账户
+- en: ❷ Performs the transfer once both locks are obtained
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 在获得两个锁之后执行转账
+- en: ❸ Unlocks both accounts after transfer
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 在转账后解锁两个账户
+- en: Finally, we can update our `main()` function to create an instance of the arbitrator
+    and pass it to the goroutines so that it can be used during the transfers. This
+    is shown in the following listing.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们可以更新我们的`main()`函数以创建仲裁者实例并将其传递给goroutine，以便在转账期间使用。这将在以下列表中展示。
+- en: Listing 11.12 `main()` function using arbitrator (imports omitted for brevity)
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 11.12 使用仲裁者（为简洁起见省略了导入）
+- en: '[PRE16]'
+  id: totrans-175
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: ❶ Creates a new arbitrator to be used in the transfers
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个用于转账的新仲裁者
+- en: Deadlock avoidance in operating systems and language runtimes
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作系统和语言运行时的死锁避免
+- en: Can deadlock avoidance algorithms be implemented in operating systems or in
+    Go’s runtime to schedule executions in a manner that avoids deadlocks? In practice,
+    deadlock avoidance algorithms, such as the banker’s algorithm, are not very useful
+    when it comes to using them in operating systems and language runtimes because
+    they require advance knowledge of the maximum number of resources that an execution
+    will require. This requirement is unrealistic because operating systems and runtimes
+    cannot be expected to know what resources each process, thread, or goroutine might
+    ask for in advance.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 能否在操作系统或Go的运行时中实现死锁避免算法，以便以避免死锁的方式调度执行？在实践中，当在操作系统和语言运行时中使用时，死锁避免算法，如银行家算法，并不非常有效，因为它们需要提前知道执行将需要的最大资源数量。这种要求是不切实际的，因为操作系统和运行时无法预期知道每个进程、线程或goroutine可能会提前请求哪些资源。
+- en: In addition, the banker’s algorithm assumes that the set of executions does
+    not change. This is not the case for any realistic operating system in which processes
+    are constantly being started up and terminated.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，银行家算法假设执行集不会改变。对于任何现实中的操作系统来说，进程都在不断启动和终止，这不是这种情况。
+- en: 11.2.3 Preventing deadlocks
+  id: totrans-180
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 11.2.3 防止死锁
+- en: If we know in advance the full set of exclusive resources that our concurrent
+    execution will use, we can use ordering to prevent deadlocks. Consider again the
+    simple deadlock outlined in listing 11.1\. That deadlock happens because the `red()`
+    and `blue()` goroutines are each acquiring the mutexes in a different order. The
+    `red()` goroutine is using lock 1 and then lock 2, while `blue()` is using lock
+    2 and then lock 1\. If we change the listing so that they use the locks in the
+    same order, as shown in the following listing, the deadlock won’t occur.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们提前知道我们的并发执行将使用的全部独占资源集，我们可以使用排序来防止死锁。再次考虑列表11.1中概述的简单死锁。这个死锁发生是因为`red()`和`blue()`
+    goroutine各自以不同的顺序获取互斥锁。`red()` goroutine使用锁1然后是锁2，而`blue()`使用锁2然后是锁1。如果我们改变列表，使它们以相同的顺序使用锁，如以下列表所示，死锁就不会发生。
+- en: Listing 11.13 Ordering mutexes prevents deadlocks
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.13 排序互斥锁防止死锁
+- en: '[PRE17]'
+  id: totrans-183
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: The deadlock doesn’t occur because we never get in a situation where both goroutines
+    are holding different locks and requesting the other one. In this scenario, when
+    they both try to obtain lock 1 at the same time, only one goroutine will succeed.
+    The other one will be blocked until both locks are available again. This creates
+    a situation where a goroutine can obtain either all the locks or none.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 死锁没有发生，因为我们从未处于两个goroutine都持有不同锁并请求另一个锁的情况。在这种情况下，当它们同时尝试获取锁1时，只有一个goroutine会成功。另一个将被阻塞，直到两个锁都可用。这创造了一个情况，即goroutine可以获取所有锁或一个也不获取。
+- en: We can apply this rule to our ledger application. Whenever we get a transaction
+    to execute, we can define a simple rule that specifies the order in which to acquire
+    the mutex locks. The rule could be that we should acquire the locks in alphabetical
+    order based on the account ID. For example, if we have a transaction to transfer
+    $10 from Mia to Amy, we should lock Amy’s account first and then Mia’s because
+    Amy’s account ID is alphabetically first. If, at the same time, we have another
+    transaction that is transferring $10 from Amy to Mia, this transaction will be
+    blocked on its first lock request, that of Amy. This example is shown in figure
+    11.13.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将此规则应用于我们的账目应用。每当我们要执行一个事务时，我们可以定义一个简单的规则，指定获取互斥锁的顺序。规则可能是我们应该根据账户ID的字母顺序获取锁。例如，如果我们有一个从Mia转到Amy的10美元转账事务，我们应该首先锁定Amy的账户，然后是Mia的，因为Amy的账户ID在字母顺序中排在前面。如果在同一时间，我们还有另一个从Amy转到Mia的10美元转账事务，这个事务将在其第一个锁请求（Amy的锁）上被阻塞。这个例子在图11.13中显示。
+- en: '![](../../OEBPS/Images/CH11_F13_Cutajar.png)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../../OEBPS/Images/CH11_F13_Cutajar.png)'
+- en: Figure 11.13 Using ordering to avoid deadlocks in the ledger application
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.13 在账目应用中使用排序来避免死锁
+- en: In our ledger application example, we have made the account IDs equivalent to
+    the account holder’s name for simplicity. In a real-life application, the account
+    ID might be numeric or a version 4 UUID, both of which can be ordered. The following
+    listing shows the modified transfer function for our application where we are
+    sorting the accounts by their IDs and then locking them in order.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的账目应用示例中，为了简化，我们将账户ID等同于账户持有者的姓名。在实际应用中，账户ID可能是数字或版本4的UUID，两者都可以排序。以下列表显示了我们对应用中修改后的转账函数，其中我们按账户ID对账户进行排序，然后按顺序锁定它们。
+- en: Listing 11.14 Ordering accounts transfer function
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.14 账户转账函数排序
+- en: '[PRE18]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: ❶ Places the source and target accounts into a slice
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 将源账户和目标账户放入一个切片中
+- en: ❷ Sorts the slice containing both accounts by their ID
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 按ID对包含两个账户的切片进行排序
+- en: ❸ Locks the account with the lower order by ID
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 按ID锁定优先级较低的账户
+- en: ❹ Locks the account with the higher order by ID
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 按ID锁定优先级更高的账户
+- en: ❺ Unlocks both accounts
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 解锁两个账户
+- en: 'We can now run the preceding function and see that the accounts are always
+    being locked in alphabetical order. In addition, all the goroutines complete without
+    getting into any deadlocks. Here’s a sample of the output:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以运行前面的函数并看到账户总是按字母顺序锁定。此外，所有goroutines都完成了任务而没有陷入任何死锁。以下是输出样本：
+- en: '[PRE19]'
+  id: totrans-197
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: We can also use this ordering strategy to prevent deadlocks if we don’t know
+    in advance which exclusive resources we need to use. The idea here is not to acquire
+    resources that have a lower order than the ones we’re currently holding. When
+    a situation happens that requires us to acquire a higher-order resource, we can
+    always release the resources being held and request them again in the correct
+    order.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以使用这种排序策略来防止死锁，如果我们事先不知道需要使用哪些互斥资源。这里的想法是不要获取低于我们当前持有的资源优先级的资源。当出现需要我们获取更高优先级资源的情况时，我们总是可以释放所持有的资源，并按正确的顺序重新请求它们。
+- en: 'In our ledger application, consider a goroutine that is executing a special
+    transaction, such as “Pay Paul $10 from Amy’s account; if Amy’s account lacks
+    sufficient funds, use Mia’s account instead." In this scenario, we can write logic
+    into our goroutine to perform the following steps:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的账本应用中，考虑一个正在执行特殊事务的goroutine，例如：“从艾米的账户中支付保罗10美元；如果艾米的账户资金不足，则使用米娅的账户。”在这种情况下，我们可以在goroutine中编写逻辑以执行以下步骤：
+- en: Lock Amy’s account.
+  id: totrans-200
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 锁定艾米的账户。
+- en: Lock Paul’s account.
+  id: totrans-201
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 锁定保罗的账户。
+- en: 'If Amy’s balance is sufficient to cover the transfer:'
+  id: totrans-202
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 如果艾米的余额足以覆盖转账：
+- en: Subtract money from Amy’s account and add it to Paul’s.
+  id: totrans-203
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从艾米的账户中扣除资金并添加到保罗的账户中。
+- en: Unlock both Amy’s and Paul’s accounts.
+  id: totrans-204
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 解锁艾米和保罗的账户。
+- en: 'Otherwise:'
+  id: totrans-205
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 否则：
+- en: Unlock both Amy’s and Paul’s accounts.
+  id: totrans-206
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 解锁艾米和保罗的账户。
+- en: Lock Mia’s account.
+  id: totrans-207
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 锁定米娅的账户。
+- en: Lock Paul’s account.
+  id: totrans-208
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 锁定保罗的账户。
+- en: Subtract money from Mia’s account and add it to Paul’s.
+  id: totrans-209
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从米娅的账户中扣除资金并添加到保罗的账户中。
+- en: Unlock both Mia’s and Paul’s accounts.
+  id: totrans-210
+  prefs:
+  - PREF_IND
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 解锁米娅和保罗的账户。
+- en: The important rule here is to never lock a lower-order resource if the execution
+    holds a higher one. In this example, we had to release Paul’s and Amy’s accounts
+    before locking Mia’s. This ensures that we never get into a deadlock situation.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的重要规则是，如果执行过程中持有更高优先级的资源，则绝不要锁定低优先级的资源。在这个例子中，我们必须在锁定米娅的账户之前释放保罗和艾米账户。这确保了我们永远不会陷入死锁状态。
+- en: 11.3 Deadlocking with channels
+  id: totrans-212
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.3 使用通道的死锁
+- en: It’s important to understand that deadlocks aren’t limited to the use of mutexes.
+    Deadlocks can occur whenever executions hold mutually exclusive resources and
+    request other ones—this also applies to channels. A channel’s capacity can be
+    thought of as a mutually exclusive resource. Goroutines can hold a channel while
+    also trying to use another one (by sending or receiving messages).
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要理解，死锁不仅限于互斥锁的使用。当执行过程中持有互斥资源并请求其他资源时，都可能发生死锁——这也适用于通道。通道的容量可以被视为一个互斥资源。Goroutines可以在持有通道的同时尝试使用另一个通道（通过发送或接收消息）。
+- en: We can think of a channel as being a collection of read and write resources.
+    Initially, a non-buffered channel has no read and write resources. A read resource
+    becomes available when another goroutine is trying to write a message. A write
+    operation makes one read resource available while trying to acquire a write resource.
+    Similarly, a read operation makes one write resource available while trying to
+    acquire one read resource.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以将通道视为包含读取和写入资源的集合。最初，非缓冲通道没有读取和写入资源。当另一个goroutine尝试写入消息时，读取资源变得可用。写入操作在尝试获取写入资源的同时使一个读取资源可用。同样，读取操作在尝试获取一个读取资源的同时使一个写入资源可用。
+- en: Let’s look at an example of a deadlock involving two channels. Consider a simple
+    program that needs to recursively output file details, such as the filename, file
+    size, and last modified date of all files under a directory. One solution is to
+    have one goroutine that handles files and another that deals with directories.
+    The directory goroutine’s job is to read the directory contents and feed each
+    file to the file handler using a channel. This is shown in the following `handleDirectories()`
+    function.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看一个涉及两个通道的死锁示例。考虑一个简单的程序，它需要递归地输出文件详细信息，例如目录下所有文件的文件名、文件大小和最后修改日期。一个解决方案是有一个goroutine处理文件，另一个处理目录。目录goroutine的任务是读取目录内容，并使用通道将每个文件提供给文件处理程序。这将在下面的`handleDirectories()`函数中显示。
+- en: Listing 11.15 Directory handler (error handling omitted for brevity)
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.15 目录处理程序（为了简洁，省略了错误处理）
+- en: '[PRE20]'
+  id: totrans-217
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: ❶ Reads the full directory path from the input topic
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 从输入主题读取完整的目录路径
+- en: ❷ Reads the contents of a directory
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 读取目录的内容
+- en: ❸ Feeds each item of the directory contents onto the output topic
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 将目录内容的每个项目推送到输出主题
+- en: The reverse happens in the file handler goroutine. When the file handler meets
+    a new directory, it sends it to the directory handler’s channel. The file handler
+    consumes items from an input channel if the item is a file, and it outputs information
+    about it, such as the file size and last modified date. If the item is a directory,
+    it forwards the directory to the directory handler. This is shown in the following
+    listing.
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在文件处理程序的goroutine中发生相反的情况。当文件处理程序遇到一个新的目录时，它将其发送到目录处理程序的通道。如果项目是文件，文件处理程序会从输入通道消费项目，并输出有关它的信息，例如文件大小和最后修改日期。如果项目是目录，它将目录转发给目录处理程序。这将在下面的列表中显示。
+- en: Listing 11.16 Files handler (error handling omitted for brevity)
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.16 文件处理程序（为了简洁，省略了错误处理）
+- en: '[PRE21]'
+  id: totrans-223
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: ❶ Reads the full path of a file
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 读取文件的完整路径
+- en: ❷ Reads information about the file
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 读取有关文件的信息
+- en: ❸ If the file is a directory, writes it to the output channel
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果文件是目录，则将其写入输出通道
+- en: ❹ If the file is not a directory, displays file information on the console
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 如果文件不是目录，则在控制台上显示文件信息
+- en: We can now wire the two goroutines together with a `main()` function. In listing
+    11.17, we create the two channels and pass them to the newly created file and
+    directory handler goroutines. We then feed the initial directory read from the
+    arguments to the directory channel. To simplify the listing (for demonstration
+    purposes), we have the `main()` goroutine sleep 60 seconds instead of using waitgroups
+    to wait for the goroutines to complete.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在可以使用`main()`函数将两个goroutine连接起来。在列表11.17中，我们创建了两个通道并将它们传递给新创建的文件和目录处理程序goroutine。然后我们将从参数中读取的初始目录推送到目录通道。为了简化列表（用于演示目的），我们让`main()`
+    goroutine睡眠60秒而不是使用waitgroups等待goroutine完成。
+- en: Listing 11.17 `main()` function creating file and directory handlers
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.17 `main()`函数创建文件和目录处理程序
+- en: '[PRE22]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: ❶ Creates files and directory channels
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建文件和目录通道
+- en: ❷ Starts file and directory handler goroutines
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 启动文件和目录处理程序goroutine
+- en: ❸ Feeds the directory from the arguments to the directory channel
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 从目录参数向目录通道提供数据
+- en: ❹ Sleeps for 60 seconds
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 睡眠60秒
+- en: 'When we run all the listings together on a directory that has some subdirectories,
+    we immediately get into a deadlock. The following example output shows the goroutines
+    deadlocking soon after the directory handler tries to push 26 files onto the channel,
+    and the file handler’s goroutine tries to send the directory named `CodingInterviewWorkshop`:'
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们在具有一些子目录的目录上运行所有列表时，我们立即陷入死锁。以下示例输出显示了目录处理程序尝试将26个文件推送到通道后不久，文件处理程序的goroutine尝试发送名为`CodingInterviewWorkshop`的目录时goroutine发生死锁：
+- en: '[PRE23]'
+  id: totrans-236
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: The deadlocking problem here is shown in figure 11.14\. We have created a circular
+    wait condition between our two goroutines. The directory handler is waiting for
+    a file handler’s goroutine to read from the `files` channel while it’s blocking
+    any writes to the `dirs` channels. The file handler is waiting for a directory
+    handler’s goroutine to read from the `dirs` channel while it’s blocking any writes
+    to the `files` channel.
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里显示的死锁问题在图11.14中。我们在两个goroutine之间创建了一个循环等待条件。目录处理程序正在等待文件处理程序的goroutine从`files`通道读取，同时它阻止对`dirs`通道的任何写入。文件处理程序正在等待目录处理程序的goroutine从`dirs`通道读取，同时它阻止对`files`通道的任何写入。
+- en: '![](../../OEBPS/Images/CH11_F14_Cutajar.png)'
+  id: totrans-238
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../../OEBPS/Images/CH11_F14_Cutajar.png)'
+- en: Figure 11.14 Deadlock with two channels
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图11.14 两个通道的死锁
+- en: We might be tempted to think that we can solve the deadlock problem by having
+    a buffer on the file or directory channel. This, however, will only postpone the
+    deadlock. The problem will still occur once we encounter a directory that has
+    more files or subdirectories than our buffer can handle.
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可能会想，通过在文件或目录通道上添加缓冲区来解决死锁问题。然而，这只会推迟死锁的发生。一旦我们遇到一个文件或子目录数量超过我们缓冲区处理能力的目录，问题仍然会出现。
+- en: We can also attempt to increase the number of goroutines that are running our
+    file handlers. After all, a typical filesystem has substantially more files than
+    directories. Again, however, this would only delay the problem. Once our program
+    navigates to a directory that contains more files than the number of goroutines
+    executing `handleFiles()`, we will again get into a deadlock situation.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以尝试增加运行文件处理器的goroutine数量。毕竟，一个典型的文件系统中的文件数量远多于目录。然而，这只会延迟问题。一旦我们的程序导航到一个包含的文件数量超过执行`handleFiles()`的goroutine数量的目录，我们又将陷入死锁状态。
+- en: We can prevent the deadlock in this scenario by removing the circular wait.
+    An easy way to do this is to change one of our functions so that we send on the
+    channel by using a newly spawned goroutine. Listing 11.18 adapts the `handleDirectories()`
+    function so that it starts up a new goroutine every time it needs to push new
+    files onto the `files` channel. In this way, we have freed the goroutine from
+    having to wait for the channel to become available, and we have delegated the
+    wait to another goroutine, breaking the circular wait.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过移除循环等待来防止这种场景下的死锁。一个简单的方法是将我们的一个函数修改为通过使用新创建的goroutine来发送通道。列表11.18修改了`handleDirectories()`函数，使其每次需要将新文件推送到`files`通道时都启动一个新的goroutine。这样，我们就让goroutine摆脱了等待通道可用的需要，并将等待委托给另一个goroutine，从而打破了循环等待。
+- en: Listing 11.18 Using a separate goroutine to write on a channel
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.18 使用单独的goroutine在通道上写入
+- en: '[PRE24]'
+  id: totrans-244
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: ❶ Starts new goroutine that sends each file to the files channel
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 启动一个新的goroutine，将每个文件发送到文件通道
+- en: An alternative solution that doesn’t involve creating loads of separate goroutines
+    is to read and write from our channels at the same time by using the `select`
+    statement. Again, this will break the circular wait that causes deadlocks while
+    using channels. We can adopt this approach in either the directories or the files
+    goroutines. The following listing shows this for the `handleDirectories()` goroutine.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种不涉及创建大量单独goroutine的替代解决方案是使用`select`语句同时从我们的通道读取和写入。这同样会打破使用通道时导致死锁的循环等待。我们可以在目录或文件goroutine中采用这种方法。以下列表显示了`handleDirectories()`
+    goroutine的示例。
+- en: Listing 11.19 Using `select` to break the circular wait
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表11.19 使用`select`来打破循环等待
+- en: '[PRE25]'
+  id: totrans-248
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: ❶ Creates a slice to store files that need to be pushed to the file handler’s
+    channel
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❶ 创建一个切片来存储需要推送到文件处理器通道的文件
+- en: ❷ Appends all files in a directory to the slice
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❷ 将目录中的所有文件追加到切片中
+- en: ❸ If there are no files to push, reads directory from the input channel and
+    adds all files in the directory
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❸ 如果没有文件要推送，则从输入通道读取目录，并将目录中的所有文件添加
+- en: ❹ Reads the next directory from the input channel and adds all files in the
+    directory
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❹ 从输入通道读取下一个目录，并将目录中的所有文件添加
+- en: ❺ Pushes the first file on the slice to the channel
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❺ 将切片中的第一个文件推送到通道
+- en: ❻ Removes the first file on the slice
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ❻ 从切片中移除第一个文件
+- en: Having our goroutine complete the receive or send operation depending on which
+    channel is available gets rid of the circular wait that was causing the deadlock.
+    If the file handler’s goroutine is busy sending a directory path on its output
+    channel, our directory goroutine is not blocked and can still receive the directory
+    path. The `select` statement lets us wait for two operations at the same time.
+    The contents of a directory are appended to a slice so that when the output channel
+    is available, they are pushed onto the channel.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据哪个通道可用，让我们的goroutine完成接收或发送操作，可以消除导致死锁的循环等待。如果文件处理器的goroutine正忙于在其输出通道上发送目录路径，我们的目录goroutine不会被阻塞，仍然可以接收目录路径。`select`语句允许我们同时等待两个操作。目录的内容追加到切片中，以便当输出通道可用时，它们被推送到通道。
+- en: NOTE Having deadlocks in message-passing programs is often a sign of bad program
+    design. Having a deadlock while using channels means that we have programmed a
+    circular flow of messages going through the same goroutines. Most of the time,
+    we can avoid possible deadlocks by designing our programs so that the flow of
+    messages is not circular.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：在消息传递程序中存在死锁通常是一个程序设计不良的迹象。在使用通道时出现死锁意味着我们已经编写了一个通过相同 goroutines 传递的循环消息流。大多数情况下，我们可以通过设计程序使消息流不循环来避免可能的死锁。
+- en: 11.4 Exercises
+  id: totrans-257
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 11.4 练习
+- en: NOTE Visit [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    to see all the code solutions.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：访问 [http://github.com/cutajarj/ConcurrentProgrammingWithGo](http://github.com/cutajarj/ConcurrentProgrammingWithGo)
+    以查看所有代码解决方案。
+- en: In the following listing, `incrementScores()` might produce a deadlock if it’s
+    run concurrently with multiple goroutines. Can you change the function so that
+    it avoids or prevents deadlocks?
+  id: totrans-259
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在以下列表中，`incrementScores()` 如果与多个 goroutines 并发运行可能会产生死锁。你能修改这个函数以避免或防止死锁吗？
+- en: Listing 11.20 Deadlocking on player scores
+  id: totrans-260
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 列表 11.20 玩家分数的死锁
+- en: '[PRE26]'
+  id: totrans-261
+  prefs:
+  - PREF_IND
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: In listing 11.19, we changed the `handleDirectories()` function so that it uses
+    the `select` statement to avoid a circular wait between the two goroutines. Can
+    you also change the `handleFiles()` function from listing 11.16 in the same way?
+    The goroutine should use the `select` statement to both receive and send on the
+    two channels.
+  id: totrans-262
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在列表 11.19 中，我们修改了 `handleDirectories()` 函数，使其使用 `select` 语句来避免两个 goroutines
+    之间的循环等待。你也能以同样的方式修改列表 11.16 中的 `handleFiles()` 函数吗？goroutine 应该使用 `select` 语句在两个通道上同时接收和发送。
+- en: Summary
+  id: totrans-263
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: A deadlock is when a program has multiple executions that block indefinitely,
+    waiting for each other to release their respective resources.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 死锁是指程序有多个执行无限期地阻塞，等待彼此释放各自的资源。
+- en: A resource allocation graph (RAG) shows how executions are using resources by
+    connecting them with edges.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 资源分配图（RAG）通过连接它们来显示执行如何使用资源。
+- en: In an RAG, an execution requesting a resource is represented by a directed edge
+    from the execution to the resource.
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 RAG 中，一个请求资源的执行是通过从执行到资源的定向边来表示的。
+- en: In an RAG, an execution holding a resource is represented by a directed edge
+    from the resource to the execution.
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 RAG（资源分配图）中，一个执行持有资源是通过从资源到执行的定向边来表示的。
+- en: When an RAG contains a cycle, it signifies that the system is in a deadlock.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当 RAG 包含一个循环时，它表示系统处于死锁状态。
+- en: A graph cycle detection algorithm can be used on the RAG to detect a deadlock.
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以在 RAG 上使用图循环检测算法来检测死锁。
+- en: Go’s runtime provides deadlock detection, but it only detects a deadlock if
+    all the goroutines are blocked.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Go 的运行时提供了死锁检测，但它只能在所有 goroutines 都阻塞的情况下检测到死锁。
+- en: When Go’s runtime detects a deadlock, the entire program exits with an error.
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当 Go 的运行时检测到死锁时，整个程序将带错误退出。
+- en: Avoiding deadlocks by using scheduling executions in a specific manner can only
+    be done in special cases where we know beforehand which resources will be used.
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过以特定方式调度执行来避免死锁只能在事先知道将使用哪些资源的情况下进行。
+- en: Deadlocks can be prevented programmatically by requesting resources in a predefined
+    order.
+  id: totrans-273
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 可以通过以预定义的顺序请求资源来程序化地防止死锁。
+- en: Deadlocks can also occur in programs that are using Go channels. A channel’s
+    capacity can be thought of as a mutually exclusive resource.
+  id: totrans-274
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 死锁也可能出现在使用 Go 通道的程序中。通道的容量可以被视为一个互斥资源。
+- en: When using channels, take care to avoid circular waits to prevent deadlocks.
+  id: totrans-275
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在使用通道时，请注意避免循环等待，以防止死锁。
+- en: With channels, circular waits can be avoided by sending or receiving using separate
+    goroutines, by combining channel operations with a `select` statement, or by better
+    designing programs to avoid circular message flows.
+  id: totrans-276
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过使用单独的 goroutines 发送或接收，通过将通道操作与 `select` 语句结合，或者通过更好地设计程序以避免循环消息流，可以使用通道避免循环等待。

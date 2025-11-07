@@ -1,0 +1,1819 @@
+- en: 10 Analyzing big data with Dask
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 10 使用 Dask 分析大数据
+- en: This chapter covers
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章节涵盖
+- en: Scaling computation across many machines with extremely large datasets
+  id: totrans-2
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在具有极大数据集的许多机器上扩展计算
+- en: Introducing Dask’s execution model
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 介绍 Dask 的执行模型
+- en: Executing code using the `dask.distributed` scheduler
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用 `dask.distributed` 调度器执行代码
+- en: Processing large amounts of data sometimes requires more than a single computer
+    because the data is too much to process or the algorithms require a lot of computing
+    power. At this stage in the book, we know how to devise more efficient computational
+    processes and how to store and structure our data more intelligently for processing.
+    This final chapter will be about how to *scale out*—that is, use more than one
+    computer to perform computations.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理大量数据有时需要不止一台计算机，因为数据量过大难以处理，或者算法需要大量的计算能力。在本书的这一阶段，我们已经知道如何设计更高效的计算过程，以及如何更智能地存储和结构化我们的数据以便处理。最后一章将介绍如何
+    *扩展*——也就是说，使用多台计算机来执行计算。
+- en: To scale out, we will be using Dask, which is a library to perform parallel
+    computing for analytics. Dask integrates very well with other libraries in the
+    Python ecosystem, like NumPy and pandas. Dask will serve our purpose to scale
+    *out* (i.e., use more than one computer). However, it can also be used to scale
+    *up* (i.e., use computational results in a single computer more efficiently).
+    In that sense, it can be an alternative to the material presented in chapter 3
+    about parallelism.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了扩展，我们将使用 Dask，这是一个用于分析并行计算的库。Dask 与 Python 生态系统中的其他库，如 NumPy 和 pandas，集成得非常好。Dask
+    将满足我们扩展 *（即使用多台计算机）* 的需求。然而，它也可以用于扩展 *（即更有效地使用单台计算机中的计算结果）*。从这个意义上说，它可以作为第 3 章中关于并行性的材料的替代品。
+- en: There are other alternatives to Dask, Spark being the most common. Spark, coming
+    from the Java space, is less well-integrated with other Python libraries compared
+    to Dask. So I prefer to use a Python-native solution, which simplifies interaction
+    with the Python ecosystem. Many of the concepts exercised here can still be used
+    with other frameworks.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了 Dask 之外，还有其他替代方案，Spark 是最常见的一个。Spark 来自 Java 领域，与 Dask 相比，与其他 Python 库的集成程度较低。因此，我更喜欢使用原生
+    Python 解决方案，这简化了与 Python 生态系统的交互。这里练习的许多概念仍然可以用于其他框架。
+- en: Dask has several different programming interfaces. At a higher level, some APIs
+    are similar to NumPy, pandas, and other analysis libraries. However, Dask’s interfaces,
+    which are easy to use if you know the original libraries, allow for larger-than-memory
+    objects like data frames and arrays, which pandas or NumPy don’t. At a lower level,
+    one interface is based on `concurrent.futures` (see chapter 3), and another allows
+    you to use Dask to parallelize more general code (i.e., not only based on arrays
+    and data frames).
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dask 有几个不同的编程接口。在较高层次上，一些 API 与 NumPy、pandas 和其他分析库类似。然而，如果您熟悉原始库，Dask 的接口易于使用，它允许使用超出内存的对象，如数据框和数组，这是
+    pandas 或 NumPy 所不具备的。在较低层次上，一个接口基于 `concurrent.futures`（参见第 3 章），另一个允许您使用 Dask
+    并行化更通用的代码（即不仅基于数组和数据框）。
+- en: 'The main objective in this chapter is to help you understand the underlying
+    execution model of Dask, along with scheduling alternatives and larger-than-memory
+    data usage. While we will discuss some performance problems, I believe that more
+    is to be gained from understanding the underlying model of computation in Dask.
+    Execution environments can vary a lot—from a single machine to very large clusters—and
+    that can make concrete performance suggestions invalid or even deleterious. Thus,
+    this chapter uses a different approach from most of the book: you are given the
+    basic building blocks and will have to adapt them to your specific environment.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的主要目标是帮助您理解 Dask 的底层执行模型，以及调度替代方案和超出内存的数据使用。虽然我们将讨论一些性能问题，但我相信从理解 Dask 计算模型的底层结构中可以获得更多收益。执行环境可能差异很大——从单机到非常大的集群——这可能会使具体的性能建议变得无效，甚至有害。因此，本章采用了与本书大部分章节不同的方法：您将获得基本构建块，并将不得不根据您的特定环境对其进行调整。
+- en: Dask has a different—namely, lazier—execution model compared to libraries like
+    pandas or NumPy. So the first section will cover the substantial differences in
+    semantics. Because we want to be on solid ground with regard to the model, we
+    will not consider parallelism at all in the first section. We will also not consider
+    larger-than-memory data structures. The first section will use an illustrative
+    example based on the data frame interface of Dask, which is akin to pandas.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 pandas 或 NumPy 等库相比，Dask 具有不同的——即更惰性的——执行模型。因此，第一部分将涵盖语义上的重大差异。由于我们希望对模型有坚实的基础，第一部分将完全不考虑并行性。我们也不会考虑大于内存的数据结构。第一部分将使用基于
+    Dask 数据框接口的说明性示例，这与 pandas 类似。
+- en: In the second section, I will discuss the partitioning of larger-than-memory
+    data and present some performance implications of the Dask model. I will also
+    introduce some best practices to accelerate computation.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第二节中，我将讨论大于内存数据集的分区，并展示 Dask 模型的某些性能影响。我还会介绍一些最佳实践来加速计算。
+- en: 'In the third section, we will learn about Dask’s distributed scheduler, which
+    allows us to intelligently distribute computations across several computers and
+    architectures: from HPC clusters to the cloud or GPU-enabled machines. Since it
+    would be too much to ask readers to have a cluster or cloud to run this code,
+    our example can be run on a single machine but will also be easy to scale out.'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第三节中，我们将了解 Dask 的分布式调度器，它允许我们智能地将计算分布在多台计算机和架构上：从 HPC 集群到云或启用 GPU 的机器。由于要求读者拥有集群或云来运行此代码可能过于苛刻，我们的示例可以在单台机器上运行，但也很容易扩展。
+- en: We will start with Dask’s execution model. Given Dask’s lazy nature, it has
+    some important conceptual differences from existing libraries, like pandas or
+    NumPy, that need to be understood before we actually implement parallel solutions.
+    Dask is required to run the code in this chapter. You will also need the Graphviz
+    library to draw task graphs. With conda, do `conda install dask`. Currently, it
+    seems easier to install the Graphviz library bridge using pip (`pip install graphviz`),
+    even with conda. You should also make sure that the Graphviz main application
+    is installed. The Docker image is `tiagoantao/python-performance-dask`.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将从 Dask 的执行模型开始。鉴于 Dask 的惰性特性，它与传统库（如 pandas 或 NumPy）相比，存在一些重要的概念性差异，在我们实际实现并行解决方案之前需要理解。本章代码需要使用
+    Dask 运行。您还需要 Graphviz 库来绘制任务图。使用 conda，执行 `conda install dask`。目前，使用 pip 安装 Graphviz
+    库桥接器似乎更容易（`pip install graphviz`），即使使用 conda。您还应该确保 Graphviz 主应用程序已安装。Docker 镜像是
+    `tiagoantao/python-performance-dask`。
+- en: 10.1 Understanding Dask’s execution model
+  id: totrans-14
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.1 理解 Dask 的执行模型
+- en: 'Parallel solutions are notoriously difficult, especially when executed over
+    distributed architectures. Before we dive deep into parallelism with Dask, let’s
+    make sure we understand its execution model. We will write a pandas-like solution
+    in Dask and ignore the underlying implementation: we don’t care if it is serial
+    or parallel. Limiting our discussion to model execution will allow us to understand
+    the differences between Dask and, in this example, pandas. Then, in the next section,
+    we will use a parallel and distributed solution.'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 并行解决方案通常非常困难，尤其是在分布式架构上执行时。在我们深入探讨使用 Dask 的并行性之前，让我们确保我们理解其执行模型。我们将使用类似 pandas
+    的解决方案在 Dask 中编写，并忽略其底层实现：我们不在乎它是串行还是并行。将我们的讨论限制在模型执行上，将使我们能够理解 Dask 与本例中的 pandas
+    之间的差异。然后，在下一节中，我们将使用并行和分布式解决方案。
+- en: In this example, we will take data from the US Census about taxes in the 50
+    US states. For each state, we will have information about all the taxes collected,
+    including breakdowns of the amounts collected from each tax source. In other words,
+    we will be able to see the total amount of tax collected, as well as the amounts
+    collected as income tax, sales tax, property tax, and the like. We are trying
+    to decide where to buy a house, and one of the factors we are considering is how
+    much we would have to fork over in property taxes. So, we want to know which states
+    earn a large portion of their tax income from property taxes and which states
+    earn only a small amount of their total tax from property tax. Our sole concern
+    is determining the percentage of the whole tax income that comes from property
+    taxes.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此示例中，我们将从美国人口普查中获取有关50个美国州的税收数据。对于每个州，我们将有关于所有收集的税收的信息，包括从每个税收来源收集的金额细分。换句话说，我们将能够看到收集的税收总额，以及作为所得税、销售税、财产税等的金额。我们正在尝试决定在哪里买房，而我们考虑的一个因素是我们将不得不支付的财产税金额。因此，我们想知道哪些州从财产税中获得大量税收收入，哪些州从财产税中获得的总税收收入很少。我们唯一关心的是确定整个税收收入中来自财产税的比例。
+- en: The table we will work with is quite small, so it would be trivial to process
+    with pandas, but data size is not the point here. It is the execution model we
+    want to understand. The data can be found at [http://mng.bz/41ND](http://mng.bz/41ND).
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将要处理的数据表相当小，因此使用pandas处理是微不足道的，但数据大小在这里不是重点。我们想要理解的是执行模型。数据可以在[http://mng.bz/41ND](http://mng.bz/41ND)找到。
+- en: 10.1.1 A pandas baseline for comparison
+  id: totrans-18
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.1 用于比较的pandas基准
+- en: 'Let’s start with the pandas version as our baseline. We will need to read the
+    file and clean the data, and then we will compute the fraction of property tax
+    for each state:'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从pandas版本作为基准开始。我们需要读取文件并清理数据，然后我们将计算每个州的财产税比例：
+- en: '[PRE0]'
+  id: totrans-20
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: ① We clean up the Amount column so it can be converted to a float.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 我们清理“金额”列，以便将其转换为浮点数。
+- en: ② We pivot the table along Tax_Type.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 我们沿着“税种”进行数据透视。
+- en: 'We start by reading the file, which includes the US state (called `Geo_Name`),
+    the type of tax, and the amount the state collected for that type of tax:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先读取文件，该文件包括美国州（称为“Geo_Name”）、税种类型以及州为该税种类型收集的金额：
+- en: '[PRE1]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Then, for the `Amount` column, which includes nonnumbers, we convert `X`s to
+    `NA`s. We need to have only numbers, not strings, for our calculations.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，对于包含非数字的“金额”列，我们将`X`s转换为`NA`s。为了我们的计算，我们需要只有数字，而不是字符串。
+- en: 'Next, we pivot the representation: we create a new table with one column per
+    tax type and only one row per US state. This representation makes computation
+    simpler, as we only need one row to get all the information. The result is:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们进行数据透视：我们创建一个新表，每个税种一列，每个美国州一行。这种表示方式使计算更简单，因为我们只需要一行就能获取所有信息。结果是：
+- en: '[PRE2]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'We then remove all rows that lack property taxes and finally compute the percentage
+    of taxes that come from properties:'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们删除所有没有财产税的行，并最终计算来自财产税的税收百分比：
+- en: '[PRE3]'
+  id: totrans-29
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Let’s now look at the Dask version.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看Dask版本。
+- en: 10.1.2 Developing a Dask-based data frame solution
+  id: totrans-31
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.1.2 开发基于Dask的数据帧解决方案
+- en: 'As you can see, in the equivalent Dask version, the code is *almost* the same:'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，在等效的Dask版本中，代码几乎相同：
+- en: '[PRE4]'
+  id: totrans-33
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: ① We import the data frame interface of Dask.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 我们导入Dask的数据帧接口。
+- en: ② We need to specify that Tax_Type is categorical for pivot.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② 我们需要指定Tax_Type为分类数据以进行数据透视。
+- en: ③ We use isna, not notna, because Dask does not support notna.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ③ 我们使用isna而不是notna，因为Dask不支持notna。
+- en: As you can see, the code is very similar. It *feels* the same, and you can almost
+    copy it verbatim while importing `dask.dataframe` instead of `pandas`.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，代码非常相似。它感觉相同，您几乎可以原样复制，只需在导入`dask.dataframe`而不是`pandas`时进行替换。
+- en: 'Warning While the Dask’s data frame interface is indeed similar to pandas’,
+    some features are not implemented or are slightly different. We just saw the case
+    of `notna` and the need to annotate a column as categorical, but plenty more cases
+    exist. I have crafted this example to avoid a few extra differences in the implementation.
+    The point is: the flavor is the same, and many operations are very similar, but
+    there is still an implementation gap between pandas and Dask data frames.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：虽然Dask的数据帧接口确实与pandas相似，但一些功能尚未实现或略有不同。我们刚刚看到了`notna`的案例以及将列标注为分类数据的需要，但还有很多其他案例。我精心设计了此示例以避免实现中的一些额外差异。重点是：风味相同，许多操作非常相似，但pandas和Dask数据帧之间仍然存在实现差距。
+- en: The previous code doesn’t do what you would expect if you were using pandas.
+    What does it do? While the Dask code is very similar, it is doing something completely
+    different.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之前的代码如果你使用 pandas，可能不会得到你预期的结果。它做了什么？虽然 Dask 代码非常相似，但它正在做完全不同的事情。
+- en: '`print(frac_property)` does *not* provide the result. Instead, Dask prepared
+    an execution plan—a task graph—that will compute the result. The task graph has
+    as nodes for the operations that need to be done, and it has edges for the dependencies
+    across operations. Let’s consider a concrete example next.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`print(frac_property)` 并不提供结果。相反，Dask 准备了一个执行计划——任务图——来计算结果。任务图有节点表示需要执行的操作，有边表示操作之间的依赖关系。让我们考虑一个具体的例子。'
+- en: 'Dask can export a visualization of the task graph:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dask 可以导出任务图的可视化：
+- en: '[PRE5]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: Figure 10.1 shows the part of the task graph corresponding to the first two
+    lines of the code. `pd.read_csv` is represented by the first node. The left part
+    of the assignment `taxes["Amount"].str.replace(",", "").replace("X", np.nan).astype(float)`
+    is represented by the bottom line, and the assignment proper `taxes["Amount"]
+    = ...`, by the last node on the right.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.1 显示了与代码的前两行对应的任务图部分。`pd.read_csv` 由第一个节点表示。赋值语句 `taxes["Amount"].str.replace(",",
+    "").replace("X", np.nan).astype(float)` 的左侧部分由底部一行表示，而正确的赋值 `taxes["Amount"] =
+    ...` 由右侧最后一个节点表示。
+- en: '![](../Images/CH10_F01_Antao.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F01_Antao.png)'
+- en: Figure 10.1 The start of the task graph for our property taxes calculation.
+    The CSV reading and the recoding of`Amount` are included.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.1 我们财产税计算的任务图开始。包括 CSV 读取和 `Amount` 的重新编码。
+- en: 'The computation is now ready to run. We can obtain the result by running:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 计算现在已准备好运行。我们可以通过运行以下命令来获取结果：
+- en: '[PRE6]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This will compute the result and return a *pandas* data frame just like the
+    one from the previous pandas example.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这将计算结果并返回一个与上一个 pandas 示例中相同的 *pandas* 数据框。
+- en: 'At this stage, we don’t care how the computation was executed. It could have
+    been serial, threaded, multiprocessed, on a cluster, on a GPU, or on the cloud.
+    The fundamental point to understand for this section is that Dask is lazy in its
+    execution: the code that you wrote creates a task graph to be executed later.'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个阶段，我们不在乎计算是如何执行的。它可能是串行、线程、多进程、在集群、在 GPU 上或在云上执行的。本节要理解的基本点是 Dask 在执行上是懒惰的：你编写的代码创建了一个稍后要执行的任务图。
+- en: Now that you understand the difference between the lazy approach of Dask—where
+    computation is done when it’s needed—and the eager approach of pandas (or NumPy)—where
+    computation is done when its specified—let’s dig deep in terms of algorithm cost.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在你已经理解了 Dask 懒惰方法（计算在需要时进行）与 pandas（或 NumPy）的急切方法（计算在指定时进行）之间的区别，让我们深入探讨算法成本。
+- en: 10.2 The computational cost of Dask operations
+  id: totrans-51
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.2 Dask 操作的计算成本
+- en: Let’s discuss the algorithmic cost of several Dask operations. Our discussion
+    will be irrespective of the execution environment. While the two subjects—algorithms
+    and real execution platform—are, in practice, very intertwined, it is easier to
+    grasp the consequences of algorithm complexity per se. There are consequences
+    related to the way Dask splits data that doesn’t fit in memory, and these are
+    independent of whatever running infrastructure you have to execute the computation.
+    The problems that we will consider here are quite general, and other parallel
+    processing approaches, like Spark, have similar problems.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们讨论几个 Dask 操作的算法成本。我们的讨论将与执行环境无关。虽然算法和实际执行平台这两个主题在实践中非常交织在一起，但理解算法复杂性的后果本身更容易。与
+    Dask 分割不适合内存的数据的方式相关的后果，与你要执行的任何运行基础设施无关。我们将考虑的问题相当普遍，其他并行处理方法，如 Spark，也有类似的问题。
+- en: We will perform some very simple tasks. First, we will create a column called
+    `year` that has just the last two digits from `Survey_Year`. So 2016 becomes 16\.
+    Then, we will create a column called `k_amount` that is the `Amount` but in thousands
+    (i.e., divided by 1,000). Next, we will get the state with the maximum value.
+    Finally, we will sort the states by total amount of taxes collected.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将执行一些非常简单的任务。首先，我们将创建一个名为 `year` 的列，它只包含 `Survey_Year` 的最后两位数字。因此，2016 变成了
+    16。然后，我们将创建一个名为 `k_amount` 的列，它是 `Amount` 但以千为单位（即除以 1,000）。接下来，我们将获取具有最大值的州。最后，我们将按总税收金额对州进行排序。
+- en: We will reuse the data from the last section. Although the dataset is tiny,
+    we can *force* Dask to partition the computation in a similar way to a large dataset.
+    In any case, what is “large” will depend on what hardware you have.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将重用上一节的数据。尽管数据集很小，但我们仍然可以*强制* Dask 以类似大型数据集的方式对计算进行分区。无论如何，“大”这个概念将取决于你拥有的硬件。
+- en: 'Before we partition, let’s start by loading data and creating a year column
+    with just the last two digits (e.g., 2016 is converted to 16):'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们分区之前，让我们先加载数据并创建一个只有最后两位数字的年份列（例如，2016 转换为 16）：
+- en: '[PRE7]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: If you visualize the task graph, as shown in figure 10.2, you will see the file
+    reading followed by the operations necessary to perform the subtraction.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你可视化任务图，如图 10.2 所示，你会看到文件读取后跟随执行减法操作所需的操作。
+- en: '![](../Images/CH10_F02_Antao.png)'
+  id: totrans-58
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F02_Antao.png)'
+- en: Figure 10.2 The tasks to read a CSV file and perform a subtraction on a column
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图片](../Images/CH10_F02_Antao.png)'
+- en: Let’s now see how the task graph would look if we had partitioned the data.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看如果我们对数据进行分区，任务图会是什么样子。
+- en: 10.2.1 Partitioning data for processing
+  id: totrans-61
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.1 为处理分区数据
+- en: 'The CSV input is quite small, below 15 KB, but for the purpose of understanding
+    what is going on, let’s assume we can only process 5 KB at the same time. We can
+    tell `read_csv` to process a maximum block, or chunk, of 5,000 bytes:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CSV 输入相当小，不到 15 KB，但为了理解正在发生的事情，让我们假设我们只能同时处理 5 KB。我们可以告诉 `read_csv` 处理最大块或块，即
+    5,000 字节：
+- en: '[PRE8]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: If we visualize the task graph, we now have three separate partitions, as in
+    figure 10.3\. The 15 KB is split into three so that a maximum of 5,000 bytes of
+    input data can be processed.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们可视化任务图，现在我们有三个独立的分区，如图 10.3 所示。15 KB 被分成三部分，以便最多处理 5,000 字节的数据。
+- en: '![](../Images/CH10_F03_Antao.png)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F03_Antao.png)'
+- en: Figure 10.3 Reading a CSV and substracting using three partitions
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![图片](../Images/CH10_F03_Antao.png)'
+- en: Now that we have three partitions of a data frame, it’s time to consider how
+    a data frame is implemented in Dask. Remember that our objective is to *force*
+    Dask to partition the data to understand how partitions affect the Dask task graph.
+    Figure 10.4 provides a high-level overview of how the data is partitioned. In
+    the implementation, the three partitions are rendered as three pandas data frames.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有三个数据帧的分区，是时候考虑 Dask 中数据帧的实现方式了。记住，我们的目标是*强制* Dask 对数据进行分区，以了解分区如何影响 Dask
+    任务图。图 10.4 提供了数据分区的高级概述。在实现中，三个分区被表示为三个 pandas 数据帧。
+- en: '![](../Images/CH10_F04_Antao.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F04_Antao.png)'
+- en: Figure 10.4 A high-level view of how a data frame is implemented in Dask
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.4 Dask 中数据帧实现的高级视图
+- en: A similar implementation strategy is made for Dask arrays (the Dask equivalent
+    of NumPy arrays). A Dask array is implemented in each partition as a NumPy array.
+    Dask, being a Python-based solution, makes use of existing libraries for its own
+    inner workings. Let’s return to implementing our solution.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于 Dask 数组（NumPy 数组的 Dask 等价物），也采用了类似的实现策略。Dask 数组在每个分区中实现为一个 NumPy 数组。作为基于
+    Python 的解决方案，Dask 利用现有的库来支持其内部工作。让我们回到实现我们的解决方案。
+- en: Now that we have a basic view of the effect of partitioning on task graphs,
+    let’s look at a strategy to reduce repeated computations.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到了分区对任务图的影响，让我们看看一种减少重复计算的策略。
+- en: 10.2.2 Persisting intermediate computations
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.2 持久化中间计算
+- en: 'As we discussed in the previous section, the column with amounts needs some
+    parsing before we obtain a proper number. Because most of our computations will
+    depend on having a correctly parsed number, we want to avoid continuously recomputing
+    the string conversion every time we need that column. Instead, we can ask Dask
+    to persist the intermediate state of a computation:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在上一节中讨论的，金额列在获得正确的数字之前需要一些解析。由于我们的大部分计算都将依赖于正确解析的数字，我们希望避免每次需要该列时都重新计算字符串转换。相反，我们可以要求
+    Dask 持久化计算的中间状态：
+- en: '[PRE9]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: While the semantics of the `.persist` call will depend on the specific scheduler,
+    let’s assume that computation of all the nodes is started, so this will execute
+    the task graph to clear the `Amount` column. After `.persist`, the computation
+    for the amount will never be repeated. For this example, we are only dealing with
+    a light computation, but a call to persist can also render very long graphs of
+    computations.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然 `.persist` 调用的语义将取决于特定的调度器，但让我们假设所有节点的计算都已启动，因此这将执行任务图以清除 `Amount` 列。在 `.persist`
+    之后，金额的计算将不再重复。对于这个例子，我们只处理轻量级计算，但持久化调用也可能生成非常长的计算图。
+- en: 'The advantage of maintaining the data partitions is that we still have it all
+    across the computing environment and can launch parallel queries over it. Contrast
+    this with `compute`: you would get all your data back, and if you needed to compute
+    more on top of it, you would need to repartition the data and send it to all processes
+    executing the computation. Furthermore, if the full data frame is bigger than
+    your memory, a `compute` would crash your local process.'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 维护数据分区的优势在于我们仍然在整个计算环境中拥有它，并且可以对其启动并行查询。这与 `compute` 相比：你会得到所有数据，如果你需要在此基础上进行更多计算，你需要重新分区数据并将其发送到所有执行计算的进程。此外，如果完整的数据框大于你的内存，`compute`
+    会崩溃你的本地进程。
+- en: Tip Transferring data across processing units can be very expensive, especially
+    over the network, as serialization of the data is required. On the other hand,
+    we cannot persist everything, as that might require too much memory. Typically,
+    nodes of the graph that are reused frequently and that produce small amounts of
+    data are good candidates for the `persist` method.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：跨处理单元传输数据可能非常昂贵，尤其是在网络上，因为需要序列化数据。另一方面，我们无法持久化一切，因为这可能需要太多内存。通常，那些频繁重用且产生少量数据的图节点是
+    `persist` 方法的良好候选。
+- en: Now that we optimized part of our computation, let’s get back to computing the
+    state with the maximum amount of taxes and order the states by total tax collected.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们优化了部分计算，让我们回到计算具有最大税额的状态，并按总税收收集量对状态进行排序。
+- en: 10.2.3 Algorithm implementations over distributed data frames
+  id: totrans-79
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.3 分布式数据框上的算法实现
+- en: For some operations, the distributed implementations of algorithms may have
+    completely different costs when compared to the sequential implementations that
+    we are used to—in our case, comparing Dask data frames to pandas data frames.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于某些操作，与我们所习惯的顺序实现相比，算法的分布式实现可能具有完全不同的成本——在我们的例子中，比较 Dask 数据框和 pandas 数据框。
+- en: 'Let’s perform a simple operation. Remember that we want to convert the `Amount`
+    column of the previous dataset to thousands of dollars:'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们执行一个简单的操作。记住，我们想要将前一个数据集的 `Amount` 列转换为千美元：
+- en: '[PRE10]'
+  id: totrans-82
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: The task graph for this operation is quite simple, as shown in figure 10.5\.
+    In this case, the computations occur in parallel over all partitions, which is
+    quite efficient.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该操作的任务图非常简单，如图 10.5 所示。在这种情况下，计算在所有分区上并行进行，这非常高效。
+- en: '![](../Images/CH10_F05_Antao.png)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图 10.5](../Images/CH10_F05_Antao.png)'
+- en: Figure 10.5 Many computations can happen on the partitions without any communication
+    between them.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.5 在分区上可以发生许多计算，而无需它们之间有任何通信。
+- en: 'Let’s now consider a more difficult operation to implement in a distributed
+    system. Let’s imagine we want to find the maximum value from the amount computed.
+    Can you imagine what the task would look like? The code is:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们考虑一个在分布式系统中实现更困难的操作。让我们想象我们想要从计算出的金额中找到最大值。你能想象这个任务的样子吗？代码如下：
+- en: '[PRE11]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'Notice that one node per partition is responsible for computing the maximum
+    for that partition. Unfortunately, all maximums per partition must be coalesced
+    into a separate process to compute the maximum from all partitions. This process
+    has some implications. When the maximum is computed, parallelism stops in the
+    final node to get the maximum of all partitions. Thus, data must be transferred
+    from the partitions that hold the amounts to the node computing the maximum. In
+    the task graph for this operation (figure 10.6), you can see this data transfer
+    in the transition from the three tasks called `series-max-chunk` to the tasks
+    `series-max-agg`. In other words, we need to go from three parallel tasks to a
+    single task to compute the maximum: this task bottlenecks ongoing parallelism.'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，每个分区都有一个节点负责计算该分区的最大值。不幸的是，所有分区的最大值必须合并到一个单独的进程中来计算所有分区的最大值。这个过程有一些影响。当计算最大值时，在最终节点计算所有分区的最大值时，并行性停止。因此，必须将持有数量的分区中的数据传输到计算最大值的节点。在这个操作的作业图（图10.6）中，你可以看到从三个被称为`series-max-chunk`的任务到`series-max-agg`任务的转换中的数据传输。换句话说，我们需要从三个并行任务到一个单独的任务来计算最大值：这个任务成为了持续并行性的瓶颈。
+- en: '![](../Images/CH10_F06_Antao.png)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F06_Antao.png)'
+- en: Figure 10.6 Some computations require reducing the parallelism—for example,
+    the computation of a maximum.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.6某些计算需要减少并行性——例如，计算最大值。
+- en: The general principle is that the cost of operations using Dask when compared
+    to pandas or NumPy can vary quite dramatically. If the operation requires communication
+    between processes or a stop in parallel processing, you can expect an increase
+    in cost. The precise implication can vary widely depending on your underlying
+    architecture.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般原则是，与pandas或NumPy相比，使用Dask的操作成本可能会有很大的变化。如果操作需要在进程之间进行通信或停止并行处理，你可以预期成本会增加。具体的含义可能因你的底层架构而异。
+- en: '![](../Images/CH10_F07_Antao.png)'
+  id: totrans-92
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F07_Antao.png)'
+- en: Figure 10.7 Some computations, like`sort_values`, can be complex and expensive.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.7某些计算，如`sort_values`，可能很复杂且昂贵。
+- en: 'If you don’t know the task graph topology of an operation, you can simply render
+    the task graph of that operation to see the structure and find potential bottlenecks.
+    For example, figure 10.7 shows the task graph for the (quite expensive) operation
+    `sort_values`. In this specific case, `barrier` and `shuffle-collect` tasks impose
+    a loss of parallelism on the whole graph:'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不了解一个操作的作业图拓扑结构，你可以简单地渲染该操作的作业图来查看结构并找到潜在的瓶颈。例如，图10.7显示了（相当昂贵）的操作`sort_values`的作业图。在这个特定情况下，`barrier`和`shuffle-collect`任务在整个图中对并行性造成了损失：
+- en: '[PRE12]'
+  id: totrans-95
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Sometimes you may need to check the task graph of two operations together because
+    Dask may be smart enough to optimize them. For example, operations *following*
+    `groupby` might be optimized in completely different ways. Optimization may even
+    vary across different Dask versions, so there is no general rule, other than to
+    check how Dask renders the operations you are using.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时你可能需要检查两个操作的作业图，因为Dask可能足够智能以优化它们。例如，跟随`groupby`的操作可能以完全不同的方式优化。优化甚至可能在不同版本的Dask之间变化，因此没有一般规则，除了检查Dask如何渲染你使用的操作。
+- en: I'm not listing cheap or expensive Dask operations here for two main reasons.
+    First, whether or not operations are expensive depends on your execution environment.
+    For example, a cloud will be different from a large multicore computer. Second,
+    Dask is always evolving, and the implementation may change across versions. What
+    is important is to understand the underlying principles.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我在这里没有列出便宜或昂贵的Dask操作有两个主要原因。首先，操作是否昂贵取决于你的执行环境。例如，云与大型多核计算机会有所不同。其次，Dask始终在发展，实现可能在不同版本之间发生变化。重要的是要理解其背后的原理。
+- en: 10.2.4 Repartitioning the data
+  id: totrans-98
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.4 数据重分区
+- en: 'In some cases, depending on the task graph and execution environment, the granularity
+    of the computation can benefit from repartitioning the data. For example, let’s
+    say we finalized a part of the computation that was very expensive, requiring
+    more partitions and potentially more computing nodes. After this process, if we
+    are entering a less-intensive part of the operation, we might reduce the number
+    of partitions. In our case, let’s reduce the partitions from three to two:'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，根据任务图和执行环境，计算的粒度可以通过重新分区数据来受益。例如，假设我们完成了一部分非常昂贵的计算，需要更多的分区和潜在的更多计算节点。在此过程之后，如果我们进入操作的低强度部分，我们可能会减少分区数量。在我们的例子中，让我们将分区从三个减少到两个：
+- en: '[PRE13]'
+  id: totrans-100
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: As you can see in the task graph (figure 10.8), the problem with this repartitioning
+    is that two of the three partitions are joined as one new partition. It would
+    be more efficient if both new partitions had similar amounts of data.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您在任务图（图10.8）中看到的，这种重新分区的问题在于三个分区中的两个被合并成了一个新分区。如果两个新分区有相似的数据量，将会更有效率。
+- en: '![](../Images/CH10_F08_Antao.png)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F08_Antao.png)'
+- en: Figure 10.8 Repartitioning data using a different number of tasks
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.8 使用不同数量的任务重新分区数据
+- en: So let’s see what it takes to balance the two partitions. The first problem
+    we encounter is some semantic disparities between Dask and pandas. We should deal
+    with these before we go any further.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来看看平衡两个分区需要什么。我们遇到的第一问题是Dask和pandas之间的一些语义差异。在我们继续之前，我们应该处理这些问题。
+- en: 'The `repartition` method allows us to split the data not only based on the
+    number of partitions but also by dividing the data frame index across partitions.
+    We need to know the index, but we can do:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`repartition`方法允许我们不仅根据分区数量来分割数据，还可以通过在分区之间划分数据帧索引来实现。我们需要知道索引，但我们可以这样做：'
+- en: '[PRE14]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: 'The output is:'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出是：
+- en: '[PRE15]'
+  id: totrans-108
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: ① What we get here is a set of tasks to run, not the results.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 我们在这里得到的是一系列要运行的任务，而不是结果。
+- en: We will get a set of tasks to run, not the final index. So, we need to need
+    to `compute` the index, with all the computational costs that entails, which,
+    in most cases, defeats the purpose of the optimization that we are in the middle
+    of doing.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将得到一系列要运行的任务，而不是最终的索引。因此，我们需要`compute`索引，这涉及到所有的计算成本，这在大多数情况下，就抵消了我们正在进行优化的目的。
+- en: 'Another potential alternative would be to get the boundaries of each partition.
+    Dask allows us to get the boundaries of each partition by doing:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个潜在的替代方案是获取每个分区的边界。Dask允许我们通过以下方式获取每个分区的边界：
+- en: '[PRE16]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'Sadly, the output is:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可惜，输出是：
+- en: '[PRE17]'
+  id: totrans-114
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Instead of getting the values of the index columns, we get `None`. Clearly,
+    we cannot use `None` to compute better ways to repartition the data.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们没有得到索引列的值，而是得到了`None`。显然，我们不能使用`None`来计算更好的重新分区数据的方法。
+- en: 'At this stage, we are in a frustrating situation: we would like to get the
+    index to repartition the data, but the index is nowhere to be found. When you
+    do `read_csv` with Dask, you will not get the index with values—*even* if you
+    have persisted the data frame (at least with the current version of Dask).'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个阶段，我们处于一个令人沮丧的情况：我们希望得到索引来重新分区数据，但索引却无处可寻。当你使用Dask的`read_csv`时，你将不会得到带有值的索引——*即使*你已持久化数据帧（至少在当前版本的Dask中是这样）。
+- en: 'We can set the index to get to a starting point to repartition by index. Let’s
+    use `Geo_Name` and `Tax_Type` as the index columns:'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以设置索引以到达一个起始点来按索引重新分区。让我们使用`Geo_Name`和`Tax_Type`作为索引列：
+- en: '[PRE18]'
+  id: totrans-118
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Unfortunately, with the current version of Dask, this operation doesn’t work,
+    as Dask doesn’t support multi-indexes. An important lesson here is that Dask,
+    while trying to mimic pandas’ interface and semantics as much as possible, has
+    several limitations and differences imposed by the complexity of dealing with
+    distributed data structures. Dask does its best, but expect some differences like
+    we just discussed.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，在当前版本的Dask中，这个操作不起作用，因为Dask不支持多索引。这里的一个重要教训是，尽管Dask尽可能地模仿pandas的接口和语义，但由于处理分布式数据结构的复杂性，它仍然存在一些限制和差异。Dask尽力而为，但请期待一些我们刚才讨论过的差异。
+- en: Tip Be sure to check that you have the most recent version of Dask. Maybe some
+    of the limitations documented here have been solved.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：务必检查您是否拥有最新的Dask版本。也许这里记录的一些限制已经被解决了。
+- en: 'OK, let’s try to use an index with a single column:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 好的，让我们尝试使用单列索引：
+- en: '[PRE19]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'The output is:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出是：
+- en: '[PRE20]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'This result is great as we have three clear partitions: one starting with Alabama,
+    another starting with Iowa, and the final going from North Carolina to Wyoming.'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个结果很好，因为我们有三个清晰的分区：一个从阿拉巴马州开始，另一个从爱荷华州开始，最后一个从北卡罗来纳州到怀俄明州。
+- en: 'How does Dask know the partitions if it is lazy? We did not ask it explicitly
+    to compute the new data frame. Nonetheless, in some cases, `set_index` is eager:
+    all computations required to render the data frame that is going to be indexed
+    are triggered, which can potentially use a lot of compute resources.'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果Dask是惰性的，它是如何知道分区的？我们没有明确要求它计算新的数据帧。尽管如此，在某些情况下，`set_index`是急切的：触发渲染将要被索引的数据帧所需的全部计算，这可能会使用大量的计算资源。
+- en: Importantly, Dask is not always lazy, so for some operations, you will need
+    to be mindful of the potential computational costs. You should check the documentation
+    of the operations that you use, especially if their performance makes you suspect
+    that some of them are eager.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是，Dask并不总是惰性的，所以对于某些操作，你需要注意潜在的计算成本。你应该检查你使用的操作文档，特别是如果它们的性能让你怀疑其中一些是急切的。
+- en: 'Now that we finally have the index, let’s repartition our data from three to
+    two partitions:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们终于有了索引，让我们将我们的数据从三个分区重新分区到两个分区：
+- en: '[PRE21]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: 'The output is:'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 输出结果为：
+- en: '[PRE22]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: Remember that, as a general rule, repartitioning is an expensive operation and
+    should only be done either when you get small or intermediate results or if you
+    believe (i.e., profiled) that repartitioning is advantageous.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，作为一个一般规则，重新分区是一个昂贵的操作，并且只有在得到小的或中间结果时，或者如果你相信（即，进行了性能分析）重新分区是有益的情况下，才应该进行。
+- en: The general arguments that we made for the relationship between Dask’s data
+    frame interface and pandas’ can be extended to the relationship between Dask arrays
+    and NumPy arrays. Dask arrays are mostly implemented with lazy operations and
+    only implement a subset of NumPy’s interface, and they sometimes have slightly
+    different semantics.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们对Dask数据帧接口与pandas之间关系所提出的通用论点可以扩展到Dask数组与NumPy数组之间的关系。Dask数组主要使用惰性操作实现，并且只实现了NumPy接口的一部分，它们有时会有略微不同的语义。
+- en: Next, we will store to disk our distributed data frame.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将我们的分布式数据帧存储到磁盘上。
+- en: 10.2.5 Persisting distributed data frames
+  id: totrans-135
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.2.5 持久化分布式数据帧
+- en: 'To store our `taxes2` data frame to disk, we can simply do:'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将我们的`taxes2`数据帧存储到磁盘上，我们可以简单地这样做：
+- en: '[PRE23]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: In this case, we are computing the `taxes2` distributed data frame into a pandas
+    data frame. We let pandas take care of writing the data. Bringing all data from
+    the computing nodes to our master might be too expensive, or the data might not
+    even fit in memory, so this option may not be viable.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，我们将`taxes2`分布式数据帧计算到一个pandas数据帧中。我们让pandas负责写入数据。将所有数据从计算节点传输到我们的主节点可能太昂贵，或者数据可能根本不适合内存，所以这个选项可能不可行。
+- en: Warning Be careful with the meaning of *persist*. Here we are using *persist*
+    to mean transferring data to persistent storage like a hard disk. However, Dask
+    also has the `.persist` method, which computes and stores the object on each partition.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告：请注意*persist*的含义。在这里，我们使用*persist*表示将数据传输到持久存储，如硬盘。然而，Dask也有`.persist`方法，该方法在每个分区上计算并存储对象。
+- en: 'We can ask for Dask to make the nodes write their data by doing:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过以下方式请求Dask让节点写入数据：
+- en: '[PRE24]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: 'Remember that we have two partitions, so you will end up with not one, but
+    two CSV files: `partial-0.csv` and `partial-1.csv`, both with headers. If you
+    want a single CSV file, you will have to concatenate the files accordingly.'
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，我们有两个分区，所以你最终会得到不止一个CSV文件：`partial-0.csv`和`partial-1.csv`，两者都有标题。如果你想得到一个单一的CSV文件，你必须相应地连接这些文件。
+- en: 'The Parquet format (see chapter 8) can actually render a single persistent
+    version with each partition dumping its data independently:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Parquet格式（见第8章）实际上可以渲染每个分区独立导出数据的单个持久版本：
+- en: '[PRE25]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: 'If you look at the file system, you will find a directory with the following
+    content:'
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你查看文件系统，你会找到一个包含以下内容的目录：
+- en: '[PRE26]'
+  id: totrans-146
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: 'This can be read as a single Parquet “file.” The following is a simple example
+    using Apache Arrow (see chapter 7):'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这可以被视为单个Parquet“文件”。以下是一个使用Apache Arrow（见第7章）的简单示例：
+- en: '[PRE27]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: So, Parquet as a format is amenable to distributed writing while still providing
+    a consistent view of all the data.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，作为格式，Parquet适合分布式写入，同时仍然提供对所有数据的统一视图。
+- en: 'At this stage, we understand how Dask task generation works, but we have talked
+    little about execution. It’s now time to proceed to the final step: using Dask
+    for efficient parallel computing on top of heterogeneous architectures—namely,
+    scheduling.'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个阶段，我们了解了Dask任务生成的工作原理，但关于执行的部分我们谈论得很少。现在是时候进行最后一步：使用Dask在异构架构上进行高效的并行计算——即调度。
+- en: 10.3 Using Dask’s distributed scheduler
+  id: totrans-151
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 10.3 使用Dask的分布式调度器
+- en: 'We have already seen that Dask tends to be lazy and only creates a computational
+    graph, which must eventually be evaluated. To distribute the evaluation of the
+    nodes of the computation graph across computational resources, Dask uses a scheduler.
+    When you compute a task graph without explicitly configuring a scheduler, Dask
+    automatically uses a default that depends on your collection. Let’s take data
+    frames as an example:'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到Dask倾向于惰性，并且只创建一个计算图，这个图最终必须被评估。为了将计算图的节点评估分布到计算资源上，Dask使用一个调度器。当你计算一个任务图而没有明确配置调度器时，Dask会自动使用一个默认设置，这个设置取决于你的集合。让我们以数据框为例：
+- en: '[PRE28]'
+  id: totrans-153
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: 'The function `get_scheduler` will return a function to execute the task graph.
+    In our case, it is defined in the module printed in the output:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数`get_scheduler`将返回一个执行任务图的函数。在我们的例子中，它定义在输出中打印的模块中：
+- en: '[PRE29]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: 'As the name implies, the default scheduler for data frames is multithreaded.
+    Dask offers two other simple schedulers: a multiprocessing one and a single-threaded
+    one. The single-threaded scheduler is particularly good for debugging and profiling
+    as it reduces the complexity by being strictly sequential. The single-threaded
+    scheduler is a great choice for debugging. But for production, we will be using
+    a more complex scheduler: the new Dask distributed scheduler supersedes all other
+    Dask schedulers while allowing for much more flexibility'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如名称所暗示的，数据框的默认调度器是线程并行的。Dask还提供了另外两个简单的调度器：一个多进程调度器和单线程调度器。单线程调度器特别适合调试和性能分析，因为它通过严格的顺序性降低了复杂性。单线程调度器是调试的一个很好的选择。但对于生产环境，我们将使用一个更复杂的调度器：新的Dask分布式调度器取代了所有其他Dask调度器，同时提供了更多的灵活性。
+- en: The distributed scheduler allows you to schedule tasks on more than one machine.
+    This scheduler has implementations for HPC clusters, SSH connections, and cloud
+    providers, among others. It also has an implementation to run on the local machine,
+    which can be single- or multithreaded or based on multiple processes; thus, it
+    includes all computing methods of built-in schedulers.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式调度器允许你在多台机器上调度任务。这个调度器有针对HPC集群、SSH连接和云提供商等的实现。它还有一个在本地机器上运行的实现，可以是单线程或多线程，也可以基于多个进程；因此，它包括了所有内置调度器的计算方法。
+- en: Next, we will use a local machine configuration so you don’t need access to
+    a cluster or the cloud, but all the fundamental building blocks will be available
+    to scale out from a single machine.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将使用本地机器配置，这样你就不需要访问集群或云服务，但所有基本构建块都将可用于从单台机器扩展。
+- en: 'Note As a reminder, there is a certain overlap of this content with chapter
+    3: you can use Dask to parallelize code on a *single* computer as we did with
+    Python’s native libraries. But Dask adds the most value when you scale out (i.e.,
+    use more than one machine).'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意：作为提醒，本内容与第3章存在一定程度的重叠：你可以使用Dask在单台计算机上并行化代码，就像我们使用Python的本地库那样。但Dask在扩展（即使用多台机器）时能带来最大的价值。
+- en: We will use the Mandelbrot generation scenario from the previous chapter to
+    practice the array interface from Dask. Remember that there are other alternatives
+    to make the Mandelbrot implementation more efficient (e.g., Cython or Numba).
+    Given that we are doing a pure Python implementation over arrays, a Cython or
+    Numba implementation would be much more efficient. Actually, the most efficient
+    implementation, especially for very large images, would be Dask *with* Cython
+    or Numba. Let’s start by looking at `dask.distributed`’s architecture.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用前一章中的Mandelbrot生成场景来练习Dask的数组接口。记住，还有其他方法可以使Mandelbrot实现更高效（例如，Cython或Numba）。鉴于我们正在对数组进行纯Python实现，Cython或Numba的实现将更加高效。实际上，对于非常大的图像，最有效的实现将是Dask与Cython或Numba结合使用。让我们首先看看`dask.distributed`的架构。
+- en: 10.3.1 The dask.distributed architecture
+  id: totrans-161
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.1 dask.distributed架构
+- en: 'The architecture depicted in figure 10.9 has the following components:'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.9所示的架构包含以下组件：
+- en: '*A single centralized scheduler*—This scheduler is responsible for scheduling
+    tasks for all workers. The scheduler has a web dashboard that users can use to
+    check how computations are performing.'
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*单个集中式调度器*——这个调度器负责为所有工人调度任务。调度器有一个用户可以用来检查计算性能的Web仪表板。'
+- en: '*Workers*—Workers are responsible for executing the workload. Each machine
+    may have many workers. You can configure a worker to have as many threads as you
+    want. Hence, in practice, you have parallelism either via threading—say, with
+    a single worker with as many threads as CPU cores—or via processes with one worker
+    per CPU core. Each worker also has a dashboard and a tiny attached process, called
+    a *nanny*, to continuously monitor the state of the worker.'
+  id: totrans-164
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*工人*——工人负责执行工作负载。每台机器可能有多个工人。你可以配置一个工人拥有你想要的任意数量的线程。因此，在实践中，你通过线程——比如说，一个拥有与CPU核心一样多线程的单个工人——或者通过每个CPU核心一个工人的进程来实现并行化。每个工人还有一个仪表板和一个名为*nanny*的小型附加进程，用于持续监控工人的状态。'
+- en: '*Clients*—These clients can connect to Dask, use the scheduler to deploy tasks
+    on it, and inspect the scheduler and worker dashboards.'
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*客户端*——这些客户端可以连接到Dask，使用调度器在上面部署任务，并检查调度器和工人仪表板。'
+- en: '![](../Images/CH10_F09_Antao.png)'
+  id: totrans-166
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F09_Antao.png)'
+- en: Figure 10.9 Dask’s execution architecture
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.9 Dask的执行架构
+- en: Typically, the components will also include some kind of shared storage, like
+    a shared file system, but that will depend on your particular circumstances.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，组件还将包括某种类型的共享存储，如共享文件系统，但这将取决于你的具体情况。
+- en: In our case, we will only use one machine. So, we will start all the processes
+    on a single machine. There are simpler ways to deploy the architecture, but this
+    way makes all components quite explicit.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们的情况下，我们只使用一台机器。所以，我们将在一个机器上启动所有进程。有更简单的方式来部署架构，但这种方式使得所有组件都非常明确。
+- en: 'Let’s start with the scheduler:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从调度器开始：
+- en: '[PRE30]'
+  id: totrans-171
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: 'We can start workers on the same machine as the scheduler like this:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以这样在调度器相同的机器上启动工人：
+- en: '[PRE31]'
+  id: totrans-173
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: '`--nprocs auto` lets the script decide how many workers it will start on our
+    machine and how many threads.'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`--nprocs auto`让脚本决定在我们的机器上启动多少个工人以及多少个线程。'
+- en: 'On my machine, which has four cores and two threads per core, I end up with
+    four workers, each having two threads. We can get this information from the scheduler
+    dashboard: point your browser to http://127.0.0.1:8787 and choose the Workers
+    tab in the menu. I get the result in figure 10.10.'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我的机器上，它有四个核心和每个核心两个线程，我最终有四个工人，每个工人有两个线程。我们可以从调度器仪表板中获取这些信息：将你的浏览器指向http://127.0.0.1:8787，并在菜单中选择“Workers”标签。我在图10.10中得到了结果。
+- en: '![](../Images/CH10_F10_Antao.png)'
+  id: totrans-176
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/CH10_F10_Antao.png)'
+- en: Figure 10.10 Listing of all workers on Dask’s dashboard
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.10 Dask仪表板上的所有工人列表
+- en: 'Deciding how many workers per machine and threads per worker is quite complicated
+    and depends on the workload. For many problems based in NumPy, which, when correctly
+    configured, is multithreaded, we can start with a single worker with a single
+    Python per machine. NumPy will use as many threads as necessary, and we will leave
+    it to the library to make the decision. A similar argument for allowing the script
+    to determine the number of workers and threads could be made for code optimized
+    with Numba or Cython as both can release the GIL. That being said, your workload
+    may be different. In our case, it is indeed different: most of the burden is in
+    pure Python, so we will use one process per core.'
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 决定每台机器的工人数和每个工人的线程数相当复杂，这取决于工作负载。对于许多基于NumPy的问题，当正确配置时，它是多线程的，我们可以从每台机器上单个Python和单个工人开始。NumPy将使用所需的线程数，我们将把它留给库来做出决定。对于使用Numba或Cython优化的代码，也可以提出允许脚本确定工人数和线程数的类似论点，因为两者都可以释放GIL。话虽如此，你的工作负载可能不同。在我们的情况下，确实如此：大部分负担都在纯Python上，所以我们将使用每个核心一个进程。
+- en: 'We will then replace the worker as previously defined with this one:'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将用以下内容替换之前定义的工人：
+- en: '[PRE32]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: 'We have four processes using a single thread. We also specify 1 GB of memory,
+    which is half the total that I have available on my machine: I do this because
+    I am running more stuff on my local machine, but you could probably go higher
+    on dedicated machines. Be sure to adapt the values to your configuration.'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用四个进程，每个进程使用一个线程。我们还指定了1GB的内存，这是我机器上可用总内存的一半：我这样做是因为我在我的本地机器上运行了更多东西，但在专用机器上你可能可以设置得更高。确保根据你的配置调整这些值。
+- en: 'For pedagogical reasons, we will reduce the workers to two so that we can discuss
+    interworker communication, using only 250 MB per worker. On my machine, the code
+    is:'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了教学目的，我们将工作进程减少到两个，这样我们就可以讨论工作进程之间的通信，每个工作进程仅使用250 MB。在我的机器上，代码如下：
+- en: '[PRE33]'
+  id: totrans-183
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: 'Next, we will connect to our scheduler using Python code. But, before we solve
+    a concrete problem, let’s inspect the infrastructure:'
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将使用Python代码连接到我们的调度器。但在解决具体问题之前，让我们检查基础设施：
+- en: '[PRE34]'
+  id: totrans-185
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: ① We connect to the scheduler on the port specified on the startup of dask-scheduler.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 我们连接到dask-scheduler启动时指定的端口上的调度器。
+- en: ② get_versions returns information about the various components in the Dask
+    system.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ② `get_versions`返回有关Dask系统中各种组件的信息。
+- en: 'We connect to the scheduler by creating a `Client` object pointing to the entry
+    point. The first print returns:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过创建一个指向入口点的`Client`对象来连接到调度器。第一次打印返回：
+- en: '[PRE35]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: 'This output reflects the infrastructure that we created: two workers, with
+    one thread and 250 MB per worker.'
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此输出反映了我们创建的基础设施：两个工作进程，每个工作进程一个线程，每个工作进程250 MB。
+- en: 'After that, we print all software versions of all the components involved.
+    The scheduler is as follows:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之后，我们打印所有相关组件的所有软件版本。调度器如下：
+- en: '[PRE36]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: You can find information about the host, including the operating system, type
+    of processor, and Python version, as well as the libraries installed.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以找到有关主机信息，包括操作系统、处理器类型和Python版本，以及安装的库。
+- en: 'Here is an abridged version for our two workers and our client:'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里是针对我们两个工作进程和客户端的简略版本：
+- en: '[PRE37]'
+  id: totrans-195
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: Making sure that the library versions are compatible is important in a heterogeneous
+    cluster with many machines. In our case, as our machine is simultaneously client,
+    scheduler, and both workers, so we can be sure that all versions are in sync.
+    However, when more than one machine is involved, you might have to debug the library
+    versions. Now let’s deploy our code.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在具有许多机器的异构集群中，确保库版本兼容性非常重要。在我们的情况下，因为我们的机器同时是客户端、调度器和两个工作进程，所以我们可以确信所有版本都是同步的。然而，当涉及多个机器时，您可能需要调试库版本。现在让我们部署我们的代码。
+- en: 10.3.2 Running code using dask.distributed
+  id: totrans-197
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.2 使用dask.distributed运行代码
+- en: 'We start by connecting to the scheduler:'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先连接到调度器：
+- en: '[PRE38]'
+  id: totrans-199
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: The client will be used implicitly in all our calls unless we override it. Remember
+    from the previous section that Dask data structures have default schedulers, but
+    the default will be automatically replaced by the distributed scheduler.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户端将在所有调用中隐式使用，除非我们覆盖它。记住，从上一节中，Dask数据结构有默认的调度器，但默认调度器将被分布式调度器自动替换。
+- en: Tip The client object exposes an explicit interface that is very similar to
+    the `concurrent.futures` API. If you want to use such an interface, see chapter
+    3\. Here we will use the distributed framework via data science type interfaces—in
+    this case, `dask.array`, which mimics NumPy.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 提示：客户端对象提供了一个与`concurrent.futures` API非常相似的显式接口。如果您想使用此类接口，请参阅第3章。在这里，我们将通过数据科学类型接口使用分布式框架——在这种情况下，是`dask.array`，它模仿NumPy。
+- en: 'We will use a NumPy universal function approach. Indeed, the code to compute
+    a single point in the Mandelbrot set is exactly the same as the previous chapter:'
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用NumPy通用函数方法。实际上，计算Mandelbrot集单点的代码与上一章完全相同：
+- en: '[PRE39]'
+  id: totrans-203
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: 'To compute the Mandelbrot set, we must prepare a matrix in which each cell
+    has a two-dimensional position encoded in a complex number. In the previous chapter,
+    we used this code:'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要计算Mandelbrot集，我们必须准备一个矩阵，其中每个单元格都有一个二维位置，该位置由一个复数编码。在上一章中，我们使用了以下代码：
+- en: '[PRE40]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: ① Can you guess what this line does?
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 你能猜出这一行的作用吗？
+- en: 'In theory, the previous code works, but in practice, it would be a disaster.
+    Note that the last line is not storing the position in the array’s cells: it is
+    actually creating a task in the task graph to compute the result. To make this
+    clear, let’s create a tiny image of size 3 × 3 (i.e., with a block size of 3):'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理论上，之前的代码是可行的，但在实践中，它将是一场灾难。请注意，最后一行并不是在数组单元格中存储位置：它实际上是在任务图中创建一个计算结果的作业。为了使这一点更清晰，让我们创建一个3
+    × 3（即块大小为3）的小图像：
+- en: '[PRE41]'
+  id: totrans-208
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: Figure 10.11 depicts the task graph. Nine tasks are created, each to update
+    an individual pixel/cell. This solution will work for a minuscule image but not
+    for larger images. For a 1000 × 1000 image, we would be dealing with 1 million
+    tasks.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.11描述了任务图。创建了九个任务，每个任务更新一个单独的像素/单元格。这种解决方案适用于微小的图像，但不适用于较大的图像。对于1000 × 1000的图像，我们将处理100万个任务。
+- en: '![](../Images/CH10_F11_Antao.png)'
+  id: totrans-210
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F11_Antao.png)'
+- en: Figure 10.11 Task graph to run the initialization code for just nine pixels
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.11 仅运行九个像素的初始化代码的任务图
+- en: 'A theoretical alternative would be to create a local NumPy array, initialize
+    it locally, and then scatter it. That approach would work as long as the NumPy
+    array would fit in memory, but that would defeat part of the purpose of Dask:
+    to work with larger-than-memory data structures.'
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个理论上的替代方案是创建一个本地NumPy数组，在本地初始化它，然后分散它。只要NumPy数组可以适应内存，这种方法就会有效，但这会违背Dask的部分目的：处理大于内存的数据结构。
+- en: 'As a more realistic alternative, Dask allows us to do computations on each
+    independent partition of the whole data structure, substantially reducing the
+    number of tasks:'
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一种更现实的替代方案，Dask允许我们对整个数据结构的每个独立分区进行计算，从而大大减少了任务的数量：
+- en: '[PRE42]'
+  id: totrans-214
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: ① We chunk the array in four blocks of size (500, 500).
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 我们将数组分块为四个大小为(500, 500)的块。
+- en: We are now using an image size of 1000 × 1000\. We will initialize the array
+    with a range number that will allow us to compute the two-dimensional coordinates
+    (see the following code snippet for details). We start with a one-dimensional
+    array sized 1000 × 1000 and then reshape it as `(1000, 1000)`.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在使用1000 × 1000的图像大小。我们将使用一个范围数字初始化数组，这将允许我们计算二维坐标（有关详细信息，请参阅以下代码片段）。我们从一个大小为1000
+    × 1000的一维数组开始，然后将其重塑为`(1000, 1000)`。
+- en: We then rechunk the array in chunks of `(500, 500)`, ending up with four blocks.
+    Finally, we persist the array across the four blocks to prepare to compute the
+    two-dimensional positions.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们将数组以`(500, 500)`的块重新分块，最终得到四个块。最后，我们将数组在四个块之间持久化，以准备计算二维位置。
+- en: 'Let’s now prepare the position array. That is, we will create an array that
+    has a two-dimensional position encoded as a complex number:'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们来准备位置数组。也就是说，我们将创建一个数组，它将二维位置编码为复数：
+- en: '[PRE43]'
+  id: totrans-219
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: 'This function converts the range array into an array of positions based on
+    the value in the original cell. Do not worry much about the algorithm: it converts
+    a one-dimensional coordinate to a two-dimensional one. The fundamental point is
+    another; let’s look at this code to discover it:'
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数将范围数组转换为基于原始单元格中值的坐标数组。不必过于担心算法：它将一维坐标转换为二维坐标。基本点是另一个；让我们看看这段代码来发现它：
+- en: '[PRE44]'
+  id: totrans-221
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: 'This code tells Dask to apply the initialization code of `block_prepare_pos_array`
+    to each of the four blocks. We specify `range_array` as the input parameter. Notice
+    that there are two parameters: `ij` (i.e., `i` and `j`) that tells Dask the relationship
+    between the shape of the input parameter and the output parameter (i.e., they
+    have the same shape).'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码告诉Dask将`block_prepare_pos_array`的初始化代码应用于四个块中的每一个。我们指定`range_array`作为输入参数。请注意，有两个参数：`ij`（即`i`和`j`），它告诉Dask输入参数的形状与输出参数之间的关系（即它们具有相同的形状）。
+- en: This code creates only four tasks, as shown in figure 10.12\. If we used the
+    original code, we would have 1 million tasks.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此代码仅创建四个任务，如图10.12所示。如果我们使用原始代码，我们将有100万个任务。
+- en: '![](../Images/CH10_F12_Antao.png)'
+  id: totrans-224
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图10.12](../Images/CH10_F12_Antao.png)'
+- en: Figure 10.12 Task graph to run the initialization code using blockwise functions
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图10.12 使用分块函数运行初始化代码的任务图
+- en: 'Now, it’s time to call our Mandelbrot code on our matrix:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，是时候在我们的矩阵上调用我们的Mandelbrot代码了：
+- en: '[PRE45]'
+  id: totrans-227
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: We use `frompyfunc`, which converts a native Python function into a NumPy ufunc.
+    Then we call it over our `pos_array` matrix.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用`frompyfunc`，它将原生Python函数转换为NumPy ufunc。然后我们调用它来处理`pos_array`矩阵。
+- en: 'Next, we will do some very basic profiling on our code. Mostly, we want to
+    see the effect on the performance of using larger images. The code to perform
+    some simple profiling is as follows:'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将对我们的代码进行一些非常基本的性能分析。主要目的是观察使用较大图像对性能的影响。执行一些简单性能分析的代码如下：
+- en: '[PRE46]'
+  id: totrans-230
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: Our function runs the Mandelbrot code, as previously explained, which allows
+    us to parameterize the size of the image. We also allow the parameterization of
+    the chunking along with persisting the two intermediate arrays. The function returns
+    the number of seconds it took to execute, which serves as a rough profiling of
+    our code.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的功能运行Mandelbrot代码，如前所述，这允许我们参数化图像的大小。我们还允许参数化分块以及持久化两个中间数组。该函数返回执行所需的时间，这可以作为我们代码的粗略性能分析。
+- en: 'Let’s run the code for a size of 500 (i.e., an image size of 500 × 500) with
+    a chunk divisor of 2 (i.e., four blocks):'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们以大小为500（即500 × 500的图像大小）和块除数为2（即四个块）运行代码：
+- en: '[PRE47]'
+  id: totrans-233
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: Figure 10.13, which depicts the task graph, shows that we have four blocks,
+    and the number of computations—the `lambda` and `frompyfunc` nodes—is also four.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.13 展示的任务图显示我们有四个块，计算的数量——`lambda` 和 `frompyfunc` 节点——也是四个。
+- en: '![](../Images/CH10_F13_Antao.png)'
+  id: totrans-235
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F13_Antao.png)'
+- en: Figure 10.13 Task graph to compute the Mandelbrot size using four chunks
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.13 使用四个块计算 Mandelbrot 大小的任务图
+- en: 'Now, let’s run the previous code with a size of 5,000 (i.e., an image of 5,000
+    × 5,000) with a chunk divisor of 10 (i.e., 100 blocks). But before we do that,
+    open the web browser pointing to http://127.0.0.1:8787 (i.e., Dask’s dashboard):'
+  id: totrans-237
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们以 5,000（即 5,000 × 5,000 的图像）的大小和 10（即 100 块）的块除数运行之前的代码。但在我们这样做之前，打开指向
+    http://127.0.0.1:8787（即 Dask 的控制台）的网页浏览器：
+- en: '[PRE48]'
+  id: totrans-238
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: ① After running this line, reload the web browser on the dashboard to get a
+    clean version.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ① 在运行此行之后，请重新加载控制台上的网页浏览器以获取一个干净的版本。
+- en: 'When you run `time_scenario`, you will see a real-time animation of the computation
+    ongoing. While I cannot show you a video here, figure 10.14 displays the dashboard
+    while the computation is ongoing. There are five charts on the main dashboard.
+    Remember that we have four workers, and we will have a task graph with a similar
+    topology as in figure 10.13 but with 100 columns, not just four:'
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行 `time_scenario` 时，你会看到计算过程中的实时动画。虽然我无法在这里展示视频，但图 10.14 展示了计算进行时的控制台。主控制台上有五个图表。记住，我们有四个工作者，我们将有一个与图
+    10.13 类似的拓扑结构但具有 100 列的任务图，而不仅仅是四个：
+- en: The small top-left chart reports the bytes stored all across the workers.
+  id: totrans-241
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 左上角的小图表报告了所有工作者存储的字节数。
+- en: The second chart on the left reflects the memory used per workers, so it’s a
+    more detailed version of top-left chart.
+  id: totrans-242
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 左侧的第二张图表反映了每个工作者的内存使用情况，因此它是左上角图表的更详细版本。
+- en: The bottom-left chart enumerates the number of tasks processing on each worker.
+  id: totrans-243
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 左下角的图表列出了每个工作者上正在处理的任务数量。
+- en: The main chart (top-right) has time on the X axis and workers on the Y axis.
+    Each block represents a task from the task graph. Different colors (shown in grayscale
+    here) are assigned to different task types.
+  id: totrans-244
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 主要图表（右上角）的 X 轴是时间，Y 轴是工作者。每个块代表任务图中的一个任务。不同的颜色（在此以灰度显示）分配给不同的任务类型。
+- en: Finally, the bottom-right chart gives you the status of all tasks
+  id: totrans-245
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最后，右下角的图表显示了所有任务的状态
+- en: '![](../Images/CH10_F14_Antao.png)'
+  id: totrans-246
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F14_Antao.png)'
+- en: Figure 10.14 The main screen of Dask’s dashboard
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.14 Dask 控制台的主界面
+- en: I encourage you to explore all pages in the Dask dashboard. For example, the
+    Profile page will give you a SnakeViz type visualization of the code profile,
+    and the Graph page will show you the real-time status of all tasks in the task
+    graph.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我鼓励你探索 Dask 控制台的所有页面。例如，配置文件页面将为你提供代码配置文件的 SnakeViz 类型可视化，而图形页面将显示任务图中所有任务的实时状态。
+- en: Finally, let’s explore how Dask deals with datasets that are larger than memory.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，让我们探索 Dask 如何处理比内存更大的数据集。
+- en: 10.3.3 Dealing with datasets larger than memory
+  id: totrans-250
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 10.3.3 处理比内存更大的数据集
+- en: Remember that Dask allows you to deal with datasets larger than memory. When
+    you are using multiple computers and, hence, more memory, Dask distributes the
+    data structures through those computers.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记住，Dask 允许你处理比内存更大的数据集。当你使用多台计算机和更多的内存时，Dask 会通过这些计算机分发数据结构。
+- en: 'But the last-resort solution to dealing with larger-than-memory datasets is
+    to spill them to disk: that is, store them temporarily on disk. However, as you
+    can expect, performance pays a price.'
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但处理比内存更大的数据集的最后一招解决方案是将它们溢出到磁盘：即暂时存储在磁盘上。然而，正如你所预期的，性能会付出代价。
+- en: 'We will run our Mandelbrot code for a very large size of 10000 × 10000\. In
+    one case, we will `.persist` intermediate arrays but not in the other case:'
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将运行我们的 Mandelbrot 代码，以一个非常大的尺寸 10000 × 10000。在一种情况下，我们将 `.persist` 中间数组，但在另一种情况下则不会：
+- en: '[PRE49]'
+  id: totrans-254
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: 'The output for this code on my computer is:'
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这段代码在我的电脑上的输出是：
+- en: '[PRE50]'
+  id: totrans-256
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: The second version is slower because the memory needed to persist the intermediate
+    matrices and ongoing computations is larger than the memory available for the
+    workers. This memory problem can be easily seen on the dashboard. For example,
+    figure 10.15 displays the two top-left charts. The title of the first one clearly
+    states that spillage is occurring. Also, the different colors (depicted here in
+    grayscale) on both charts indicate that the data is stored in different places.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个版本较慢，因为持久化中间矩阵和持续计算所需的内存大于工作者的可用内存。这个问题可以在仪表板上轻松看到。例如，图 10.15 显示了左上角的两个图表。第一个图表的标题清楚地表明发生了溢出。此外，两个图表上的不同颜色（此处以灰度表示）表明数据存储在不同的位置。
+- en: '![](../Images/CH10_F15_Antao.png)'
+  id: totrans-258
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/CH10_F15_Antao.png)'
+- en: Figure 10.15 The top-left part of Dask’s dashboard depicts spilling.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 10.15 Dask 仪表板的左上部分显示了溢出。
+- en: Spilling can cause delays that are orders of magnitude slower than a fully in-memory
+    version. Several alternatives are available that you could consider, the most
+    obvious being adding more memory or more machines. In any case, if you have spilling,
+    either try to avoid it or make sure performance doesn’t take a large hit.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 溢出可能导致延迟，其速度比完全内存版本慢几个数量级。有几种替代方案可以考虑，最明显的是增加更多内存或更多机器。无论如何，如果你有溢出，要么尽量避免它，要么确保性能不会受到重大影响。
+- en: This chapter provided an introduction to the basic concepts around Dask. With
+    this information in hand, you can understand the fundamental blocks involved in
+    performance problems while using Dask and apply those to completely different
+    underlying architectures, each with their specific performance bottlenecks.
+  id: totrans-261
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章介绍了 Dask 基本概念。有了这些信息，你可以理解在使用 Dask 时涉及的性能问题的基本模块，并将它们应用于完全不同的底层架构，每个架构都有其特定的性能瓶颈。
+- en: Summary
+  id: totrans-262
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Dask allows you to distribute computation among many machines.
+  id: totrans-263
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 允许你在多台机器之间分配计算。
+- en: Dask also allows you to work with larger-than-memory objects like data frames
+    and arrays.
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 还允许你处理大于内存的对象，如数据框和数组。
+- en: Dask implements subsets of widely known APIs like pandas and NumPy, but Dask
+    APIs have different semantics as Dask’s are mostly lazy, not eager.
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 实现了广泛使用的 API 的子集，如 pandas 和 NumPy，但 Dask API 的语义不同，因为 Dask 主要是懒加载的，而不是急切加载的。
+- en: In Dask, you can inspect task graphs before execution, which allows you to understand
+    the computation that will be executed and, in some cases, consider alternatives
+    to optimize it.
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在 Dask 中，你可以在执行前检查任务图，这让你能够理解将要执行的计算，在某些情况下，可以考虑优化它的替代方案。
+- en: Dask allows for fine-grained control of how the computation is executed. For
+    example, you can ask computation nodes to locally persist data to reuse it efficiently
+    in later computations.
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 允许对计算执行进行精细控制。例如，你可以要求计算节点在本地持久化数据，以便在后续计算中有效地重用它。
+- en: You can repartition data across nodes if that helps to speed up later computation.
+    However, repartitioning comes at the performance cost of having to transmit data
+    across nodes.
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果重新分区数据有助于加快后续计算，你可以跨节点重新分区数据。然而，重新分区会带来性能成本，因为需要跨节点传输数据。
+- en: At the lower task level, Dask relies on pandas and NumPy, and at that level,
+    you can use those libraries directly.
+  id: totrans-269
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在较低的任务级别，Dask 依赖于 pandas 和 NumPy，在这个级别上，你可以直接使用这些库。
+- en: Dask provides a `concurrent.futures` type of interface, similar to the interface
+    discussed in chapter 3.
+  id: totrans-270
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 提供了类似于第 3 章中讨论的 `concurrent.futures` 类型的接口。
+- en: Basic algorithms for data analysis must take into consideration Dask’s use of
+    partitioned data. Partitioning makes performance of several algorithms considerably
+    different than the sequential versions available in pandas or NumPy.
+  id: totrans-271
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据分析的基本算法必须考虑 Dask 对分区数据的利用。分区使得几个算法的性能与 pandas 或 NumPy 中可用的顺序版本有显著不同。
+- en: Dask provides several schedulers; among those, the distributed scheduler allows
+    computations to be deployed in a wide variety of architectures—from a single machine
+    to very large clusters.
+  id: totrans-272
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 提供了多个调度器；其中，分布式调度器允许计算在广泛的架构中部署——从单台机器到非常大的集群。
+- en: Dask provides a scheduler, `dask.distributed`, that can allocate tasks over
+    many architectures, varying from a single machine to a scientific cluster or the
+    cloud.
+  id: totrans-273
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Dask 提供了一个调度器 `dask.distributed`，它可以在多种架构上分配任务，从单台机器到科学集群或云端。
+- en: '`dask.distributed` provides a powerful dashboard that can be used to analyze
+    and profile distributed applications.'
+  id: totrans-274
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`dask.distributed` 提供了一个强大的仪表板，可以用来分析和分析分布式应用程序。'

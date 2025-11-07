@@ -1,0 +1,1176 @@
+- en: 19 Controlling workload placement and automatic scaling
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 19 控制工作负载放置和自动扩展
+- en: Kubernetes decides where to run your workloads, spreading them around the cluster
+    to get the best use of your servers and the highest availability for your apps.
+    Deciding which node is going to run a new Pod is the job of the scheduler, one
+    of the control plane components. The scheduler uses all the information it can
+    get to choose a node. It looks at the compute capacity of the server and the resources
+    used by existing Pods. It also uses policies that you can hook into in your application
+    specs to have more control over where Pods will run. In this chapter, you’ll learn
+    how to direct Pods to specific nodes and how to schedule the placement of Pods
+    in relation to other Pods.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes决定在哪里运行你的工作负载，将它们分散在集群中以充分利用你的服务器并为你的应用程序提供最高的可用性。决定哪个节点将运行新的Pod是调度器的任务，它是控制平面组件之一。调度器使用它能获取的所有信息来选择一个节点。它查看服务器的计算能力以及现有Pod使用的资源。它还使用你可以将其钩入应用程序规范中的策略，以对Pod运行的地点有更多的控制。在本章中，你将学习如何将Pod指向特定的节点以及如何根据其他Pod来安排Pod的放置。
+- en: 'We’ll also cover two other sides of workload placement in this chapter: automatic
+    scaling and Pod eviction. Autoscaling lets you specify the minimum and maximum
+    number of replicas for your app, along with some metric for Kubernetes to measure
+    how hard your app is working. If the Pods are overworked, the cluster scales up
+    automatically, adding more replicas, and scales down again when the load reduces.
+    Eviction is the extreme scenario where nodes are maxing out resources, and Kubernetes
+    removes Pods to keep the server stable. We’ll cover some intricate details, but
+    it’s important to understand the principles to get the right balance of a healthy
+    cluster and high-performing apps.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还将在本章中介绍工作负载放置的两个其他方面：自动扩展和Pod驱逐。自动扩展允许你指定应用程序副本的最小和最大数量，以及Kubernetes用来衡量应用程序工作强度的某些指标。如果Pod过载，集群会自动扩展，添加更多副本，并在负载减少时再次缩小。驱逐是节点资源达到极限的极端情况，Kubernetes会移除Pod以保持服务器稳定。我们将介绍一些复杂细节，但了解原则对于获得健康集群和性能良好的应用程序的正确平衡至关重要。
+- en: 19.1 How Kubernetes schedules workloads
+  id: totrans-3
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.1 Kubernetes如何调度工作负载
+- en: 'When you create a new Pod, it goes into the pending state until it’s allocated
+    to a node. The scheduler sees the new Pod and tries to find the best node to run
+    it on. The scheduling process consists of two parts: first is *filtering*, which
+    excludes any unsuitable nodes, and then *scoring*, to rank the remaining nodes
+    and choose the best option. Figure 19.1 shows a simplified example.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你创建一个新的Pod时，它进入挂起状态，直到它被分配到一个节点。调度器看到新的Pod并尝试找到运行它的最佳节点。调度过程包括两个部分：首先是*过滤*，排除任何不合适的节点，然后是*评分*，对剩余的节点进行排名并选择最佳选项。图19.1显示了简化示例。
+- en: '![](../Images/19-1.jpg)'
+  id: totrans-5
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-1.jpg)'
+- en: Figure 19.1 The scheduler selects nodes on their suitability and their current
+    workload.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.1 调度器根据节点的适用性和当前工作负载选择节点。
+- en: You’ve already seen the filtering stage in action in chapter 17, when you learned
+    that the control plane node is isolated from application workloads. That’s done
+    with a taint, which is a way of flagging a node to say it isn’t suitable for general
+    work. The `master` taint is applied to control plane nodes by default, but taints
+    are really a specialized type of label, and you can add your own taints to nodes.
+    Taints have a key-value pair just like a label, and they also have an effect,
+    which tells the scheduler how to treat this node. You’ll use taints to identify
+    nodes that are different from the rest. In the next exercise, we’ll add a taint
+    to record the type of disk a node has.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你已经在第17章中看到了过滤阶段的实际应用，当时你了解到控制平面节点与应用工作负载是隔离的。这是通过污点（taint）实现的，污点是一种标记节点的方式，表示它不适合一般工作。默认情况下，`master`污点应用于控制平面节点，但污点实际上是一种特殊的标签类型，你可以向节点添加自己的污点。污点与标签一样有一个键值对，它们还具有一个效果，告诉调度器如何处理这个节点。你将使用污点来识别与其他节点不同的节点。在下一个练习中，我们将向节点添加一个污点来记录节点所拥有的磁盘类型。
+- en: Try it now Run a simple sleep app, and then add a taint to your node to see
+    how it affects the workload.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试 Run a simple sleep app, and then add a taint to your node to see how it
+    affects the workload.
+- en: '[PRE0]'
+  id: totrans-9
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: The key-value part of a taint is arbitrary, and you can use it to record whatever
+    aspect of the node you care about—maybe some nodes have less memory or a slower
+    network card. The effect of this taint is `NoSchedule`, which means workloads
+    won’t be scheduled on this node unless they explicitly *tolerate* the taint. As
+    shown in figure 19.2, applying a `NoSchedule` taint doesn’t impact existing workloads—the
+    sleep Pod is still running after the node has been tainted.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 污点的键值部分是任意的，你可以用它来记录你关心的节点方面的任何内容——也许有些节点内存较少或网卡较慢。这个污点的效果是`NoSchedule`，这意味着除非它们明确*容忍*污点，否则工作负载不会在这个节点上调度。如图19.2所示，应用`NoSchedule`污点不会影响现有工作负载——在节点被污染后，sleep
+    Pod仍然在运行。
+- en: '![](../Images/19-2.jpg)'
+  id: totrans-11
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-2.jpg)'
+- en: Figure 19.2 Pods need a toleration to run on a tainted node, unless they were
+    running before the taint.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.2 Pod需要在受污染的节点上运行时需要容忍，除非它们在污染之前就已经在运行。
+- en: Now with the taint in place, the node will be filtered out by the scheduler
+    for all new Pods, unless the Pod spec has a toleration for the taint. Tolerations
+    say the workload acknowledges the taint and is happy to work with it. In this
+    example, we’ve flagged nodes with spinning disks, which are probably lower performers
+    than nodes with solid-state disks. Listing 19.1 includes a toleration to say this
+    Pod is happy to run on these slower nodes.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在有了污点，调度器将过滤掉所有新的Pod，除非Pod规范包含对污点的容忍。容忍表示工作负载承认污点并愿意与其一起工作。在这个例子中，我们标记了带有旋转磁盘的节点，这些节点可能比带有固态磁盘的节点性能较低。列表19.1包含一个容忍，表示这个Pod愿意在这些较慢的节点上运行。
+- en: Listing 19.1 sleep2-with-tolerations.yaml, tolerating a tainted node
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.1 sleep2-with-tolerations.yaml，容忍受污染的节点
+- en: '[PRE1]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: We tainted every node in this exercise so the scheduler will filter them all
+    out for a new Pod request, unless the spec contains a toleration. Pods that can’t
+    be scheduled stay in the pending state until something changes—a new node joins
+    without the taint, or the taint is removed from an existing node, or the Pod spec
+    changes. As soon as a change happens and the scheduler can find a suitable placement,
+    the Pod will be scheduled to run.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，我们污染了每个节点，以便调度器将它们全部过滤掉以供新的Pod请求使用，除非规范包含容忍。无法调度的Pod将保持挂起状态，直到发生变化——一个没有污点的节点加入，或者从现有节点移除污点，或者Pod规范发生变化。一旦发生变化并且调度器可以找到合适的放置位置，Pod将被调度以运行。
+- en: Try it now Try deploying a copy of the sleep app without a toleration. It will
+    stay as pending. Update it to add the toleration, and it will run.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：不使用容忍来部署sleep应用的副本。它将保持挂起状态。更新它以添加容忍，然后它将运行。
+- en: '[PRE2]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: This exercise used a Deployment, so the toleration actually was added to a new
+    Pod, and the new Pod was scheduled—you can see that in figure 19.3\. But if you
+    create a plain Pod without the toleration, it will go into the pending state,
+    and when you add the toleration, that same Pod will be scheduled; the scheduler
+    keeps trying to find a node for any unscheduled Pods.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个练习使用了Deployment，因此容忍实际上被添加到了一个新的Pod中，并且新的Pod被调度了——你可以在图19.3中看到这一点。但是，如果你创建了一个没有容忍的普通Pod，它将进入挂起状态，当你添加容忍时，同一个Pod将被调度；调度器会继续尝试为任何未调度的Pod找到节点。
+- en: '![](../Images/19-3.jpg)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-3.jpg)'
+- en: Figure 19.3 If the Pod’s toleration matches the node’s taint, then it can run
+    on that node.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.3 如果Pod的容忍与节点的污点匹配，那么它可以在该节点上运行。
+- en: The `NoSchedule` effect is a hard taint—it’s in the scheduler’s filtering stage,
+    so Pods won’t run on tainted nodes unless they have a toleration. A softer alternative
+    is `PreferNoSchedule`, which moves the restriction to the scoring stage. Tainted
+    nodes aren’t filtered out, but they score lower than a node that doesn’t have
+    the taint. A `PreferNoSchedule` taint means Pods shouldn’t run on that node unless
+    they have a toleration for it, except when there are no other suitable nodes.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`NoSchedule`效果是一个硬污点——它在调度器的过滤阶段，因此除非有容忍，否则Pod不会在受污染的节点上运行。一个较软的替代方案是`PreferNoSchedule`，它将限制移动到评分阶段。受污染的节点不会被过滤掉，但它们的评分低于没有污点的节点。`PreferNoSchedule`污点意味着Pod不应该在该节点上运行，除非它们有对该污点的容忍，除非没有其他合适的节点。'
+- en: It’s important to understand that taints and tolerations are for expressing
+    something negative about the node, which means it suits only certain Pods; it’s
+    not a positive association between a node and a Pod. A Pod with a toleration might
+    run on a tainted node, or it might not, so tolerations are not a good mechanism
+    for ensuring Pods run on *only* certain nodes. You might need that for something
+    like PCI compliance, where financial apps should run only on nodes that have been
+    hardened. For that, you need to use a `NodeSelector`, which filters out nodes
+    based on their labels-we used that in chapter 17 to make sure Pods ran on the
+    correct CPU architecture. Listing 19.2 shows that different types of scheduler
+    hints work together.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要理解污点（taints）和容忍度（tolerations）是用来表达关于节点的负面信息，这意味着它只适合某些Pod；它不是节点和Pod之间的积极关联。具有容忍度的Pod可能运行在污点化的节点上，也可能不运行，因此容忍度不是确保Pod仅在特定节点上运行的良策。你可能需要像PCI合规性这样的东西，其中财务应用程序应该仅在经过加固的节点上运行。为此，你需要使用`NodeSelector`，它根据标签过滤节点——我们在第17章中使用了它来确保Pod在正确的CPU架构上运行。列表19.2显示了不同类型的调度提示如何协同工作。
+- en: Listing 19.2 sleep2-with-nodeSelector.yaml, a toleration and a node selector
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.2 sleep2-with-nodeSelector.yaml，一个容忍度和一个节点选择器
+- en: '[PRE3]'
+  id: totrans-25
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: This spec says the Pod will tolerate a node with the hard disk taint, but the
+    architecture has to be a ZX Spectrum. You won’t have a ZX Spectrum in your cluster,
+    so when you deploy this, the new Pod won’t be scheduled. I’ve chosen that CPU
+    not just out of nostalgia, but to highlight that these labels are just key-value
+    pairs with no validation in them. The `os` and `arch` labels are set by Kubernetes
+    on the nodes, but in your Pod spec, you can use incorrect values by mistake and
+    your Pods stay pending.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个规范说明Pod可以容忍具有硬盘污点的节点，但架构必须是ZX Spectrum。你的集群中不会有ZX Spectrum，所以当你部署这个时，新的Pod不会被调度。我选择那个CPU不仅是因为怀旧，还为了强调这些标签只是没有验证的键值对。`os`和`arch`标签由Kubernetes在节点上设置，但在你的Pod规范中，你可能会不小心使用错误的值，并且你的Pod会保持挂起状态。
+- en: Try it now Deploy the sleep app update from listing 19.2, and see if there’s
+    a matching node on your cluster.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看：部署列表19.2中的sleep应用更新，看看你的集群中是否有匹配的节点。
+- en: '[PRE4]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: You can see in my output in figure 19.4 why we’re using a Deployment for this
+    app. The new Pod goes into the pending state, and it will stay there until you
+    add a ZX Spectrum to your cluster (which would mean building an eight-bit version
+    of the kubelet and a container runtime). The app is still up because the Deployment
+    won’t scale down the old ReplicaSet until the replacement is at the desired capacity.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在图19.4的输出中看到我们为什么使用Deployment来运行这个应用程序。新的Pod进入挂起状态，并且它将保持在那里，直到你在你的集群中添加ZX
+    Spectrum（这意味着构建kubelet的八位版本和容器运行时）。应用程序仍然在运行，因为Deployment不会在替换达到所需容量之前缩小旧的ReplicaSet。
+- en: '![](../Images/19-4.jpg)'
+  id: totrans-30
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-4.jpg)'
+- en: Figure 19.4 Pods that can’t be scheduled don’t interrupt the app if it’s running
+    in a Deployment.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.4 如果Pod无法调度，当它在Deployment中运行时不会中断应用程序。
+- en: Node selectors ensure that apps run only on nodes with specific label values,
+    but you usually want some more flexibility than a straight equality match. A finer
+    level of control comes with *affinity* and *antiaffinity*.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 节点选择器确保应用程序仅在具有特定标签值的节点上运行，但你通常希望比直接相等匹配有更多的灵活性。更细粒度的控制可以通过*亲和力*和*反亲和力*来实现。
+- en: 19.2 Directing Pod placement with affinity and antiaffinity
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.2 使用亲和力和反亲和力指导Pod放置
+- en: Kubernetes applies a standard set of labels to nodes, but standards change over
+    time. The system-provided labels are prefixed with a namespace, and the namespace
+    is versioned in the same way that the API for object specs is versioned. New clusters
+    use `kubernetes.io` as the label prefix, but older versions use `beta.kubernetes.io`.
+    The beta tag indicates that a feature isn’t stable and the specification might
+    change, but features can stay in beta through multiple Kubernetes versions. If
+    you want Pods restricted to a certain architecture, you need to allow for the
+    beta namespace to make your spec portable across different versions of Kubernetes.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes为节点应用一组标准的标签，但标准会随时间变化。系统提供的标签以命名空间为前缀，命名空间以与对象规范API版本相同的方式进行版本控制。新集群使用`kubernetes.io`作为标签前缀，但旧版本使用`beta.kubernetes.io`。beta标签表示一个功能还不稳定，规范可能会改变，但功能可以通过多个Kubernetes版本保持beta状态。如果你想要Pod仅限于特定的架构，你需要允许beta命名空间，以便你的规范可以在不同的Kubernetes版本之间移植。
+- en: Affinity provides a rich way of expressing preferences or requirements to the
+    scheduler. You can claim an affinity to certain nodes to ensure Pods land on those
+    nodes. Affinity uses a node selector but with a match expression rather than a
+    simple equality check. Match expressions support multiple clauses, so you can
+    build much more complex requirements. Listing 19.3 uses affinity to say the Pod
+    should run on a 64-bit Intel node, in a way which works for new and old clusters.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 亲和力提供了一种丰富的方式来向调度器表达偏好或要求。您可以通过声明对某些节点的亲和力来确保Pod落在那些节点上。亲和力使用节点选择器，但使用匹配表达式而不是简单的相等检查。匹配表达式支持多个子句，因此您可以构建更复杂的请求。列表19.3使用亲和力来说明Pod应该在64位Intel节点上运行，这种方式适用于新旧集群。
+- en: Listing 19.3 sleep2-with-nodeAffinity-required.yaml, a Pod with node affinity
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.3 sleep2-with-nodeAffinity-required.yaml，一个具有节点亲和力的Pod
+- en: '[PRE5]'
+  id: totrans-37
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The terrifying-sounding `requiredDuringSchedulingIgnoredDuringExecution` just
+    means that this is a hard rule for the scheduler but it won’t affect any existing
+    Pods—they won’t be removed once they’re scheduled, even if the node labels change.
+    The two match expressions cover the either/or case for new and old label namespaces,
+    replacing the simpler node selector in listing 19.2\. The full spec for listing
+    19.3 contains the hard-disk toleration, so when you deploy this, the sleep app
+    will stop waiting for a ZX Spectrum to join the cluster and will run on your Intel
+    node.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 听起来令人恐惧的`requiredDuringSchedulingIgnoredDuringExecution`实际上只是意味着这是一个对调度器的硬性规则，但它不会影响任何现有的Pod——一旦它们被调度，即使节点标签发生变化，它们也不会被移除。这两个匹配表达式涵盖了新旧标签命名空间中的“或”情况，取代了列表19.2中的简单节点选择器。列表19.3的完整规范包含硬盘容忍度，因此当您部署此规范时，sleep应用将停止等待ZX
+    Spectrum加入集群，并将在您的Intel节点上运行。
+- en: Try it now Update the sleep app. You should have one of the two architecture
+    labels on your node, so the new Pod will run and replace the existing one.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 更新sleep应用。您的节点上应该有一个架构标签，因此新的Pod将运行并替换现有的Pod。
+- en: '[PRE6]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Figure 19.5 should hold no surprises for you: it just shows the new affinity
+    rules being put in place. Now the scheduler can find a node that suits the requirements
+    so the Pod runs.'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.5 对您来说应该不会带来惊喜：它只是展示了正在实施的新亲和规则。现在调度器可以找到一个符合要求的节点，以便Pod运行。
+- en: '![](../Images/19-5.jpg)'
+  id: totrans-42
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-5.jpg)'
+- en: Figure 19.5 Affinity allows for a more complex set of node-selector rules.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.5 显示了节点选择规则的更复杂集合。
+- en: 'I have one more example of node affinity because the syntax is a bit fiddly,
+    but it’s good to know what you can do with it. Node affinity is a clean way to
+    express scheduling requirements that combine hard rules and soft preferences,
+    and you can do more than you can with tolerations and plain node selectors. Listing
+    19.4 is an abbreviation of a spec that says to the scheduler: Pods must run on
+    an Intel node, and it must be Windows or Linux, but preferably Linux.'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我还有一个节点亲和力的例子，因为语法有点复杂，但了解您可以做什么是很好的。节点亲和力是一种清晰的方式来表达结合硬性规则和软性偏好的调度要求，您可以使用它做的比容忍度和简单的节点选择器更多。列表19.4是一个规范的缩写，告诉调度器：Pod必须在Intel节点上运行，并且它必须是Windows或Linux，但最好是Linux。
+- en: Listing 19.4 sleep2-with-nodeAffinity-preferred.yaml, requirements and preferences
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.4 sleep2-with-nodeAffinity-preferred.yaml，要求和偏好
+- en: '[PRE7]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: This process is great if you have a multiarchitecture cluster that is Linux
+    heavy, with just a few Windows nodes to run older applications. You can build
+    multiarchitecture Docker images, so the same image tag works on Linux and Windows
+    (or Arm or any of the other OS and architecture combinations), so one container
+    spec is good for multiple systems. Pods with this spec will prefer Linux nodes,
+    but if the Linux nodes are saturated and there’s capacity on the Windows nodes,
+    then we’ll use that capacity and run Windows Pods instead.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您有一个以Linux为主、仅有少数Windows节点运行旧应用的混合架构集群，这个过程就非常棒。您可以构建混合架构的Docker镜像，因此相同的镜像标签可以在Linux和Windows（或Arm或任何其他操作系统和架构组合）上使用，所以一个容器规范适用于多个系统。具有此规范的Pod将优先选择Linux节点，但如果Linux节点已满，而Windows节点有容量，那么我们将使用该容量并运行Windows
+    Pods。
+- en: The affinity syntax is a little unwieldy because it’s so generic. In the *required*
+    rules, multiple match expressions work as a logical AND, and multiple selectors
+    work as an OR. In the *preferred* rules, multiple match expressions are an AND,
+    and you use multiple preferences to describe an OR. The full spec of listing 19.4
+    includes OR logic to cover multiple namespaces; we won’t run it because the output
+    is the same as the previous exercise, but it’s a good one to refer back to if
+    you’re struggling to express your affinity. Figure 19.6 shows how the rules look.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 亲和力语法有点难以操作，因为它非常通用。在*必需*规则中，多个匹配表达式作为一个逻辑AND工作，多个选择器作为一个OR工作。在*首选*规则中，多个匹配表达式是一个AND，你使用多个首选来描述一个OR。列表19.4的完整规范包括OR逻辑来覆盖多个命名空间；我们不会运行它，因为输出与之前的练习相同，但如果你在表达亲和力时遇到困难，它是一个很好的参考。图19.6显示了规则的外观。
+- en: '![](../Images/19-6.jpg)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图19.6](../Images/19-6.jpg)'
+- en: Figure 19.6 You can express affinity rules with multiple conditions using different
+    node labels.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.6 你可以使用不同的节点标签使用多个条件来表示亲和力规则。
+- en: 'You should have a good grasp of affinity because you can use it with more than
+    just nodes: Pods can express an affinity to other Pods so they are scheduled on
+    the same node, or an antiaffinity so they are scheduled on a different node. This
+    capability supports two common use cases. The first is where you want Pods for
+    different components to be colocated to reduce network latency between them. The
+    second is where you want replicas of the same component to be spread around the
+    cluster to increase redundancy. Listing 19.5 shows the first scenario in the random-number
+    web app.'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你应该很好地掌握亲和力，因为你可以用它不仅仅与节点一起使用：Pod可以表达对其他Pod的亲和力，以便它们被调度在同一个节点上，或者反亲和力，以便它们被调度在不同的节点上。这种能力支持两个常见的用例。第一个是你希望不同组件的Pod被放置在一起以减少它们之间的网络延迟。第二个是你希望同一组件的副本在集群中分布以增加冗余。列表19.5显示了随机数Web应用程序的第一个场景。
+- en: Listing 19.5 web.yaml, Pod affinity to colocate components
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.5 web.yaml，Pod亲和力以放置组件
+- en: '[PRE8]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Pod affinity follows the same spec as node affinity, and you can include both
+    if you really want to confuse your team. Listing 19.4 is a required rule, so Pods
+    will be left pending if the scheduler can’t fulfill it. The match expressions
+    work as a label selector, so this says the Pod must be scheduled on a node that
+    is already running a Pod with the labels `app=numbers` and `component=api`. That’s
+    colocation, so a web Pod will always have a local API pod, which just leaves the
+    *topology key* to describe, and that will need its own paragraph.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pod亲和力遵循与节点亲和力相同的规范，如果你真的想让你团队感到困惑，你可以包括两者。列表19.4是一个必需的规则，所以如果调度器无法满足它，Pod将被留下等待。匹配表达式作为一个标签选择器工作，所以这意味着Pod必须被调度在已经运行具有标签`app=numbers`和`component=api`的Pod的节点上。这就是放置，所以只剩下*拓扑键*来描述，这将需要它自己的段落。
+- en: 'Topology describes the physical layout of your cluster—where the nodes are
+    located—which is set in node labels at different levels of detail. The hostname
+    label is always present and is unique for the node; clusters can add their own
+    detail. Cloud providers usually add region and zone labels, which state where
+    the server is located; on-premises clusters might add datacenter and rack labels.
+    A topology key sets the level where the affinity applies: hostname effectively
+    means put the Pods on the same node, and zone would mean put the Pod on any node
+    in the same zone as the other Pod. Hostname is a good enough topology key to see
+    affinity in action, and you can do it on a single node.'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拓扑描述了你的集群的物理布局——节点所在的位置——这在不同细节级别的节点标签中设置。主机名标签始终存在，并且对于节点是唯一的；集群可以添加自己的细节。云提供商通常会添加区域和区域标签，这些标签说明了服务器所在的位置；本地集群可能会添加数据中心和机架标签。拓扑键设置亲和力应用的水平：主机名实际上意味着将Pod放在同一个节点上，而区域则意味着将Pod放在与另一个Pod在同一区域内的任何节点上。主机名是一个足够好的拓扑键来观察亲和力的作用，你可以在单个节点上做到这一点。
+- en: Try it now Deploy the random-number app with Pod affinity to ensure the web
+    and API Pods run on the same node.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 部署随机数应用程序，使用Pod亲和力以确保Web和API Pod在同一个节点上运行。
+- en: '[PRE9]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: You can see in figure 19.7 that this works as expected—I only have one node,
+    and, of course, both Pods are scheduled there. In a larger cluster, the web Pod
+    would stay pending until the API Pod is scheduled, and then it would follow the
+    API Pod to the same node. If that node didn’t have the capacity to run the web
+    Pod, it would stay as pending because this rule is required (a preferred rule
+    would allow the Pod to run on a node without an API Pod).
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以在图19.7中看到，这正如预期的那样——我只有一个节点，当然，两个Pod都调度在那里。在一个更大的集群中，web Pod将保持挂起状态，直到API
+    Pod被调度，然后它会跟随API Pod到同一个节点。如果该节点没有运行web Pod的容量，它将保持挂起状态，因为需要这个规则（一个首选规则将允许Pod在没有API
+    Pod的节点上运行）。
+- en: '![](../Images/19-7.jpg)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-7.jpg)'
+- en: Figure 19.7 Pod affinity controls workload placement in relation to existing
+    workloads.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.7 Pod亲和性控制工作负载相对于现有工作负载的放置。
+- en: 'Antiaffinity uses the same syntax, and you can use it to keep Pods away from
+    nodes or other Pods. Antiaffinity is useful in components that run at scale for
+    high availability—think back to the Postgres database in chapter 8\. The app used
+    a StatefulSet with multiple replicas, but the Pods themselves might all end up
+    on the same node. That defeats the whole purpose of using replicas, because if
+    the node goes down, it takes all the database replicas with it. Antiaffinity can
+    be used to express the rule: Keep me away from other Pods like me, which will
+    spread Pods across different nodes. We won’t go back to the StatefulSet; we’ll
+    keep it simple and deploy that rule for the random-number API and see what happens
+    when we scale up.'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反亲和性使用相同的语法，您可以使用它来使Pod远离节点或其他Pod。反亲和性在需要高可用性的大规模组件中非常有用——回想一下第8章中的Postgres数据库。该应用程序使用了一个具有多个副本的StatefulSet，但Pod本身可能都最终在同一个节点上。这违背了使用副本的全部目的，因为如果节点宕机，它会带走所有的数据库副本。反亲和性可以用来表达规则：让我远离像我这样的其他Pod，这样可以将Pod分散到不同的节点上。我们不会回到StatefulSet；我们将保持简单，为随机数API部署该规则，并看看扩容时会发生什么。
+- en: Try it now Update the API Deployment to use Pod antiaffinity so replicas all
+    run on different nodes. Then scale up and confirm the status.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下：更新API部署以使用Pod反亲和性，使所有副本都在不同的节点上运行。然后扩容并确认状态。
+- en: '[PRE10]'
+  id: totrans-63
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: '![](../Images/19-8.jpg)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-8.jpg)'
+- en: Figure 19.8 Node antiaffinity gives unexpected results on a single-node cluster.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.8在单节点集群上，节点反亲和性产生了意外的结果。
+- en: You’ll want to go through figure 19.8 carefully, because the results are probably
+    not what you expected. The updated API Deployment creates a new ReplicaSet, which
+    creates a new Pod. That Pod stays as pending, because the antiaffinity rules won’t
+    let it run on the same node as the existing API Pod—the one it’s trying to replace.
+    When the API Deployment is scaled up, another replica does run, so we have two
+    API Pods on the same node—but this is the previous ReplicaSet, which doesn’t include
+    the antiaffinity rule. The Deployment is trying to honor the request for three
+    replicas between the two ReplicaSets, and because the new Pods don’t come online,
+    it scales another replica of the old Pod.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您需要仔细查看图19.8，因为结果可能并非您所预期。更新的API部署创建了一个新的ReplicaSet，它创建了一个新的Pod。该Pod保持挂起状态，因为反亲和性规则不允许它在与现有API
+    Pod（它试图替换的那个Pod）相同的节点上运行。当API部署扩容时，另一个副本确实运行了，因此我们在同一节点上有两个API Pod——但这是由前一个ReplicaSet创建的，它不包括反亲和性规则。部署试图在两个ReplicaSet之间遵守三个副本的请求，但由于新Pod没有上线，它又扩展了旧Pod的另一个副本。
+- en: How about the web Pods—did you expect to see three of them running? Well, three
+    are running, whether or not you expected it. Affinity and antiaffinity rules check
+    only for the existence of Pods by their labels, not the count of Pods. The affinity
+    rule for the web Pod says it needs to run where there’s an API Pod, not where
+    there’s a single API Pod. If you wanted to have only one web Pod with only one
+    API Pod, you’d need an antiaffinity rule for other web Pods in the web Pod spec.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么web Pods呢——您期望看到三个都在运行吗？好吧，不管您是否期望，现在有三个正在运行。亲和性和反亲和性规则只检查Pod标签的存在，而不是Pod的数量。web
+    Pod的亲和性规则表示它需要在有API Pod的地方运行，而不是只有一个API Pod的地方。如果您只想有一个web Pod与一个API Pod一起运行，您需要在web
+    Pod规范中为其他web Pods设置反亲和性规则。
+- en: Scheduling preferences get complex because the scheduler considers so many factors
+    in the decision. Your simple affinity rules might not work as you expect, and
+    you’ll need to investigate taints, node labels, Pod labels, resource limits, and
+    quotas—or even the scheduler log file on the control plane node. Remember that
+    required rules will prevent your Pod running if the scheduler can’t find a node,
+    so think about having a backup preferred rule. This topic is one of the more intricate
+    ones in this chapter; next, we’re going to look at how we can get Kubernetes to
+    automatically schedule more replicas for us, and that’s actually more straightforward
+    than trying to control workload placement.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调度偏好变得复杂，因为调度器在决策中考虑了众多因素。你简单的亲和规则可能不会按预期工作，你可能需要调查污点、节点标签、Pod标签、资源限制和配额——甚至控制平面节点的调度器日志文件。记住，如果调度器找不到节点，所需的规则将阻止你的Pod运行，所以考虑有一个备份首选规则。这个主题是本章中较为复杂的话题之一；接下来，我们将探讨如何让Kubernetes为我们自动调度更多的副本，这实际上比尝试控制工作负载放置要简单得多。
+- en: 19.3 Controlling capacity with automatic scaling
+  id: totrans-69
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.3 使用自动扩展控制容量
+- en: Kubernetes can automatically scale your applications by adding or removing Pods.
+    This scaling is *horizontal* because it makes use of your existing nodes; there
+    is also cluster scaling, which adds and removes nodes, but you’ll find that mostly
+    in cloud platforms. We’ll stick with horizontal Pod autoscaling here, which has
+    a slightly disjointed user experience like the NetworkPolicy objects we covered
+    in chapter 16\. You can deploy an autoscale spec that describes how you would
+    like your Pods scaled, but Kubernetes won’t do anything with it unless it can
+    check the load of the existing Pods. The wider Kubernetes project provides the
+    metrics-server component for basic load checks—some distributions include it by
+    default; for others, you need to manually deploy it.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kubernetes可以通过添加或删除Pod来自动扩展你的应用程序。这种扩展是**水平**的，因为它利用了现有的节点；还有集群扩展，它添加和删除节点，但你主要会在云平台上看到它。我们将坚持使用水平Pod自动扩展，它的用户体验与我们在第16章中讨论的NetworkPolicy对象略有不同。你可以部署一个自动扩展规范，描述你希望如何扩展Pod，但除非Kubernetes可以检查现有Pod的负载，否则它不会对此采取任何行动。更广泛地说，Kubernetes项目提供了metrics-server组件来进行基本的负载检查——一些发行版默认包含它；对于其他发行版，你需要手动部署它。
+- en: Try it now Confirm if your cluster has the metrics-server component installed,
+    and if not, deploy it, the metrics power autoscaling, and the kubectl `top` command.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 确认你的集群是否已安装metrics-server组件，如果没有，部署它，启用指标自动扩展，并使用kubectl `top`命令。
+- en: '[PRE11]'
+  id: totrans-72
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'Figure 19.9 shows that my lab environment doesn’t have `metrics-server` deployed
+    (it’s not part of Docker Desktop or Kind, but it is installed in K3s), but thankfully
+    the remedy is much simpler than choosing a Pod network. The `metrics-server` Deployment
+    is a single implementation: if you get a response from the kubectl `top` command,
+    your cluster is collecting all the metrics it needs for autoscaling; if not, just
+    deploy `metrics-server`.'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.9显示，我的实验室环境尚未部署`metrics-server`（它不是Docker Desktop或Kind的一部分，但已安装在K3s中），但幸运的是，补救措施比选择Pod网络简单得多。`metrics-server`部署是一个单一实现：如果你从kubectl
+    `top`命令中获得响应，你的集群正在收集所有用于自动扩展所需的指标；如果没有，只需部署`metrics-server`。
+- en: '![](../Images/19-9.jpg)'
+  id: totrans-74
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-9.jpg)'
+- en: Figure 19.9 `metrics-server` collects CPU and memory stats, but it’s an optional
+    component.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.9 `metrics-server`收集CPU和内存统计数据，但它是一个可选组件。
+- en: Don’t confuse these with the metrics we set up with Prometheus in chapter 14\.
+    The stats collected by `metrics-server` just track the basic compute resources,
+    CPU and memory, and it returns only the current value when it’s queried. It’s
+    an easy option to use for autoscaling if your workloads are CPU or memory intensive
+    because Kubernetes knows how to use it without any extra configuration. Listing
+    19.6 shows a Pod autoscale spec that uses CPU as the metric to scale on.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不要将这些与我们第14章中设置的Prometheus指标混淆。`metrics-server`收集的统计数据仅跟踪基本的计算资源，CPU和内存，并且当被查询时只返回当前值。如果你的工作负载是CPU或内存密集型，这是一个用于自动扩展的简单选项，因为Kubernetes知道如何使用它而无需任何额外配置。列表19.6显示了使用CPU作为扩展指标的Pod自动扩展规范。
+- en: Listing 19.6 hpa-cpu.yaml, horizontal pod autoscaling by CPU load
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.6 hpa-cpu.yaml，基于CPU负载的水平Pod自动扩展
+- en: '[PRE12]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Autoscale parameters are defined in a separate object, the HorizontalPodAutoscaler
+    (HPA), which operates on a scale target—a Pod controller like a Deployment or
+    StatefulSet. It specifies the range of the replica count and the desired CPU utilization.
+    The autoscaler works by monitoring the average CPU across all current Pods as
+    a percentage of the requested CPU amount in the Pod spec. If average utilization
+    is below the target, the number of replicas is reduced, down to the minimum. If
+    utilization is above the target, new replicas are added, up to the maximum. The
+    Pi web app we’ve used in this book is compute intensive, so it will show us how
+    autoscaling works.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动扩展参数定义在单独的对象中，即HorizontalPodAutoscaler (HPA)，它作用于一个缩放目标——例如Deployment或StatefulSet这样的Pod控制器。它指定了副本数量的范围和期望的CPU利用率。自动扩展器通过监控所有当前Pod的平均CPU使用率（作为Pod规范中请求CPU数量的百分比）来工作。如果平均利用率低于目标，副本数量会减少，直到最小值。如果利用率高于目标，则会添加新的副本，直到最大值。我们在这本书中使用的Pi
+    web应用是计算密集型的，因此它将展示自动扩展是如何工作的。
+- en: Try it now Deploy the Pi web app with an HPA, and check the status of the Pods.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 部署带有HPA的Pi web应用，并检查Pods的状态。
+- en: '[PRE13]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Now the Pi application is running, and the spec requests 125 millicores of CPU
+    (one-eighth of one core). Initially, there’s a single replica, which is set in
+    the Deployment spec, and now the HPA is watching to see if it needs to create
+    more Pods. The HPA gets its data from `metrics-server`, which takes a minute or
+    two to catch up. You can see in figure 19.10 that the current CPU utilization
+    is unknown, but that will soon change to 0% because the Pod isn’t doing any work.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，Pi应用正在运行，规范请求了125毫核的CPU（一个核心的八分之一）。最初，有一个副本，这是在Deployment规范中设置的，现在HPA正在监视是否需要创建更多的Pods。HPA从`metrics-server`获取数据，需要一两分钟才能跟上。你可以在图19.10中看到，当前的CPU利用率未知，但很快就会变成0%，因为Pod没有进行任何工作。
+- en: '![](../Images/19-10.jpg)'
+  id: totrans-83
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图19-10](../Images/19-10.jpg)'
+- en: Figure 19.10 The HPA works with the metrics-server to collect stats and the
+    Deployment to manage scale.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.10 HPA与metrics-server合作收集统计数据，并与Deployment一起管理缩放。
+- en: This Pod spec has a 250-millicore CPU limit, which is double the requested amount.
+    Make a request to calculate Pi to a high level of decimal places, and you’ll soon
+    max out 0.25 of a core, and the average utilization will spike toward 200%. Then
+    the HPA will kick in and scale up, adding new replicas to help with the load.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个Pod规范有一个250毫核的CPU限制，是请求量的两倍。向计算Pi的请求发送一个高精度的十进制数，你很快就会用完0.25个核心，平均利用率会急剧上升到200%。然后HPA会启动并扩展，添加新的副本以帮助处理负载。
+- en: Try it now Run a script that makes some concurrent calls to the Pi web app,
+    asking for 100,000 decimal places and causing a high CPU load. Confirm that the
+    HPA scales up.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 运行一个脚本，对Pi web应用进行一些并发调用，请求10万位十进制数，造成高CPU负载。确认HPA进行了扩展。
+- en: '[PRE14]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Whether the extra Pods actually do help with the load depends on your application.
+    In this case, whichever Pod receives the web request will process the calculation
+    until it completes, so new Pods don’t share the existing load. You can see in
+    figure 19.11 that the original Pod is running at just about the maximum 250 millicores,
+    and the new Pods are doing nothing at 1 millicore. But those additional Pods increase
+    the capacity of the app, and they can work on any new requests that come in.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 额外的Pods是否真正帮助处理负载取决于你的应用程序。在这种情况下，接收Web请求的任何Pod都会处理计算直到完成，因此新的Pod不会共享现有的负载。你可以在图19.11中看到，原始Pod正在以大约最大250毫核的速度运行，而新的Pod在1毫核下什么也不做。但那些额外的Pod增加了应用程序的容量，并且它们可以处理任何新到达的请求。
+- en: '![](../Images/19-11.jpg)'
+  id: totrans-89
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图19-11](../Images/19-11.jpg)'
+- en: 'Figure 19.11 Autoscaling in action: the HPA triggers new Pods when CPU usage
+    spikes.'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.11 自动扩展的实际应用：当CPU使用率激增时，HPA触发新的Pods。
+- en: When you run this exercise, you should see similar results. The HPA will scale
+    up to three Pods, and before it goes any further, the app returns the Pi response,
+    CPU utilization falls, and it doesn’t need to scale up any more. The HPA adds
+    more Pods every 15 seconds until the utilization is within target. With one Pod
+    maxed out and two Pods doing nothing, the average CPU falls to 66%, which is within
+    the 75% target, so the HPA won’t add any more Pods (you can repeat the load script
+    a few more times to confirm it peaks to five Pods). When you stop making requests,
+    the load will fall to 0% again, and then the HPA waits to make sure the app stays
+    within target for five minutes before it scales back down to one replica.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你运行这个练习时，你应该看到类似的结果。HPA会扩展到三个Pod，在它进一步扩展之前，应用程序返回Pi响应，CPU利用率下降，它不再需要扩展。HPA每15秒添加更多的Pod，直到利用率在目标范围内。当一个Pod达到最大容量而另外两个Pod无所事事时，平均CPU下降到66%，这低于75%的目标，所以HPA不会添加更多的Pod（你可以重复几次负载脚本以确认它达到五个Pod的峰值）。当你停止发送请求时，负载将再次下降到0%，然后HPA等待确保应用程序在五分钟内保持在目标范围内，然后它将缩放到一个副本。
+- en: 'We have several parameters here: how long to wait before scaling up or down,
+    how many Pods to add or remove, how quickly to add or remove Pods. None of those
+    values can be changed in the version 1 HPA spec, but they’re all exposed in the
+    version 2 spec. The new spec is still a beta-2 feature in Kubernetes 1.18, and
+    it’s a pretty significant change. The single option to scale based on CPU has
+    been replaced with a generic metrics section, and the scaling behavior can be
+    controlled. Listing 19.7 shows the new spec in an update to the Pi HPA.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们这里有几个参数：在扩展或缩放之前等待多长时间，添加或删除多少Pod，添加或删除Pod的速度有多快。在版本1的HPA规范中，这些值都不能更改，但在版本2规范中它们都被公开了。新的规范仍然是Kubernetes
+    1.18中的beta-2功能，这是一个相当重大的变化。基于CPU的单一缩放选项已被替换为通用的指标部分，并且可以控制缩放行为。列表19.7显示了更新Pi HPA的新规范。
+- en: Listing 19.7 hpa-cpu-v2.yaml, the extended HPA spec in version 2
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表19.7 hpa-cpu-v2.yaml，版本2中的扩展HPA规范
+- en: '[PRE15]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: I said autoscaling was more straightforward than affinity, but I really meant
+    only version 1\. The version 2 spec is complex because it supports other types
+    of metrics, and you can use Prometheus metrics as the source for scaling decisions.
+    You need a few more pieces to do that, so I won’t go into the details, but remember
+    it’s an option. It means you can scale based on any metrics you collect, like
+    the rate of incoming HTTP requests or the number of messages in a queue.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我说自动缩放比亲和性更简单，但我的意思只是版本1。版本2规范复杂，因为它支持其他类型的指标，并且你可以使用Prometheus指标作为缩放决策的来源。你需要更多的组件来实现这一点，所以我不深入细节，但请记住这是一个选项。这意味着你可以根据你收集的任何指标进行缩放，比如传入HTTP请求的速率或队列中的消息数量。
+- en: We’re sticking with the 75% CPU target here, which uses the same `metrics-server`
+    stats, but we’ve tuned the scale-down behavior so we’ll see the number of Pods
+    come down much more quickly once the Pi requests are processed.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这里坚持75%的CPU目标，它使用相同的`metrics-server`统计信息，但我们已经调整了缩放行为，所以一旦处理完Pi请求，我们会看到Pod数量下降得更快。
+- en: Try it now Update the HPA to use the version 2 spec; this sets a low stabilization
+    period for scale-down events, so you’ll see the Pod count fall more quickly.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 更新HPA以使用版本2规范；这为缩放事件设置了一个较短的稳定期，所以你会看到Pod计数下降得更快。
+- en: '[PRE16]'
+  id: totrans-98
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: In this exercise, you’ll see the scale-up behavior works in the same way, because
+    the version 2 defaults are the same as the version 1 defaults. The scale-down
+    won’t take so long this time, although you may see—as shown in figure 19.12—that
+    querying the HPA status doesn’t reflect the change as quickly as the Deployment
+    itself does.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个练习中，你会看到缩放行为以相同的方式工作，因为版本2的默认值与版本1的默认值相同。这次缩放不会花费那么长时间，尽管你可能看到——如图19.12所示——查询HPA状态并不像部署本身那样快速反映变化。
+- en: '![](../Images/19-12.jpg)'
+  id: totrans-100
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-12.jpg)'
+- en: Figure 19.12 The new HPA spec favors a fast scale-down, suitable for bursty
+    workloads.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.12 新的HPA规范倾向于快速缩放，适合突发性工作负载。
+- en: Changing the behavior lets you model how the HPA responds to scaling events.
+    The defaults are a fairly conservative version of scale-up quickly and scale-down
+    slowly, but you can switch it around so scaling up is more gradual and scaling
+    down is immediate. “Immediate” isn’t really true because there’s a lag between
+    the metrics being collected and made available to the HPA, but the delay will
+    be just tens of seconds. The HPA is specific to one target, so you can have different
+    scaling rules and rates for different parts of your app.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 改变行为可以让您模拟HPA如何响应扩展事件。默认值是一个相当保守的版本，快速扩展和缓慢缩减，但您可以将其切换，使扩展更渐进，缩减更立即。“立即”并不是真的，因为收集的指标和提供给HPA之间的延迟只有几十秒。HPA针对一个特定的目标，因此您可以为应用程序的不同部分设置不同的扩展规则和速率。
+- en: We’ve covered placing Pods and scaling up and down, and the HPA just instructs
+    the controller to scale, so any scheduling requirements in the Pod spec apply
+    to all Pods. The last topic on workload management is *preemption*, the process
+    of deliberately causing Pods to fail.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经涵盖了Pod放置、扩展和缩减，而HPA只是指示控制器进行扩展，因此Pod规范中的任何调度要求都适用于所有Pod。工作负载管理中的最后一个主题是*抢占*，即故意导致Pod失败的过程。
+- en: 19.4 Protecting resources with preemption and priorities
+  id: totrans-104
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.4 使用抢占和优先级保护资源
+- en: Sometimes Kubernetes realizes a node is working too hard, and it *preempts*
+    that some Pods will fail and shuts them down in advance, giving the node time
+    to recover. This is *eviction* and happens only under extreme circumstances, where
+    if the cluster didn’t take action, the node might become unresponsive. Evicted
+    Pods stay on the node so you have the forensics to track down problems, but the
+    Pod containers are stopped and removed, freeing up memory and disk. If the Pod
+    is managed by a controller, a replacement Pod is created, which may be scheduled
+    to run on a different node.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时Kubernetes意识到一个节点工作过于努力，它会*抢占*一些Pod可能会失败，并提前关闭它们，给节点时间恢复。这是*驱逐*，仅在极端情况下发生，如果集群不采取行动，节点可能会变得无响应。被驱逐的Pod仍然留在节点上，这样您就有证据来追踪问题，但Pod容器被停止并移除，释放内存和磁盘。如果Pod由控制器管理，将创建一个替换Pod，该Pod可能被调度到不同的节点上。
+- en: Preemption is what happens if you get all your resource specs, quotas, scheduling,
+    and scaling wrong, so nodes end up running more Pods than they can manage and
+    are starved of memory or disk. If that happens, Kubernetes considers the node
+    to be under pressure, and it evicts Pods until the pressure situation ends. At
+    the same time, it adds a taint to the node so no new Pods are scheduled to run
+    on it. As the pressure situation eases, it removes the taint, and the node is
+    able to accept new workloads.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在资源规格、配额、调度和扩展方面都做错了，就会发生抢占，因此节点运行了比它能管理的更多Pod，并且内存或磁盘资源不足。如果发生这种情况，Kubernetes认为该节点处于压力之下，并且驱逐Pod直到压力情况结束。同时，它会在节点上添加污点，以防止新的Pod被调度到该节点上。随着压力情况的缓解，它会移除污点，节点能够接受新的工作负载。
+- en: There’s no way to fake memory or disk pressure for demos or exercises, so to
+    see how this works, we’re going to need to max out your lab. It’s easier to do
+    that with memory than with disk, but it still isn’t easy; the default is to start
+    eviction when the node has less than 100 MB of memory available, which means using
+    up nearly all of your memory. If you want to follow along with the exercises in
+    this section, you really need to spin up a separate lab in a VM, so you can tweak
+    the Kubernetes settings and max the memory on the VM rather than on your own machine.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在演示或练习中，无法伪造内存或磁盘压力，因此要了解这是如何工作的，我们需要将您的实验室内存使用率最大化。与磁盘相比，使用内存更容易做到这一点，但这仍然不容易；默认情况下，当节点可用内存少于100
+    MB时，就会开始驱逐，这意味着几乎用完了您的所有内存。如果您想跟随本节中的练习，您真的需要在虚拟机中启动一个单独的实验室，这样您就可以调整Kubernetes设置并在虚拟机上而不是在您的机器上最大化内存。
+- en: Try it now Start a dedicated VM using Vagrant. This setup has Kind installed
+    and 3 GB of RAM allocated. Create a new Kind cluster with a custom kubelet configuration
+    that lowers the memory threshold for eviction.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在尝试一下 使用Vagrant启动一个专用虚拟机。此设置已安装Kind并分配了3 GB的RAM。创建一个新的Kind集群，并使用自定义kubelet配置降低驱逐的内存阈值。
+- en: '[PRE17]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: The script in this exercise uses the same logic that the kubelet uses to determine
+    how much free memory it can access. You can see in figure 19.13 that my VM reports
+    just under 3 GB of total memory and just under 1.5 GB free, and that’s what Kubernetes
+    sees.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本练习中的脚本使用与kubelet相同的逻辑来确定它可以访问多少空闲内存。您可以在图19.13中看到，我的虚拟机报告总共有不到3 GB的内存和不到1.5
+    GB的空闲内存，这正是Kubernetes所看到的。
+- en: '![](../Images/19-13.jpg)'
+  id: totrans-111
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-13.jpg)'
+- en: Figure 19.13 If you want to test memory pressure, it’s safer to do it in a dedicated
+    environment.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.13 如果你想测试内存压力，最好在一个专用环境中进行。
+- en: If you don’t want to spin up a separate VM for these exercises, that’s fine—but
+    remember the default memory threshold is 100 MB. To force a memory pressure situation,
+    you’re going to need to allocate almost all the memory on your machine, which
+    will probably also cause a CPU spike and make the whole thing unresponsive. You
+    can confirm the memory limit by checking the live configuration of the kubelet;
+    it has an HTTP endpoint you can use by proxying requests with kubectl.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你不想为这些练习启动一个单独的虚拟机，那也行——但请记住默认的内存阈值是100 MB。为了强制内存压力情况，你需要分配你机器上几乎所有的内存，这可能会也导致CPU峰值，并使整个系统变得无响应。你可以通过检查kubelet的实时配置来确认内存限制；它有一个可以通过使用kubectl代理请求的HTTP端点。
+- en: Try it now Query the configuration API on the node to see the active settings
+    for the kubelet, and confirm that the eviction level has been set.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 查询节点的配置API以查看kubelet的活动设置，并确认驱逐级别已被设置。
+- en: '[PRE18]'
+  id: totrans-115
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: In this environment, the Kubelet is configured to trigger evictions when only
+    40% of memory is available on the node, as you see in figure 19.14\. That’s a
+    deliberately low threshold, so we can easily trigger eviction; in a production
+    environment, you would have it set much higher. If you use a different lab environment
+    with no explicit setting in the kubelet, you’ll be using the default 100 MB.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个环境中，kubelet被配置为当节点上只有40%的内存可用时触发驱逐，正如你在图19.14中看到的。这是一个故意设置得很低的阈值，这样我们就可以轻松地触发驱逐；在生产环境中，你会将其设置得更高。如果你使用了一个没有在kubelet中明确设置的不同的实验室环境，你将使用默认的100
+    MB。
+- en: '![](../Images/19-14.jpg)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![图片](../Images/19-14.jpg)'
+- en: Figure 19.14 Low-level settings are specified in the kubelet configuration,
+    which you can view using the proxy.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图19.14 低级设置在kubelet配置中指定，你可以使用代理查看。
+- en: 'That’s enough warnings . . . Well—one more: I trashed my Docker Desktop environment
+    trying to force memory pressure when I was planning these exercises. Kubectl wouldn’t
+    respond, and I had to remove and reinstall everything. Let’s go ahead and trigger
+    preemption. I’ve built a container image that packages the Linux `stress` tool,
+    and I have a Deployment spec for four replicas, which each allocate 300 MB of
+    memory. That should leave the node with less than 40% of total memory available
+    and push it into memory pressure.'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 警告已经足够了……好吧——还有一个：当我计划这些练习时，试图强制内存压力时，我破坏了我的Docker Desktop环境。Kubectl没有响应，我不得不卸载并重新安装一切。让我们继续触发预选。我已经构建了一个容器镜像，其中包含了Linux的`stress`工具，并且我有一个包含四个副本的Deployment规范，每个副本分配300
+    MB的内存。这应该会让节点只剩下不到40%的总内存可用，并将其推入内存压力状态。
+- en: Try it now Run an app that allocates a lot of memory, and see how Kubernetes
+    evicts Pods when the nodes are under memory pressure.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 运行一个分配大量内存的应用程序，看看当节点处于内存压力时，Kubernetes是如何驱逐Pods的。
+- en: '[PRE19]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: Preemption happens fast, and the transition between pressure states also happens
+    fast. I’ve trimmed the output in figure 19.15 because I was too slow to run the
+    Pod `list` command, and by the time I did, the node had evicted 23 Pods.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预选发生得很快，压力状态之间的转换也发生得很快。我在图19.15中剪掉了输出，因为我运行Pod `list`命令太慢了，等到我运行的时候，节点已经驱逐了23个Pod。
+- en: Why are there so many evictions? Why didn’t Kubernetes just evict one Pod and
+    leave the replacement in the pending state while the node was under memory pressure?
+    It did. But as soon as the Pod was evicted, it freed up a bunch of memory, and
+    the node quickly tripped out of memory pressure. Meanwhile, the Deployment created
+    a new Pod to replace the evicted one, which ran on the no-longer-tainted node,
+    but it immediately allocated more memory and tripped the pressure switch again
+    for another eviction. That loop happens quickly with this app because it allocates
+    lots of memory when it starts, but it’s possible to get in the same situation
+    with a real app if your cluster is overloaded.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为什么会有这么多驱逐？Kubernetes为什么不在节点处于内存压力时只驱逐一个Pod，而将替换Pod留在挂起状态？它确实这样做了。但是，一旦Pod被驱逐，它就释放了一大批内存，节点迅速脱离了内存压力。与此同时，Deployment创建了一个新的Pod来替换被驱逐的Pod，这个Pod运行在不再被标记的节点上，但它立即分配了更多的内存，并再次触发了压力开关，导致另一个驱逐。由于这个应用程序在启动时分配了大量内存，这种情况可能会快速发生，但如果你的集群过载，使用真实的应用程序也可能出现相同的情况。
+- en: Preemption events should be rare in a production environment, but if it does
+    happen, you want to make sure your least important workloads are evicted. The
+    kubelet decides which Pod to evict in a memory pressure situation by ranking them.
+    That ranking looks at the amount of memory the Pod is using relative to the amount
+    requested in the Pod spec as well as the *priority class* of the Pod. Priority
+    classes, the last new concept for this chapter, are a simple way to classify the
+    importance of your workloads. Listing 19.8 shows a custom priority class with
+    a low value.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中，预占事件应该是罕见的，但如果它确实发生了，你想要确保你的最不重要的工作负载被驱逐。kubelet 通过对它们进行排名来决定在内存压力情况下驱逐哪个
+    Pod。这种排名考虑了 Pod 相对于 Pod 规范中请求的内存量以及 Pod 的 *优先级类别*。优先级类别，本章的最后一个新概念，是分类你的工作负载重要性的简单方法。列表
+    19.8 显示了一个具有低值的自定义优先级类别。
+- en: '![](../Images/19-15.jpg)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/19-15.jpg)'
+- en: Figure 19.15 Lots of Pods. Resource-hungry Pods can cause an eviction/creation
+    loop.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 19.15 许多 Pods。资源密集型 Pods 可能会导致驱逐/创建循环。
+- en: Listing 19.8 low.yaml, a class for low-priority workloads
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表 19.8 low.yaml，一个用于低优先级工作负载的类别
+- en: '[PRE20]'
+  id: totrans-128
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'The numeric value is what decides the priority: bigger means more important.
+    Kubernetes doesn’t have any default priority classes, so you need to map your
+    own if you want to safeguard the more important workloads. You attach a priority
+    to a workload by adding the `PriorityClassName` field to the Pod spec. In the
+    final exercise, we’ll deploy two versions of the stress app: one with high priority
+    and one with low priority. When the memory pressure hits, we’ll see the low-priority
+    Pods get evicted.'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数字值是决定优先级的因素：越大意味着越重要。Kubernetes 没有任何默认的优先级类别，所以如果你想保护更重要的工作负载，你需要自己映射。你通过在
+    Pod 规范中添加 `PriorityClassName` 字段来为一个工作负载分配优先级。在最后的练习中，我们将部署压力应用的两个版本：一个具有高优先级，一个具有低优先级。当内存压力到来时，我们将看到低优先级
+    Pods 被驱逐。
+- en: Try it now Run the stress exercise again but this time with two Deployments,
+    each running two Pods. The memory allocation is the same, but the Pods have different
+    priorities.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试看 再次运行压力练习，但这次使用两个 Deployment，每个 Deployment 运行两个 Pods。内存分配是相同的，但 Pods 具有不同的优先级。
+- en: '[PRE21]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: That all worked beautifully when I ran the exercise, and you can see the output
+    in figure 19.16\. The node can manage only three Pods without tripping into memory
+    pressure, and the evicted fourth Pod is always from the low-priority spec; the
+    high-priority Pods keep running.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我运行练习时，一切工作得非常完美，你可以在图 19.16 中看到输出。节点可以管理三个 Pods 而不会陷入内存压力，被驱逐的第四个 Pod 总是来自低优先级规范；高优先级
+    Pods 继续运行。
+- en: '![](../Images/19-16.jpg)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](../Images/19-16.jpg)'
+- en: Figure 19.16 Adding a priority class is a simple safeguard to protect key Pods
+    from eviction.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 19.16 添加优先级类别是保护关键 Pod 避免驱逐的简单保障措施。
+- en: It’s not just the priority class that keeps the high-priority Pods running.
+    All of the Pods use more memory than they request, so they’re all eligible to
+    be evicted. That’s when priority is taken into account. If all eligible Pods have
+    the same priority (or no priority), Kubernetes makes the choice based on how much
+    more memory is being used than requested, so it evicts the highest offenders.
+    It’s important to include resource requests in your Pod specs as well as limits,
+    but a priority class is a useful protection for the more important workloads.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不仅优先级类别可以保持高优先级 Pods 运行。所有 Pods 都使用了比它们请求的更多内存，所以它们都有资格被驱逐。这就是考虑优先级的时候。如果所有有资格的
+    Pods 具有相同的优先级（或没有优先级），Kubernetes 将根据实际使用量超过请求量的多少来做出选择，从而驱逐最严重的违规者。在 Pod 规范中包含资源请求以及限制是很重要的，但优先级类别是保护更重要工作负载的有用保护措施。
+- en: That was a wide-ranging tour around the major aspects of workload management.
+    They’re all features you’ll use in production, and we’ll finish the chapter reviewing
+    what they give you and how they work together.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是对工作负载管理主要方面的广泛巡礼。它们都是你将在生产中使用的功能，我们将通过回顾它们能提供什么以及它们如何协同工作来结束本章。
+- en: 19.5 Understanding the controls for managing workloads
+  id: totrans-137
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.5 理解管理工作负载的控制方法
+- en: Scheduling, autoscaling, and eviction are all advanced topics with even more
+    nuances than we’ve covered here. You’ll certainly use them in your Kubernetes
+    journey, and it’s worth bringing some controls in early on. They address different
+    problems in managing your apps, but they all impact each other, so you need to
+    use them carefully.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调度、自动扩展和驱逐都是比我们这里所涵盖的更高级的话题，它们具有更多的细微差别。你肯定会在你的 Kubernetes 之旅中使用它们，因此尽早引入一些控制措施是值得的。它们解决你在管理你的应用程序时遇到的不同问题，但它们都会相互影响，所以你需要谨慎使用。
+- en: 'Affinity is the feature you’ll use the most in large clusters. Node affinity
+    lets you segregate workloads with stricter isolation than you get with namespaces
+    alone, and Pod affinity lets you model the availability requirements of your apps.
+    You can combine Pod affinity with node topology to ensure replicas run across
+    different failure domains, so the loss of one rack or zone doesn’t bring down
+    your app because other Pods are running in a different zone. Remember that required
+    affinity is a hard rule for the scheduler: if you require Pods to be in different
+    zones and you have only three zones, replica number four will forever stay pending.'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大型集群中，亲和性是你将使用最多的功能。节点亲和性允许你通过比仅使用命名空间更严格的隔离来分离工作负载，而 Pod 亲和性允许你模拟应用程序的可用性要求。你可以将
+    Pod 亲和性与节点拓扑结构结合使用，以确保副本在不同的故障域中运行，这样即使一个机架或区域丢失，也不会导致你的应用程序崩溃，因为其他 Pod 在不同的区域运行。记住，所需的亲和性是调度器的硬规则：如果你要求
+    Pod 在不同的区域，而你只有三个区域，第四个副本将永远处于挂起状态。
+- en: Autoscaling is a great feature and easy to use if your app is CPU bound. Then
+    you can use the default `metrics-server` and the simple version 1 HPA, making
+    sure you have CPU requests in your Pod specs. Things get more complex if you want
+    to scale based on higher-level metrics, but that’s definitely worth investigating.
+    Having your app scale automatically when key service levels are being missed is
+    a major benefit of Kubernetes and something to work toward when you’re established
+    in production. Scaling just increases or decreases the number of replicas, so
+    if you have affinity rules in your spec, you need to make sure they can be met
+    at the maximum scale level.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的应用程序受 CPU 限制，自动扩展是一个很棒的功能，也很容易使用。然后你可以使用默认的 `metrics-server` 和简单的版本 1 HPA，确保你的
+    Pod 规范中有 CPU 请求。如果你想要基于更高级别的指标进行扩展，事情会变得更加复杂，但这绝对值得调查。当关键服务级别未达到时，应用程序自动扩展是 Kubernetes
+    的一个主要好处，这也是在生产环境中建立时应该努力实现的目标。扩展只是增加或减少副本的数量，所以如果你在规范中有亲和性规则，你需要确保它们可以在最大扩展级别上得到满足。
+- en: Preemption is Kubernetes’s safety mechanism for dealing with nodes that run
+    short on memory or disk. CPU is different because Pods can be throttled to reclaim
+    CPU without stopping containers. Kubernetes relieves memory or disk pressure by
+    evicting Pods, which is something you should rarely see if your cluster and apps
+    are right-sized. You should include resource requests in your Pod specs so the
+    worst offenders can be evicted, and consider priority classes if you have some
+    workloads that are more important than others. If you do get in a preemption situation,
+    you need to investigate quickly to make sure the node doesn’t keep flipping in
+    and out of pressure, constantly adding and then evicting Pods (we added node pressure
+    indicators to the cluster dashboard in chapter 14 for this reason).
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 预占是 Kubernetes 处理内存或磁盘不足节点的安全机制。CPU 则不同，因为 Pod 可以通过限制来回收 CPU，而不需要停止容器。Kubernetes
+    通过驱逐 Pod 来缓解内存或磁盘压力，如果你的集群和应用程序大小合适，你很少会看到这种情况。你应该在你的 Pod 规范中包含资源请求，以便驱逐最严重的违规者，如果你有一些比其他工作负载更重要的工作负载，请考虑优先级类别。如果你确实遇到了预占情况，你需要迅速调查以确保节点不会不断在压力下翻转，不断添加然后驱逐
+    Pod（我们添加了节点压力指标到第 14 章的集群仪表板，就是为了这个原因）。
+- en: That’s all for workload management. Time to clear down the cluster(s) to make
+    way for the lab.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那就是关于工作负载管理的一切。现在是时候清理集群（们）以腾出空间进行实验室操作了。
+- en: Try it now Clean up your main lab environment; if you created a custom environment,
+    it can be removed.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在试试吧 清理你的主要实验室环境；如果你创建了一个自定义环境，它可以被移除。
+- en: '[PRE22]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 19.6 Lab
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 19.6 实验室
+- en: 'We’re going into production with the Pi app! Your job for this lab is to add
+    to the spec so we can control the workload. This is the setup we need:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将使用 Pi 应用程序进入生产！在这个实验室中，你的任务是添加到规范中，这样我们就可以控制工作负载。这是我们需要的设置：
+- en: The app has to run in the EU region because of data sovereignty concerns.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于数据主权问题，应用程序必须在欧洲地区运行。
+- en: It should autoscale based on target CPU utilization of 50%.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 它应该基于目标 CPU 利用率 50% 自动扩展。
+- en: There must be between two and five replicas running.
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 必须运行两个到五个副本。
+- en: The load should preferably be spread around multiple nodes in the EU region.
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 负载最好在欧洲地区多个节点之间分散。
+- en: 'You’ll find examples in this chapter’s exercises for all these, except one,
+    and you might need to check the API docs to see how to build up the last rule.
+    Remember that node topology is done with labels, and you can add any labels you
+    want to your nodes. My solution is in the usual place: [https://github.com/sixeyed/kiamol/blob/master/ch19/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch19/lab/README.md).'
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以在本章的练习中找到所有这些示例，除了一个，你可能需要查看API文档来了解如何构建最后一条规则。记住，节点拓扑是通过标签完成的，并且你可以为你的节点添加任何你想要的标签。我的解决方案在通常的位置：[https://github.com/sixeyed/kiamol/blob/master/ch19/lab/README.md](https://github.com/sixeyed/kiamol/blob/master/ch19/lab/README.md).
