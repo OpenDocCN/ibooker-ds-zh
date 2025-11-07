@@ -1,0 +1,1205 @@
+- en: Chapter 5\. Exactly-Once and Side Effects
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第5章。一次性和副作用
+- en: We now shift from discussing programming models and APIs to the systems that
+    implement them. A model and API allows users to describe what they want to compute.
+    Actually running the computation accurately at scale requires a system—usually
+    a distributed system.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们现在从讨论编程模型和API转向实现它们的系统。模型和API允许用户描述他们想要计算的内容。在规模上准确地运行计算需要一个系统——通常是一个分布式系统。
+- en: In this chapter, we focus on how an implementing system can correctly implement
+    the Beam Model to produce accurate results. Streaming systems often talk about
+    *exactly-once processing*; that is, ensuring that every record is processed exactly
+    one time. We will explain what we mean by this, and how it might be implemented.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将重点介绍一个实现系统如何正确实现Beam模型以产生准确结果。流处理系统经常谈论*一次性处理*；也就是确保每个记录只被处理一次。我们将解释我们的意思，并介绍如何实现它。
+- en: As a motivating example, this chapter focuses on techniques used by Google Cloud
+    Dataflow to efficiently guarantee exactly-once processing of records. Toward the
+    end of the chapter, we also look at techniques used by some other popular streaming
+    systems to guarantee exactly once.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为一个激励性的例子，本章重点介绍了Google Cloud Dataflow用于有效地保证记录的一次性处理的技术。在本章末尾，我们还将介绍一些其他流行的流处理系统用于保证一次性处理的技术。
+- en: Why Exactly Once Matters
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 为什么一次性很重要
+- en: It almost goes without saying that for many users, any risk of dropped records
+    or data loss in their data processing pipelines is unacceptable. Even so, historically
+    many general-purpose streaming systems made no guarantees about record processing—all
+    processing was “best effort” only. Other systems provided at-least-once guarantees,
+    ensuring that records were always processed at least once, but records might be
+    duplicated (and thus result in inaccurate aggregations); in practice, many such
+    at-least-once systems performed aggregations in memory, and thus their aggregations
+    could still be lost when machines crashed. These systems were used for low-latency,
+    speculative results but generally could guarantee nothing about the veracity of
+    these results.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多用户来说，数据处理管道中出现丢失记录或数据丢失的风险是不可接受的。即便如此，历史上许多通用流处理系统并没有对记录处理提供任何保证——所有处理都只是“尽力而为”。其他系统提供至少一次的保证，确保记录至少被处理一次，但记录可能会重复（从而导致不准确的聚合）；实际上，许多这样的至少一次系统在内存中执行聚合，因此当机器崩溃时它们的聚合仍然可能会丢失。这些系统用于低延迟的、推测性的结果，但通常无法保证这些结果的真实性。
+- en: 'As Chapter 1 points out, this led to a strategy that was coined the *Lambda
+    Architecture*—run a streaming system to get fast, but inaccurate results. Sometime
+    later (often after end of day), a batch system runs to the correct answer. This
+    works only if the data stream is replayable; however, this was true for enough
+    data sources that this strategy proved viable. Nonetheless, many people who tried
+    this experienced a number of issues with the Lambda Architecture:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如第1章所指出的，这导致了一个被称为*Lambda架构*的策略——运行一个流处理系统以获得快速但不准确的结果。稍后（通常是在一天结束后），批处理系统运行以得到正确的答案。这只有在数据流是可重放的情况下才有效；然而，足够多的数据源都满足这一条件，这种策略被证明是可行的。尽管如此，许多尝试过这种策略的人都遇到了许多Lambda架构的问题：
+- en: Inaccuracy
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不准确性
+- en: Users tend to underestimate the impact of failures. They often assume that a
+    small percentage of records will be lost or duplicated (often based on experiments
+    they ran), and are shocked on that one bad day when 10% (or more!) of records
+    are lost or are duplicated. In a sense, such systems provide only “half” a guarantee—and
+    without a full one, anything is possible.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户往往低估了故障的影响。他们经常假设只有少量记录会丢失或重复（通常是基于他们进行的实验），当有一天出现10%（甚至更多！）的记录丢失或重复时，他们会感到震惊。在某种意义上，这样的系统只提供了“一半”的保证——没有完整的保证，一切皆有可能。
+- en: Inconsistency
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不一致性
+- en: The batch system used for the end-of-day calculation often has different data
+    semantics than the streaming system. Getting the two pipelines to produce comparable
+    results proved more difficult than initially thought.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于每日计算的批处理系统通常具有与流处理系统不同的数据语义。让这两个管道产生可比较的结果的过程比最初想象的更加困难。
+- en: Complexity
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 复杂性
+- en: By definition, Lambda requires you to write and maintain two different codebases.
+    You also must run and maintain two complex distributed systems, each with different
+    failure modes. For anything but the simplest of pipelines, this quickly becomes
+    overwhelming.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据定义，Lambda要求您编写和维护两个不同的代码库。您还必须运行和维护两个复杂的分布式系统，每个系统都有不同的故障模式。除了最简单的管道之外，这很快就变得不堪重负。
+- en: Unpredictability
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不可预测性
+- en: In many use cases, end users will see streaming results that differ from the
+    daily results by an uncertain amount, which can change randomly. In these cases,
+    users will stop trusting the streaming data and wait for daily batch results instead,
+    thus destroying the value of getting low-latency results in the first place.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多用例中，最终用户将看到与每日结果有不确定差异的流处理结果，这种差异可能会随机变化。在这些情况下，用户将停止信任流处理数据，而等待每日批处理结果，从而破坏了首次获得低延迟结果的价值。
+- en: Latency
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 延迟
+- en: Some business use cases *require* low-latency correct results, which the Lambda
+    Architecture does not provide by design.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些业务用例*需要*低延迟的正确结果，而Lambda架构设计上并不提供这种功能。
+- en: Fortunately, many Beam runners can do much better. In this chapter, we explain
+    how exactly-once stream processing helps users count on accurate results and avoid
+    the risk of data loss while relying on a single codebase and API. Because a variety
+    of issues that can affect a pipeline’s output are often erroneously conflated
+    with exactly-once guarantees, we first explain precisely which issues are in and
+    out of scope when we refer to “exactly once” in the context of Beam and data processing.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，许多Beam运行程序可以做得更好。在本章中，我们将解释一次流处理如何帮助用户依靠准确的结果并避免数据丢失的风险，同时依赖于单一的代码库和API。由于一系列可能影响管道输出的问题经常被错误地与一次性保证混淆在一起，我们首先解释了在Beam和数据处理的上下文中，当我们提到“一次性”时，确切指的是哪些问题在范围内，哪些不在范围内。
+- en: Accuracy Versus Completeness
+  id: totrans-18
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 准确性与完整性
+- en: 'Whenever a Beam pipeline processes a record for a pipeline, we want to ensure
+    that the record is never dropped or duplicated. However, the nature of streaming
+    pipelines is such that records sometimes show up late, after aggregates for their
+    time windows have already been processed. The Beam SDK allows the user to configure
+    how long the system should wait for late data to arrive; any (and only) records
+    arriving later than this deadline are dropped. This feature contributes to *completeness*,
+    not to accuracy: all records that showed up in time for processing are accurately
+    processed exactly once, whereas these late records are explicitly dropped.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当Beam管道处理一个记录时，我们希望确保记录永远不会丢失或重复。然而，流水线的特性是有时记录会在时间窗口的聚合已经被处理后出现。Beam SDK允许用户配置系统应该等待延迟数据的时间；任何（且仅有）晚于截止日期到达的记录都会被丢弃。这个特性有助于*完整性*，而不是准确性：所有及时到达的记录都会被准确处理一次，而这些延迟的记录则会被明确丢弃。
+- en: Although late records are usually discussed in the context of streaming systems,
+    it’s worth noting that batch pipelines have similar completeness issues. For example,
+    a common batch paradigm is to run a job at 2 AM over all the previous day’s data.
+    However, if some of yesterday’s data wasn’t collected until after 2 AM, it won’t
+    be processed by the batch job! Thus, batch pipelines also provide accurate but
+    not always complete results.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管延迟记录通常是在流式系统的背景下讨论的，但值得注意的是批处理管道也存在类似的完整性问题。例如，一个常见的批处理范例是在凌晨2点运行前一天所有数据的作业。然而，如果昨天的一些数据直到凌晨2点后才被收集，它就不会被批处理作业处理！因此，批处理管道也提供准确但不总是完整的结果。
+- en: Side Effects
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 副作用
+- en: One characteristic of Beam and Dataflow is that users inject custom code that
+    is executed as part of their pipeline graph. Dataflow does *not* guarantee that
+    this code is run only once per record,¹ whether by the streaming or batch runner.
+    It might run a given record through a user transform multiple times, or it might
+    even run the same record simultaneously on multiple workers; this is necessary
+    to guarantee at-least-once processing in the face of worker failures. Only one
+    of these invocations can “win” and produce output further down the pipeline.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Beam和Dataflow的一个特点是用户可以注入自定义代码，作为他们的管道图的一部分执行。Dataflow *不*保证该代码仅对每个记录运行一次，¹无论是通过流式处理还是批处理运行器。它可能会多次运行给定的记录通过用户转换，甚至可能同时在多个工作器上运行相同的记录；这是为了保证至少一次的处理在工作器故障的情况下。这些调用中只有一个可以“获胜”并在管道中产生输出。
+- en: As a result, nonidempotent side effects are not guaranteed to execute exactly
+    once; if you write code that has side effects external to the pipeline, such as
+    contacting an outside service, these effects might be executed more than once
+    for a given record. This situation is usually unavoidable because there is no
+    way to atomically commit Dataflow’s processing with the side effect on the external
+    service. Pipelines do need to eventually send results to the outside world, and
+    such calls might not be idempotent. As you will see later in the chapter, often
+    such sinks are able to add an extra stage to restructure the call into an idempotent
+    operation first.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，不幂等的副作用不能保证只执行一次；如果您编写的代码对外部服务具有副作用，例如联系外部服务，这些效果可能会对给定记录执行多次。这种情况通常是不可避免的，因为没有办法在Dataflow的处理与外部服务的副作用之间进行原子提交。管道最终需要将结果发送到外部世界，这样的调用可能不是幂等的。正如你将在本章后面看到的，这样的输出通常能够添加一个额外的阶段来将调用重构为幂等操作。
+- en: Problem Definition
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 问题定义
+- en: So, we’ve given a couple of examples of what we’re *not* talking about. What
+    do we mean then by exactly-once processing? To motivate this, let’s begin with
+    a simple streaming pipeline,² shown in Example 5-1.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所以，我们给出了一些我们*不*讨论的例子。那么我们所说的一次性处理是什么意思呢？为了激励这一点，让我们从一个简单的流水线开始，²如示例5-1所示。
+- en: Example 5-1\. A simple streaming pipeline
+  id: totrans-26
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例5-1. 一个简单的流水线
+- en: '[PRE0]'
+  id: totrans-27
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This pipeline computes two different windowed aggregations. The first counts
+    how many events came from each individual user over the course of a minute, and
+    the second counts how many total events came in each minute. Both aggregations
+    are written to unspecified streaming sinks.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个管道计算了两种不同的窗口聚合。第一个计算了每个用户在一分钟内来自多少事件，第二个计算了每分钟总共有多少事件。这两个聚合都写入了未指定的流式输出。
+- en: Remember that Dataflow executes pipelines on many different workers in parallel.
+    After each `GroupByKey` (the `Count` operations use `GroupByKey` under the covers),
+    all records with the same key are processed on the same machine following a process
+    called *shuffle*. The Dataflow workers shuffle data between themselves using Remote
+    Procedure Calls (RPCs), ensuring that records for a given key all end up on the
+    same machine.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，Dataflow并行在许多不同的工作器上执行管道。在每个`GroupByKey`（`Count`操作在底层使用`GroupByKey`），所有具有相同键的记录都在同一台机器上进行*shuffle*处理。Dataflow工作器使用远程过程调用（RPC）在它们之间进行数据洗牌，确保给定键的记录都最终在同一台机器上。
+- en: Figure 5-1 shows the shuffles that Dataflow creates for the pipeline in Example 5-1.³
+    The `Count.perKey` shuffles all the data for each user onto a given worker, whereas
+    the `Count.globally` shuffles all these partial counts to a single worker to calculate
+    the global sum.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5-1显示了Dataflow为示例5-1中的管道创建的洗牌。³`Count.perKey`将每个用户的所有数据洗牌到给定的工作器，而`Count.globally`将所有这些部分计数洗牌到一个单一的工作器以计算全局总和。
+- en: '![](img/stsy_0501.png)'
+  id: totrans-31
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0501.png)'
+- en: Figure 5-1\. Shuffles in a pipeline
+  id: totrans-32
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-1. 管道中的洗牌
+- en: For Dataflow to accurately process data, this shuffle process must ensure that
+    every record is shuffled exactly once. As you will see in a moment, the distributed
+    nature of shuffle makes this a challenging problem.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了Dataflow准确处理数据，这个shuffle过程必须确保每个记录只被洗牌一次。正如你将在下一刻看到的，shuffle的分布式特性使得这成为一个具有挑战性的问题。
+- en: This pipeline also both reads and writes data from and to the outside world,
+    so Dataflow must ensure that this interaction does not introduce any inaccuracies.
+    Dataflow has always supported this task—what Apache Spark and Apache Flink call
+    *end-to-end exactly once*—for sources and sinks whenever technically feasible.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个管道还可以从外部世界读取和写入数据，因此Dataflow必须确保这种交互不会引入任何不准确性。Dataflow一直支持这项任务，即Apache Spark和Apache
+    Flink所称的“端到端精确一次”，只要在技术上可行的情况下，对于数据源和数据汇。
+- en: 'The focus of this chapter will be on three things:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章的重点将放在三件事情上：
+- en: Shuffle
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 洗牌
+- en: How Dataflow guarantees that every record is shuffled exactly once.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow如何保证每条记录只被洗牌一次。
+- en: Sources
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据源
+- en: How Dataflow guarantees that every source record is processed exactly once.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow如何保证每个源记录只被处理一次。
+- en: Sinks
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据汇
+- en: How Dataflow guarantees that every sink produces accurate output.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow如何保证每个数据汇产生准确的输出。
+- en: Ensuring Exactly Once in Shuffle
+  id: totrans-42
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 确保洗牌中的精确一次
+- en: As just explained, Dataflow’s streaming shuffle uses RPCs. Now, any time you
+    have two machines communicating via RPC, you should think long and hard about
+    data integrity. First of all, RPCs can fail for many reasons. The network might
+    be interrupted, the RPC might time out before completing, or the receiving server
+    might decide to fail the call. To guarantee that records are not lost in shuffle,
+    Dataflow employs *upstream backup*. This simply means that the sender will retry
+    RPCs until it receives positive acknowledgment of receipt. Dataflow also ensures
+    that it will continue retrying these RPCs even if the sender crashes. This guarantees
+    that every record is delivered *at least once*.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如刚才解释的，Dataflow的流式洗牌使用RPC。现在，每当有两台机器通过RPC进行通信时，都应该认真考虑数据完整性。首先，RPC可能因为很多原因而失败。网络可能中断，RPC可能在完成之前超时，或者接收服务器可能决定失败调用。为了保证记录在洗牌过程中不会丢失，Dataflow采用了“上游备份”。这意味着发送方将重试RPC，直到收到接收确认。Dataflow还确保即使发送方崩溃，它也会继续重试这些RPC。这保证了每条记录至少被传递一次。
+- en: 'Now, the problem is that these retries might themselves create duplicates.
+    Most RPC frameworks, including the one Dataflow uses, provide the sender with
+    a status indicating success or failure. In a distributed system, you need to be
+    aware that RPCs can sometimes succeed even when they have appeared to fail. There
+    are many reasons for this: race conditions with the RPC timeout, positive acknowledgment
+    from the server failing to transfer even though the RPC succeeded, and so on.
+    The only status that a sender can really trust is a successful one.'
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在的问题是，这些重试可能会产生重复。大多数RPC框架，包括Dataflow使用的框架，都会为发送方提供成功或失败的状态。在分布式系统中，你需要意识到RPC有时可能会在看似失败的情况下成功。这有很多原因：与RPC超时的竞争条件，服务器的积极确认尽管RPC成功但传输失败，等等。发送方真正可以信任的唯一状态是成功的状态。
+- en: An RPC returning a failure status generally indicates that the call might or
+    might not have succeeded. Although specific error codes can communicate unambiguous
+    failure, many common RPC failures, such as Deadline Exceeded, are ambiguous. In
+    the case of streaming shuffle,⁴ retrying an RPC that really succeeded means delivering
+    a record twice! Dataflow needs some way of detecting and removing these duplicates.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 返回失败状态的RPC通常表示调用可能成功也可能失败。尽管特定的错误代码可以传达明确的失败，但许多常见的RPC失败，如超过截止日期，都是模棱两可的。在流式洗牌的情况下，重试一个真正成功的RPC意味着将记录传递两次！Dataflow需要一种方法来检测和删除这些重复。
+- en: 'At a high level, the algorithm for this task is quite simple (see Figure 5-2):
+    every message sent is tagged with a unique identifier. Each receiver stores a
+    catalog of all identifiers that have already been seen and processed. Every time
+    a record is received, its identifier is looked up in this catalog. If it is found,
+    the record is dropped as a duplicate. Because Dataflow is built on top of a scalable
+    key/value store, this store is used to hold the deduplication catalog.'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在高层次上，这个任务的算法非常简单（见图5-2）：每个发送的消息都带有一个唯一标识符。每个接收者都存储了已经被看到和处理的所有标识符的目录。每次接收到一条记录时，它的标识符都会在这个目录中查找。如果找到了，记录就会被丢弃为重复。因为Dataflow是建立在可扩展的键/值存储之上的，所以这个存储被用来保存去重目录。
+- en: '![](img/stsy_0502.png)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0502.png)'
+- en: Figure 5-2\. Detecting duplicates in shuffle
+  id: totrans-48
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-2。在洗牌中检测重复
+- en: Addressing Determinism
+  id: totrans-49
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 解决确定性问题
+- en: Making this strategy work in the real world requires a lot of care, however.
+    One immediate wrinkle is that the Beam Model allows for user code to produce nondeterministic
+    output. This means that a `ParDo` can execute twice on the same input record (due
+    to a retry), yet produce different output on each retry. The desired behavior
+    is that only one of those outputs will commit into the pipeline; however, the
+    nondeterminism involved makes it difficult to guarantee that both outputs have
+    the same deterministic ID. Even trickier, a `ParDo` can output multiple records,
+    so each of these retries might produce a different number of outputs!
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在现实世界中使这种策略生效需要非常小心。一个立即显现的问题是，Beam模型允许用户代码产生非确定性输出。这意味着`ParDo`可能会对相同的输入记录执行两次（由于重试），但每次重试可能会产生不同的输出。期望的行为是，只有一个输出会提交到管道中；然而，涉及的非确定性使得很难保证这两个输出具有相同的确定性ID。更棘手的是，`ParDo`可以输出多条记录，因此每次重试可能会产生不同数量的输出！
+- en: So, why don’t we simply require that all user processing be deterministic? Our
+    experience is that in practice, many pipelines require nondeterministic transforms
+    And all too often, pipeline authors do not realize that the code they wrote is
+    nondeterministic. For example, consider a transform that looks up supplemental
+    data in Cloud Bigtable in order to enrich its input data. This is a nondeterministic
+    task, as the external value might change in between retries of the transform.
+    Any code that relies on current time is likewise not deterministic. We have also
+    seen transforms that need to rely on random number generators. And even if the
+    user code is purely deterministic, any event-time aggregation that allows for
+    late data might have nondeterministic inputs.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 那么，为什么我们不要求所有用户处理都是确定性的呢？我们的经验是，在实践中，许多管道需要非确定性转换。而且很多时候，管道作者并没有意识到他们编写的代码是非确定性的。例如，考虑一个在Cloud
+    Bigtable中查找补充数据以丰富其输入数据的转换。这是一个非确定性的任务，因为外部值可能会在转换的重试之间发生变化。任何依赖当前时间的代码也是不确定的。我们还看到需要依赖随机数生成器的转换。即使用户代码是纯确定的，任何允许延迟数据的事件时间聚合也可能具有非确定性的输入。
+- en: Dataflow addresses this issue by using checkpointing to make nondeterministic
+    processing effectively deterministic. Each output from a transform is checkpointed,
+    together with its unique ID, to stable storage *before* being delivered to the
+    next stage.⁵ Any retries in the shuffle delivery simply replay the output that
+    has been checkpointed—the user’s nondeterministic code is not run again on retry.
+    To put it another way, the user’s code may be run multiple times but only one
+    of those runs can “win.” Furthermore, Dataflow uses a consistent store that allows
+    it to prevent duplicates from being written to stable storage.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow通过使用检查点来使非确定性处理有效地变为确定性来解决这个问题。每个转换的输出与其唯一ID一起被检查点到稳定存储中，然后再传递到下一个阶段之前。⁵在洗牌传递中的任何重试都只是重放已经被检查点的输出
+    - 用户的非确定性代码不会在重试时再次运行。换句话说，用户的代码可能会运行多次，但只有其中一个运行可以“获胜”。此外，Dataflow使用一致的存储，可以防止重复写入稳定存储。
+- en: Performance
+  id: totrans-53
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 性能
+- en: To implement exactly-once shuffle delivery, a catalog of record IDs is stored
+    in each receiver key. For every record that arrives, Dataflow looks up the catalog
+    of IDs already seen to determine whether this record is a duplicate. Every output
+    from step to step is checkpointed to storage to ensure that the generated record
+    IDs are stable.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现精确一次的洗牌传递，每个接收器键中都存储了记录ID的目录。对于到达的每个记录，Dataflow查找已经看到的ID目录，以确定这个记录是否是重复的。从一步到另一步的每个输出都被检查点到存储中，以确保生成的记录ID是稳定的。
+- en: However, unless implemented carefully, this process would significantly degrade
+    pipeline performance for customers by creating a huge increase in reads and writes.
+    Thus, for exactly-once processing to be viable for Dataflow users, that I/O has
+    to be reduced, in particular by preventing I/O on every record.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，除非实施得当，否则这个过程会通过增加大量的读写来显著降低客户的管道性能。因此，为了使Dataflow用户的精确一次处理可行，必须减少I/O，特别是通过阻止每个记录上的I/O。
+- en: 'Dataflow achieves this goal via two key techniques: *graph optimization* and
+    *Bloom filters*.'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow通过两种关键技术实现了这一目标：*图优化*和*Bloom过滤器*。
+- en: Graph Optimization
+  id: totrans-57
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 图优化
+- en: The Dataflow service runs a series of optimizations on the pipeline graph before
+    executing it. One such optimization is *fusion*, in which the service fuses many
+    logical steps into a single execution stage. Figure 5-3 shows some simple examples.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在执行管道之前，Dataflow服务对管道图运行一系列优化。其中一种优化是*融合*，在这种优化中，服务将许多逻辑步骤融合成单个执行阶段。图5-3显示了一些简单的示例。
+- en: '![](img/stsy_0503.png)'
+  id: totrans-59
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0503.png)'
+- en: 'Figure 5-3\. Example optimizations: fusion'
+  id: totrans-60
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-3\. 示例优化：融合
+- en: All fused steps are run as an in-process unit, so there’s no need to store exactly-once
+    data for each of them. In many cases, fusion reduces the entire graph down to
+    a few physical steps, greatly reducing the amount of data transfer needed (and
+    saving on state usage, as well).
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有融合的步骤都作为一个内部单元运行，因此不需要为它们中的每一个存储精确一次数据。在许多情况下，融合将整个图减少到几个物理步骤，大大减少了所需的数据传输量（并节省了状态使用）。
+- en: Dataflow also optimizes associative and commutative `Combine` operations (such
+    as `Count` and `Sum`) by performing partial combining  locally before sending
+    the data to the main grouping operation, as illustrated in Figure 5-4. This approach
+    can greatly reduce the number of messages for delivery, consequently also reducing
+    the number of reads and writes.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow还通过在将数据发送到主要分组操作之前在本地执行部分组合来优化关联和交换的`Combine`操作（例如`Count`和`Sum`），如图5-4所示。这种方法可以大大减少传递的消息数量，因此也减少了读写的数量。
+- en: '![](img/stsy_0504.png)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0504.png)'
+- en: 'Figure 5-4\. Example optimizations: combiner lifting'
+  id: totrans-64
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-4\. 示例优化：组合器提升
+- en: Bloom Filters
+  id: totrans-65
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 布隆过滤器
+- en: The aforementioned optimizations are general techniques that improve exactly-once
+    performance as a byproduct. For an optimization aimed strictly at improving exactly-once
+    processing, we turn to *Bloom filters*.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述优化是改进精确一次性性能的通用技术。对于严格旨在改进精确一次处理的优化，我们转向*Bloom过滤器*。
+- en: 'In a healthy pipeline, most arriving records will not be duplicates. We can
+    use that fact to greatly improve performance via Bloom filters, which are compact
+    data structures that allow for quick set-membership checks. Bloom filters have
+    a very interesting property: they can return false positives but never false negatives.
+    If the filter says “Yes, the element is in the set,” we know that the element
+    is *probably* in the set (with a probability that can be calculated). However,
+    if the filter says an element is *not* in the set, it definitely isn’t. This function
+    is a perfect fit for the task at hand.'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一个健康的管道中，大多数到达的记录都不是重复的。我们可以利用这一点通过布隆过滤器大大提高性能，布隆过滤器是一种紧凑的数据结构，可以快速进行成员检查。布隆过滤器有一个非常有趣的特性：它们可以返回误报，但永远不会返回假阴性。如果过滤器说“是的，元素在集合中”，我们知道该元素*可能*在集合中（可以计算概率）。然而，如果过滤器说一个元素*不*在集合中，那么它肯定不在。这个功能非常适合当前的任务。
+- en: 'The implementation in Dataflow works like this: each worker keeps a Bloom filter
+    of every ID it has seen. Whenever a new record ID shows up, it looks it up in
+    the filter. If the filter returns false, this record is not a duplicate and the
+    worker can skip the more expensive lookup from stable storage. It needs to do
+    that second lookup only if the Bloom filter returns true, but as long as the filter’s
+    false-positive rate is low, that step is rarely needed.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow中的实现方式如下：每个工作节点都保留了它所见过的每个ID的布隆过滤器。每当出现新的记录ID时，它会在过滤器中查找。如果过滤器返回false，则该记录不是重复的，工作节点可以跳过更昂贵的稳定存储查找。只有当布隆过滤器返回true时，它才需要进行第二次查找，但只要过滤器的误报率低，这一步就很少需要。
+- en: Bloom filters tend to fill up over time, however, and as that happens, the false-positive
+    rate increases. We also need to construct this Bloom filter anew any time a worker
+    restarts by scanning the ID catalog stored in state. Helpfully, Dataflow attaches
+    a system timestamp to each record.⁶ Thus, instead of creating a single Bloom filter,
+    the service creates a separate one for every 10-minute range. When a record arrives,
+    Dataflow queries the appropriate filter based on the system timestamp.⁷ This step
+    prevents the Bloom filters from saturating because filters are garbage-collected
+    over time, and it also bounds the amount of data that needs to be scanned at startup.⁸
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，随着时间的推移，布隆过滤器往往会填满，这样做的话，误报率会增加。此外，每当工作节点重新启动时，我们还需要通过扫描状态中存储的ID目录来构建这个布隆过滤器。有帮助的是，Dataflow为每条记录附加了一个系统时间戳。因此，服务不是创建一个单一的布隆过滤器，而是为每个10分钟范围创建一个单独的布隆过滤器。当记录到达时，Dataflow根据系统时间戳查询适当的过滤器。这一步防止了布隆过滤器饱和，因为随着时间的推移，过滤器会被垃圾回收，并且它也限制了需要在启动时扫描的数据量。
+- en: 'Figure 5-5 illustrates this process: records arrive in the system and are delegated
+    to a Bloom filter based on their arrival time. None of the records hitting the
+    first filter are duplicates, and all of their catalog lookups are filtered. Record
+    `r1` is delivered a second time, so a catalog lookup is needed to verify that
+    it is indeed a duplicate; the same is true for records `r4` and `r6`. Record `r8`
+    is not a duplicate; however, due to a false positive in its Bloom filter, a catalog
+    lookup is generated (which will determine that `r8` is not a duplicate and should
+    be processed).'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图5-5说明了这个过程：记录到达系统并根据它们的到达时间被分配到一个布隆过滤器。第一个过滤器中的记录都不是重复的，它们的所有目录查找都被过滤了。记录`r1`被传递了第二次，因此需要进行目录查找以验证它是否确实是重复的；对于记录`r4`和`r6`也是如此。记录`r8`不是重复的；然而，由于它的布隆过滤器中出现了误报，生成了一个目录查找（这将确定`r8`不是重复的，应该被处理）。
+- en: '![](img/stsy_0505.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0505.png)'
+- en: Figure 5-5\. Exactly-once Bloom filters
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图5-5. 一次性布隆过滤器
+- en: Garbage Collection
+  id: totrans-73
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 垃圾回收
+- en: Every Dataflow worker persistently stores a catalog of unique record IDs it
+    has seen. As Dataflow’s state and consistency model is per-key, in reality each
+    key stores a catalog of records that have been delivered to that key. We can’t
+    store these identifiers forever, or all available storage will eventually fill
+    up. To avoid that issue, you need garbage collection of acknowledged record IDs.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个Dataflow工作节点都持久存储了它所见过的唯一记录ID的目录。由于Dataflow的状态和一致性模型是按键的，实际上每个键都存储了传递到该键的记录的目录。我们不能永远存储这些标识符，否则所有可用的存储空间最终都会被填满。为了避免这个问题，您需要对已确认的记录ID进行垃圾回收。
+- en: One strategy for accomplishing this goal would be for senders to tag each record
+    with a strictly increasing sequence number in order to track the earliest sequence
+    number still in flight (corresponding to an unacknowledged record delivery). Any
+    identifier in the catalog with an earlier sequence number could then be garbage-collected
+    because all earlier records have already been acknowledged.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现这一目标的一种策略是，发送方为了跟踪仍在传输中的最早序列号（对应于未确认的记录传递），为每条记录标记一个严格递增的序列号。目录中具有较早序列号的任何标识符都可以进行垃圾回收，因为所有较早的记录都已经被确认。
+- en: There is a better alternative, however. As previously mentioned, Dataflow already
+    tags each record with a system timestamp that is used for bucketing exactly-once
+    Bloom filters. Consequently, instead of using sequence numbers to garbage-collect
+    the exactly-once catalog, Dataflow calculates a garbage-collection watermark based
+    on these system timestamps (this is the processing-time watermark discussed in
+    Chapter 3). A nice side benefit of this approach is that because this watermark
+    is based on the amount of physical time spent waiting in a given stage (unlike
+    the data watermark, which is based on custom event times), it provides intuition
+    on what parts of the pipeline are slow. This metadata is the basis for the System
+    Lag metric shown in the Dataflow WebUI.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，有一个更好的选择。如前所述，Dataflow已经为每个记录标记了一个系统时间戳，用于分桶一次性布隆过滤器。因此，Dataflow不是使用序列号来垃圾回收一次性目录，而是基于这些系统时间戳计算垃圾回收水印（这是第3章讨论的处理时间水印）。这种方法的一个好处是，因为这个水印是基于在给定阶段等待的物理时间量（不像数据水印是基于自定义事件时间），它提供了对管道的哪些部分是慢的直觉。这些元数据是Dataflow
+    WebUI中显示的系统滞后度指标的基础。
+- en: What happens if a record arrives with an old timestamp and we’ve already garbage-collected
+    identifiers for this point in time? This can happen due to an effect we call *network
+    remnants*, in which an old message becomes stuck for an indefinite period of time
+    inside the network and then suddenly shows up. Well, the low watermark that triggers
+    garbage collection won’t advance until record deliveries have been acknowledged,
+    so we know that this record has already been successfully processed. Such network
+    remnants are clearly duplicates and are ignored.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果一个记录到达时带有旧的时间戳，而我们已经对这个时间点的标识符进行了垃圾回收，会发生什么？这可能是由于我们称之为*网络残留*的影响，其中一个旧消息在网络中停留了无限期，然后突然出现。垃圾回收触发的低水位不会提前，直到记录交付被确认，因此我们知道这个记录已经被成功处理。这样的网络残留显然是重复的，会被忽略。
+- en: Exactly Once in Sources
+  id: totrans-78
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在数据源中精确执行一次
+- en: Beam provides a source API for reading data into a Dataflow pipeline.⁹ Dataflow
+    might retry reads from a source if processing fails and needs to ensure that every
+    unique record produced by a source is processed exactly once.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Beam提供了一个用于将数据读入Dataflow管道的源API。⁹ 如果处理失败并且需要确保每个数据源产生的唯一记录被精确执行一次，Dataflow可能会重试从源读取数据。
+- en: For most sources Dataflow handles this process transparently; such sources are
+    *deterministic*. For example, consider a source that reads data out of files.
+    The records in a file will always be in a deterministic order and at deterministic
+    byte locations, no matter how many times the file is read.¹⁰ The filename and
+    byte location uniquely identify each record, so the service can automatically
+    generate unique IDs for each record. Another source that provides similar determinism
+    guarantees is Apache Kafka; each Kafka topic is divided into a static set of partitions,
+    and records in a partition always have a deterministic order. Such deterministic
+    sources will work seamlessly in Dataflow with no duplicates.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于大多数数据源，Dataflow会在后台处理这个过程；这些数据源是*确定性*的。例如，考虑一个从文件中读取数据的数据源。文件中的记录总是以确定性顺序和确定性字节位置出现，无论文件被读取多少次。¹⁰
+    文件名和字节位置唯一标识每个记录，因此服务可以自动生成每个记录的唯一ID。另一个提供类似确定性保证的数据源是Apache Kafka；每个Kafka主题被分成一个静态的分区集，分区中的记录总是有确定性顺序的。这样的确定性数据源将在Dataflow中无重复地工作。
+- en: 'However, not all sources are so simple. For example, one common source for
+    Dataflow pipelines is Google Cloud Pub/Sub. Pub/Sub is a *nondeterministic* source:
+    multiple subscribers can pull from a Pub/Sub topic, but which subscribers receive
+    a given message is unpredictable. If processing fails Pub/Sub will redeliver messages
+    but the messages might be delivered to different workers than those that processed
+    them originally, and in a different order. This nondeterministic behavior means
+    that Dataflow needs assistance for detecting duplicates because there is no way
+    for the service to deterministically assign record IDs that will be stable upon
+    retry. (We dive into a more detailed case study of Pub/Sub later in this chapter.)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，并非所有的数据源都是如此简单。例如，Dataflow管道的一个常见数据源是Google Cloud Pub/Sub。Pub/Sub是一个*不确定性*的数据源：多个订阅者可以从Pub/Sub主题中拉取消息，但哪些订阅者接收到给定的消息是不可预测的。如果处理失败，Pub/Sub将重新传递消息，但消息可能会被传递给与最初处理它们的不同工作器，并且顺序也可能不同。这种不确定性行为意味着Dataflow需要帮助来检测重复，因为服务无法确定地分配在重试时稳定的记录ID。（我们将在本章后面更详细地研究Pub/Sub的一个案例。）
+- en: Because Dataflow cannot automatically assign record IDs, nondeterministic sources
+    are required to inform the system what the record IDs should be. Beam’s Source
+    API provides the `UnboundedReader.getCurrentRecordId`¹¹ method. If a source provides
+    unique IDs per record and notifies Dataflow that it requires deduplication,¹²
+    records with the same ID will be filtered out.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为Dataflow无法自动分配记录ID，不确定性数据源需要通知系统记录ID应该是什么。Beam的源API提供了`UnboundedReader.getCurrentRecordId`¹¹方法。如果一个数据源为每个记录提供唯一的ID，并通知Dataflow它需要去重，¹²具有相同ID的记录将被过滤掉。
+- en: Exactly Once in Sinks
+  id: totrans-83
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在汇聚中精确执行一次
+- en: At some point, every pipeline needs to output data to the outside world, and
+    a sink is simply a transform that does exactly that. Keep in mind that delivering
+    data externally is a side effect, and we have already mentioned that Dataflow
+    does not guarantee exactly-once application of side effects. So, how can a sink
+    guarantee that outputs are delivered exactly once?
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某个时候，每个管道都需要向外部输出数据，而汇聚是简单地执行这一操作的转换。请记住，向外部传递数据是一种副作用，我们已经提到Dataflow不能保证副作用的精确执行一次。那么，汇聚如何保证输出只被传递一次呢？
+- en: The simplest answer is that a number of built-in sinks are provided as part
+    of the Beam SDK. These sinks are carefully designed to ensure that they do not
+    produce duplicates, even if executed multiple times. Whenever possible, pipeline
+    authors are encouraged to use one of these built-in sinks.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最简单的答案是Beam SDK提供了一些内置的汇聚。这些汇聚经过精心设计，以确保它们不会产生重复，即使执行多次。在可能的情况下，鼓励管道作者使用其中一个内置的汇聚。
+- en: However, sometimes the built-ins are insufficient and you need to write your
+    own. The best approach is to ensure that your side-effect operation is idempotent
+    and therefore robust in the face of replay. However, often some component of a
+    side-effect `DoFn` is nondeterministic and thus might change on replay. For example,
+    in a windowed aggregation, the set of records in the window can also be nondeterministic!
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，有时内置功能是不够的，你需要编写自己的功能。最好的方法是确保你的副作用操作是幂等的，因此在重播时是稳健的。然而，通常副作用`DoFn`的某些组件是不确定的，因此在重播时可能会发生变化。例如，在窗口聚合中，窗口中的记录集也可能是不确定的！
+- en: Specifically, the window might attempt to fire with elements `e0`, `e1`, `e2`,
+    but the worker crashes before committing the window processing (but not before
+    those elements are sent as a side effect). When the worker restarts, the window
+    will fire again, but now a late element `e3` shows up. Because this element shows
+    up before the window is committed, it’s not counted as late data, so the `DoFn`
+    is called again with elements `e0`, `e1`, `e2`, `e3`. These are then sent to the
+    side-effect operation. Idempotency does not help here, because different logical
+    record sets were sent each time.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具体来说，窗口可能尝试使用元素`e0`、`e1`、`e2`触发，但工作器在提交窗口处理之前崩溃（但在这些元素作为副作用发送之前没有崩溃）。当工作器重新启动时，窗口将再次触发，但现在会出现一个延迟元素`e3`。因为这个元素在窗口提交之前出现，所以它不被视为延迟数据，所以“DoFn”会再次调用元素`e0`、`e1`、`e2`、`e3`。然后这些元素被发送到副作用操作。在这里幂等性是无法帮助的，因为每次发送的是不同的逻辑记录集。
+- en: There are other ways nondeterminism can be introduced. The standard way to address
+    this risk is to rely on the fact that Dataflow currently guarantees that only
+    one version of a `DoFn`’s output can make it past a shuffle boundary.¹³
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有其他引入不确定性的方式。解决这种风险的标准方法是依赖于Dataflow目前保证只有一个“DoFn”的输出版本可以通过洗牌边界。¹³
+- en: A simple way of using this guarantee is via the built-in `Reshuffle` transform.
+    The pattern presented in Example 5-2 ensures that the side-effect operation always
+    receives a deterministic record to output.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 利用这一保证的一种简单方法是通过内置的“Reshuffle”转换。示例5-2中提出的模式确保副作用操作始终接收到一个确定性的记录以输出。
+- en: Example 5-2\. Reshuffle example
+  id: totrans-90
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例5-2。重排示例
+- en: '[PRE1]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The preceding pipeline splits the sink into two steps: `PrepareOutputData`
+    and `WriteToSideEffect`. `PrepareOutputData` outputs records corresponding to
+    idempotent writes. If we simply ran one after the other, the entire process might
+    be replayed on failure, `PrepareOutputData` might produce a different result,
+    and both would be written as side effects. When we add the `Reshuffle` in between
+    the two, Dataflow guarantees this can’t happen.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 前面的管道将接收端分为两个步骤：“PrepareOutputData”和“WriteToSideEffect”。如果我们简单地依次运行，整个过程可能会在故障时重播，“PrepareOutputData”可能会产生不同的结果，并且两者都将被写入为副作用。当我们在两者之间添加“Reshuffle”时，Dataflow保证这种情况不会发生。
+- en: Of course, Dataflow might still run the `WriteToSideEffect` operation multiple
+    times. The side effects themselves still need to be idempotent, or the sink will
+    receive duplicates. For example, an operation that sets or overwrites a value
+    in a data store is idempotent, and will generate correct output even if it’s run
+    several times. An operation that appends to a list is not idempotent; if the operation
+    is run multiple times, the same value will be appended each time.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，Dataflow可能仍然多次运行“WriteToSideEffect”操作。这些副作用本身仍然需要是幂等的，否则接收端将收到重复的数据。例如，设置或覆盖数据存储中的值的操作是幂等的，即使运行多次，也会生成正确的输出。向列表追加的操作不是幂等的；如果操作运行多次，每次都会追加相同的值。
+- en: While `Reshuffle` provides a simple way of achieving stable input to a `DoFn`,
+    a `GroupByKey` works just as well. However, there is currently a proposal that
+    removes the need to add a `GroupByKey` to achieve stable input into a `DoFn`.
+    Instead, the user could annotate `WriteToSideEffect` with a special annotation,
+    `@RequiresStableInput`, and the system would then ensure stable input to that
+    transform.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然“Reshuffle”提供了一种简单的方法来实现对“DoFn”的稳定输入，但“GroupByKey”同样有效。然而，目前有一个提案，可以消除添加“GroupByKey”以实现对“DoFn”的稳定输入的需要。相反，用户可以使用特殊注解“@RequiresStableInput”注解“WriteToSideEffect”，系统将确保该转换的输入稳定。
+- en: Use Cases
+  id: totrans-95
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 用例
+- en: To illustrate, let’s examine some built-in sources and sinks to see how they
+    implement the aforementioned patterns.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明这一点，让我们来看一些内置的源和接收端，看看它们如何实现上述模式。
+- en: 'Example Source: Cloud Pub/Sub'
+  id: totrans-97
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 示例来源：Cloud Pub/Sub
+- en: Cloud Pub/Sub is a fully managed, scalable, reliable, and low-latency system
+    for delivering messages from publishers to subscribers. Publishers publish data
+    on named topics, and subscribers create named subscriptions to pull data from
+    these topics. Multiple subscriptions can be created for a single topic, in which
+    case each subscription receives a full copy of all data published on the topic
+    from the time of the subscription’s creation. Pub/Sub guarantees that records
+    will continue to be delivered until they are acknowledged; however, a record might
+    be delivered multiple times.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cloud Pub/Sub是一个完全托管的、可扩展的、可靠的、低延迟的系统，用于将消息从发布者传递给订阅者。发布者在命名主题上发布数据，订阅者创建命名订阅以从这些主题中拉取数据。可以为单个主题创建多个订阅，这种情况下，每个订阅从创建订阅时刻起都会接收到主题上发布的所有数据的完整副本。Pub/Sub保证记录将继续传递直到被确认；但是，一条记录可能会被传递多次。
+- en: Pub/Sub is intended for distributed use, so many publishing processes can publish
+    to the same topic and many subscribing processes can pull from the same subscription.
+    After a record has been pulled, the subscriber must acknowledge it within a certain
+    amount of time, or that pull expires and Pub/Sub will redeliver that record to
+    another of the subscribing processes.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pub/Sub旨在用于分布式使用，因此许多发布过程可以发布到同一个主题，许多订阅过程可以从同一个订阅中拉取。在记录被拉取后，订阅者必须在一定时间内确认它，否则该拉取将过期，Pub/Sub将重新将该记录传递给另一个订阅过程。
+- en: Although these characteristics make Pub/Sub highly scalable, they also make
+    it a challenging source for a system like Dataflow. It’s impossible to know which
+    record will be delivered to which worker, and in which order. What’s more, in
+    the case of failure, redelivery might send the records to different workers in
+    different orders!
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这些特性使Pub/Sub具有高度可扩展性，但这也使它成为Dataflow等系统的一个具有挑战性的数据源。不可能知道哪个记录会被传递给哪个工作器，以及以什么顺序。更重要的是，在发生故障的情况下，重新传递可能会以不同的顺序将记录发送到不同的工作器！
+- en: Pub/Sub provides a stable message ID with each message, and this ID will be
+    the same upon redelivery. The Dataflow Pub/Sub source will default to using this
+    ID for removing duplicates from Pub/Sub. (The records are shuffled based on a
+    hash of the ID, so that repeated deliveries are always processed on the same worker.)
+    In some cases, however, this is not quite enough. The user’s publishing process
+    might retry publishes, and as a result introduce duplicates into Pub/Sub. From
+    that service’s perspective these are unique records, so they will get unique record
+    IDs. Dataflow’s Pub/Sub source allows the user to provide their own record IDs
+    as a custom attribute. As long as the publisher sends the same ID when retrying,
+    Dataflow will be able to detect these duplicates.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Pub/Sub为每条消息提供一个稳定的消息ID，并且在重新传递时该ID将保持不变。Dataflow Pub/Sub源将默认使用此ID来从Pub/Sub中删除重复项。（记录根据ID的哈希进行洗牌，因此重复的传递总是在同一个工作器上处理。）然而，在某些情况下，这还不够。用户的发布过程可能会重试发布，并因此将重复项引入Pub/Sub。从该服务的角度来看，这些是唯一的记录，因此它们将获得唯一的记录ID。Dataflow的Pub/Sub源允许用户提供自己的记录ID作为自定义属性。只要发布者在重试时发送相同的ID，Dataflow就能够检测到这些重复项。
+- en: Beam (and therefore Dataflow) provides a reference source implementation for
+    Pub/Sub. However, keep in mind that this is *not* what Dataflow uses but rather
+    an implementation used only by non-Dataflow runners (such as Apache Spark, Apache
+    Flink, and the DirectRunner). For a variety of reasons, Dataflow handles Pub/Sub
+    internally and does not use the public Pub/Sub source.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Beam（因此Dataflow）为Pub/Sub提供了一个参考源实现。但是，请记住，这*不是*Dataflow使用的，而是仅由非Dataflow运行器（如Apache
+    Spark，Apache Flink和DirectRunner）使用的实现。出于各种原因，Dataflow在内部处理Pub/Sub，并且不使用公共Pub/Sub源。
+- en: 'Example Sink: Files'
+  id: totrans-103
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 示例接收器：文件
+- en: The streaming runner can use Beam’s file sinks (`TextIO`, `AvroIO`, and any
+    other sink that implements `FileBasedSink`) to continuously output records to
+    files. Example 5-3 provides an example use case.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式运行器可以使用Beam的文件接收器（`TextIO`，`AvroIO`和任何实现`FileBasedSink`的其他接收器）来持续将记录输出到文件。示例5-3提供了一个示例用例。
+- en: Example 5-3\. Windowed file writes
+  id: totrans-105
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例5-3。窗口化文件写入
+- en: '[PRE2]'
+  id: totrans-106
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The snippet in Example 5-3 writes 10 new files each minute, containing data
+    from that window. `MyNamePolicy` is a user-written function that determines output
+    filenames based on the shard and the window. You can also use triggers, in which
+    case each trigger pane will be output as a new file.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 示例5-3中的片段每分钟写入10个新文件，其中包含该窗口的数据。`MyNamePolicy`是一个用户编写的函数，根据分片和窗口确定输出文件名。您还可以使用触发器，在这种情况下，每个触发器窗格将作为一个新文件输出。
+- en: This process is implemented using a variant on the pattern in Example 5-3. Files
+    are written out to temporary locations, and these temporary filenames are sent
+    to a subsequent transform through a `GroupByKey`. After the `GroupByKey` is a
+    finalize transform that atomically moves the temporary files into their final
+    location. The pseudocode in Example 5-4 provides a sketch of how a consistent
+    streaming file sink is implemented in Beam. (For more details, see `FileBasedSink`
+    and `WriteFiles` in the Beam codebase.)
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个过程是使用示例5-3中的模式的变体实现的。文件被写入临时位置，这些临时文件名通过`GroupByKey`发送到后续的转换。在`GroupByKey`之后是一个最终转换，它会将临时文件原子地移动到它们的最终位置。示例5-4中的伪代码提供了Beam中一致的流式文件接收器的实现草图。（有关更多详细信息，请参见Beam代码库中的`FileBasedSink`和`WriteFiles`。）
+- en: Example 5-4\. File sink
+  id: totrans-109
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例5-4。文件接收器
+- en: '[PRE3]'
+  id: totrans-110
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: You can see how the nonidempotent work is done in `WriteTempFile`. After the
+    `GroupByKey` completes, the `Finalize` step will always see the same bundles across
+    retries. Because file rename is idempotent,¹⁴ this give us an exactly-once sink.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以看到`WriteTempFile`中的非幂等工作是如何完成的。在`GroupByKey`完成后，`Finalize`步骤将始终看到相同的捆绑包进行重试。因为文件重命名是幂等的，¹⁴这给了我们一个恰好一次的接收器。
+- en: 'Example Sink: Google BigQuery'
+  id: totrans-112
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 示例接收器：Google BigQuery
+- en: Google BigQuery is a fully managed, cloud-native data warehouse. Beam provides
+    a BigQuery sink, and BigQuery provides a streaming insert API that supports extremely
+    low-latency inserts. This streaming insert API allows allows you to tag inserts
+    with a unique ID, and BigQuery will attempt to filter duplicate inserts with the
+    same ID.¹⁵ To use this capability, the BigQuery sink must generate statistically
+    unique IDs for each record. It does this by using the `java.util.UUID` package,
+    which generates statistically unique 128-bit IDs.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google BigQuery是一个完全托管的云原生数据仓库。Beam提供了BigQuery接收器，BigQuery提供了支持极低延迟插入的流式插入API。这个流式插入API允许您为每个记录标记插入一个唯一的ID，并且BigQuery将尝试使用相同的ID过滤重复的插入。¹⁵为了使用这个功能，BigQuery接收器必须为每条记录生成统计上唯一的ID。它通过使用`java.util.UUID`包来实现这一点，该包生成统计上唯一的128位ID。
+- en: Generating a random universally unique identifier (UUID) is a nondeterministic
+    operation, so we must add a `Reshuffle` before we insert into BigQuery. After
+    we do this, any retries by Dataflow will always use the same UUID that was shuffled.
+    Duplicate attempts to insert into BigQuery will always have the same insert ID,
+    so BigQuery is able to filter them. The pseudocode shown in Example 5-5 illustrates
+    how the BigQuery sink is implemented.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生成随机的通用唯一标识符（UUID）是一个非确定性操作，因此我们必须在插入到BigQuery之前添加`Reshuffle`。这样做后，Dataflow的任何重试都将始终使用相同的被洗牌的UUID。对BigQuery的重复尝试插入将始终具有相同的插入ID，因此BigQuery能够对其进行过滤。示例5-5中显示的伪代码说明了BigQuery接收器的实现方式。
+- en: Example 5-5\. BigQuery sink
+  id: totrans-115
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例5-5。BigQuery接收器
+- en: '[PRE4]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Again we split the sink into a nonidempotent step (generating a random number),
+    followed by a step that is idempotent.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次，我们将接收器分成一个非幂等步骤（生成随机数），然后是一个幂等步骤。
+- en: Other Systems
+  id: totrans-118
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 其他系统
+- en: Now that we have explained Dataflow’s exactly once in detail, let us contrast
+    this with some brief overviews of other popular streaming systems. Each implements
+    exactly-once guarantees in a different way and makes different trade-offs as a
+    result.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经详细解释了Dataflow的恰好一次，让我们将其与其他流行的流式系统的简要概述进行对比。每个系统以不同的方式实现恰好一次保证，并因此做出不同的权衡。
+- en: Apache Spark Streaming
+  id: totrans-120
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Apache Spark Streaming
+- en: Spark Streaming uses a microbatch architecture for continuous data processing.
+    Users logically deal with a stream object; however, under the covers, Spark represents
+    this stream as a continuous series of RDDs.¹⁶ Each RDD is processed as a batch,
+    and Spark relies on the exactly-once nature of batch processing to ensure correctness;
+    as mentioned previously, techniques for correct batch shuffles have been known
+    for some time. This approach can cause increased latency to output—especially
+    for deep pipelines and high input volumes—and often careful tuning is required
+    to achieve desired latency.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark Streaming 使用微批处理架构进行连续数据处理。用户在逻辑上处理一个流对象；然而，在底层，Spark 将这个流表示为连续的一系列 RDD。¹⁶
+    每个 RDD 都作为一个批次进行处理，Spark 依赖批处理的精确一次性特性来确保正确性；正如之前提到的，正确的批处理洗牌技术已经有一段时间了。这种方法可能会导致输出的延迟增加，特别是对于深层管道和高输入量，通常需要仔细调整才能实现所需的延迟。
+- en: Spark does assume that operations are all idempotent and might replay the chain
+    of operations up the current point in the graph. A checkpoint primitive is provided,
+    however, that causes an RDD to be materialized, guaranteeing that history prior
+    to that RDD will not be replayed. This checkpoint feature is intended for performance
+    reasons (e.g., to prevent replaying an expensive operation); however, you can
+    also use it to implement nonidempotent side effects.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 假设操作都是幂等的，并且可能重放操作链直到当前图中的点。提供了一个检查点原语，可以导致一个 RDD 被实体化，从而保证该 RDD 之前的历史不会被重放。这个检查点功能是为了性能原因而设计的（例如，防止重放昂贵的操作）；然而，您也可以使用它来实现非幂等的副作用。
+- en: Apache Flink
+  id: totrans-123
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Apache Flink
+- en: Apache Flink also provides exactly-once processing for streaming pipelines but
+    does so in a manner different than either Dataflow or Spark. Flink streaming pipelines
+    periodically compute consistent snapshots, each representing the consistent point-in-time
+    state of an entire pipeline. Flink snapshots are computed progressively, so there
+    is no need to halt all processing while computing a snapshot. This allows records
+    to continue flowing through the system while taking a snapshot, alleviating some
+    of the latency issues with the Spark Streaming approach.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink 还为流式管道提供了精确一次处理，但是它的方式与 Dataflow 或 Spark 不同。Flink 流式管道定期计算一致的快照，每个快照代表整个管道在一致时间点的状态。Flink
+    快照是逐步计算的，因此在计算快照时无需停止所有处理。这使得记录可以在系统中继续流动，同时进行快照，缓解了 Spark Streaming 方法的一些延迟问题。
+- en: Flink implements these snapshots by inserting special numbered snapshot markers
+    into the data streams flowing from sources. As each operator receives a snapshot
+    marker, it executes a specific algorithm allowing it to copy its state to an external
+    location and propagate the snapshot marker to downstream operators. After all
+    operators have executed this snapshot algorithm, a complete snapshot is made available.
+    Any worker failures will cause the entire pipeline to roll back its state from
+    the last complete snapshot. In-flight messages do not need to be included in the
+    snapshot. All message delivery in Flink is done via an ordered TCP-based channel.
+    Any connection failures can be handled by resuming the connection from the last
+    good sequence number;¹⁷ unlike Dataflow, Flink tasks are statically allocated
+    to workers, so it can assume that the connection will resume from the same sender
+    and replay the same payloads.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 通过向从源流出的数据流插入特殊编号的快照标记来实现这些快照。当每个算子接收到快照标记时，它执行特定的算法，使其将状态复制到外部位置，并将快照标记传播到下游算子。在所有算子执行完这个快照算法后，完整的快照就可用了。任何工作器故障都将导致整个管道从最后一个完整快照中回滚其状态。在途消息不需要包含在快照中。Flink
+    中的所有消息传递都是通过有序的基于 TCP 的通道完成的。任何连接故障都可以通过从最后一个良好序列号恢复连接来处理；¹⁷ 与 Dataflow 不同，Flink
+    任务是静态分配给工作器的，因此可以假定连接将从相同的发送方恢复，并重放相同的有效载荷。
+- en: Because Flink might roll back to the previous snapshot at any time, any state
+    modifications not yet in a snapshot must be considered tentative. A sink that
+    sends data to the world outside the Flink pipeline must wait until a snapshot
+    has completed, and then send only the data that is included in that snapshot.
+    Flink provides a `notifySnapshotComplete` callback that allows sinks to know when
+    each snapshot is completed, and send the data onward. Even though this does affect
+    the output latency of Flink pipelines,¹⁸ this latency is introduced only at sinks.
+    In practice, this allows Flink to have lower end-to-end latency than Spark for
+    deep pipelines because Spark introduces batch latency at each stage in the pipeline.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Flink 可能随时回滚到先前的快照，尚未在快照中的任何状态修改都必须被视为临时的。将数据发送到 Flink 管道外部世界的接收器必须等到快照完成，然后只发送包含在该快照中的数据。Flink
+    提供了一个 `notifySnapshotComplete` 回调，允许接收器在每个快照完成时得知，并发送数据。尽管这会影响 Flink 管道的输出延迟，¹⁸
+    但这种延迟只在接收器处引入。实际上，这使得 Flink 在深层管道中的端到端延迟比 Spark 更低，因为 Spark 在管道的每个阶段都引入了批处理延迟。
+- en: Flink’s distributed snapshots are an elegant way of dealing with consistency
+    in a streaming pipeline; however, a number of assumptions are made about the pipeline.
+    Failures are assumed to be rare,¹⁹ as the impact of a failure (rolling back to
+    the previous snapshot) is substantial. To maintain low-latency output, it is also
+    assumed that snapshots can complete quickly. It remains to be seen whether this
+    causes issues on very large clusters where the failure rate will likely increase,
+    as will the time needed to complete a snapshot.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的分布式快照是处理流式管道一致性的一种优雅方式；然而，对管道做出了一些假设。假设故障是罕见的，¹⁹ 因为故障的影响（回滚到先前的快照）是重大的。为了保持低延迟输出，还假设快照可以快速完成。尚不清楚这是否会在非常大的集群中引起问题，那里的故障率可能会增加，完成快照所需的时间也会增加。
+- en: Implementation is also simplified by assuming that tasks are statically allocated
+    to workers (at least within a single snapshot epoch). This assumption allows Flink
+    to provide a simple exactly-once transport between workers because it knows that
+    if a connection fails, the same data can be pulled in order from the same worker.
+    In contrast, tasks in Dataflow are constantly load balanced between workers (and
+    the set of workers is constantly growing and shrinking), so Dataflow is unable
+    to make this assumption. This forces Dataflow to implement a much more complex
+    transport layer in order to provide exactly-once processing.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现也简化了，因为假设任务静态分配给工作程序（至少在单个快照时期内）。这个假设允许 Flink 在工作程序之间提供简单的一次性传输，因为它知道如果连接失败，相同的数据可以按顺序从同一个工作程序中拉取。相比之下，Dataflow
+    不断地在工作程序之间进行负载平衡（并且工作程序的集合不断增长和缩减），因此 Dataflow 无法做出这个假设。这迫使 Dataflow 实现一个更复杂的传输层，以提供一次性处理。
+- en: Summary
+  id: totrans-129
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In summary, exactly-once data processing, which was once thought to be incompatible
+    with low-latency results, is quite possible—Dataflow does it efficiently without
+    sacrificing latency. This enables far richer uses for stream processing.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总之，曾经被认为与低延迟结果不兼容的一次性数据处理是完全可能的——Dataflow 在不牺牲延迟的情况下高效地实现了这一点。这为流处理提供了更丰富的用途。
+- en: Although this chapter has focused on Dataflow-specific techniques, other streaming
+    systems also provide exactly-once guarantees. Apache Spark Streaming runs streaming
+    pipelines as a series of small batch jobs, relying on exactly-once guarantees
+    in the Spark batch runner. Apache Flink uses a variation on Chandy Lamport distributed
+    snapshots to get a running consistent state and can use these snapshots to ensure
+    exactly-once processing. We encourage you to learn about these other systems,
+    as well, for a broad understanding of how different stream-processing systems
+    work!
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管本章重点介绍了 Dataflow 特定的技术，其他流处理系统也提供了一次性保证。Apache Spark Streaming 将流式管道作为一系列小批处理作业运行，依赖于
+    Spark 批处理运行器中的一次性保证。Apache Flink 使用 Chandy Lamport 分布式快照的变体来获得运行一致状态，并可以使用这些快照来确保一次性处理。我们鼓励您也了解这些其他系统，以便广泛了解不同的流处理系统的工作方式！
+- en: ¹ In fact, no system we are aware of that provides at-least once (or better)
+    is able to guarantee this, including all other Beam runners.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹ 实际上，我们所知道的没有一个系统能够保证至少一次（或更好），包括所有其他 Beam 运行器。
+- en: ² Dataflow also provides an accurate batch runner; however, in this context
+    we are focused on the streaming runner.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ² Dataflow 还提供了准确的批处理运行器；然而，在这个上下文中，我们专注于流式运行器。
+- en: ³ The Dataflow optimizer groups many steps together and adds shuffles only where
+    they are needed.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ³ Dataflow 优化器将许多步骤组合在一起，并仅在需要时添加洗牌。
+- en: ⁴ Batch pipelines also need to guard against duplicates in shuffle. However
+    the problem is much easier to solve in batch, which is why historical batch systems
+    did do this and streaming systems did not. Streaming runtimes that use a microbatch
+    architecture, such as Spark Streaming, delegate duplicate detection to a batch
+    shuffler.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁴ 批处理管道也需要防范洗牌中的重复项。但是，在批处理中解决这个问题要容易得多，这就是为什么历史批处理系统会这样做而流式系统不会这样做的原因。使用微批处理架构的流式运行时，比如
+    Spark Streaming，将重复项检测委托给批处理洗牌器。
+- en: ⁵ A lot of care is taken to make sure this checkpointing is efficient; for example,
+    schema and access pattern optimizations that are intimately tied to the characteristics
+    of the underlying key/value store.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁵ 我们非常小心确保这种检查点是高效的；例如，与底层键/值存储的特性密切相关的模式和访问模式优化。
+- en: ⁶ This is not the custom user-supplied timestamp used for windowing. Rather
+    this is a deterministic processing-time timestamp that is assigned by the sending
+    worker.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁶ 这不是用于窗口化的自定义用户提供的时间戳。相反，这是由发送工作程序分配的确定性处理时间时间戳。
+- en: ⁷ Some care needs to be taken to ensure that this algorithm works. Each sender
+    must guarantee that the system timestamps it generates are strictly increasing,
+    and this guarantee must be maintained across worker restarts.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁷ 需要小心确保这个算法能够运行。每个发送者必须保证系统生成的时间戳严格递增，并且这个保证必须在工作重新启动时保持不变。
+- en: ⁸ In theory, we could dispense with startup scans entirely by lazily building
+    the Bloom filter for a bucket only when a threshold number of records show up
+    with timestamps in that bucket.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁸ 从理论上讲，我们可以通过在一个桶中的时间戳达到阈值时才懒惰地构建 Bloom 过滤器来完全摒弃启动扫描。
+- en: ⁹ At the time of this writing, a new, more-flexible API called [SplittableDoFn](http://bit.ly/2JQa7GJ)
+    is available for Apache Beam.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁹ 在撰写本文时，Apache Beam 提供了一个名为[SplittableDoFn](http://bit.ly/2JQa7GJ)的新的、更灵活的
+    API。
+- en: ¹⁰ We assume that nobody is maliciously modifying the bytes in the file while
+    we are reading it.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁰ 我们假设在我们读取文件时没有人恶意修改文件中的字节。
+- en: ¹¹ Again note that the [SplittableDoFn API](http://bit.ly/2JQa7GJ) has different
+    methods for this.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹¹ 再次注意，[SplittableDoFn API](http://bit.ly/2JQa7GJ)具有不同的方法。
+- en: ¹² Using the `requiresDedupping` override.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹² 使用`requiresDedupping`覆盖。
+- en: ¹³ Note that these determinism boundaries might become more explicit in the
+    Beam Model at some point. Other Beam runners vary in their ability to handle nondeterministic
+    user code.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹³ 请注意，这些确定性边界可能在某个时候在 Beam 模型中变得更加明确。其他 Beam 运行器在处理非确定性用户代码的能力上有所不同。
+- en: ¹⁴ As long as you properly handle the failure when the source file no longer
+    exists.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁴ 只要在源文件不再存在时正确处理故障。
+- en: ¹⁵ Due to the global nature of the service, BigQuery does not guarantee that
+    all duplicates are removed. Users can periodically run a query over their tables
+    to remove any duplicates that were not caught by the streaming insert API. See
+    the BigQuery documentation for more information.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁵ 由于服务的全局性质，BigQuery 不能保证所有重复项都被移除。用户可以定期对他们的表运行查询，以移除流式插入 API 没有捕捉到的任何重复项。有关更多信息，请参阅
+    BigQuery 文档。
+- en: ¹⁶ Resilient Distributed Datasets; Spark’s abstraction of a distributed dataset,
+    similar to PCollection in Beam.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁶ 弹性分布式数据集；Spark 对分布式数据集的抽象，类似于 Beam 中的 PCollection。
+- en: ¹⁷ These sequence numbers are per connection and are unrelated to the snapshot
+    epoch number.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁷ 这些序列号是针对每个连接的，与快照时期编号无关。
+- en: ¹⁸ Only for nonidempotent sinks. Completely idempotent sinks do not need to
+    wait for the snapshot to complete.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁸ 仅适用于非幂等的接收器。完全幂等的接收器不需要等待快照完成。
+- en: ¹⁹ Specifically, Flink assumes that the mean time to worker failure is less
+    than the time to snapshot; otherwise, the pipeline would be unable to make progress.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹⁹ 具体来说，Flink假设工作器故障的平均时间小于快照时间；否则，管道将无法取得进展。

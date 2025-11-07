@@ -1,0 +1,480 @@
+- en: Chapter 14\. Monitoring Structured Streaming Applications
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 14 章：监控结构化流应用程序
+- en: Application monitoring is an integral part of any robust deployment. Monitoring
+    provides insights on the application performance characteristics over time by
+    collecting and processing metrics that quantify different aspects of the application’s
+    performance, such as responsiveness, resource usage, and task-specific indicators.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序监控是任何稳健部署的重要组成部分。监控通过收集和处理量化应用程序性能不同方面的度量指标，如响应能力、资源使用和任务特定指标，为应用程序的性能特征提供了随时间变化的见解。
+- en: Streaming applications have strict requirements regarding response times and
+    throughput. In the case of distributed applications like Spark, the number of
+    variables that we need to account for during the application’s lifetime are multiplied
+    by the complexities of running on a cluster of machines. In the context of a cluster,
+    we need to keep tabs on resource usage, like CPU, memory, and secondary storage
+    across different hosts, from the perspective of each host, as well as a consolidated
+    view of the running application.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式应用对响应时间和吞吐量有严格要求。在像 Spark 这样的分布式应用中，我们需要在应用程序的生命周期中考虑的变量数量，会因在一组机器上运行而复杂化。在集群环境中，我们需要监控不同主机上的资源使用情况，如
+    CPU、内存和辅助存储，从每个主机的角度来看，以及运行应用程序的综合视图。
+- en: For example, imagine an application running on 10 different executors. The total
+    memory usage indicator shows a 15% increase, which might be within the expected
+    tolerance for this application, but then, we notice that the increase comes from
+    a single node. Such imbalance needs investigation because it will potentially
+    cause a failure when that node runs out of memory. It also implies that there
+    is potentially an unbalanced distribution of work that’s causing a bottleneck.
+    Without proper monitoring, we would not observe such behavior in the first place.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，想象一个运行在 10 个不同执行器上的应用程序。总内存使用指标显示增加了 15%，这可能在预期容忍范围内，但我们注意到增加来自单个节点。这种不平衡需要调查，因为当该节点内存耗尽时可能会导致故障。这也意味着可能存在工作分配不平衡造成瓶颈。如果没有适当的监控，我们首先不会观察到这种行为。
+- en: 'The operational metrics of Structured Streaming can be exposed through three
+    different channels:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结构化流的运行度量可以通过三种不同的通道公开：
+- en: The Spark metrics subsystem
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Spark 度量子系统
+- en: The `StreamingQuery` instance returned by the `writeStream.start` operation
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`writeStream.start` 操作返回的 `StreamingQuery` 实例'
+- en: The `StreamingQueryListener` interface
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`StreamingQueryListener` 接口'
+- en: As we detail in the following sections, these interfaces offer different levels
+    of detail and exposure to cater for different monitoring needs.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在接下来的章节中详细说明的那样，这些接口提供了不同级别的详细信息和曝光，以满足不同的监控需求。
+- en: The Spark Metrics Subsystem
+  id: totrans-9
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Spark 度量子系统
+- en: Available through the Spark core engine, the Spark metrics subsystem offers
+    a configurable metrics collection and reporting API with a pluggable sink interface—not
+    to be confused with the streaming sinks that we discussed earlier in this book.
+    Spark comes with several such sinks, including HTTP, JMX, and comma-separated
+    values (CSV) files. In addition to that, there’s a Ganglia sink that needs additional
+    compilation flags due to licensing restrictions.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过 Spark 核心引擎提供的 Spark 度量子系统，提供了一个可配置的度量收集和报告 API，具有可插拔的接收器接口，与本书前面讨论的流式接收器不同。Spark
+    自带多个这样的接收器，包括 HTTP、JMX 和逗号分隔值（CSV）文件。除此之外，还有一个 Ganglia 接收器，由于许可限制需要额外的编译标志。
+- en: The HTTP sink is enabled by default. It’s implemented by a servlet that registers
+    an endpoint on the driver host on the same port as the Spark UI. The metrics are
+    accessible at the `/metrics/json` endpoint. Other sinks can be enabled through
+    configuration. The choice of a given sink is driven by the monitoring infrastructure
+    with which we want to integrate. For example, the JMX sink is a common option
+    to integrate with Prometheus, a popular metric collector in the Kubernetes cluster
+    scheduler.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HTTP 接收器默认启用。它由一个注册在与 Spark UI 相同端口的驱动程序主机上的端点的 servlet 实现。度量数据可通过 `/metrics/json`
+    端点访问。可以通过配置启用其他接收器。选择特定接收器由我们希望集成的监控基础设施驱动。例如，JMX 接收器是与 Kubernetes 集群调度程序中流行的度量收集器
+    Prometheus 集成的常见选项。
+- en: Structured Streaming Metrics
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 结构化流度量
+- en: 'To acquire metrics from a Structured Streaming job, we first must enable the
+    internal reporting of such metrics. We achieve that by setting the configuration
+    flag `spark.sql.streaming.metricsEnabled` to `true`, as demonstrated here:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从结构化流作业获取指标，我们首先必须启用此类指标的内部报告。我们通过将配置标志`spark.sql.streaming.metricsEnabled`设置为`true`来实现，如此处所示：
+- en: '[PRE0]'
+  id: totrans-14
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'With this configuration in place, the metrics reported will contain three additional
+    metrics for each streaming query running in the same `SparkSession` context:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这个配置，报告的指标将包含每个在同一个`SparkSession`上下文中运行的流查询的三个额外指标：
+- en: inputRate-total
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: inputRate-total
+- en: The total number of messages ingested per trigger interval
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个触发间隔摄入的消息总数
+- en: latency
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 延迟
+- en: The processing time for the trigger interval
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 触发间隔的处理时间
+- en: processingRate-total
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: processingRate-total
+- en: The speed at which the records are being processed
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 记录处理速度
+- en: The StreamingQuery Instance
+  id: totrans-22
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: '`StreamingQuery`实例'
+- en: 'As we have seen through previous Structured Streaming examples, the call to
+    start a *streaming query* produces a `StreamingQuery` result. Let’s zoom in on
+    the `weatherEventsMovingAverage` from [Example 13-1](ch13.xhtml#mapgroups-example):'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在前面的结构化流示例中看到的那样，启动*流查询*的调用会产生一个`StreamingQuery`结果。让我们深入研究来自[示例 13-1](ch13.xhtml#mapgroups-example)的`weatherEventsMovingAverage`：
+- en: '[PRE1]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'The result we obtain from that call in the `query` value is a `StreamingQuery`
+    instance. A `StreamingQuery` is a handler to the actual streaming query that is
+    running continuously in the engine. This handler contains methods to inspect the
+    execution of the query and control its life cycle. Some interesting methods are:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们从`query`值的调用中获得的结果是一个`StreamingQuery`实例。`StreamingQuery`是实际在引擎中连续运行的流查询的处理程序。此处理程序包含用于检查查询执行和控制其生命周期的方法。一些有趣的方法包括：
+- en: '`query.awaitTermination()`'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`query.awaitTermination()`'
+- en: Blocks the current thread until the query ends, either because it’s stopped
+    or because it encountered an error. This method is useful to block the `main`
+    thread and prevent it from terminating early.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阻止当前线程直到查询结束，无论是因为它停止了还是遇到了错误。此方法用于阻止`main`线程并防止其过早终止。
+- en: '`query.stop()`'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`query.stop()`'
+- en: Stops the execution of the query.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 停止查询的执行。
+- en: '`query.exception()`'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`query.exception()`'
+- en: Retrieves any fatal exception encountered by the execution of the query. This
+    method returns `None` when the query is operating normally. After a query stops,
+    inspecting this value informs us as to whether it failed and for what reason.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检索查询执行中遇到的任何致命异常。当查询正常运行时，此方法返回`None`。查询停止后，检查此值可以告诉我们它是否失败以及失败的原因。
+- en: '`query.status()`'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`query.status()`'
+- en: Shows a brief snapshot of what the query is currently doing.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显示查询当前正在执行的简要快照。
+- en: 'For example, retrieving the `query.status` of a running query shows a result
+    similar to this:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，检索运行查询的`query.status`会显示类似于以下结果：
+- en: '[PRE2]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Even though the status information is not very revealing when everything is
+    working correctly, it can be useful when developing a new job. `query.start()`
+    is silent when an error occurs. Consulting `query.status()` might reveal that
+    there is a problem, in which case, `query.exception` will return the cause.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使在一切正常运行时，状态信息也不会透露太多信息，但在开发新作业时可能会有所帮助。当发生错误时，`query.start()`不会有任何提示。查看`query.status()`可能会显示存在问题，此时`query.exception`将返回导致问题的原因。
+- en: 'In [Example 14-1](#error_message_in_status), we used an incorrect schema as
+    input for a Kafka sink. If we recall from [“The Kafka Sink”](ch11.xhtml#kafka-sink),
+    a Kafka sink requires a mandatory field in the output stream: `value` (even `key`
+    is optional). In this case, `query.status` provided relevant feedback to solve
+    that issue.'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[示例 14-1](#error_message_in_status)中，我们使用了错误的模式作为Kafka sink的输入。如果我们回忆起[“Kafka
+    Sink”](ch11.xhtml#kafka-sink)，我们会发现Kafka sink需要输出流中的一个强制字段：`value`（甚至`key`是可选的）。在这种情况下，`query.status`提供了相关反馈来解决此问题。
+- en: Example 14-1\. `query.status` shows the reason for a stream failure
+  id: totrans-38
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 14-1\. `query.status`显示流失败的原因
+- en: '[PRE3]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The methods in `StreamingQueryStatus` are *thread-safe*, meaning that they can
+    be called concurrently from another thread without risking corruption of the query
+    state.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamingQueryStatus`中的方法是*线程安全*的，这意味着可以从另一个线程并发调用它们而不会破坏查询状态。'
+- en: Getting Metrics with StreamingQueryProgress
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 获取带有`StreamingQueryProgress`的指标
+- en: 'For the purpose of monitoring, we are more interested in a set of methods that
+    provide insights into the query execution metrics. The `StreamingQuery` handler
+    offers two such methods:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出于监视目的，我们更感兴趣的是一组方法，它们提供有关查询执行指标的见解。`StreamingQuery`处理程序提供了两种这样的方法：
+- en: '`query.lastProgress`'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`query.lastProgress`'
+- en: Retrieves the most recent `StreamingQueryProgress` report.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 获取最近的`StreamingQueryProgress`报告。
+- en: '`query.recentProgress`'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`query.recentProgress`'
+- en: Retrieves an array of the most recent `StreamingQueryProgress` reports. The
+    maximum number of *progress* objects retrieved can be set using the configuration
+    parameter `spark.sql.streaming.numRecentProgressUpdates` in the Spark Session.
+    If you do not set this configuration, it defaults to the last 100 reports.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检索最近的一系列`StreamingQueryProgress`报告。可以使用Spark Session中的配置参数`spark.sql.streaming.numRecentProgressUpdates`设置检索的*progress*对象的最大数量。如果未设置此配置，它将默认为最后100个报告。
+- en: As we can appreciate in [Example 14-2](#streaming-query-progress-sample), each
+    `StreamingQueryProgress` instance offers a comprehensive snapshot of the query
+    performance produced at each trigger.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们可以在[示例 14-2](#streaming-query-progress-sample)中看到的，每个`StreamingQueryProgress`实例都提供了在每个触发器产生的查询性能全面快照。
+- en: Example 14-2\. `StreamingQueryProgress` sample
+  id: totrans-48
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 14-2\. `StreamingQueryProgress` 示例
+- en: '[PRE4]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: From the perspective of monitoring the job’s performance, we are particularly
+    interested in `numInputRows`, `inputRowsPerSecond`, and `processedRowsPerSecond`.
+    These self-describing fields provide key indicators about the job performance.
+    If we have more data than our query can process, `inputRowsPerSecond` will be
+    higher than `processedRowsPerSecond` for sustained periods of time. This might
+    indicate that the cluster resources allocated for this job should be increased
+    to reach a sustainable long-term performance.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从监控作业性能的角度来看，我们特别关注`numInputRows`、`inputRowsPerSecond`和`processedRowsPerSecond`。这些自描述字段提供了关于作业性能的关键指标。如果我们有比查询处理的数据更多的数据，`inputRowsPerSecond`在持续时间较长的时间内将高于`processedRowsPerSecond`。这可能表明，为了达到可持续的长期性能，应增加分配给此作业的集群资源。
+- en: The StreamingQueryListener Interface
+  id: totrans-51
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: '`StreamingQueryListener` 接口'
+- en: Monitoring is a “day 2 operations” concern, and we require an automated collection
+    of performance metrics to enable other processes such as capacity management,
+    alerting, and operational support.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控是“Day 2 运维”关注的重点，我们需要自动收集性能指标以支持其他流程，例如容量管理、警报和运维支持。
+- en: The inspection methods made available by the `StreamingQuery` handler that we
+    saw in the previous section are useful when we work on an interactive environment
+    such as the *Spark shell* or a notebook, like we use in the exercises of this
+    book. In an interactive setting, we have the opportunity to manually sample the
+    output of the `StreamingQueryProgress` to get an initial idea about the performance
+    characteristics of our job.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在前一节看到的`StreamingQuery`处理程序提供的检查方法在我们在交互式环境中工作时非常有用，例如*Spark shell*或笔记本电脑，就像我们在本书的练习中使用的那样。在交互设置中，我们有机会手动取样`StreamingQueryProgress`的输出，以获取有关作业性能特征的初步想法。
+- en: Yet, the `StreamingQuery` methods are not automation friendly. Given that a
+    new progress record becomes available at each streaming trigger, automating a
+    method to collect information from this interface needs to be coupled to the internal
+    scheduling of the streaming job.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，`StreamingQuery`方法并不友好于自动化。考虑到每次流触发器会产生一个新的进度记录，自动化从此接口收集信息的方法需要与流作业的内部调度耦合。
+- en: Luckily, Structured Streaming provides the `StreamingQueryListener`, a *listener-based*
+    interface that provides asynchronous callbacks to report updates in the life cycle
+    of a streaming job.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，结构化流提供了`StreamingQueryListener`，这是一个基于监听器的接口，提供异步回调以报告流作业生命周期中的更新。
+- en: Implementing a StreamingQueryListener
+  id: totrans-56
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 实现`StreamingQueryListener`
+- en: To hook up to the internal event bus, we must provide an implementation of the
+    `StreamingQueryListener` interface and register it to the running `SparkSession`.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要连接到内部事件总线，我们必须提供`StreamingQueryListener`接口的实现，并将其注册到正在运行的`SparkSession`中。
+- en: '`StreamingQueryListener` consists of three methods:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamingQueryListener`包含三种方法：'
+- en: '`onQueryStarted(event: QueryStartedEvent)`'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`onQueryStarted(event: QueryStartedEvent)`'
+- en: Called when a streaming query starts. The `event` provides a unique `id` for
+    the query and a `runId` that changes if the query is stopped and restarted. This
+    callback is called synchronously with the start of the query and should not be
+    blocked.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当流查询启动时调用。`event`提供了查询的唯一`id`和一个`runId`，如果查询停止并重新启动，则`runId`会更改。此回调与查询的启动同步调用，不应阻塞。
+- en: '`onQueryTerminated(event: QueryTerminatedEvent)`'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`onQueryTerminated(event: QueryTerminatedEvent)`'
+- en: Called when a streaming query is stopped. The `event` contains `id` and `runId`
+    fields that correlate with the start event. It also provides an `exception` field
+    that contains an `exception` if the query failed due to an error.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当流查询停止时调用。`event`包含与启动事件相关联的`id`和`runId`字段。它还提供了一个`exception`字段，如果查询由于错误而失败，则包含一个`exception`。
+- en: '`onQueryProgress(event: StreamingQueryProgress)`'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`onQueryProgress(event: StreamingQueryProgress)`'
+- en: Called at each query trigger. The `event` contains a `progress` field that encapsulates
+    a `StreamingQueryProgress` instance that we know already from [“Getting Metrics
+    with StreamingQueryProgress”](#streaming-query-progress). This callback provides
+    us with the events that we need to monitor the query performance.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在每次查询触发时调用。`event`包含一个`progress`字段，其中封装了一个我们已从[“使用StreamingQueryProgress获取指标”](#streaming-query-progress)中了解的`StreamingQueryProgress`实例。该回调提供了我们监视查询性能所需的事件。
+- en: '[Example 14-3](#chart-listener) illustrates the implementation of a simplified
+    version of such a listener. This `chartListener`, when instantiated from a notebook,
+    plots the input and processing rates per second.'
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 14-3](#chart-listener)展示了这种监听器的简化版本实现。这个`chartListener`在笔记本中实例化时，绘制每秒的输入和处理速率。'
+- en: Example 14-3\. Plotting streaming job performance
+  id: totrans-66
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 14-3\. 绘制流作业性能
+- en: '[PRE5]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'After a listener instance has been defined, it must be attached to the event
+    bus, using the `addListener` method in the `SparkSession`:'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 定义了一个监听器实例后，必须使用`SparkSession`中的`addListener`方法将其附加到事件总线：
+- en: '[PRE6]'
+  id: totrans-69
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: After running this `chartListener` against one of the notebooks included in
+    this book’s online resources, we can visualize the input and processing rates,
+    as shown in [Figure 14-1](#input-process-rate).
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行这个`chartListener`对本书在线资源中的任意一个笔记本后，我们可以可视化输入和处理速率，如[图 14-1](#input-process-rate)所示。
+- en: '![spas 1401](Images/spas_1401.png)'
+  id: totrans-71
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 1401](Images/spas_1401.png)'
+- en: Figure 14-1\. Input and processing streaming rates
+  id: totrans-72
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 14-1\. 输入和处理流速率
+- en: Similar listener implementations can be used to send metric reports to popular
+    monitoring systems, such as Prometheus, Graphite, or queryable databases like
+    InfluxDB, which can be easily integrated with dashboard applications such as Grafana.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似的监听器实现可以用于将度量报告发送到流行的监控系统，如Prometheus、Graphite或可查询数据库如InfluxDB，这些系统可以轻松集成到Grafana等仪表板应用中。

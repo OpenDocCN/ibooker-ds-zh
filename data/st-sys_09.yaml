@@ -1,0 +1,1337 @@
+- en: Chapter 7\. The Practicalities of Persistent State
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第7章。持久状态的实际性
+- en: Why do people write books? When you factor out the joy of creativity, a certain
+    fondness for grammar and punctuation, and perhaps the occasional touch of narcissism,
+    you’re basically left with the desire to capture an otherwise ephemeral idea so
+    that it can be revisited in the future. At a very high level, I’ve just motivated
+    and explained persistent state in data processing pipelines.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人们为什么写书？当你排除了创造的乐趣、对语法和标点的某种喜爱，也许偶尔的自恋，你基本上只剩下了捕捉本来是短暂的想法，以便将来可以重新访问。在非常高的层面上，我刚刚激发并解释了数据处理管道中的持久状态。
+- en: Persistent state is, quite literally, the tables we just talked about in Chapter 6,
+    with the additional requirement that the tables be robustly stored in a media
+    relatively immune to loss. Stored on local disk counts, as long as you don’t ask
+    your Site Reliability Engineers. Stored on a replicated set of disks is better.
+    Stored on a replicated set of disks in distinct physical locations is better still.
+    Stored in memory once definitely doesn’t count. Stored in replicated memory across
+    multiple machines with UPS power backup and generators onsite maybe does. You
+    get the picture.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 持久状态，确切地说，就是我们在第6章中讨论过的表，额外的要求是这些表要稳固地存储在相对不易丢失的介质上。存储在本地磁盘上是可以的，只要你不问你的网站可靠性工程师。存储在一组复制的磁盘上更好。存储在不同物理位置的一组复制的磁盘上更好。存储在内存中绝对不算数。存储在多台机器上的复制内存，配备UPS电源备份和现场发电机，也许可以算数。你明白了。
+- en: 'In this chapter, our objective is to do the following:'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们的目标是做以下事情：
+- en: Motivate the need for persistent state within pipelines
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 激发管道内持久状态的需求
+- en: Look at two forms of implicit state often found within pipelines
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 看看管道内经常出现的两种隐式状态形式
+- en: Consider a real-world use case (advertising conversion attribution) that lends
+    itself poorly to implicit state, use that to motivate the salient features of
+    a general, explicit form of persistent state management
+  id: totrans-6
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 考虑一个现实世界的用例（广告转化归因），它本身不适合隐式状态，用它来激发一般显式持久状态管理的显著特点
+- en: Explore a concrete manifestation of one such state API, as found in Apache Beam
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 探索一个具体的状态API的实例，就像在Apache Beam中找到的那样
+- en: Motivation
+  id: totrans-8
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 动机
+- en: 'To begin, let’s more precisely motivate persistent state. We know from Chapter 6
+    that grouping is what gives us tables. And the core of what I postulated at the
+    beginning of this chapter was correct: the point of persisting these tables is
+    to capture the otherwise ephemeral data contained therein. But why is that necessary?'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们更准确地激发持久状态。我们从第6章知道，分组是给我们提供表的东西。而我在本章开头提出的核心观点是正确的：持久化这些表的目的是捕获其中包含的本来是短暂的数据。但为什么这是必要的呢？
+- en: The Inevitability of Failure
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 失败的必然性
+- en: The answer to that question is most clearly seen in the case of processing unbounded
+    input data, so we’ll start there. The main issue is that pipelines processing
+    unbounded data are effectively intended to run forever. But running forever is
+    a far more demanding Service-Level Objective than can be achieved by the environments
+    in which these pipelines typically execute. Long-running pipelines will inevitably
+    see interruptions thanks to machine failures, planned maintenance, code changes,
+    and the occasional misconfigured command that takes down an entire cluster of
+    production pipelines. To ensure that they can resume where they left off when
+    these kinds of things happen, long-running pipelines need some sort of durable
+    recollection of where they were before the interruption. That’s where persistent
+    state comes in.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个问题的答案在处理无界输入数据的情况下最清楚，所以我们从那里开始。主要问题是处理无界数据的管道实际上是打算永远运行的。但永远运行是一个更具挑战性的服务级别目标，远远超出了这些管道通常执行的环境所能实现的。长时间运行的管道将不可避免地因为机器故障、计划维护、代码更改以及偶尔的配置错误命令而中断整个生产管道集群。为了确保它们可以在这些情况发生时恢复到中断之前的状态，长时间运行的管道需要某种持久的记忆来记录它们中断之前的位置。这就是持久状态的作用。
+- en: Let’s expand on that idea a bit beyond unbounded data. Is this only relevant
+    in the unbounded case? Do batch pipelines use persistent state, and why or why
+    not? As with nearly every other batch-versus-streaming question we’ve come across,
+    the answer has less to do with the nature of batch and streaming systems themselves
+    (perhaps unsurprising given what we learned in Chapter 6), and more to do with
+    the types of datasets they historically have been used to process.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们在无界数据之外再扩展一下这个想法。这只在无界情况下才相关吗？批处理管道使用持久状态吗，为什么或为什么不？与我们遇到的几乎每一个批处理与流处理的问题一样，答案与批处理和流处理系统本身的性质无关（也许这并不奇怪，鉴于我们在第6章学到的东西），而更多地与它们历史上用于处理的数据集类型有关。
+- en: Bounded datasets by nature are finite in size. As a result, systems that process
+    bounded data (historically batch systems) have been tailored to that use case.
+    They often assume that the input can be reprocessed in its entirety upon failure.
+    In other words, if some piece of the processing pipeline fails and if the input
+    data are still available, we can simply restart the appropriate piece of the processing
+    pipeline and let it read the same input again. This is called *reprocessing the
+    input*.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有界数据集本质上是有限大小的。因此，处理有界数据的系统（历史上是批处理系统）已经针对这种情况进行了调整。它们通常假设在失败时可以重新处理输入的全部内容。换句话说，如果处理管道的某个部分失败，如果输入数据仍然可用，我们可以简单地重新启动处理管道的适当部分，让它再次读取相同的输入。这被称为*重新处理输入*。
+- en: They might also assume failures are infrequent and thus optimize for the common
+    case by persisting as little as possible, accepting the extra cost of recomputation
+    upon failure. For particularly expensive, multistage pipelines, there might be
+    some sort of per-stage global checkpointing that allows for more efficiently resuming
+    execution (typically as part of a shuffle), but it’s not a strict requirement
+    and might not be present in many systems.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 他们可能还会假设失败不太频繁，因此会尽量少地进行持久化，接受在失败时重新计算的额外成本。对于特别昂贵的多阶段管道，可能会有某种每阶段全局检查点的方式，以更有效地恢复执行（通常作为洗牌的一部分），但这并不是严格要求，可能在许多系统中都不存在。
+- en: Unbounded datasets, on the other hand, must be assumed to have infinite size.
+    As a result, systems that process unbounded data (historically streaming systems)
+    have been built to match. They never assume that all of the data will be available
+    for reprocessing, only some known subset of it. To provide at-least-once or exactly-once
+    semantics, any data that are no longer available for reprocessing must be accounted
+    for in durable checkpoints. And if at-most-once is all you’re going for, you don’t
+    need checkpointing.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，无界数据集必须假定具有无限大小。因此，处理无界数据的系统（历史上的流处理系统）已经建立起来。它们从不假设所有数据都可用于重新处理，只假设其中的某个已知子集可用。为了提供至少一次或精确一次的语义，任何不再可用于重新处理的数据必须在持久检查点中得到考虑。如果最多一次是您的目标，您就不需要检查点。
+- en: At the end of the day, there’s nothing batch- or streaming-specific about persistent
+    state. State can be useful in both circumstances. It just happens to be critical
+    when processing unbounded data, so you’ll find that streaming systems typically
+    provide more sophisticated support for persistent state.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 归根结底，持久状态并不是批处理或流处理特有的。状态在这两种情况下都是有用的。只是在处理无界数据时，它变得至关重要，因此您会发现流处理系统通常提供更复杂的持久状态支持。
+- en: Correctness and Efficiency
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 正确性和效率
+- en: 'Given the inevitability of failures and the need to cope with them, persistent
+    state can be seen as providing two things:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到失败的不可避免性和应对失败的需要，持久状态可以被视为提供两个东西：
+- en: A *basis for correctness* in light of ephemeral inputs. When processing bounded
+    data, it’s often safe to assume inputs stay around forever;¹ with unbounded data,
+    this assumption typically falls short of reality. Persistent state allows you
+    to keep around the intermediate bits of information necessary to allow processing
+    to continue when the inevitable happens, even after your input source has moved
+    on and forgotten about records it gave you previously.
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在处理暂时输入时，提供正确性的*基础*。在处理有界数据时，通常可以安全地假设输入会永远存在；¹对于无界数据，这种假设通常不符合现实。持久状态允许您保留必要的中间信息，以便在不可避免的情况发生时继续处理，即使您的输入源已经移动并且忘记了之前提供给您的记录。
+- en: 'A way to *minimize work duplicated and data persisted* as part of coping with
+    failures. Regardless of whether your inputs are ephemeral, when your pipeline
+    experiences a machine failure, any work on the failed machine that wasn’t checkpointed
+    somewhere must be redone. Depending upon the nature of the pipeline and its inputs,
+    this can be costly in two dimensions: the amount of work performed during reprocessing,
+    and the amount of input data stored to support reprocessing.'
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一种*最小化重复工作和持久化数据*的方式，作为应对失败的一部分。无论您的输入是暂时的，当您的管道遇到机器故障时，任何未在某个地方进行检查点的失败机器上的工作都必须重新进行。根据管道的性质和其输入，这在两个方面可能是昂贵的：重新处理期间执行的工作量以及存储以支持重新处理的输入数据量。
+- en: Minimizing duplicated work is relatively straightforward. By checkpointing partial
+    progress within a pipeline (both the intermediate results computed as well as
+    the current location within the input as of checkpointing time), it’s possible
+    to greatly reduce the amount of work repeated when failures occur because none
+    of the operations that came before the checkpoint need to be replayed from durable
+    inputs. Most commonly, this involves data at rest (i.e., tables), which is why
+    we typically refer to persistent state in the context of tables and grouping.
+    But there are persistent forms of streams (e.g., Kafka and its relatives) that
+    serve this function, as well.
+  id: totrans-21
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 最小化重复工作相对比较简单。通过在管道内部进行部分进度的检查点（计算的中间结果以及检查点时间内的当前输入位置），可以大大减少失败发生时重复工作的量，因为检查点之前的操作都不需要从持久输入中重新播放。最常见的是，这涉及到静态数据（即表），这就是为什么我们通常在表和分组的上下文中提到持久状态。但是也有流的持久形式（例如Kafka及其相关产品）可以起到这样的作用。
+- en: Minimizing the amount of data persisted is a larger discussion, one that will
+    consume a sizeable chunk of this chapter. For now, at least, suffice it to say
+    that, for many real-world use cases, rather than remembering all of the raw inputs
+    within a checkpoint for any given stage in the pipeline, it’s often practical
+    to instead remember some partial, intermediate form of the ongoing calculation
+    that consumes less space than all of the original inputs (for example, when computing
+    a mean, the total sum and the count of values seen are much more compact than
+    the complete list of values contributing to that sum and count). Not only can
+    checkpointing these intermediate data drastically reduce the amount of data that
+    you need to remember at any given point in the pipeline, it also commensurately
+    reduces the amount of reprocessing needed for that specific stage to recover from
+    a failure.
+  id: totrans-22
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 最小化持久化数据量是一个更大的讨论，这将占据本章的相当大一部分。至少目前可以说，对于许多真实用例，与其记住管道中任何给定阶段的所有原始输入，通常实际上记住一些部分的中间形式更为实际，这些中间形式占用的空间比所有原始输入要少（例如，在计算平均值时，总和和值的计数比贡献到总和和计数的完整值列表更紧凑）。检查点这些中间数据不仅可以大大减少您需要在管道中任何给定点记住的数据量，而且还可以相应地减少从失败中恢复所需的重新处理量。
+- en: Furthermore, by intelligently garbage-collecting those bits of persistent state
+    that are no longer needed (i.e., state for records which are known to have been
+    processed completely by the pipeline already), the amount of data stored in persistent
+    state for a given pipeline can be kept to a manageable size over time, even when
+    the inputs are technically infinite. This is how pipelines processing unbounded
+    data can continue to run effectively forever, while still providing strong consistency
+    guarantees but without a need for complete recall of the original inputs to the
+    pipeline.
+  id: totrans-23
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 此外，通过智能地对那些不再需要的持久状态进行垃圾回收（即已知已被管道完全处理的记录的状态），即使输入在技术上是无限的，也可以随着时间的推移将存储在给定管道的持久状态中的数据保持在可管理的大小，这样处理无界数据的管道就可以继续有效地运行，同时仍然提供强一致性保证，但不需要完全回忆管道的原始输入。
+- en: At the end of the day, persistent state is really just a means of providing
+    correctness and efficient fault tolerance in data processing pipelines. The amount
+    of support needed in either of those dimensions depends greatly upon the natures
+    of the inputs to the pipeline and the operations being performed. Unbounded inputs
+    tend to require more correctness support than bounded inputs. Computationally
+    expensive operations tend to demand more efficiency support than computationally
+    cheap operations.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 归根结底，持久状态实际上只是在数据处理管道中提供正确性和高效的容错的手段。在这两个方面所需的支持程度取决于管道输入的性质和正在执行的操作。无界输入往往需要比有界输入更多的正确性支持。计算昂贵的操作往往需要比计算廉价的操作更多的效率支持。
+- en: Implicit State
+  id: totrans-25
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 隐式状态
+- en: Let’s now begin to talk about the practicalities of persistent state. In most
+    cases, this essentially boils down to finding the right balance between always
+    persisting everything (good for consistency, bad for efficiency) and never persisting
+    anything (bad for consistency, good for efficiency). We’ll begin at the always-persisting-everything
+    end of the spectrum, and work our way in the other direction, looking at ways
+    of trading off complexity of implementation for efficiency without compromising
+    consistency (because compromising consistency by never persisting anything is
+    the easy way out for cases in which consistency doesn’t matter, and a nonoption,
+    otherwise). As before, we use the Apache Beam APIs to concretely ground our discussions,
+    but the concepts we discuss are applicable across most systems in existence today.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们开始谈论持久状态的实际情况。在大多数情况下，这基本上归结为在始终持久化一切（对一致性有利，对效率不利）和从不持久化任何东西（对一致性不利，对效率有利）之间找到合适的平衡。我们将从始终持久化一切的极端端点开始，并朝着另一个方向前进，看看如何在不损害一致性的情况下权衡实现复杂性以换取效率（因为通过从不持久化任何东西来牺牲一致性是一种简单的解决方案，对于一致性无关紧要的情况来说，但在其他情况下是不可选的）。与以前一样，我们使用Apache
+    Beam API来具体地落实我们的讨论，但我们讨论的概念适用于今天存在的大多数系统。
+- en: Also, because there isn’t much you can do to reduce the size of raw inputs,
+    short of perhaps compressing the data, our discussion centers around the ways
+    data are persisted within the intermediate state tables created as part of grouping
+    operations within a pipeline. The inherent nature of grouping multiple records
+    together into some sort of composite will provide us with opportunities to eke
+    out gains in efficiency at the cost of implementation complexity.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，由于在原始输入中几乎没有可以减少大小的方法，除了可能压缩数据，我们的讨论重点是围绕在管道内进行分组操作时创建的中间状态表中数据的持久化方式。将多个记录聚合到某种复合形式中的固有性质将为我们提供机会，在实现复杂性的代价下获得效率上的收益。
+- en: Raw Grouping
+  id: totrans-28
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 原始分组
+- en: 'The first step in our exploration, at the always-persisting-everything end
+    of the spectrum, is the most straightforward implementation of grouping within
+    a pipeline: raw grouping of the inputs. The grouping operation in this case is
+    typically akin to list appending: any time a new element arrives in the group,
+    it’s appended to the list of elements seen for that group.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们探索的第一步是在持续保持一切的极端端点，即在管道内进行最直接的分组实现：对输入进行原始分组。在这种情况下，分组操作通常类似于列表追加：每当新元素到达组时，它都会被追加到该组已见元素的列表中。
+- en: 'In Beam, this is exactly what you get when you apply a `GroupByKey` transform
+    to a `PCollection`. The stream representing that `PCollection` in motion is grouped
+    by key to yield a table at rest containing the records from the stream,² grouped
+    together as lists of values with identical keys. This shows up in the `PTransform`
+    signature for `GroupByKey`, which declares the input as a `PCollection` of `K`/`V`
+    pairs, and the output as a collection of `K`/`Iterable<V>` pairs:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Beam中，当您将`GroupByKey`转换应用于`PCollection`时，您将获得的正是这种状态。代表该`PCollection`的流在运动中被按键分组，以产生一个包含来自流的记录的静态表，²以相同键的值的列表分组在一起。这显示在`GroupByKey`的`PTransform`签名中，它声明输入为`K`/`V`对的`PCollection`，输出为`K`/`Iterable<V>`对的集合：
+- en: '[PRE0]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Every time a trigger fires for a key+window in that table, it will emit a new
+    pane for that key+window, with the value being the `Iterable<V>` we see in the
+    preceding signature.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当表中的键+窗口触发时，它将为该键+窗口发出一个新的窗格，值为我们在前面签名中看到的`Iterable<V>`。
+- en: Let’s look at an example in action in Example 7-1. We’ll take the summation
+    pipeline from Example 6-5 (the one with fixed windowing and early/on-time/late
+    triggers) and convert it to use raw grouping instead of incremental combination
+    (which we discuss a little later in this chapter). We do this by first applying
+    a `GroupByKey` transformation to the parsed user/score key/value pairs. The `GroupByKey`
+    operation performs raw grouping, yielding a `PCollection` with key/value pairs
+    of users and `Iterable<Integer>` groups of scores. We then sum up all of the `Integer`s
+    in each iterable by using a simple `MapElements` lambda that converts the `Iterable<Integer>`
+    into an `IntStream<Integer>` and calls `sum` on it.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们在示例7-1中看一个示例。我们将从示例6-5中的求和流水线（具有固定窗口和早期/准时/延迟触发）转换为使用原始分组而不是增量组合（我们稍后在本章中讨论）。我们首先对解析的用户/分数键值对应用`GroupByKey`转换。`GroupByKey`操作执行原始分组，产生一个具有用户和分数组的`PCollection`键值对。然后，我们通过使用一个简单的`MapElements`
+    lambda将每个可迭代的`Integer`相加，将`Integer`的所有值相加起来，将`Iterable<Integer>`转换为`IntStream<Integer>`并在其上调用`sum`。
+- en: Example 7-1\. Early, on-time, and late firings via the early/on-time/late API
+  id: totrans-34
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-1。通过早期/准时/延迟API进行早期、准时和延迟触发
+- en: '[PRE1]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Looking at this pipeline in action, we would see something like that depicted
+    in Figure 7-1.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 观察这个流水线的运行，我们会看到类似于图7-1所示的情况。
+- en: <assets/stsy_0701.mp4>
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <资产/stsy_0701.mp4>
+- en: '![Summation via raw grouping of inputs with windowing and early/on-time/late
+    triggering. The raw inputs are grouped together and stored in the table via the
+    GroupByKey transformation. After being triggered, the MapElements lambda sums
+    the raw inputs within a single pane together to yield per-team scores.](img/stsy_0701.png)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![通过窗口化和早期/准时/延迟触发的原始输入进行求和。原始输入被分组并通过GroupByKey转换存储在表中。在被触发后，MapElements lambda将单个窗格内的原始输入相加，得出每个团队的得分。](img/stsy_0701.png)'
+- en: Figure 7-1\. Summation via raw grouping of inputs with windowing and early/on-time/late
+    triggering. The raw inputs are grouped together and stored in the table via the
+    GroupByKey transformation. After being triggered, the MapElements lambda sums
+    the raw inputs within a single pane together to yield per-team scores.
+  id: totrans-39
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-1。通过窗口化和早期/准时/延迟触发的原始输入进行求和。原始输入被分组在一起，并通过GroupByKey转换存储在表中。在被触发后，MapElements
+    lambda将单个窗格内的原始输入相加，得出每个团队的得分。
+- en: 'Comparing this to Figure 6-10 (which was using incremental combining, discussed
+    shortly), it’s clear to see this is a lot worse. First, we’re storing a lot more
+    data: instead of a single integer per window, we now store all the inputs for
+    that window. Second, if we have multiple trigger firings, we’re duplicating effort
+    by re-summing inputs we already added together for previous trigger firings. And
+    finally, if the grouping operation is the point at which we checkpoint our state
+    to persistent storage, upon machine failure we again must recompute the sums for
+    any retriggerings of the table. That’s a lot of duplicated data and computation.
+    Far better would be to incrementally compute and checkpoint the actual sums, which
+    is an example of *incremental combining*.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与图6-10进行比较（该图使用了增量组合，稍后讨论），很明显可以看出这是更糟糕的。首先，我们存储了更多的数据：不再是每个窗口一个整数，而是现在存储了该窗口的所有输入。其次，如果我们有多个触发触发，我们会重复努力，重新对已经添加到以前触发触发的输入进行求和。最后，如果分组操作是我们将状态检查点到持久存储的地方，那么在机器故障时，我们必须重新计算表的任何重新触发的总和。这是大量重复的数据和计算。更好的做法是增量计算和检查点实际的总和，这是*增量组合*的一个例子。
+- en: Incremental Combining
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 增量组合
+- en: The first step in our journey of trading implementation complexity for efficiency
+    is incremental combining. This concept is manifested in the Beam API via the `CombineFn`
+    class. In a nutshell, incremental combining is a form of automatic state built
+    upon a user-defined associative and commutative combining operator (if you’re
+    not sure what I mean by these two terms, I define them more precisely in a moment).
+    Though not strictly necessary for the discussion that follows, the important parts
+    of the CombineFn API look like Example 7-2.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在将实现复杂性交换为效率的旅程中的第一步是增量组合。这个概念通过`CombineFn`类在Beam API中体现出来。简而言之，增量组合是一种自动状态，建立在用户定义的可结合和可交换的组合操作符之上（如果你不确定我所说的这两个术语是什么意思，我马上会更准确地定义它们）。虽然这对接下来的讨论并不是严格必要的，但CombineFn
+    API的重要部分看起来像示例7-2。
+- en: Example 7-2\. Abbreviated CombineFn API from Apache Beam
+  id: totrans-43
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-2。来自Apache Beam的简化CombineFn API
+- en: '[PRE2]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: A `CombineFn` accepts inputs of type `InputT`, which can be combined together
+    into partial aggregates called *accumulators*, of type `AccumT`. These accumulators
+    themselves can also be combined together into new accumulators. And finally, an
+    accumulator can be transformed into an output value of type `OutputT`. For something
+    like an average, the inputs might be integers, the accumulators pairs of integers
+    (i.e., `Pair<sum of inputs, count of inputs>`), and the output a single floating-point
+    value representing the mean value of the combined inputs.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`CombineFn`接受类型为`InputT`的输入，可以将其组合成称为*累加器*的部分聚合，类型为`AccumT`。这些累加器本身也可以组合成新的累加器。最后，累加器可以转换为类型为`OutputT`的输出值。对于像平均值这样的东西，输入可能是整数，累加器可能是整数对（即`Pair<输入总和，输入计数>`），输出是表示组合输入的平均值的单个浮点值。'
+- en: 'But what does all this structure buy us? Conceptually, the basic idea with
+    incremental combining is that many types of aggregations (sum, mean, etc.) exhibit
+    the following properties:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，这种结构给我们带来了什么？从概念上讲，增量组合的基本思想是，许多类型的聚合（求和、平均值等）表现出以下特性：
+- en: Incremental aggregations possess an *intermediate form* that captures the *partial
+    progress* of combining a set of *N* inputs *more compactly* than the full list
+    of those inputs themselves (i.e., the `AccumT` type in `CombineFn`). As discussed
+    earlier, for mean, this is a sum/count pair. Basic summation is even simpler,
+    with a single number as its accumulator. A histogram would have a relatively complex
+    accumulator composed of buckets, where each bucket contains a count for the number
+    of values seen within some specific range. In all three cases, however, the amount
+    of space consumed by an accumulator that represents the aggregation of *N* elements
+    remains significantly smaller than the amount of space consumed by the original
+    *N* elements themselves, particularly as the size of *N* grows.
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 增量聚合具有一个中间形式，它捕获了组合一组N个输入的部分进展，比这些输入本身的完整列表更紧凑（即`CombineFn`中的`AccumT`类型）。如前所述，对于平均值来说，这是一个总和/计数对。基本求和甚至更简单，它的累加器是一个单一的数字。直方图的累加器相对复杂，由桶组成，每个桶包含在某个特定范围内看到的值的计数。然而，在这三种情况下，表示N个元素聚合的累加器所占用的空间仍然明显小于原始N个元素本身所占用的空间，特别是当N的大小增长时。
+- en: 'Incremental aggregations are *indifferent to ordering* across two dimensions:'
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 增量聚合对两个维度的排序都是漠不关心的：
+- en: '*Individual elements*, meaning:'
+  id: totrans-49
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*单个元素*，意味着：'
+- en: '`COMBINE(a, b) == COMBINE(b, a)`'
+  id: totrans-50
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`COMBINE(a, b) == COMBINE(b, a)`'
+- en: '*Groupings of elements*, meaning:'
+  id: totrans-51
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*元素的分组*，意味着：'
+- en: '`COMBINE(COMBINE(a, b), c) == COMBINE(a, COMBINE(b, c))`'
+  id: totrans-52
+  prefs:
+  - PREF_IND
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`COMBINE(COMBINE(a, b), c) == COMBINE(a, COMBINE(b, c))`'
+- en: 'These properties are known as *commutativity* and *associativity*, respectively.
+    In concert,³ they effectively mean that we are free to combine elements and partial
+    aggregates in any arbitrary order and with any arbitrary subgrouping. This allows
+    us to optimize the aggregation in two ways:'
+  id: totrans-53
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这些属性分别被称为*可交换性*和*结合性*。在一起，它们有效地意味着我们可以自由地以任意顺序和任意分组组合元素和部分聚合。这使我们能够通过两种方式优化聚合：
+- en: Incrementalization
+  id: totrans-54
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 增量化
+- en: Because the order of individual inputs doesn’t matter, we don’t need to buffer
+    all of the inputs ahead of time and then process them in some strict order (e.g.,
+    in order of event time; note, however, that this remains independent of *shuffling*
+    elements by event time into proper event-time windows before aggregating); we
+    can simply combine them one-by-one as they arrive. This not only greatly reduces
+    the amount of data that must be buffered (thanks to the first property of our
+    operation, which stated the intermediate form was a more compact representation
+    of partial aggregation than the raw inputs themselves), but also spreads the computation
+    load more evenly over time (versus aggregating a burst of inputs all at once after
+    the full input set has been buffered).
+  id: totrans-55
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 因为个别输入的顺序并不重要，我们不需要提前缓冲所有的输入，然后按照某种严格的顺序处理它们（例如，按事件时间顺序；注意，这仍然独立于按事件时间将元素洗牌到适当的事件时间窗口中进行聚合）；我们可以在它们到达时逐个组合它们。这不仅极大地减少了必须缓冲的数据量（由于我们操作的第一个属性，即中间形式是部分聚合的更紧凑表示，而不是原始输入本身），而且还可以更均匀地分散计算负载的负担（与在缓冲完整输入集之后一次性聚合输入的负担相比）。
+- en: Parallelization
+  id: totrans-56
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 并行化
+- en: Because the order in which partial subgroups of inputs are combined doesn’t
+    matter, we’re free to arbitrarily distribute the computation of those subgroups.
+    More specifically, we’re free to spread the computation of those subgroups across
+    a plurality of machines. This optimization is at the heart of MapReduce’s `Combiners`
+    (the genesis of Beam’s `CombineFn`).
+  id: totrans-57
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 因为部分输入子组的组合顺序并不重要，我们可以任意分配这些子组的计算。更具体地说，我们可以将这些子组的计算分散到多台机器上。这种优化是MapReduce的`Combiners`（Beam的`CombineFn`的起源）的核心。
+- en: 'MapReduce’s Combiner optimization is essential to solving the hot-key problem,
+    where some sort of grouping computation is performed on an input stream that is
+    too large to be reasonably processed by a single physical machine. A canonical
+    example is breaking down high-volume analytics data (e.g., web traffic to a popular
+    website) across a relatively low number of dimensions (e.g., by web browser family:
+    Chrome, Firefox, Safari, etc.). For websites with a particularly high volume of
+    traffic, it’s often intractable to calculate stats for any single web browser
+    family on a single machine, even if that’s the only thing that machine is dedicated
+    to doing; there’s simply too much traffic to keep up with. But with an associative
+    and commutative operation like summation, it’s possible to spread the initial
+    aggregation across multiple machines, each of which computes a partial aggregate.
+    The set of partial aggregates generated by those machines (whose size is now many
+    of orders magnitude smaller than the original inputs) might then be further combined
+    together on a single machine to yield the final aggregate result.'
+  id: totrans-58
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: MapReduce的Combiner优化对解决热键问题至关重要，其中对输入流进行某种分组计算的数据量太大，无法由单个物理机器合理处理。一个典型的例子是将高容量的分析数据（例如，流量到一个热门网站的网页浏览量）按相对较少的维度（例如，按浏览器系列：Chrome，Firefox，Safari等）进行分解。对于流量特别高的网站，即使该机器专门用于计算统计数据，也很难在单台机器上计算任何单个网页浏览器系列的统计数据；流量太大，无法跟上。但是，通过类似求和这样的结合和交换操作，可以将初始聚合分布到多台机器上，每台机器计算一个部分聚合。然后，这些机器生成的部分聚合集合（其大小现在比原始输入小几个数量级）可以在单台机器上进一步组合在一起，得到最终的聚合结果。
+- en: 'As an aside, this ability to parallelize also yields one additional benefit:
+    the aggregation operation is naturally compatible with merging windows. When two
+    windows merge, their values must somehow be merged, as well. With raw grouping,
+    this means merging the two full lists of buffered values together, which has a
+    cost of O(N). But with a `CombineFn`, it’s a simple combination of two partial
+    aggregates, typically an O(1) operation.'
+  id: totrans-59
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 顺便说一句，这种并行化的能力还带来了一个额外的好处：聚合操作自然与合并窗口兼容。当两个窗口合并时，它们的值也必须以某种方式合并。对于原始分组来说，这意味着将两个完整的缓冲值列表合并在一起，其成本为O(N)。但是对于`CombineFn`来说，这只是两个部分聚合的简单组合，通常是O(1)的操作。
+- en: For the sake of completeness, consider again Example 6-5, shown in Example 7-3,
+    which implements a summation pipeline using incremental combination.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了完整起见，再考虑一下示例6-5，如示例7-3所示，它使用增量组合实现了一个求和管道。
+- en: Example 7-3\. Grouping and summation via incremental combination, as in Example 6-5
+  id: totrans-61
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-3。通过增量组合进行分组和求和，就像示例6-5中那样
+- en: '[PRE3]'
+  id: totrans-62
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: When executed, we get what we saw Figure 6-10 (shown here in Figure 7-2). Compared
+    to Figure 7-1, this is clearly a big improvement, with much greater efficiency
+    in terms of amount of data stored and amount of computation performed.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行时，我们得到了我们在图6-10中看到的结果（在这里显示为图7-2）。与图7-1相比，这显然是一个很大的改进，存储的数据量和执行的计算量都大大提高了效率。
+- en: <assets/stsy_0702.mp4>
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <资产/stsy_0702.mp4>
+- en: '![Grouping and summation via incremental combination. In this version, incremental
+    sums are computed and stored in the table rather than lists of inputs, which must
+    later be summed together independently.](img/stsy_0702.png)'
+  id: totrans-65
+  prefs: []
+  type: TYPE_IMG
+  zh: '![通过增量组合进行分组和求和。在这个版本中，增量和被计算并存储在表中，而不是输入的列表，这些列表必须在以后独立地进行求和。](img/stsy_0702.png)'
+- en: Figure 7-2\. Grouping and summation via incremental combination. In this version,
+    incremental sums are computed and stored in the table rather than lists of inputs,
+    which must later be summed together independently.
+  id: totrans-66
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-2。通过增量组合进行分组和求和。在这个版本中，增量和被计算并存储在表中，而不是输入的列表，这些列表必须在以后独立地进行求和。
+- en: By providing a more compact intermediate representation for a grouping operation,
+    and by relaxing requirements on ordering (both at the element and subgroup levels),
+    Beam’s `CombineFn` trades off a certain amount of implementation complexity in
+    exchange for increases in efficiency. In doing so, it provides a clean solution
+    for the hot-key problem and also plays nicely with the concept of merging windows.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过为分组操作提供更紧凑的中间表示，并放宽对排序的要求（在元素和子组级别），Beam的`CombineFn`在实现复杂性方面进行了一定程度的折衷，以换取效率的提高。这样做，它为热键问题提供了一个清晰的解决方案，并且与合并窗口的概念相互配合。
+- en: One shortcoming, however, is that your grouping operation must fit within a
+    relatively restricted structure. This is all well and good for sums, means, and
+    so on, but there are plenty of real-world use cases in which a more general approach,
+    one which allows precise control over trade-offs of complexity and efficiency,
+    is needed. We’ll look next at what such a general approach entails.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，一个缺点是，您的分组操作必须适合相对受限的结构。这对于求和、平均值等来说都很好，但在许多真实世界的用例中，需要更一般的方法，这种方法允许对复杂性和效率的权衡进行精确控制。接下来我们将看看这种一般方法包括什么。
+- en: Generalized State
+  id: totrans-69
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 广义状态
+- en: 'Though both of the implicit approaches we’ve looked at so far have their merits,
+    they each fall short in one dimension: flexibility. The raw grouping method requires
+    you to always buffer up the raw inputs to the grouping operation before processing
+    the group in whole, so there’s no way to partially process some of the data along
+    the way; it’s all or nothing. The incremental combining approach specifically
+    allows for partial processing but with the restriction that the processing in
+    question be commutative and associative and happen as records arrive one-by-one.'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管我们迄今为止看到的两种隐式方法都各有其优点，但它们在某一方面都存在不足：灵活性。原始分组方法要求您在处理整个组之前始终缓冲原始输入到分组操作，因此在途中无法部分处理一些数据；要么全部处理，要么不处理。增量组合方法专门允许部分处理，但限制了所处理的处理必须是可交换和可结合的，并且是逐个记录到达时发生的。
+- en: 'If we want to support a more generalized approach to streaming persistent state,
+    we need something more flexible. Specifically, we need flexibility in three dimensions:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想要支持更广义的流式持久状态方法，我们需要更灵活的东西。具体来说，我们需要在三个方面灵活：
+- en: 'Flexibility in data structures; that is, an ability to structure the data we
+    write and read in ways that are most appropriate and efficient for the task at
+    hand. Raw grouping essentially provides an appendable list, and incremental combination
+    essentially provides a single value that is always written and read in its entirety.
+    But there are myriad other ways in which we might want to structure our persistent
+    data, each with different types of access patterns and associated costs: maps,
+    trees, graphs, sets, and so on. Supporting a variety of persistent data types
+    is critical for efficiency.'
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据结构的灵活性；也就是说，我们写入和读取数据的能力，以最适合和最有效的方式进行结构化。原始分组基本上提供了一个可附加的列表，而增量组合基本上提供了一个始终以其全部写入和读取的单个值。但是，我们可能希望以其他无数种方式来结构化我们的持久数据，每种方式都具有不同类型的访问模式和相关成本：映射、树、图、集合等等。支持各种持久数据类型对于效率至关重要。
+- en: Beam supports flexibility in data types by allowing a single `DoFn` to declare
+    multiple state fields, each of a specific type. In this way, logically independent
+    pieces of state (e.g., visits and impressions) can be stored separately, and semantically
+    different types of state (e.g., maps and lists) can be accessed in ways that are
+    natural given their types of access patterns.
+  id: totrans-73
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: Beam通过允许单个`DoFn`声明多个特定类型的状态字段来支持数据类型的灵活性。通过这种方式，逻辑上独立的状态片段（例如访问和印象）可以分别存储，并且语义上不同类型的状态（例如映射和列表）可以以符合其访问模式类型的方式进行访问。
+- en: 'Flexibility in write and read granularity; that is, an ability to tailor the
+    amount and type of data written or read at any given time for optimal efficiency.
+    What this boils down to is the ability to write and read precisely the necessary
+    amount of data at any given point of time: no more, and no less (and in parallel
+    as much as possible).'
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 写入和读取的灵活性;也就是说，能够根据需要调整在任何给定时间写入或读取的数据量和类型，以实现最佳效率。归根结底，这意味着能够在任何给定时间点精确地写入和读取必要数量的数据：不多，也不少（并且尽可能并行）。
+- en: This goes hand in hand with the previous point, given that dedicated data types
+    allow for focused types of access patterns (e.g., a set-membership operation that
+    can use something like a Bloom filter under the covers to greatly minimize the
+    amount of data read in certain circumstances). But it goes beyond it, as well;
+    for example, allowing multiple large reads to be dispatched in parallel (e.g.,
+    via futures).
+  id: totrans-75
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 这与前面的观点相辅相成，因为专用数据类型允许专注于特定类型的访问模式（例如，可以使用类似Bloom过滤器的东西来极大地减少在某些情况下读取的数据量）。但它不仅限于此；例如，允许多个大型读取并行分派（例如，通过futures）。
+- en: In Beam, flexibly granular writes and reads are enabled via datatype-specific
+    APIs that provide fine-grained access capabilities, combined with an asynchronous
+    I/O mechanism that allows for writes and reads to be batched together for efficiency.
+  id: totrans-76
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在Beam中，通过特定数据类型的API实现了灵活的粒度写入和读取，这些API提供了细粒度的访问能力，结合了异步I/O机制，可以将写入和读取批量处理以提高效率。
+- en: 'Flexibility in scheduling of processing; that is, an ability to bind the time
+    at which specific types of processing occur to the progress of time in either
+    of the two time domains we care about: event-time completeness and processing
+    time. Triggers provide a restricted set of flexibility here, with completeness
+    triggers providing a way to bind processing to the watermark passing the end of
+    the window, and repeated update triggers providing a way to bind processing to
+    periodic progress in the processing-time domain. But for certain use cases (e.g.,
+    certain types of joins, for which you don’t necessarily care about input completeness
+    of the entire window, just input completeness up to the event-time of a specific
+    record in the join), triggers are insufficiently flexible. Hence, our need for
+    a more general solution.'
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 处理调度的灵活性;也就是说，能够将特定类型的处理发生的时间与我们关心的两种时间域中的时间进展绑定在一起：事件时间的完整性和处理时间。触发器在这里提供了一定程度的灵活性，完整性触发器提供了一种将处理绑定到窗口结束时通过水印的方式，而重复更新触发器提供了一种将处理绑定到处理时间域中定期进展的方式。但对于某些用例（例如，某些类型的连接，对于这些连接，您不一定关心整个窗口的输入完整性，只关心连接中特定记录的事件时间之前的输入完整性），触发器的灵活性不够。因此，我们需要一个更通用的解决方案。
+- en: In Beam, flexible scheduling of processing is provided via *timers*.⁴ A timer
+    is a special type of state that binds a specific point in time in either supported
+    time domain (event time or processing time) with a method to be called when that
+    point in time is reached. In this way, specific bits of processing can be delayed
+    until a more appropriate time in the future.
+  id: totrans-78
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: 在Beam中，通过*定时器*提供了灵活的处理调度。定时器是一种特殊类型的状态，它将支持的时间域（事件时间或处理时间）中的特定时间点与在达到该时间点时要调用的方法绑定。通过这种方式，特定的处理可以延迟到未来更合适的时间。
+- en: The common thread among these three characteristics is *flexibility*. A specific
+    subset of use cases are served very well by the relatively inflexible approaches
+    of raw grouping or incremental combination. But when tackling anything outside
+    their relatively narrow domain of expertise, those options often fall short. When
+    that happens, you need the power and flexibility of a fully general-state API
+    to let you tailor your utilization of persistent state optimally.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这三个特征之间的共同点是*灵活性*。一些特定的用例子集通过原始分组或增量组合的相对不灵活的方法得到了很好的服务。但是，当处理超出它们相对狭窄的专业领域时，这些选项通常表现不佳。当发生这种情况时，您需要全面通用状态API的强大灵活性，以便您可以最佳地定制持久状态的利用。
+- en: To think of it another way, raw grouping and incremental combination are relatively
+    high-level abstractions that enable the pithy expression of pipelines with (in
+    the case of combiners, at least) some good properties for automatic optimizations.
+    But sometimes you need to go low level to get the behavior or performance you
+    need. That’s what generalized state lets you do.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 换个角度来看，原始分组和增量组合是相对高级的抽象，可以简洁地表达具有（至少在组合器的情况下）一些良好属性的管道。但有时，您需要降低级别以获得所需的行为或性能。这就是通用状态让您能够做到的。
+- en: 'Case Study: Conversion Attribution'
+  id: totrans-81
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 案例研究：转化归因
+- en: 'To see this in action, let’s now look at a use case that is poorly served by
+    both raw grouping and incremental combination: *conversion attribution*. This
+    is a technique that sees widespread use across the advertising world to provide
+    concrete feedback on the effectiveness of advertisements. Though relatively easy
+    to understand, its somewhat diverse set of requirements doesn’t fit nicely into
+    either of the two types of implicit state we’ve considered so far.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了看到这一点，现在让我们来看一个既不受原始分组也不受增量组合良好服务的用例：*转化归因*。这是广告界广泛使用的一种技术，用于提供有关广告效果的具体反馈。尽管相对容易理解，但它的一些多样化要求并不完全适合我们迄今考虑的两种类型的隐式状态。
+- en: Imagine that you have an analytics pipeline that monitors traffic to a website
+    in conjunction with advertisement impressions that directed traffic to that site.
+    The goal is to provide attribution of specific advertisements shown to a user
+    toward the achievement of some goal on the site itself (which often might lie
+    many steps beyond the initial advertisement landing page), such as signing up
+    for a mailing list or purchasing an item.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 想象一下，您有一个分析管道，监视网站的流量以及将流量引导到该网站的广告印象。目标是将显示给用户的特定广告归因于网站本身的某个目标的实现（通常可能远远超出初始广告着陆页面的许多步骤），例如注册邮件列表或购买物品。
+- en: Figure 7-3 shows an example set of website visits, goals, and ad impressions,
+    with one attributed conversion highlighted in red. Building up conversion attributions
+    over an unbounded, out-of-order stream of data requires keeping track of impressions,
+    visits, and goals seen so far. That’s where persistent state comes in.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图7-3显示了一个网站访问、目标和广告展示的示例集合，其中一个归因转化以红色突出显示。在无界、无序的数据流中建立转化归因需要跟踪到目前为止所见的展示、访问和目标。这就是持久状态的作用所在。
+- en: '![](img/stsy_0703.png)'
+  id: totrans-85
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0703.png)'
+- en: Figure 7-3\. Example conversion attribution
+  id: totrans-86
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图7-3. 示例转化归因
+- en: In this diagram, a user’s traversal of various pages on a website is represented
+    as a graph. Impressions are advertisements that were shown to the user and clicked,
+    resulting in the user visiting a page on the site. Visits represent a single page
+    viewed on the site. Goals are specific visited pages that have been identified
+    as a desired destination for users (e.g., completing a purchase, or signing up
+    for a mailing list). The goal of conversion attribution is to identify ad impressions
+    that resulted in the user achieving some goal on the site. In this figure, there
+    is one such conversion highlighted in red. Note that events might arrive out of
+    order, hence the event-time axis in the diagram and the watermark reference point
+    indicating the time up to which input is believed to be correct.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个图表中，用户在网站上浏览各种页面的过程被表示为一个图形。展示是向用户展示并被点击的广告，导致用户访问网站上的页面。访问代表在网站上查看的单个页面。目标是被确定为用户的期望目的地的特定访问页面（例如，完成购买或注册邮件列表）。转化归因的目标是识别导致用户在网站上实现某个目标的广告展示。在这个图中，有一个这样的转化以红色突出显示。请注意，事件可能以无序方式到达，因此图表中有事件时间轴和水印参考点，指示认为输入正确的时间。
+- en: 'A lot goes into building a robust, large-scale attribution pipeline, but there
+    are a few aspects worth calling out explicitly. Any such pipeline we attempt to
+    build must do the following:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建一个强大的大规模归因管道需要投入大量精力，但有一些方面值得明确指出。我们尝试构建的任何这样的管道必须做到以下几点：
+- en: Handle out-of-order data
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理无序数据
+- en: Because the website traffic and ad impression data come from separate systems,
+    both of which are implemented as distributed collection services themselves, the
+    data might arrive wildly out of order. Thus, our pipeline must be resilient to
+    such disorder.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于网站流量和广告展示数据来自分别作为分布式收集服务的系统，这些数据可能以极其无序的方式到达。因此，我们的管道必须对这种无序性具有弹性。
+- en: Handle high volumes of data
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理大量数据
+- en: Not only must we assume that this pipeline will be processing data for a large
+    number of independent users, but depending upon the volume of a given ad campaign
+    and the popularity of a given website, we might need to store a large amount of
+    impression and/or traffic data as we attempt to build evidence of attribution.
+    For example, it would not be unheard of to store 90 days worth of visit, impression,
+    and goal tree⁵ data per user to allow us to build up attributions that span multiple
+    months’ worth of activity.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不仅必须假设这个管道将处理大量独立用户的数据，而且根据给定广告活动的规模和给定网站的受欢迎程度，我们可能需要存储大量的展示和/或流量数据，以便我们尝试建立归因的证据。例如，为了让我们能够建立跨越多个月活动的归因，存储90天的访问、展示和目标树⁵数据对于每个用户来说并不罕见。
+- en: Protect against spam
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 防范垃圾邮件
+- en: Given that money is involved, correctness is paramount. Not only must we ensure
+    that visits and impressions are accounted for exactly once (something we’ll get
+    more or less for free by simply using an execution engine that supports effectively-once
+    processing), but we must also guard our advertisers against spam attacks that
+    attempt to charge advertisers unfairly. For example, a single ad that is clicked
+    multiple times in a row by the same user will arrive as multiple impressions,
+    but as long as those clicks occur within a certain amount of time of one another
+    (e.g., within the same day), they must be attributed only once. In other words,
+    even if the system guarantees we’ll see every individual *impression* once, we
+    must also perform some manual deduplication across impressions that are technically
+    different events but which our business logic dictates we interpret as duplicates.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到涉及到金钱，正确性至关重要。我们不仅必须确保访问和展示被准确计算一次（通过简单使用支持有效一次处理的执行引擎，我们基本上可以得到这一点），而且还必须保护我们的广告商免受试图不公平收费的垃圾邮件攻击。例如，同一用户连续多次点击同一广告将作为多个展示到达，但只要这些点击在一定时间内发生（例如在同一天内），它们只能被归因一次。换句话说，即使系统保证我们会看到每个单独的*展示*一次，我们还必须在技术上不同但根据我们的业务逻辑应该被解释为重复的展示之间执行一些手动去重。
+- en: Optimize for performance
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 优化性能
+- en: Above all, because of the potential scale of this pipeline, we must always keep
+    an eye toward optimizing the performance of our pipeline. Persistent state, because
+    of the inherent costs of writing to persistent storage, can often be the performance
+    bottleneck in such a pipeline. As such, the flexibility characteristics we discussed
+    earlier will be critical in ensuring our design is as performant as possible.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最重要的是，由于这个管道的潜在规模，我们必须始终关注优化管道的性能。由于写入持久存储的固有成本，持久状态往往会成为这种管道的性能瓶颈。因此，我们之前讨论的灵活性特征对于确保我们的设计尽可能高效至关重要。
+- en: Conversion Attribution with Apache Beam
+  id: totrans-97
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用Apache Beam进行转化归因
+- en: Now that we understand the basic problem that we’re trying to solve and have
+    some of the important requirements squarely in mind, let’s use Beam’s State and
+    Timers API to build a basic conversion attribution transformation. We’ll write
+    this just like we would any other `DoFn` in Beam, but we’ll make use of state
+    and timer extensions that allow us to write and read persistent state and timer
+    fields. Those of you that want to follow along in real code can find the full
+    implementation on [GitHub](http://bit.ly/2yeAGAQ).
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们理解了我们要解决的基本问题，并且心中有一些重要的要求，让我们使用Beam的State和Timers API来构建一个基本的转化归因转换。我们将像在Beam中编写任何其他`DoFn`一样编写这个，但我们将利用状态和计时器扩展，允许我们编写和读取持久状态和计时器字段。那些想要在真实代码中跟随的人可以在[GitHub](http://bit.ly/2yeAGAQ)上找到完整的实现。
+- en: Note that, as with all grouping operations in Beam, usage of the State API is
+    scoped to the current key and window, with window lifetimes dictated by the specified
+    allowed lateness parameter; in this example, we’ll be operating within a single
+    global window. Parallelism is linearized per key, as with most `DoFns`. Also note
+    that, for simplicity, we’ll be eliding the manual garbage collection of visits
+    and impressions falling outside of our 90-day horizon that would be necessary
+    to keep the persisted state from growing forever.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，与Beam中的所有分组操作一样，State API的使用范围限定为当前的键和窗口，窗口的生命周期由指定的允许延迟参数决定；在这个例子中，我们将在一个全局窗口内操作。并行性是按键线性化的，就像大多数`DoFns`一样。还要注意，为了简单起见，我们将省略手动回收超出我们90天视野范围的访问和印象，这对于保持持久状态不断增长是必要的。
+- en: To begin, let’s define a few POJO classes for visits, impressions, a visit/impression
+    union (used for joining), and completed attributions, as shown in Example 7-4.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们为访问、印象、访问/印象联合（用于连接）和已完成的归因定义一些POJO类，如示例7-4所示。
+- en: Example 7-4\. POJO definitions of Visit, Impression, VisitOrImpression, and
+    Attribution objects
+  id: totrans-101
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-4。Visit、Impression、VisitOrImpression和Attribution对象的POJO定义
+- en: '[PRE4]'
+  id: totrans-102
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: We next define a Beam `DoFn` to consume a flattened collection of `Visit`s and
+    `Impression`s, keyed by the user. In turn, it will yield a collection of `Attribution`s.
+    Its signature looks like Example 7-5.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们定义一个Beam `DoFn`来消耗一个扁平化的`Visit`和`Impression`集合，以用户为键。反过来，它将产生一个`Attribution`集合。它的签名看起来像示例7-5。
+- en: Example 7-5\. DoFn signature for our conversion attribution transformation​
+  id: totrans-104
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-5。用于我们的转化归因转换的DoFn签名
+- en: '[PRE5]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Within that `DoFn`, we need to implement the following logic:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`DoFn`中，我们需要实现以下逻辑：
+- en: Store all visits in a map keyed by their URL so that we can easily look them
+    up when tracing visit trails backward from a goal.
+  id: totrans-107
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将所有访问存储在一个以它们的URL为键的映射中，这样我们可以在追踪访问路径时轻松查找它们。
+- en: Store all impressions in a map keyed by the URL they referred to, so we can
+    identify impressions that initiated a trail to a goal.
+  id: totrans-108
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将所有印象存储在一个以它们所引用的URL为键的映射中，这样我们可以识别引发通往目标的印象。
+- en: Any time we see a visit that happens to be a goal, set an event-time timer for
+    the timestamp of the goal. Associated with this timer will be a method that performs
+    goal attribution for the pending goal. This will ensure that attribution only
+    happens once the input leading up to the goal is complete.
+  id: totrans-109
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 每当我们看到一个恰好是目标的访问时，为目标的时间戳设置一个事件时间计时器。与此计时器关联的是一个执行目标归因的方法。这将确保只有在导致目标的输入完成后才进行归因。
+- en: Because Beam lacks support for a dynamic set of timers (currently all timers
+    must be declared at pipeline definition time, though each individual timer can
+    be set and reset for different points in time at runtime), we also need to keep
+    track of the timestamps for all of the goals we still need to attribute. This
+    will allow us to have a single attribution timer set for the minimum timestamp
+    of all pending goals. After we attribute the goal with the earliest timestamp,
+    we set the timer again with the timestamp of the next earliest goal.
+  id: totrans-110
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 因为Beam缺乏对动态计时器集的支持（当前所有计时器必须在管道定义时声明，尽管每个单独的计时器可以在运行时的不同时间点设置和重置），我们还需要跟踪我们仍然需要归因的所有目标的时间戳。这将允许我们为所有待处理目标的最小时间戳设置一个单一的归因计时器。在我们归因最早时间戳的目标之后，我们再次使用下一个最早目标的时间戳设置计时器。
+- en: 'Let’s now walk through the implementation in pieces. First up, we need to declare
+    specifications for all of our state and timer fields within the `DoFn`. For state,
+    the specification dictates the type of data structure for the field itself (e.g.,
+    map or list) as well as the type(s) of data contained therein, and their associated
+    coder(s); for timers, it dictates the associated time domain. Each specification
+    is then assigned a unique ID string (via the `@StateID`/`@TimerId` annotations),
+    which will allow us to dynamically associate these specifications with parameters
+    and methods later on. For our use case, we’ll define (in Example 7-6) the following:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们逐步实现。首先，我们需要在`DoFn`中声明所有状态和计时器字段的规范。对于状态，规范规定了字段本身的数据结构类型（例如，映射或列表）以及其中包含的数据类型和它们关联的编码器；对于计时器，它规定了关联的时间域。然后，每个规范都被分配一个唯一的ID字符串（通过`@StateID`/`@TimerId`注释），这将允许我们动态地将这些规范与后续的参数和方法关联起来。对于我们的用例，我们将定义（在示例7-6中）以下内容：
+- en: Two `MapState` specifications for visits and impressions
+  id: totrans-112
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 两个用于访问和印象的`MapState`规范
+- en: A single `SetState` specification for goals
+  id: totrans-113
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个用于目标的`SetState`规范
+- en: A `ValueState` specification for keeping track of the minimum pending goal timestamp
+  id: totrans-114
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个用于跟踪最小待处理目标时间戳的`ValueState`规范
+- en: A `Timer` specification for our delayed attribution logic
+  id: totrans-115
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个用于延迟归因逻辑的`Timer`规范
+- en: Example 7-6\. State field specifications
+  id: totrans-116
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-6。状态字段规范
+- en: '[PRE6]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Next up, we implement our core `@ProcessElement` method. This is the processing
+    logic that will run every time a new record arrives. As noted earlier, we need
+    to record visits and impressions to persistent state as well as keep track of
+    goals and manage the timer that will bind our attribution logic to the progress
+    of event-time completeness as tracked by the watermark. Access to state and timers
+    is provided via parameters passed to our `@ProcessElement` method, and the Beam
+    runtime invokes our method with appropriate parameters indicated by `@StateId`
+    and `@TimerId` annotations. The logic itself is then relatively straightforward,
+    as demonstrated in Example 7-7.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们实现我们的核心`@ProcessElement`方法。这是每次新记录到达时都会运行的处理逻辑。正如前面所述，我们需要将访问和展示记录到持久状态中，并跟踪目标并管理将我们的归因逻辑绑定到事件时间完整性进展的定时器，由水印跟踪。对状态和定时器的访问是通过传递给我们的`@ProcessElement`方法的参数提供的，Beam运行时使用`@StateId`和`@TimerId`注解指示适当的参数调用我们的方法。逻辑本身相对简单，如示例7-7所示。
+- en: Example 7-7\. @ProcessElement implementation
+  id: totrans-119
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-7。@ProcessElement实现
+- en: '[PRE7]'
+  id: totrans-120
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: 'Note how this ties back to our three desired capabilities in a general state
+    API:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，这与我们对通用状态API中的三个期望功能的联系：
+- en: Flexibility in data structures
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据结构的灵活性
+- en: We have maps, a set, a value, and a timer. They allow us to efficiently manipulate
+    our state in ways that are effective for our algorithm.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们有地图、集合、值和定时器。它们使我们能够以对我们的算法有效的方式高效地操作我们的状态。
+- en: Flexibility in write and read granularity
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 写入和读取粒度的灵活性
+- en: Our `@ProcessElement` method is called for every single visit and impression
+    we process. As such, we need it to be as efficient as possible. We take advantage
+    of the ability to make fine-grained, blind writes only to the specific fields
+    we need. We also only ever read from state within our `@ProcessElement` method
+    in the uncommon case of encountering a new goal. And when we do, we read only
+    a single integer value, without touching the (potentially much larger) maps and
+    list.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的`@ProcessElement`方法会为我们处理的每一个访问和展示调用一次。因此，我们需要尽可能地提高其效率。我们利用了进行细粒度的盲目写入，只针对我们需要的特定字段。我们在`@ProcessElement`方法中只在遇到新目标的罕见情况下从状态中读取。当我们这样做时，我们只读取一个整数值，而不触及（可能要大得多的）地图和列表。
+- en: Flexibility in scheduling of processing
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理调度的灵活性
+- en: Thanks to timers, we’re able to delay our complex goal attribution logic (defined
+    next) until we’re confident we’ve received all the necessary input data, minimizing
+    duplicated work and maximizing efficiency.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于定时器的存在，我们能够延迟我们复杂的目标归因逻辑（下面定义）直到我们确信已经收到了所有必要的输入数据，最大限度地减少重复工作并最大化效率。
+- en: 'Having defined the core processing logic, let’s now look at our final piece
+    of code, the goal attribution method. This method is annotated with an `@TimerId`
+    annotation to identify it as the code to execute when the corresponding attribution
+    timer fires. The logic here is significantly more complicated than the `@ProcessElement`
+    method:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在定义了核心处理逻辑后，让我们现在看看我们的最后一段代码，即目标归因方法。这个方法被注解为`@TimerId`，以标识它为在相应的归因定时器触发时执行的代码。这里的逻辑比`@ProcessElement`方法复杂得多：
+- en: First, we need to load the entirety of our visit and impression maps, as well
+    as our set of goals. We need the maps to piece our way backward through the attribution
+    trail we’ll be building, and we need the goals to know which goals we’re attributing
+    as a result of the current timer firing, as well as the next pending goal we want
+    to schedule for attribution in the future (if any).
+  id: totrans-129
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 首先，我们需要加载我们的访问和展示地图的全部内容，以及我们的目标集。我们需要地图来逆向穿越我们将要构建的归因路径，我们需要目标来知道我们正在归因的目标是由于当前定时器触发的结果，以及我们想要在未来安排归因的下一个待定目标（如果有的话）。
+- en: 'After we’ve loaded our state, we process goals for this timer one at a time
+    in a loop, repeatedly:'
+  id: totrans-130
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在加载了我们的状态之后，我们在一个循环中逐个处理这个定时器的目标：
+- en: Checking to see if any impressions referred the user to the current visit in
+    the trail (beginning with the goal). If so, we’ve completed attribution of this
+    goal and can break out of the loop and emit the attribution trail.
+  id: totrans-131
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 检查是否有任何展示将用户引荐到路径中的当前访问（从目标开始）。如果是，我们已经完成了这个目标的归因，可以跳出循环并发出归因路径。
+- en: Checking next to see if any visits were the referrer for the current visit.
+    If so, we’ve found a back pointer in our trail, so we traverse it and start the
+    loop over.
+  id: totrans-132
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 接下来检查是否有任何访问是当前访问的引荐者。如果是，我们在我们的路径中找到了一个反向指针，所以我们遍历它并重新开始循环。
+- en: If no matching impressions or visits are found, we have a goal that was reached
+    organically, with no associated impression. In this case, we simply break out
+    of the loop and move on to the next goal, if any.
+  id: totrans-133
+  prefs:
+  - PREF_IND
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果找不到匹配的展示或访问，我们有一个是有机达成的目标，没有相关的展示。在这种情况下，我们只需跳出循环，继续下一个目标，如果有的话。
+- en: After we’ve exhausted our list of goals ready for attribution, we set a timer
+    for the next pending goal in the list (if any) and reset the corresponding `ValueState`
+    tracking the minimum pending goal timestamp.
+  id: totrans-134
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在我们用于归因的目标列表用尽后，我们为列表中的下一个待定目标设置一个定时器（如果有的话），并重置相应的`ValueState`以跟踪最小的待定目标时间戳。
+- en: To keep things concise, we first look at the core goal attribution logic, shown
+    in Example 7-8, which roughly corresponds to point 2 in the preceding list.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了简洁起见，我们首先看一下核心目标归因逻辑，如示例7-8所示，它大致对应于前面列表中的第2点。
+- en: Example 7-8\. Goal attribution logic
+  id: totrans-136
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-8。目标归因逻辑
+- en: '[PRE8]'
+  id: totrans-137
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The rest of the code (eliding a few simple helper methods), which handles initializing
+    and fetching state, invoking the attribution logic, and handling cleanup to schedule
+    any remaining pending goal attribution attempts, looks like Example 7-9.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 代码的其余部分（省略了一些简单的辅助方法），处理初始化和获取状态，调用归因逻辑，并处理清理以安排任何剩余的待定目标归因尝试，看起来像示例7-9。
+- en: Example 7-9\. Overall @TimerId handling logic for goal attribution
+  id: totrans-139
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-9。目标归因的整体@TimerId处理逻辑
+- en: '[PRE9]'
+  id: totrans-140
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'This code block ties back to the three desired capabilities of a general state
+    API in very similar ways as the `@ProcessElement` method, with one noteworthy
+    difference:'
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个代码块与通用状态API的三个期望功能非常相似，与`@ProcessElement`方法有一个显著的区别：
+- en: Flexibility in write and read granularity
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 写入和读取粒度的灵活性
+- en: We were able to make a single, coarse-grained read up front to load all of the
+    data in the maps and set. This is typically much more efficient than loading each
+    field separately, or even worse loading each field element by element. It also
+    shows the importance of being able to traverse the spectrum of access granularities,
+    from fine-grained to coarse-grained.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们能够进行一次单一的粗粒度读取，加载所有地图和集合中的数据。这通常比单独加载每个字段或者更糟糕的是逐个加载每个字段元素要高效得多。这也显示了能够遍历从细粒度到粗粒度的访问粒度的重要性。
+- en: 'And that’s it! We’ve implemented a basic conversion attribution pipeline, in
+    a way that’s efficient enough to be operated at respectable scales using a reasonable
+    amount of resources. And importantly, it functions properly in the face of out-of-order
+    data. If you look at the dataset used for the [unit test](http://bit.ly/2sY4goW)
+    in Example 7-10, you can see it presents a number of challenges, even at this
+    small scale:'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就是这样！我们实现了一个基本的转化归因流水线，以一种足够高效的方式在可观的规模上运行，并且使用了合理数量的资源。而且，最重要的是，它在面对无序数据时能够正常运行。如果您查看[单元测试](http://bit.ly/2sY4goW)中使用的数据集，您会发现即使在这个小规模上也存在许多挑战：
+- en: Tracking and attributing multiple distinct conversions across a shared set of
+    URLs.
+  id: totrans-145
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 跟踪和归因于共享URL集合中的多个不同的转化。
+- en: Data arriving out of order, and in particular, goals arriving (in processing
+    time) before visits and impressions that lead to them, as well as other goals
+    which occurred earlier.
+  id: totrans-146
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据无序到达，特别是在处理时间上，目标到达（在访问和导致它们的印象之前），以及其他较早发生的目标。
+- en: Source URLs that generate multiple distinct impressions to different target
+    URLs.
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 生成多个不同印象到不同目标URL的源URL。
+- en: Physically distinct impressions (e.g., multiple clicks on the same advertisement)
+    that must be deduplicated to a single logical impression.
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 物理上不同的印象（例如，对同一广告的多次点击）必须被去重为单个逻辑印象。
+- en: Example 7-10\. Example dataset for validating conversion attribution logic
+  id: totrans-149
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-10。用于验证转化归因逻辑的示例数据集
+- en: '[PRE10]'
+  id: totrans-150
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: And remember, we’re working here on a relatively constrained version of conversion
+    attribution. A full-blown impelementation would have additional challenges to
+    deal with (e.g., garbage collection, DAGs of visits instead of trees). Regardless,
+    this pipeline provides a nice contrast to the oftentimes insufficiently flexible
+    approaches provided by raw grouping an incremental combination. By trading off
+    some amount of implementation complexity, we were able to find the necessary balance
+    of efficiency, without compromising on correctness. Additionally, this pipeline
+    highlights the more imperative approach towards stream processing that state and
+    timers afford (think C or Java), which is a nice complement to the more functional
+    approach afforded by windowing and triggers (think Haskell).
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要记住，我们在这里处理的是相对受限的转化归因版本。一个完整的实现将有额外的挑战要处理（例如，垃圾收集，访问DAG而不是树）。无论如何，这个流水线提供了一个很好的对比，与原始分组和增量组合通常提供的不够灵活的方法相比。通过牺牲一定的实现复杂性，我们能够找到必要的效率平衡，而不会在正确性上妥协。此外，这个流水线突出了流处理更加命令式的方法，状态和定时器提供了这种方法（想想C或Java），这是对窗口和触发器提供的更加功能性方法的一个很好的补充（想想Haskell）。
+- en: Summary
+  id: totrans-152
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: 'In this chapter, we’ve looked closely at why persistent state is important,
+    coming to the conclusion that it provides a basis for correctness and efficiency
+    in long-lived pipelines. We then looked at the two most common types of implicit
+    state encountered in data processing systems: raw grouping and incremental combination.
+    We learned that raw grouping is straightforward but potentially inefficient and
+    that incremental combination greatly improves efficiency for operations that are
+    commutative and associative. Finally, we looked a relatively complex, but very
+    practical use case (and implementation via Apache Beam Java) grounded in real-world
+    experience, and used that to highlight the important characteristics needed in
+    a general state abstraction:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们仔细研究了为什么持久状态很重要，得出结论，它为长期运行的管道提供了正确性和效率的基础。然后，我们看了数据处理系统中遇到的两种最常见的隐式状态类型：原始分组和增量组合。我们了解到原始分组是简单直接的，但潜在地低效，而增量组合大大提高了对可交换和可结合操作的效率。最后，我们看了一个相对复杂但非常实际的用例（并通过Apache
+    Beam Java实现），并用它来突出通用状态抽象中需要的重要特征：
+- en: '*Flexibility in data structures*, allowing for the use of data types tailored
+    to specific use cases at hand.'
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*数据结构的灵活性*，允许使用针对特定用例定制的数据类型。'
+- en: '*Flexibility in write and read granularity*, allowing the amount of data written
+    and read at any point to be tailored to the use case, minimizing or maximizing
+    I/O as appropriate.'
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*写入和读取粒度的灵活性*，允许在任何时候写入和读取的数据量都可以根据用例进行调整，最小化或最大化I/O。'
+- en: '*Flexibility in scheduling of processing*, allowing certain portions of processing
+    to be delayed until a more appropriate point in time, such as when the input is
+    believed to be complete up to a specific point in event time.'
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*处理时间调度的灵活性*，允许将某些处理部分延迟到更合适的时间点，例如当输入被认为在特定事件时间点上完整时。'
+- en: ¹ For some definition of “forever,” typically at least “until we successfully
+    complete execution of our batch pipeline and no longer require the inputs.”
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹ 某种定义下的“永远”，通常至少是“直到我们成功完成批处理管道的执行并且不再需要输入”。
+- en: ² Recall that Beam doesn’t currently expose these state tables directly; you
+    must trigger them back into a stream to observe their contents as a new PCollection.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ² 请记住，Beam目前不直接暴露这些状态表；您必须将它们触发回到流中，以观察它们的内容作为新的PCollection。
+- en: '³ Or, as my colleague Kenn Knowles points out, if you take the definition as
+    being commutativity across sets, the three-parameter version of commutativity
+    is actually sufficient to also imply associativity: `COMBINE(a, b, c) == COMBINE(a,
+    c, b) == COMBINE(b, a, c) == COMBINE(b, c, a) == COMBINE(c, a, b) == COMBINE(c,
+    b, a)`. Math is fun.'
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ³ 或者，正如我的同事肯·诺尔斯指出的，如果你把定义看作是集合之间的可交换性，那么三参数版本的可交换性实际上也足以暗示结合性：`COMBINE(a, b,
+    c) == COMBINE(a, c, b) == COMBINE(b, a, c) == COMBINE(b, c, a) == COMBINE(c, a,
+    b) == COMBINE(c, b, a)`。数学很有趣。
+- en: ⁴ And indeed, timers are the underlying feature used to implement most of the
+    completeness and repeated updated triggers we discussed in Chapter 2 as well as
+    garbage collection based on allowed lateness.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁴ 而且，定时器是实现我们在第二章讨论的大部分完整性和重复更新触发器的基础特性，以及基于允许迟到的垃圾回收。
+- en: ⁵ Thanks to the nature of web browsing, the visit trails we’ll be analyzing
+    are trees of URLs linked by HTTP referrer fields. In reality, they would end up
+    being directed graphs, but for the sake of simplicity, we’ll assume each page
+    on our website has incoming links from exactly one other referring page on the
+    site, thus yielding a simpler tree structure. Generalizing to graphs is a natural
+    extension of the tree-based implementation, and only further drives home the points
+    being made.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁵ 由于网络浏览的特性，我们将要分析的访问路径是由HTTP引用字段链接的URL树。实际上，它们最终会成为有向图，但为了简单起见，我们假设我们网站上的每个页面都有来自该网站上确切一个其他引用页面的入站链接，从而产生一个更简单的树结构。泛化到图是树结构实现的自然扩展，这进一步强调了所提出的观点。

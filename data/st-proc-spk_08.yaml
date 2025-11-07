@@ -1,0 +1,662 @@
+- en: Chapter 6\. Spark’s Resilience Model
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 6 章\. Spark 的弹性模型
+- en: In most cases, a streaming job is a long-running job. By definition, streams
+    of data observed and processed over time lead to jobs that run continuously. As
+    they process data, they might accumulate intermediary results that are difficult
+    to reproduce after the data has left the processing system. Therefore, the cost
+    of failure is considerable and, in some cases, complete recovery is intractable.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数情况下，流处理作业是长时间运行的作业。根据定义，随着时间推移观察和处理的数据流会导致连续运行的作业。当它们处理数据时，可能会累积中间结果，在数据离开处理系统后难以重现。因此，失败的成本相当高，并且在某些情况下，完全恢复是棘手的。
+- en: 'In distributed systems, especially those relying on commodity hardware, failure
+    is a function of size: the larger the system, the higher the probability that
+    some component fails at any time. Distributed stream processors need to factor
+    this chance of failure in their operational model.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式系统中，特别是依赖于商品硬件的系统中，故障是大小的函数：系统越大，任何时候某些组件发生故障的概率就越高。分布式流处理器需要在其操作模型中考虑到这种故障的可能性。
+- en: 'In this chapter, we look at the resilience that the Apache Spark platform provides
+    us: how it’s able to recover partial failure and what kinds of guarantees we are
+    given for the data passing through the system when a failure occurs. We begin
+    by getting an overview of the different internal components of Spark and their
+    relation to the core data structure. With this knowledge, you can proceed to understand
+    the impact of failure at the different levels and the measures that Spark offers
+    to recover from such failure.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将看到 Apache Spark 平台提供的弹性：它如何能够恢复部分故障以及在故障发生时通过系统传递数据时我们得到的保证种类。我们首先概述
+    Spark 的不同内部组件及其与核心数据结构的关系。有了这些知识，您可以进一步了解不同级别的故障对系统的影响以及 Spark 提供的恢复措施。
+- en: Resilient Distributed Datasets in Spark
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Spark 中的弹性分布式数据集
+- en: 'Spark builds its data representations on *Resilient Distributed Datasets* (RDDs).
+    Introduced in 2011 by the paper “Resilient Distributed Datasets: A Fault-Tolerant
+    Abstraction for In-Memory Cluster Computing” [[Zaharia2011]](app01.xhtml#Zaharia2011),
+    RDDs are the foundational data structure in Spark. It is at this ground level
+    that the strong fault tolerance guarantees of Spark start.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Spark 的数据表示建立在 *弹性分布式数据集*（RDDs）之上。RDDs 最早在 2011 年由论文“Resilient Distributed
+    Datasets: A Fault-Tolerant Abstraction for In-Memory Cluster Computing” [[Zaharia2011]](app01.xhtml#Zaharia2011)
+    中提出，是 Spark 中的基础数据结构。正是在这个基础层面上，Spark 提供了强大的容错保证。'
+- en: RDDs are composed of partitions, which are segments of data stored on individual
+    nodes and tracked by the Spark driver that is presented as a location-transparent
+    data structure to the user.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: RDDs 由分区组成，这些分区是存储在单个节点上的数据段，并由 Spark 驱动程序跟踪，呈现给用户作为位置透明的数据结构。
+- en: We illustrate these components in [Figure 6-1](#rdd-computation) in which the
+    classic *word count* application is broken down into the different elements that
+    comprise an RDD.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在 [图 6-1](#rdd-computation) 中说明了这些组件，其中经典的 *词频统计* 应用程序被分解为组成 RDD 的不同元素。
+- en: '![spas 0601](Images/spas_0601.png)'
+  id: totrans-8
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 0601](Images/spas_0601.png)'
+- en: Figure 6-1\. An RDD operation represented in a distributed system
+  id: totrans-9
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-1\. 在分布式系统中表示的 RDD 操作
+- en: 'The colored blocks are data elements, originally stored in a distributed filesystem,
+    represented on the far left of the figure. The data is stored as partitions, illustrated
+    as columns of colored blocks inside the file. Each partition is read into an executor,
+    which we see as the horizontal blocks. The actual data processing happens within
+    the executor. There, the data is transformed following the transformations described
+    at the RDD level:'
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 彩色块是数据元素，最初存储在分布式文件系统中，在图的最左侧表示。数据以分区形式存储，以彩色块的列形式展示在文件内部。每个分区被读取到一个执行器中，我们将其视为水平块。实际的数据处理发生在执行器内部。在那里，数据根据
+    RDD 级别描述的转换进行转换：
+- en: '`.flatMap(l => l.split(" "))` separates sentences into words separated by space.'
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`.flatMap(l => l.split(" "))` 将句子按空格分割为单词。'
+- en: '`.map(w => (w,1))` transforms each word into a tuple of the form `(<word>,
+    1)` in this way preparing the words for counting.'
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`.map(w => (w,1))` 将每个单词转换为形如 `(<word>, 1)` 的元组，为计数做准备。'
+- en: '`.reduceByKey(_ + _)` computes the count, using the `<word>` as a key and applying
+    a sum operation to the attached number.'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`.reduceByKey(_ + _)` 计算计数，使用 `<word>` 作为键，并将加法操作应用于附加的数字。'
+- en: The final result is attained by bringing the partial results together using
+    the same `reduce` operation.
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 最终结果通过使用相同的 `reduce` 操作将部分结果合并而得到。
+- en: RDDs constitute the programmatic core of Spark. All other abstractions, batch
+    and streaming alike, including `DataFrame`s, `DataSet`s, and `DStream`s are built
+    using the facilities created by `RDD`s, and, more important, they inherit the
+    same fault tolerance capabilities. We provide a brief introduction of the `RDD`s
+    programming model in [“RDDs as the Underlying Abstraction for DStreams”](ch17.xhtml#rdd-primer).
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: RDDs 构成了 Spark 的编程核心。所有其他抽象，无论是批处理还是流处理，包括 `DataFrame`、`DataSet` 和 `DStream`，都是使用
+    `RDD` 创建的设施构建的，更重要的是，它们继承了相同的容错能力。我们在 [“RDDs as the Underlying Abstraction for
+    DStreams”](ch17.xhtml#rdd-primer) 中对 `RDD` 编程模型进行了简要介绍。
+- en: Another important characteristic of RDDs is that Spark will try to keep their
+    data preferably in-memory for as long as it is required and provided enough capacity
+    in the system. This behavior is configurable through storage levels and can be
+    explicitly controlled by calling caching operations.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RDD` 的另一个重要特性是，Spark 会尽量将它们的数据保存在内存中，只要系统中有足够的容量。此行为可通过存储级别进行配置，并且可以通过调用缓存操作进行显式控制。'
+- en: We mention those structures here to present the idea that Spark tracks the progress
+    of the user’s computation through modifications of the data. Indeed, knowing how
+    far along we are in what the user wants to do through inspecting the control flow
+    of his program (including loops and potential recursive calls) can be a daunting
+    and error-prone task. It is much more reliable to define types of distributed
+    data collections, and let the user create one from another, or from other data
+    sources.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在这里提到这些结构，是为了说明 Spark 通过修改数据来跟踪用户计算的进展。确实，通过检查程序的控制流程（包括循环和可能的递归调用）来了解用户想要做什么有多么困难和容易出错。定义分布式数据集类型，让用户从其他数据源或从一个数据集创建另一个数据集，会更可靠。
+- en: In [Figure 6-2](#rdd-lineage), we show the same *word count* program, now in
+    the form of the user-provided code (left) and the resulting internal RDD chain
+    of operations. This dependency chain forms a particular kind of graph, a Directed
+    Acyclic Graph (DAG). The DAG informs the scheduler, appropriately called `DAGScheduler`,
+    on how to distribute the computation and is also the foundation of the failure-recovery
+    functionality, because it represents the internal data and their dependencies.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [图 6-2](#rdd-lineage) 中，我们展示了相同的 *单词计数* 程序，现在以用户提供的代码形式（左侧）和生成的内部 `RDD` 操作链形式展示。这种依赖链形成了一种特定类型的图，称为有向无环图（DAG）。DAG
+    通知调度程序，适当地称为 `DAGScheduler`，如何分发计算，也是失败恢复功能的基础，因为它表示内部数据及其依赖关系。
+- en: '![spas 0602](Images/spas_0602.png)'
+  id: totrans-19
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 0602](Images/spas_0602.png)'
+- en: Figure 6-2\. RDD lineage
+  id: totrans-20
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-2\. RDD 衍生线
+- en: As the system tracks the ordered creation of these distributed data collections,
+    it tracks the work done, and what’s left to accomplish.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当系统跟踪这些分布式数据集的有序创建时，它同时跟踪已完成的工作和尚未完成的工作。
+- en: Spark Components
+  id: totrans-22
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Spark 组件
+- en: To understand at what level fault tolerance operates in Spark, it’s useful to
+    go through an overview of the nomenclature of some core concepts. We begin by
+    assuming that the user provides a program that ends up being divided into chunks
+    and executed on various machines, as we saw in the previous section, and as depicted
+    in [Figure 6-3](#spark-lingo).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解 Spark 中容错机制的作用层次，有必要先浏览一下一些核心概念的术语。我们首先假设用户提供的程序被分成块并在各种机器上执行，就像我们在前一节中看到的，并如
+    [图 6-3](#spark-lingo) 所示。
+- en: '![spas 0603](Images/spas_0603.png)'
+  id: totrans-24
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 0603](Images/spas_0603.png)'
+- en: Figure 6-3\. Spark nomenclature
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 6-3\. Spark 术语
+- en: 'Let’s run down those steps, illustrated in [Figure 6-3](#spark-lingo), which
+    define the vocabulary of the Spark runtime:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们详细讲解一下这些步骤，这些步骤在 [图 6-3](#spark-lingo) 中有所展示，这些步骤定义了 Spark 运行时的词汇表：
+- en: User Program
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户程序
+- en: The user application in Spark Streaming is composed of user-specified *function
+    calls* operating on a resilient data structure (RDD, DStream, streaming DataSet,
+    and so on), categorized as *actions* and *transformations*.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark Streaming 中的用户应用程序由用户指定的 *函数调用* 组成，操作在弹性数据结构（如 RDD、DStream、流式 DataSet
+    等）上，分为 *actions* 和 *transformations*。
+- en: Transformed User Program
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换后的用户程序
+- en: The user program may undergo adjustments that modify some of the specified calls
+    to make them simpler, the most approachable and understandable of which is map-fusion.^([1](ch06.xhtml#idm46385832762616))
+    Query plan is a similar but more advanced concept in Spark SQL.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户程序可能会进行调整，修改一些指定调用，使其更简单、更易理解的方式是map-fusion。^([1](ch06.xhtml#idm46385832762616))
+    查询计划在Spark SQL中是一个类似但更高级的概念。
+- en: RDD
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: RDD
+- en: A logical representation of a distributed, resilient, dataset. In the illustration,
+    we see that the initial RDD comprises three parts, called partitions.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式、弹性数据集的逻辑表示。在图示中，我们看到初始RDD由三部分组成，称为分区。
+- en: Partition
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分区
+- en: A partition is a physical segment of a dataset that can be loaded independently.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分区是可以独立加载的数据集的物理片段。
+- en: Stages
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阶段
+- en: 'The user’s operations are then grouped into *stages*, whose boundary separates
+    user operations into steps that must be executed separately. For example, operations
+    that require a shuffle of data across multiple nodes, such as a join between the
+    results of two distinct upstream operations, mark a distinct stage. Stages in
+    Apache Spark are the unit of sequencing: they are executed one after the other.
+    At most one of any interdependent stages can be running at any given time.'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后将用户的操作分组到*阶段*中，这些阶段的边界将用户操作分为必须分开执行的步骤。例如，需要在多个节点之间进行数据洗牌的操作，如两个不同上游操作结果的连接，标志着一个独特的阶段。Apache
+    Spark中的阶段是顺序执行的单位：它们一个接一个地执行。在任何给定时间，最多只能运行一个相互依赖的阶段。
+- en: Jobs
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作业
+- en: After these *stages* are defined, what internal actions Spark should take is
+    clear. Indeed, at this stage, a set of interdependent *jobs* is defined. And jobs,
+    precisely, are the vocabulary for a unit of scheduling. They describe the work
+    at hand from the point of view of an entire Spark cluster, whether it’s waiting
+    in a queue or currently being run across many machines. (Although it’s not represented
+    explicitly, in [Figure 6-3](#spark-lingo), the job is the complete set of transformations.)
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在定义这些*阶段*之后，Spark应该采取哪些内部操作是明确的。事实上，在这个阶段，定义了一组相互依赖的*作业*。而作业，准确地说，是调度单位的词汇。它们从整个Spark集群的角度描述正在处理的工作，无论它是在队列中等待还是当前在多台机器上运行。（虽然它没有明确表示，在[图 6-3](#spark-lingo)中，作业是完整的转换集。）
+- en: Tasks
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务
+- en: 'Depending on where their source data is on the cluster, jobs can then be cut
+    into *tasks*, crossing the conceptual boundary between distributed and single-machine
+    computing: a task is a unit of local computation, the name for the local, executor-bound
+    part of a job.'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据它们的源数据在集群上的位置，作业可以被切割成*任务*，跨越分布式和单机计算之间的概念边界：任务是本地计算的单位，是作业的本地、执行器绑定部分的名称。
+- en: 'Spark aims to make sure that all of these steps are safe from harm and to recover
+    quickly in the case of any incident occurring in any stage of this process. This
+    concern is reflected in fault-tolerance facilities that are structured by the
+    aforementioned notions: restart and checkpointing operations that occur at the
+    task, job, stage, or program level.'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark旨在确保所有这些步骤免受伤害，并在任何此过程中发生的任何事故的情况下快速恢复。这种关注反映在由上述概念结构化的容错设施中：在任务、作业、阶段或程序级别发生的重启和检查点操作。
+- en: Spark’s Fault-Tolerance Guarantees
+  id: totrans-42
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Spark的容错保证
+- en: 'Now that we have seen the “pieces” that constitute the internal machinery in
+    Spark, we are ready to understand that failure can happen at many different levels.
+    In this section, we see Spark fault-tolerance guarantees organized by “increasing
+    blast radius,” from the more modest to the larger failure. We are going to investigate
+    the following:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经看到组成Spark内部机制的“部件”，我们准备理解故障可以发生在许多不同的层次上。在本节中，我们看到Spark容错保证按“逐渐扩大的爆炸半径”组织，从较小的故障到较大的故障。我们将调查以下内容：
+- en: How Spark mitigates Task failure through restarts
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过重新启动减轻Spark任务失败
+- en: How Spark mitigates Stage failure through the shuffle service
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过洗牌服务减轻Spark阶段失败
+- en: How Spark mitigates the disappearance of the *orchestrator* of the user program,
+    through driver restarts
+  id: totrans-46
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如何通过驱动程序重新启动减轻用户程序的*编排者*消失
+- en: When you’ve completed this section, you will have a clear mental picture of
+    the guarantees Spark affords us at runtime, letting you understand the failure
+    scenarios that a well-configured Spark job can deal with.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您完成本节时，您将对Spark在运行时提供的保证有一个清晰的心理图景，让您理解配置良好的Spark作业可以处理的故障场景。
+- en: Task Failure Recovery
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 任务失败恢复
+- en: Tasks can fail when the infrastructure on which they are running has a failure
+    or logical conditions in the program lead to an sporadic job, like `OutOfMemory`,
+    network, storage errors, or problems bound to the quality of the data being processed
+    (e.g., a parsing error, a `NumberFormatException`, or a `NullPointerException`
+    to name a few common exceptions).
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当运行任务的基础设施出现故障或程序中的逻辑条件导致偶发的作业失败时（如`OutOfMemory`、网络、存储错误，或者与正在处理的数据质量相关的问题（例如解析错误、`NumberFormatException`或`NullPointerException`等常见异常）），任务可能会失败。
+- en: If the input data of the task was stored, through a call to `cache()` or `persist()`
+    and if the chosen storage level implies a replication of data (look for a storage
+    level whose setting ends in `_2` , such as `MEMORY_ONLY_SER_2`), the task does
+    not need to have its input recomputed, because a copy of it exists in complete
+    form on another machine of the cluster. We can then use this input to restart
+    the task. [Table 6-1](#tab0601) summarizes the different storage levels configurable
+    in Spark and their chacteristics in terms of memory usage and replication factor.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果任务的输入数据已通过`cache()`或`persist()`存储，并且所选的存储级别意味着数据的复制（查找设置以 `_2` 结尾的存储级别，例如
+    `MEMORY_ONLY_SER_2`），则任务不需要重新计算其输入，因为集群中的另一台机器上存在完整副本。然后，我们可以使用此输入重新启动任务。[表 6-1](#tab0601)
+    总结了Spark中可配置的不同存储级别及其在内存使用和复制因子方面的特性。
+- en: Table 6-1\. Spark storage levels
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表6-1\. Spark存储级别
+- en: '| Level | Uses disk | Uses memory | Uses off-heap storage | Object (deserialized)
+    | # of replicated copies |'
+  id: totrans-52
+  prefs: []
+  type: TYPE_TB
+  zh: '| 级别 | 使用磁盘 | 使用内存 | 使用堆外存储 | 对象（反序列化） | 复制的副本数量 |'
+- en: '| --- | --- | --- | --- | --- | --- |'
+  id: totrans-53
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- | --- |'
+- en: '| `NONE` |  |  |  |  | 1 |'
+  id: totrans-54
+  prefs: []
+  type: TYPE_TB
+  zh: '| `NONE` |  |  |  |  | 1 |'
+- en: '| `DISK_ONLY` | X |  |  |  | 1 |'
+  id: totrans-55
+  prefs: []
+  type: TYPE_TB
+  zh: '| `DISK_ONLY` | X |  |  |  | 1 |'
+- en: '| `DISK_ONLY_2` | X |  |  |  | 2 |'
+  id: totrans-56
+  prefs: []
+  type: TYPE_TB
+  zh: '| `DISK_ONLY_2` | X |  |  |  | 2 |'
+- en: '| `MEMORY_ONLY` |  | X |  | X | 1 |'
+  id: totrans-57
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_ONLY` |  | X |  | X | 1 |'
+- en: '| `MEMORY_ONLY_2` |  | X |  | X | 2 |'
+  id: totrans-58
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_ONLY_2` |  | X |  | X | 2 |'
+- en: '| `MEMORY_ONLY_SER` |  | X |  |  | 1 |'
+  id: totrans-59
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_ONLY_SER` |  | X |  |  | 1 |'
+- en: '| `MEMORY_ONLY_SER_2` |  | X |  |  | 2 |'
+  id: totrans-60
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_ONLY_SER_2` |  | X |  |  | 2 |'
+- en: '| `MEMORY_AND_DISK` | X | X |  | X | 1 |'
+  id: totrans-61
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_AND_DISK` | X | X |  | X | 1 |'
+- en: '| `MEMORY_AND_DISK_2` | X | X |  | X | 2 |'
+  id: totrans-62
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_AND_DISK_2` | X | X |  | X | 2 |'
+- en: '| `MEMORY_AND_DISK_SER` | X | X |  |  | 1 |'
+  id: totrans-63
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_AND_DISK_SER` | X | X |  |  | 1 |'
+- en: '| `MEMORY_AND_DISK_SER_2` | X | X |  |  | 2 |'
+  id: totrans-64
+  prefs: []
+  type: TYPE_TB
+  zh: '| `MEMORY_AND_DISK_SER_2` | X | X |  |  | 2 |'
+- en: '| `OFF_HEAP` |  |  | X |  | 1 |'
+  id: totrans-65
+  prefs: []
+  type: TYPE_TB
+  zh: '| `OFF_HEAP` |  |  | X |  | 1 |'
+- en: If, however, there was no persistence or if the storage level does not guarantee
+    the existence of a copy of the task’s input data, the Spark driver will need to
+    consult the DAG that stores the user-specified computation to determine which
+    segments of the job need to be recomputed.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，如果没有持久性或者存储级别不能保证任务输入数据的存在副本，Spark驱动程序将需要查询存储用户指定计算的DAG，以确定哪些作业段需要重新计算。
+- en: Consequently, without enough precautions to save either on the caching or on
+    the storage level, the failure of a task can trigger the recomputation of several
+    others, up to a stage boundary.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，在缓存或存储级别上没有足够的预防措施时，一个任务的失败可能会触发多个其他任务的重新计算，直到阶段边界。
+- en: 'Stage boundaries imply a shuffle, and a shuffle implies that intermediate data
+    will somehow be materialized: as we discussed, the shuffle transforms executors
+    into data servers that can provide the data to any other executor serving as a
+    destination.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 阶段边界意味着一个洗牌，而洗牌意味着中间数据将以某种方式被实现：正如我们所讨论的，洗牌将执行者转变为数据服务器，可以向任何其他充当目标执行者提供数据。
+- en: 'As a consequence, these executors have a copy of the map operations that led
+    up to the shuffle. Hence, executors that participated in a shuffle have a copy
+    of the map operations that led up to it. But that’s a lifesaver if you have a
+    dying downstream executor, able to rely on the upstream servers of the shuffle
+    (which serve the output of the map-like operation). What if it’s the contrary:
+    you need to face the crash of one of the upstream executors?'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，这些执行者拥有导致洗牌的映射操作的副本。因此，参与洗牌的执行者具有导致其之前映射操作的副本。但如果你有一个即将崩溃的下游执行者，并能依赖于洗牌的上游服务器（它们为类似映射操作的输出提供服务），这将是一个救命稻草。如果情况相反呢：你需要面对一个上游执行者的崩溃？
+- en: Stage Failure Recovery
+  id: totrans-70
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 阶段失败恢复
+- en: 'We’ve seen that task failure (possibly due to executor crash) was the most
+    frequent incident happening on a cluster and hence the most important event to
+    mitigate. Recurrent task failures will lead to the failure of the stage that contains
+    that task. This brings us to the second facility that allows Spark to resist arbitrary
+    stage failures: the *shuffle service*.'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到任务失败（可能由于执行器崩溃）是集群上发生的最频繁的事件，因此也是最重要的事件需要避免。反复发生的任务失败将导致包含该任务的阶段失败。这让我们进入第二个允许
+    Spark 抵抗任意阶段失败的设施：*shuffle service*。
+- en: When this failure occurs, it always means some rollback of the data, but a shuffle
+    operation, by definition, depends on all of the prior executors involved in the
+    step that precedes it.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当此失败发生时，总是意味着数据的某种回滚，但是根据定义，shuffle 操作依赖于所有前面步骤中涉及的执行器。
+- en: As a consequence, since Spark 1.3 we have the shuffle service, which lets you
+    work on map data that is saved and distributed through the cluster with a good
+    locality, but, more important, through a server that is not a Spark task. It’s
+    an external file exchange service written in Java that has no dependency on Spark
+    and is made to be a much longer-running service than a Spark executor. This additional
+    service attaches as a separate process in all cluster modes of Spark and simply
+    offers a data file exchange for executors to transmit data reliably, right before
+    a shuffle. It is highly optimized through the use of a netty backend, to allow
+    a very low overhead in transmitting data. This way, an executor can shut down
+    after the execution of its map task, as soon as the shuffle service has a copy
+    of its data. And because data transfers are faster, this transfer time is also
+    highly reduced, reducing the vulnerable time in which any executor could face
+    an issue.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自 Spark 1.3 开始，我们引入了**shuffle service**，它允许您处理通过集群分布的映射数据，具有良好的本地性，但更重要的是，通过不是
+    Spark 任务的服务器。这是一个用 Java 编写的外部文件交换服务，不依赖于 Spark，并且设计成比 Spark executor 更长时间运行的服务。这个额外的服务作为
+    Spark 所有集群模式中的一个单独进程连接，仅为执行器提供数据文件交换，以便在 shuffle 之前可靠地传输数据。通过 netty 后端高度优化，允许在传输数据时减少非常低的开销。因此，一旦执行器的映射任务执行完毕，就可以关闭执行器，此时
+    shuffle 服务已经拥有其数据的副本。由于数据传输更快，传输时间也大大减少，减少了执行器可能面临问题的脆弱时间。
+- en: Driver Failure Recovery
+  id: totrans-74
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 驱动程序失败恢复
+- en: 'Having seen how Spark recovers from the failure of a particular task and stage,
+    we can now look at the facilities Spark offers to recover from the failure of
+    the driver program. The driver in Spark has an essential role: it is the depository
+    of the block manager, which knows where each block of data resides in the cluster.
+    It is also the place where the DAG lives.'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在了解了 Spark 如何从特定任务和阶段的失败中恢复后，我们现在可以看一下 Spark 提供的用于恢复驱动程序失败的功能。在 Spark 中，驱动程序具有至关重要的角色：它是块管理器的存放处，知道集群中每个数据块的位置。同时也是
+    DAG 存在的地方。
+- en: Finally, it is where the scheduling state of the job, its metadata, and logs
+    resides. Hence, if the driver is lost, a Spark cluster as a whole might well have
+    lost which stage it has reached in computation, what the computation actually
+    consists of, and where the data that serves it can be found, in one fell swoop.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，驱动程序是作业调度状态、元数据和日志的存放地。因此，如果丢失驱动程序，则整个 Spark 集群可能会丢失其在计算中达到的阶段、实际计算内容以及服务它的数据，一箭双雕。
+- en: Cluster-mode deployment
+  id: totrans-77
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 集群模式部署
+- en: Spark has implemented what’s called the *cluster deployment mode*, which allows
+    the driver program to be hosted on the cluster, as opposed to the user’s computer.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 实现了所谓的*集群部署模式*，允许驱动程序托管在集群上，而不是用户的计算机上。
+- en: 'The deployment mode is one of two options: in client mode, the driver is launched
+    in the same process as the client that submits the application. In cluster mode,
+    however, the driver is launched from one of the worker processes inside the cluster,
+    and the client process exits as soon as it fulfills its responsibility of submitting
+    the application without waiting for the application to finish.'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 部署模式有两种选项：在客户端模式下，驱动程序在提交应用程序的客户端的同一进程中启动。然而，在集群模式下，驱动程序是从集群内的一个工作进程中启动的，客户端进程在提交应用程序后立即退出，而不等待应用程序完成。
+- en: This, in sum, allows Spark to operate an automatic driver restart, so that the
+    user can start a job in a “fire and forget fashion,” starting the job and then
+    closing their laptop to catch the next train. Every cluster mode of Spark offers
+    a web UI that will let the user access the log of their application. Another advantage
+    is that driver failure does not mark the end of the job, because the driver process
+    will be relaunched by the cluster manager. But this only allows recovery from
+    scratch, given that the temporary state of the computation—previously stored in
+    the driver machine—might have been lost.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总之，这使得Spark能够自动重启驱动程序，以便用户可以以“点火并忘记”的方式启动作业，开始作业然后关闭笔记本电脑以赶上下一趟火车。每个Spark的集群模式都提供一个Web
+    UI，用户可以访问其应用程序的日志。另一个优势是驱动程序的失败并不标志着作业的结束，因为集群管理器将重新启动驱动程序进程。但这只允许从头开始恢复，因为计算的临时状态—之前存储在驱动程序机器上—可能已丢失。
+- en: Checkpointing
+  id: totrans-81
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 检查点
+- en: 'To avoid losing intermediate state in case of a driver crash, Spark offers
+    the option of checkpointing; that is, recording periodically a snapshot of the
+    application’s state to disk. The setting of the `sparkContext.setCheckpointDirectory()`
+    option should point to reliable storage (e.g., Hadoop Distributed File System
+    [HDFS]) because having the driver try to reconstruct the state of intermediate
+    RDDs from its local filesystem makes no sense: those intermediate RDDs are being
+    created on the executors of the cluster and should as such not require any interaction
+    with the driver for backing them up.'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了避免在驱动程序崩溃时丢失中间状态，Spark提供了检查点选项；即，定期记录应用程序状态的快照到磁盘上。`sparkContext.setCheckpointDirectory()`选项的设置应指向可靠的存储（例如，Hadoop分布式文件系统[HDFS]），因为让驱动程序尝试从其本地文件系统重建中间RDD的状态是毫无意义的：这些中间RDD是在集群的执行者上创建的，因此不应需要与驱动程序进行任何交互来备份它们。
+- en: 'We come back to the subject of checkpointing in detail much later, in [Chapter 24](ch24.xhtml#checkpointing).
+    In the meantime, there is still one component of any Spark cluster whose potential
+    failure we have not yet addressed: the master node.'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们稍后会详细讨论关于检查点的话题，在[第24章](ch24.xhtml#checkpointing)。同时，仍然有一个任何Spark集群的组件的潜在故障我们尚未解决：主节点。
+- en: Summary
+  id: totrans-84
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概要
+- en: This tour of Spark-core’s fault tolerance and high-availability modes should
+    have given you an idea of the main primitives and facilities offered by Spark
+    and of their defaults. Note that none of this is so far specific to Spark Streaming
+    or Structured Streaming, but that all these lessons apply to the streaming APIs
+    in that they are required to deliver long-running, fault-tolerant and yet performant
+    applications.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这次关于Spark核心容错和高可用模式的介绍应该让您对Spark提供的主要基本组件和设施有所了解。请注意，到目前为止，这些内容都不专门针对Spark Streaming或结构化Streaming，但所有这些教训都适用于流式API，因为它们需要提供长时间运行的、容错的，但性能高效的应用程序。
+- en: 'Note also that these facilities reflect different concerns in the frequency
+    of faults for a particular cluster. These facilities reflect different concerns
+    for the frequency of faults in a particular cluster:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，这些设施反映了对特定集群中故障频率的不同关注点。这些设施反映了对特定集群中故障频率的不同关注点：
+- en: Features such as setting up a failover master node kept up-to-date through Zookeeper
+    are really about avoiding a single point of failure in the design of a Spark application.
+  id: totrans-87
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过设置通过Zookeeper保持最新的故障转移主节点等功能，真正关注的是在Spark应用程序设计中避免单点故障。
+- en: The Spark Shuffle Service is here to avoid any problems with a shuffle step
+    at the end of a long list of computation steps making the whole fragile through
+    a faulty executor.
+  id: totrans-88
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Spark Shuffle Service的目的是避免在长列表的计算步骤末尾进行Shuffle步骤时出现任何问题，使整个过程因执行者的故障而变得脆弱。
+- en: The later is a much more frequent occurrence. The first is about dealing with
+    every possible condition, the second is more about ensuring smooth performance
+    and efficient recovery.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 后者是一个更频繁的发生。前者是关于处理每种可能的条件，后者更多关于确保平稳的性能和高效的恢复。
+- en: ^([1](ch06.xhtml#idm46385832762616-marker)) The process by which `l.map(foo).map(bar)`
+    is changed into `l.map((x) => bar(foo(x)))`
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch06.xhtml#idm46385832762616-marker)) 这个过程将`l.map(foo).map(bar)`转换为`l.map((x)
+    => bar(foo(x)))`

@@ -1,0 +1,562 @@
+- en: Chapter 24\. Checkpointing
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第24章. Checkpointing
+- en: The act of checkpointing consists of regularly saving the information necessary
+    to restart a stateful streaming application without losing information and without
+    requiring the reprocessing of all of the data seen up to that point.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Checkpointing 的行为包括定期保存重新启动有状态流式应用程序所需的信息，而无需丢失信息，也无需重新处理到目前为止看到的所有数据。
+- en: '*Checkpointing* is a subject that merits particular attention when dealing
+    with stateful Spark Streaming applications. Without checkpointing, restarting
+    a stateful streaming application would require us to rebuild the state up to the
+    point where the application previously stopped. In the case of a window operation,
+    that rebuild process might potentially consist of hours of data, which would require
+    more massive intermediate storage. The more challenging case is when we are implementing
+    arbitrary stateful aggregation, as we saw in [Chapter 22](ch22.xhtml#spark-streaming-stateful).
+    Without checkpoints, even a simple stateful application, like counting the number
+    of visitors to each page of a website, would need to reprocess all data ever seen
+    to rebuild its state to a consistent level; a challenge that might range from
+    very difficult to impossible, as the data necessary might no longer be available
+    in the system.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*Checkpointing* 是处理有状态的 Spark Streaming 应用程序时特别需要注意的一个主题。没有 checkpointing，重新启动有状态的流式应用程序将要求我们重建状态，直到应用程序之前停止的那一点。在窗口操作的情况下，重建过程可能包括数小时的数据，这将需要更大的中间存储。更具挑战性的情况是在实现任意状态聚合时，正如我们在[第22章](ch22.xhtml#spark-streaming-stateful)中所见。如果没有
+    checkpoints，即使是简单的有状态应用程序，比如统计网站每个页面的访客数量，也需要重新处理所有过去的数据来重建其状态到一个一致的水平；这是一个从非常困难到不可能的挑战，因为系统中可能不再有所需的数据。'
+- en: However, checkpoints are not free. The checkpoint operation poses additional
+    requirements to the streaming application concerning the storage required to maintain
+    the checkpoint data and the impact that this recurrent operation has on the performance
+    of the application.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，checkpoint 并非免费。checkpoint 操作对流式应用程序提出了额外的要求，涉及维护 checkpoint 数据所需的存储以及此重复操作对应用程序性能的影响。
+- en: In this chapter, we discuss the necessary considerations to set up and use checkpointing
+    with our Spark Streaming application. We begin with an example to illustrate the
+    practical aspects of setting up checkpoints in a program. Thereafter, we see how
+    to recover from a checkpoint, the operational cost that checkpointing introduces
+    and, finally, we discuss some techniques to tune checkpointing’s performance.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了设置和使用 Spark Streaming 应用程序中的 checkpointing 所需考虑的要点。我们从一个示例开始，以说明在程序中设置
+    checkpoint 的实际方面。然后，我们看看如何从 checkpoint 恢复，checkpointing 引入的操作成本，最后，我们讨论一些调整 checkpointing
+    性能的技术。
+- en: Understanding the Use of Checkpoints
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 理解 Checkpoints 的使用
+- en: Let’s consider the following streaming job that keeps track of the number of
+    times a video has been played per hour in an online video store. It uses `mapWithState`
+    to keep track of the `videoPlayed` events coming through the stream and processes
+    the timestamp embedded in the event to determine the time-based aggregation.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们考虑以下流式作业，该作业跟踪在线视频商店每小时播放的视频次数。它使用 `mapWithState` 来跟踪通过流传递的 `videoPlayed`
+    事件，并处理事件中嵌入的时间戳以确定基于时间的聚合。
+- en: 'In the code snippet that follows, we make the following assumptions:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的代码片段中，我们做出以下假设：
+- en: The data stream consists of the structure `VideoPlayed(video-id, client-id,
+    timestamp)`
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据流包括结构 `VideoPlayed(video-id, client-id, timestamp)`
+- en: We have a `videoPlayedDStream` available of type `DStream[VideoPlayed]`
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们有一个类型为 `DStream[VideoPlayed]` 的 `videoPlayedDStream` 可用。
+- en: 'We have a `trackVideoHits` function with this signature:'
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们有一个具有以下签名的 `trackVideoHits` 函数：
+- en: '[PRE0]'
+  id: totrans-11
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Online Resources
+  id: totrans-12
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在线资源
+- en: We have reduced the code to the elements needed to understand checkpointing.
+    To explore the complete example, go to the standalone project `checkpointed-video-stream`
+    in the online resources for the book, located at [*https://github.com/stream-processing-with-spark*](https://github.com/stream-processing-with-spark).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将代码简化为理解 checkpointing 所需的元素。要探索完整示例，请访问书籍在线资源中名为 [*https://github.com/stream-processing-with-spark*](https://github.com/stream-processing-with-spark)
+    的独立项目 `checkpointed-video-stream`。
+- en: Example 24-1\. Stream checkpointing
+  id: totrans-14
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 24-1. 流式 checkpointing
+- en: '[PRE1]'
+  id: totrans-15
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'If we run this example, we should see an output similar to this:'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们运行这个示例，我们应该看到类似于以下的输出：
+- en: '[PRE2]'
+  id: totrans-17
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The more interesting aspect to observe while this job is executing is the Spark
+    UI, where we can see how the dependency of each batch execution on previous stages
+    unfolds.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此作业执行时观察的更有趣的方面是 Spark UI，在那里我们可以看到每个批处理执行对前一阶段依赖关系的展开情况。
+- en: '[Figure 24-1](#stateful-job-0) illustrates how the first iteration (`Job #0`)
+    depends only on the initial batch of data, identified by the `makeRDD` operation.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 24-1](#stateful-job-0)说明了第一次迭代（`Job #0`）如何仅依赖于由 `makeRDD` 操作标识的初始数据批次。'
+- en: '![spas 2401](Images/spas_2401.png)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2401](Images/spas_2401.png)'
+- en: Figure 24-1\. Observing the initial stateful job lineage
+  id: totrans-21
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 24-1\. 观察初始有状态作业血统
+- en: Note
+  id: totrans-22
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: To see this representation on your own setup, go to the Spark UI at `<host>:4040`
+    (or 4041, 4042, and so on if there is more than one job running on the same host).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在您自己的设置中查看此表示，请转至 Spark UI，位于 `<host>:4040`（如果在同一主机上运行多个作业，则为 4041、4042 等）。
+- en: Then, click the job details, leading to the page `http://<host>:4040/jobs/job/?id=0`
+    where you can expand the *DAG Visualization* to display the visualization.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，点击作业详情，跳转至页面 `http://<host>:4040/jobs/job/?id=0`，您可以展开*DAG 可视化*以显示可视化内容。
+- en: 'As the job makes progress, we can inspect the DAG visualization of the next
+    job executed, `job #1`, which we show in [Figure 24-2](#stateful-job-1). There,
+    we can see that the results are dependent on the previous `makeRDD` and the current
+    batch of data, brought together by the stateful computation embodied by the `mapWithState`
+    stage.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '随着作业的进展，我们可以检查下一个执行的作业 `job #1` 的 DAG 可视化，如我们在[图 24-2](#stateful-job-1)中展示的那样。在那里，我们可以看到结果依赖于前一批次的
+    `makeRDD` 和当前数据批次，通过 `mapWithState` 阶段体现了有状态计算的作用。'
+- en: '![spas 2402](Images/spas_2402.png)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2402](Images/spas_2402.png)'
+- en: Figure 24-2\. Evolving stateful job lineage
+  id: totrans-27
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 24-2\. 进化的有状态作业血统
+- en: 'If we look at the details of `stage 8` in `job #1`, in [Figure 24-3](#stateful-job-1-detail),
+    we can appreciate how the combination the current results depend on previous and
+    new data combined.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '如果我们查看 `job #1` 中 `stage 8` 的详细信息，在[图 24-3](#stateful-job-1-detail)中，我们可以欣赏当前结果如何依赖于前期和新数据的组合。'
+- en: '![spas 2403](Images/spas_2403.png)'
+  id: totrans-29
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2403](Images/spas_2403.png)'
+- en: 'Figure 24-3\. Evolving stateful job lineage: detail'
+  id: totrans-30
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 24-3\. 进化的有状态作业血统：详细
+- en: This process repeats with each new batch of data, creating an ever more complex
+    dependency graph on each iteration. In the same charts, we can see older stages
+    skipped because the results are still available in memory. But we cannot keep
+    all previous results around forever.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此过程将随着每个新数据批次的到来而重复，创建一个越来越复杂的依赖图。在相同的图表中，我们可以看到旧阶段被跳过，因为结果仍然存储在内存中。但我们不能永远保留所有先前的结果。
+- en: Checkpointing provides us with a solution to bound this complexity. At each
+    checkpoint, Spark Streaming stores the intermediate state of the stream computation
+    so that results previous to the checkpoint are no longer required to process new
+    data.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点提供了解决此复杂性的解决方案。在每个检查点，Spark Streaming 存储流计算的中间状态，因此不再需要处理新数据之前的检查点之前的结果。
+- en: In [Figure 24-4](#stateful-job-checkpoint), we can see the state of the same
+    streaming job after more than 300 iterations. Instead of keeping the previous
+    300 results in memory, the stateful computation combines the checkpoint information
+    with the most recent batches of data to obtain a result for the latest microbatch.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 24-4](#stateful-job-checkpoint)中，我们可以看到同一流作业超过 300 次迭代后的状态。与将前 300 个结果存储在内存中不同，有状态计算结合检查点信息和最新数据批次，以获得最新微批次的结果。
+- en: '![spas 2404](Images/spas_2404.png)'
+  id: totrans-34
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2404](Images/spas_2404.png)'
+- en: 'Figure 24-4\. Evolving stateful job lineage: checkpoint'
+  id: totrans-35
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 24-4\. 进化的有状态作业血统：检查点
+- en: Checkpointing DStreams
+  id: totrans-36
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: DStreams 的检查点
+- en: 'To enable checkpointing, you need to set two parameters:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要启用检查点，您需要设置两个参数：
+- en: '`streamingContext.checkpoint(<dir>)`'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`streamingContext.checkpoint(<dir>)`'
+- en: Sets the checkpoint directory for this streaming context. This directory should
+    be on a resilient filesystem, such as Hadoop Distributed Files System (HDFS).
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设置流处理上下文的检查点目录。此目录应位于弹性文件系统上，例如 Hadoop 分布式文件系统（HDFS）。
+- en: '`dstream.checkpoint(<duration>)`'
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`dstream.checkpoint(<duration>)`'
+- en: Sets the checkpoint frequency of the DStream to the specified `duration`.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将 DStream 的检查点频率设置为指定的`duration`。
+- en: Setting the duration on the DStream is optional. If not set, it defaults to
+    a specific value, depending on the DStream type. For `MapWithStateDStream`, it
+    defaults to 10x the duration of the batch interval. For all other DStreams, it
+    defaults to 10 seconds or the batch interval, whichever is largest.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在DStream上设置持续时间是可选的。如果未设置，则默认为特定值，具体取决于DStream类型。对于`MapWithStateDStream`，默认为批处理间隔的10倍。对于所有其他DStreams，默认为10秒或批处理间隔，以较大者为准。
+- en: The checkpoint frequency *must* be a multiple of the batch interval, or the
+    job will fail with an initialization error. Intuitively, what we want is the interval
+    frequency to be each *n* batch intervals, where the choice of *n* depends on the
+    volume of the data and how critical the requirements are for failure recovery
+    of the job. A rule of thumb, advised in the Spark documentation, is to do checkpointing
+    every five to seven batch intervals as a start.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点频率*必须*是批处理间隔的倍数，否则作业将因初始化错误而失败。直观地说，我们希望间隔频率是每*n*批处理间隔一次，其中*n*的选择取决于数据量以及作业故障恢复的要求的关键性。根据Spark文档的建议，一个经验法则是起始时每五到七个批处理间隔进行检查点。
+- en: Warning
+  id: totrans-44
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Note that if you have a batch interval longer than 10 seconds, leaving the default
+    value will create a checkpoint on every batch, which might negatively affect the
+    performance of the streaming job.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，如果批处理间隔超过10秒，则保留默认值将在每个批处理上创建一个检查点，这可能会对流作业的性能产生负面影响。
+- en: Checkpointing is required for stateful processing when the streaming operation
+    depends on a previous state, and therefore, it might be computationally expensive
+    or simply impossible to keep all of the necessary data around. The idea here is
+    that Spark Streaming implements computations that depend possibly on a number
+    of prior RDDs, either from intermediate results or prior source data. As we have
+    seen in the previous example, this constitutes the lineage of the computation.
+    However, as we also observed, that lineage can grow long or even indefinitely
+    in cases in which a stateful computation is used.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当流处理操作依赖于先前状态时，状态处理需要检查点，因此保留所有必要数据可能会计算量大或根本不可能。这里的思路是，Spark Streaming实现可能依赖于先前RDD的计算，无论是来自中间结果还是先前的源数据。正如我们在先前的例子中看到的那样，这构成了计算的衍生线。然而，正如我们也观察到的那样，在使用有状态计算时，该衍生线可能会变得很长甚至无限。
+- en: For example, the reasoning to compute the length of the maximal lineage obtained
+    out of a windowed computation is to consider what kind of data we would need to
+    recover if we were to perform the entire computation due to partial data loss
+    in the worst case. Given a batch interval of duration *t* and a window interval
+    of *n* × *t*, we will need the last *n* RDDs of data to recompute the window.
+    In the case of windowed computation, the length of the lineage might be long but
+    bounded by a fixed factor.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，计算从窗口化计算中获取的最大衍生线条长度的推理是考虑如果在最坏情况下由于部分数据丢失我们需要恢复整个计算所需的数据类型。给定持续时间为*t*的批处理间隔和*n*
+    × *t*的窗口间隔，我们将需要最后的*n*个RDD数据来重新计算窗口。在窗口化计算的情况下，衍生线条的长度可能很长，但受到固定因子的限制。
+- en: The use of checkpointing jumps from convenient to necessary when the lineage
+    of our computation might be arbitrarily long. In the case of arbitrary stateful
+    streams, the length of the state dependence on a prior RDD can go as far back
+    as the beginning of the runtime of our application, making the use of checkpoints
+    on stateful streams mandatory.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们的计算衍生线可能是任意长时，从方便到必要使用检查点跳转。在任意有状态流的情况下，状态依赖于先前RDD的长度可以回溯到应用程序运行时的开始，这使得在有状态流上使用检查点是强制性的。
+- en: Recovery from a Checkpoint
+  id: totrans-49
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 从检查点恢复
+- en: In our discussion so far, we have considered the role that checkpointing plays
+    in saving the intermediate state of a stateful streaming job so that further iterations
+    can refer to that intermediate result instead of depending on the complete lineage
+    of the job, that might go as far as the first element ever received.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们迄今为止的讨论中，我们考虑了检查点在保存有状态流作业的中间状态中发挥的作用，以便进一步迭代可以引用该中间结果而不依赖作业的完整衍生线。这可能一直延续到接收到的第一个元素。
+- en: 'There is another equally important aspect to checkpointing when we deal with
+    failure and recovering from it. Let’s go back to our initial example and think
+    for a minute: “What would happen if my job fails at any point?” Without checkpoints,
+    we would need to replay the data for at least the past hour to recover the partial
+    totals for every video played. Now imagine that we were counting daily totals.
+    Then, we would need to replay a day’s worth of data while new data is still arriving
+    for processing.'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们处理故障和从故障中恢复时，检查点还有另一个同等重要的方面。让我们回到我们的初始示例并思考一分钟：“如果我的作业在任何时候失败会发生什么？”如果没有检查点，我们将需要重播过去至少一个小时的数据，以恢复每个视频播放的部分总数。现在想象一下，我们正在计算每日总数。然后，我们需要在新数据仍在到达进行处理时，重播一天的数据。
+- en: The information contained in a checkpoint lets us recover our stream-processing
+    application from the last known state, when the last checkpoint was taken. This
+    implies that a full recovery will require only the replay of a few batches of
+    data instead of hours’ or days’ worth of records.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点中包含的信息使我们能够从最后一个已知状态恢复流处理应用程序，即上次检查点的状态。这意味着全面恢复仅需要重播几个批次的数据，而不是数小时或数天的记录。
+- en: Recovery from a checkpoint must be supported by the Spark Streaming application
+    in its implementation. In particular, we need to use a particular method to obtain
+    an active `streamingContext`. The `streamingContext` provides a `getActiveOrCreate(<dir>,
+    <ctx-creation-function>)` method that permits an application to start from an
+    existing checkpoint stored at `<dir>`, and if it’s not available, to create a
+    new `streamingContext` using the `<ctx-creation-function>` function.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark Streaming 应用程序在实现中必须支持从检查点进行恢复。特别是，我们需要使用特定方法来获取活动的 `streamingContext`。`streamingContext`
+    提供了 `getActiveOrCreate(<dir>, <ctx-creation-function>)` 方法，允许应用程序从存储在 `<dir>`
+    的现有检查点开始运行，如果检查点不可用，则使用 `<ctx-creation-function>` 函数创建新的 `streamingContext`。
+- en: 'If we update our earlier example with checkpoint recovery, our `streamingContext`
+    creation should look like this:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们更新先前的示例并加入检查点恢复功能，我们的 `streamingContext` 创建应如下所示：
+- en: '[PRE3]'
+  id: totrans-55
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Limitations
+  id: totrans-56
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 限制
+- en: Checkpoint recovery is supported only for packaged applications into a JAR file
+    and submitted using `spark-submit`. Recovering from a checkpoint is limited to
+    the same application logic that wrote the checkpoint data and cannot be used to
+    perform upgrades from a running streaming application. Changes in the application
+    logic will affect the possibility to rebuild the application state from its serialized
+    form in the checkpoint and will fail to restart.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点恢复仅适用于打包为 JAR 文件并使用 `spark-submit` 提交的应用程序。从检查点恢复仅限于编写检查点数据的相同应用程序逻辑，不能用于对正在运行的流处理应用程序进行升级。应用程序逻辑的更改将影响从检查点中的序列化形式重建应用程序状态的可能性，并且会导致重新启动失败。
+- en: Checkpoints seriously hamper the possibility to upgrade streaming applications
+    to newer versions and require particular architectural considerations to restore
+    stateful computations when new versions of the application become available.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点严重影响将流处理应用程序升级到新版本的可能性，并要求在新版本应用程序变得可用时进行特定的架构考虑以恢复有状态计算。
+- en: The Cost of Checkpointing
+  id: totrans-59
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 检查点成本
+- en: 'The added cost of checkpointing to the execution time of a streaming application
+    is of particular concern in Spark Streaming because we consider our batch interval
+    as a computation budget. The writing of a potentially large state to a disk can
+    be expensive, especially if the hardware that is backing this application is relatively
+    slow, which is often the case when using Hadoop Distributed File System (HDFS)
+    as a backing store. Note that this is the most common case of checkpointing: HDFS
+    is a reliable filesystem and magnetic drives offer replicated storage at a manageable
+    cost.'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将检查点写入磁盘会增加流处理应用程序的执行时间成本，这在 Spark Streaming 中尤为关注，因为我们将批处理间隔视为计算预算。将可能的大型状态写入磁盘可能会很昂贵，特别是如果支持该应用程序的硬件相对较慢，这在使用
+    Hadoop 分布式文件系统（HDFS）作为后备存储时经常会出现。需要注意的是这是检查点的最常见情况：HDFS 是可靠的文件系统，磁盘驱动器提供的复制存储成本可管理。
+- en: Checkpointing should ideally operate on a reliable filesystem so that in the
+    case of a failure, it will be able to recover the state of the stream rapidly,
+    by reading the data from that reliable storage. However, considering that writing
+    to HDFS can be slow, we need to face the fact that checkpointing will periodically
+    require more runtime, possibly even more time than the batch interval. And as
+    we have explained previously, having a batch processing time longer than the batch
+    interval can be problematic.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Checkpointing 理想情况下应在可靠的文件系统上运行，以便在故障发生时能够通过从可靠存储读取数据迅速恢复流的状态。然而，考虑到写入 HDFS
+    可能较慢，我们需要面对一个事实，即 checkpointing 周期性地可能需要更长的运行时间，甚至可能比批处理间隔时间还要长。正如我们之前解释过的，批处理时间长于批处理间隔时间可能会带来问题。
+- en: Checkpoint Tuning
+  id: totrans-62
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Checkpoint 调整
+- en: 'Thanks to the Spark user interface, you can measure on average how much more
+    time you will need for a batch interval computation that includes checkpointing
+    compared to the batch processing time that you observe in RDDs that do not require
+    checkpointing. Suppose that our batch processing time is about 30 seconds for
+    a batch interval that is one minute. This is a relatively favorable case: at every
+    batch interval, we spend only 30 seconds computing, and we have 30 seconds of
+    “free” time during which our processing system is sitting idle while receiving
+    data.'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Spark 用户界面，您可以平均衡量需要多少额外时间来计算包含 checkpointing 的批处理间隔，与在不需要 checkpointing
+    的 RDD 中观察到的批处理时间相比。假设我们的批处理时间约为 30 秒，批处理间隔为一分钟。这是一个相对有利的情况：每个批处理间隔，我们只需花费 30 秒进行计算，而在接收数据的同时，我们有
+    30 秒的“空闲”时间，我们的处理系统在此期间处于空闲状态。
+- en: Given our application requirements, we decide to checkpoint every five minutes.
+    Now that we’ve decided to do that checkpointing every five minutes, we run some
+    measurements and observe that our checkpointing batches require four minutes of
+    actual batch processing time. We can conclude that we will need about three and
+    a half minutes to write to disk, considering that during that same batch we have
+    also expanded 30 seconds in computation. It means that in this case, we will require
+    four batches to checkpoint once again. Why is that?
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 鉴于我们的应用要求，我们决定每五分钟进行一次检查点。现在我们决定每五分钟进行一次检查点，我们进行了一些测量并观察到我们的检查点批次需要四分钟的实际批处理时间。我们可以得出结论，在这种情况下，我们将需要大约三分半钟的时间来写入磁盘，考虑到在同一批次中，我们还扩展了
+    30 秒的计算时间。这意味着在这种情况下，我们将需要四个批次再次进行检查点。为什么会这样？
+- en: This is because when we spend three and a half minutes actually writing our
+    files to disk, we are in fact still receiving data when those three and a half
+    minutes elapse. In those three and a half minutes, we have received three and
+    a half new batches that we did not have time to process because our system was
+    blocked waiting for the checkpoint operation to end. As a consequence, we now
+    have three and a half—that is, four batches of data that are stored on our system—that
+    we need to process to catch up and reach stability again. Now, we have a computation
+    time on a normal batch of 30 seconds, which means that we will be able to catch
+    up by one new batch on every batch interval of one minute, so that in four batches
+    we will be caught up with the received data. We will be able to checkpoint again
+    at the fifth batch interval. At a checkpointing interval of five batches, we are
+    in fact just at the stability limit of the system.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是因为当我们实际花费三分半钟将文件写入磁盘时，事实上我们仍在接收数据，当这三分半钟结束时，我们已经接收到了三个半新的批次，因为我们的系统被阻塞等待检查点操作结束。因此，我们现在有了三个半（即四个）批次数据存储在我们的系统上，我们需要处理以追赶并再次达到稳定状态。现在，我们在正常批处理中的计算时间是
+    30 秒，这意味着我们每分钟的批次间隔都能够赶上一个新的批次，因此在四个批次内，我们将赶上接收到的数据。我们将在第五个批次间隔时再次进行检查点。在五个批次的检查点间隔下，我们实际上只是处于系统的稳定极限。
+- en: That is, of course, if the state encoded in your stateful stream does reflect
+    a size that is more or less constant with respect to the amount of data received
+    from the input source over time. The relationship between the size of the state
+    and the amount of data received over time might be more complex and dependent
+    on the particular application and computation, which is why it is often very useful
+    to proceed experimentally with checkpointing length. The idea is that a larger
+    checkpointing interval will give more time to our cluster to catch up with time
+    lost during checkpointing, and the equally important concern that if we set a
+    checkpoint interval that is too high, we might have a cluster that will have some
+    trouble catching up if we incur some kind of data loss through a crash. In that
+    case, we will indeed require the system to load the checkpoint and to reprocess
+    all the RDDs that have been seen since that checkpoint.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，前提是，在您的有状态流中编码的状态确实反映了随时间从输入源接收的数据量大小相对恒定的大小。状态的大小与随时间接收的数据量之间的关系可能更复杂，并且依赖于特定的应用程序和计算，这就是为什么通过检查点长度进行实验通常非常有用的原因。其思想是更大的检查点间隔将为我们的集群提供更多时间来赶上检查点期间丢失的时间，同样重要的是，如果我们设置的检查点间隔过高，那么如果发生崩溃导致数据丢失，我们可能会遇到一些难以赶上的集群问题。在这种情况下，我们确实需要系统加载检查点并重新处理自那个检查点以来看到的所有
+    RDD。
+- en: Finally, note that any Spark user should consider changing the default checkpoint
+    interval on any DStream because it is set to 10 seconds. This means that on each
+    batch, Spark will checkpoint if the interval elapsed since the last checkpoint
+    is greater than the checkpointing interval. As a consequence, if you have a batch
+    interval larger than 10 seconds, this leads to the “sawtooth” pattern in processing
+    times, shown in [Figure 24-5](#checkpoint-sawteeth), depicting checkpointing on
+    every other batch (which is probably too frequent for most applications).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，请注意，任何 Spark 用户都应考虑更改任何 DStream 上的默认检查点间隔，因为它设置为 10 秒。这意味着在每个批处理上，如果自上次检查点以来的间隔大于检查点间隔，则
+    Spark 将进行检查点。因此，如果批处理间隔大于 10 秒，这将导致处理时间上的“锯齿”模式，如 [图 24-5](#checkpoint-sawteeth)
+    所示，描述了每隔一个批次进行一次检查点（对大多数应用程序来说可能太频繁了）。
+- en: Note
+  id: totrans-68
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: There exists another alternative to this discipline of checkpoint interval tuning,
+    which consists of writing to a persistent directory that accepts data at a very
+    high speed. For that purpose, you can choose to point your checkpoint directory
+    to a path of an HDFS cluster that is backed by very fast hardware storage, such
+    as solid-state drives (SSDs). Another alternative is to have this backed by memory
+    with a decent offload to disk when memory is filled, something performed by Alluxio,
+    for example—a project that was initially developed as Tachyon, some module of
+    Apache Spark. This simple method for reducing the checkpointing time and the time
+    lost in checkpointing is often one of the most efficient ways to reach a stable
+    computation under Spark Streaming; that is, if it is affordable, of course.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于检查点间隔调整的另一种选择是将数据写入一个接受非常高速数据的持久化目录。为此，您可以选择将检查点目录指向由非常快速硬件存储支持的 HDFS 集群路径，例如固态硬盘（SSD）。另一种选择是将其支持为内存，并在内存填满时将数据卸载到磁盘，例如由
+    Alluxio 执行的操作，这是最初作为 Tachyon 开发的项目，是 Apache Spark 的某个模块。通过这种简单方法来减少检查点时间和在检查点中丢失的时间通常是达到
+    Spark Streaming 稳定计算的最有效方式之一；当然，前提是这是可承受的。
+- en: '![spas 2405](Images/spas_2405.png)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2405](Images/spas_2405.png)'
+- en: Figure 24-5\. Checkpoint “sawtooth” performance pattern
+  id: totrans-71
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 24-5\. 检查点“锯齿”性能模式

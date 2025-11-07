@@ -1,0 +1,1746 @@
+- en: Chapter 27\. Streaming Approximation and Sampling Algorithms
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第27章。流式逼近与采样算法
+- en: Stream processing poses particular challenges when it comes to producing summaries
+    of the observed data over time. Because we only get one chance at observing the
+    values in a stream, even queries considered simple on a bounded dataset become
+    challenging when you want to answer the same question over a data stream.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当涉及到随时间产生观察数据摘要时，流处理面临特殊的挑战。因为我们只有一次机会观察流中的值，即使在有界数据集上被认为简单的查询在想要在数据流上回答同样的问题时也变得复杂。
+- en: 'The crux of the issue lies in how those queries ask for a form of global summary,
+    or a *supremum*, result that requires observing the entire dataset, for example:'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '问题的关键在于这些查询如何要求一个全局摘要的形式，或者一个*最大值*结果，例如观察整个数据集:'
+- en: The count of all the distinct elements in the stream (summary)
+  id: totrans-3
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 流中所有不同元素的计数（摘要）
+- en: The *k* highest elements of the stream (global supremum)
+  id: totrans-4
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 流中*k*个最高的元素（全局最大值）
+- en: The *k* most frequent elements of the stream (global supremum)
+  id: totrans-5
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 流中*k*个最频繁的元素（全局最大值）
+- en: 'Naturally, when data comes from a stream, the difficulty is in seeing the entire
+    data set at once. These sorts of queries can be answered naively by storing the
+    whole stream, and then treating it as a batch of data. But not only is this storage
+    not always possible, it’s a heavy-handed approach. As you will see, we can construct
+    succinct data representations that reflect the main numerical and characteristics
+    of our stream. This succinctness has a cost, measured in the accuracy of the answer
+    they return: those data structures and the algorithms that operate them return
+    approximative results, with specific error bounds. In summary:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '自然而然地，当数据来自流时，一次性看到整个数据集是困难的。这类查询可以通过存储整个流，然后将其视为数据批处理来简单回答。但这种存储不仅不总是可能的，而且是一种笨拙的方法。正如你将看到的，我们可以构建简明的数据表示来反映我们流的主要数值特征。这种简洁性有一个代价，即返回的答案的准确性:
+    这些数据结构及其操作它们的算法返回近似结果，具有特定的误差界限。总结如下：'
+- en: Exact algorithms are more accurate, but very resource intensive
+  id: totrans-7
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 精确算法更精确，但资源消耗非常大
+- en: Approximation algorithms are less accurate, but we’re willing to accept a bit
+    less accuracy rather than take on the extra resource cost.
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 近似算法不够精确，但我们愿意接受稍微不那么精确的结果，而不是承担额外的资源成本。
+- en: 'In this section, we study the application of approximation algorithms and sampling
+    techniques to help us sort out global questions over the elements observed in
+    the stream over time using a limited amount of resources. To begin, we explore
+    the tension between real-time responses and the exactness of those responses in
+    the face of large amounts of data. Then, we introduce the concepts of hashing
+    and sketching that we need to understand three covered approximation methods:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们研究了将近似算法和采样技术应用于通过有限资源对观察到的数据流中的元素进行全局问题的总结的应用。首先，我们探讨了在面对大量数据时实时响应与精确性之间的张力。然后，我们介绍了我们需要理解的三种覆盖的近似方法的哈希和素描的概念：
+- en: HyperLogLog (HLL)
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: HyperLogLog（HLL）
+- en: For counting distinct elements
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于计数不同元素
+- en: CountMinSketch (CMS)
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: CountMinSketch（CMS）
+- en: For counting the frequency of elements
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于计数元素频率
+- en: T-Digest
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: T-Digest
+- en: For approximating the frequency histogram of observed elements
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用于近似观察元素的频率直方图
+- en: We end the chapter with an overview of different sampling methods and how are
+    they supported in Spark.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们以概述不同的采样方法及其在Spark中的支持结束本章。
+- en: Exactness, Real Time, and Big Data
+  id: totrans-17
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 精确性、实时性和大数据
+- en: 'Distributed computing, when operating on a continuous flow of data is often
+    considered a special beast in that it’s constrained by a triangle of concepts:'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '分布式计算，在处理连续数据流时通常被认为是一种特殊的问题，因为它受三角概念的限制:'
+- en: The exactness of the produced results
+  id: totrans-19
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 产生结果的精确性
+- en: Computation occurring in real time
+  id: totrans-20
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 实时发生的计算
+- en: Computation on big data
+  id: totrans-21
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 大数据的计算
+- en: 'Let’s look at these concepts in detail:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们详细看看这些概念：
+- en: Exactness
+  id: totrans-23
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 精确性
+- en: First, we can see exact computation as the reflection of the need to produce
+    a precise numerical result answering a question that we ask from our data. For
+    example, if we are monitoring the data coming from a website, we might want to
+    understand the number of *distinct* current users by analyzing interactions, events,
+    and logs that the website produces.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们可以看到精确计算是对我们从数据中提问要求得出精确数值答案的反映。例如，如果我们正在监控来自网站的数据，我们可能希望通过分析网站产生的交互、事件和日志来了解当前独立用户的数量。
+- en: Real-Time Processing
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 实时处理
+- en: The second aspect is the freshness or latency of that analysis. In this context,
+    latency relates to the time between the moment when data is first available and
+    when we can get some insights from it. Coming back to the website visitor example,
+    we could ask the *distinct users* question at the end of the day. We would analyze
+    the logs that the website produced during the last 24 hours and try to compute
+    the value of how many unique users have been visiting during that period. Such
+    a computation might take minutes to hours before we get a result, depending on
+    the volume of data that we need to process. We consider that a *high-latency*
+    approach. We could also ask “how many users are on the website” at any time of
+    the day and expect an answer *right now*. Except, as browsers transact with web
+    servers in punctual queries, what *right now* translates to is “how many distinct
+    visitors have we had for *a short duration of time carefully chosen to represent
+    the length of a browsing session*?”
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个方面是分析的新鲜度或延迟性。在这个背景下，延迟性指的是从数据第一次可用到我们能够得出一些见解之间的时间。回到网站访问者的例子，我们可以在一天结束时询问“独立用户”的问题。我们会分析网站在过去24小时内产生的日志，并尝试计算在那段时间内访问的独立用户数量。这样的计算可能需要几分钟到几小时才能得出结果，这取决于我们需要处理的数据量。我们认为这是一种高延迟的方法。我们也可以随时询问“网站上有多少用户”，并期望立即得到答案。但是，由于浏览器与Web服务器的交互是及时的查询，所谓的“立即”实际上是指“我们在*精心选择的短暂时间内来代表浏览会话的长度*内有多少独立访问者？”
+- en: Big Data
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 大数据
+- en: The third point that we need to address is, how voluminous is the data that
+    we are dealing with? Are we looking at the website of a local sports club with
+    but a few users at a given time, or are we looking at the website of a massive
+    retailer such as Amazon, which welcomes thousands upon thousands of visitors at
+    any given moment?
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要解决的第三个问题是，我们处理的数据有多大？我们是在看一个本地体育俱乐部的网站，每次只有几个用户在访问，还是在看亚马逊这样的大型零售商的网站，每时每刻都迎来成千上万的访问者？
+- en: The Exactness, Real-Time, and Big Data triangle
+  id: totrans-29
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 精确性、实时性和大数据三角形
+- en: 'The notions of exactness, real-time processing, and data size can be represented
+    as a triangle as illustrated in [Figure 27-1](#exact_realtime_big_data). This
+    triangle reflects that achieving exactness and freshness (near-real-time results)
+    are at odds as the volume of data increases: these three needs are rarely all
+    met at the same time. The analysis of distributed data processing, up to fairly
+    recently, has often focused on only two sides of this triangle.'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 精确性、实时处理和数据量的概念可以用三角形表示，如[图27-1](#exact_realtime_big_data)所示。这个三角形反映出，在数据量增加时，实现精确性和新鲜度（接近实时结果）是矛盾的：这三个需求很少能同时满足。直到最近，分布式数据处理的分析通常只关注这个三角形的两个方面。
+- en: '![spas 2701](Images/spas_2701.png)'
+  id: totrans-31
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2701](Images/spas_2701.png)'
+- en: Figure 27-1\. The triangle of exact results, real-time processing, and big data
+  id: totrans-32
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图27-1\. 精确结果、实时处理和大数据的三角形
+- en: For example, in the domain of website monitoring, we have focused in the past
+    on exact and real-time processing, devising systems that allow us to understand
+    very quickly how many users are visiting our website and that gives us an exact
+    answer as to the number of distinct users.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在网站监控领域，我们过去专注于精确和实时处理，设计了系统，使我们能够快速了解有多少用户访问我们的网站，并提供确切的独立用户数量的答案。
+- en: 'This is the regular meat-and-potatoes work of stream processing. It has fallen
+    behind in recent times because of the pull of the third vertex of the triangle:
+    big data. Larger and larger online businesses have often put scalability first
+    as an imperative: when a large website scales, its maintainers still want very
+    precise results on how many users have been visiting, and therefore often end
+    up asking the question of analyzing that number of visitors over a large amount
+    of data. They then need to come to terms with the fact that the computation of
+    the answer might require large amounts of time—sometimes longer than the time
+    it took to be collected.'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是流处理的常规工作。近年来，由于大数据的吸引力，它已经落后了。越来越多的在线企业通常将可伸缩性放在首位，因为当一个大型网站扩展时，其维护者仍然希望得到非常精确的关于访问用户数量的结果，因此常常需要分析大量访问者的数量。然后，他们需要认清答案的计算可能需要大量时间，有时比收集这些数据所花费的时间还长。
+- en: This often translates into processing the logs of a very voluminous website
+    through analytics frameworks such as Apache Spark. Estimating based on periodic
+    (e.g., monthly average) might be sufficient for long-term capacity planning, but
+    as businesses need to react faster and faster to a changing environment, there
+    is inherently more and more interest in getting quick answers to our questions.
+    Nowadays, in the age of elastic cloud infrastructure, commercial website maintainers
+    would like to understand in real time whether there is a change in conditions
+    because they would be able to react to it, as we’re about to see.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这通常通过诸如 Apache Spark 的分析框架来处理非常庞大网站的日志。基于周期性（例如，月均值）的估算可能足以进行长期容量规划，但随着企业需要更快地对不断变化的环境做出反应，我们对问题的快速答案越来越感兴趣。如今，在弹性云基础设施的时代，商业网站维护者希望能够实时了解条件是否发生变化，因为他们可以据此做出反应，我们即将看到。
+- en: Big Data and Real Time
+  id: totrans-36
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 大数据与实时
+- en: To solve this conundrum, we need to move to the third side of the triangle,
+    between the big data and real-time vertices.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要解决这个难题，我们需要转向三角形的第三边，介于大数据和实时顶点之间。
+- en: For example, Walmart is a commercial retail website that is accessed frequently
+    by about [300 million distinct users per month in 2018](http://bit.ly/2Lm9Aye).
+    However, during Black Friday in 2012, the number of users that visited the Walmart
+    website to benefit from sales on that particular day doubled in a matter of hours,
+    as depicted in [Figure 27-2](#walmart_black_friday), in a way that was not predictable
+    from analyzing the traffic of the prior years. The resources needed in the website’s
+    infrastructure to process that new influx of users was suddenly much higher than
+    what had been anticipated.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，Walmart 是一个商业零售网站，2018 年每月约有 [3 亿个独立用户访问](http://bit.ly/2Lm9Aye)。然而，在 2012
+    年黑色星期五，访问 Walmart 网站以享受特别销售的用户数量在几小时内就翻了一番，正如在 [图 27-2](#walmart_black_friday)
+    中所示，这种情况并不可预测。网站基础设施处理这一新用户涌入所需的资源突然比预期的要高得多。
+- en: '![spas 2702](Images/spas_2702.png)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2702](Images/spas_2702.png)'
+- en: Figure 27-2\. Walmart.ca traffic on Black Friday in 2012 (image courtesy of
+    Lightbend, Inc.)
+  id: totrans-40
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 27-2\. 2012 年黑色星期五 Walmart.ca 的流量（图片由 Lightbend, Inc. 提供）。
+- en: The scalability problem has an impact on our ability to produce real-time answers.
+    It would take us a much longer time to count the web sessions of distinct users
+    on the Walmart website on Black Friday than on any other day.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可伸缩性问题对我们实时生成答案的能力有影响。在 Walmart 网站上的黑色星期五统计不同用户的网络会话比其他任何一天都要花费更长的时间。
+- en: 'In this case, it is more useful to have an approximate answer to our question
+    that comes in very fast rather than an exact answer that comes in delayed. The
+    approximate answer is easier to compute, but still an operational value: a good
+    website administrator will give resources to a website to match the ballpark of
+    the number of website visits—a small imprecision in the number of users will create
+    a cost (in unused resources) that will be more than covered for by the increase
+    in revenue from users that will not have to face a sluggish responsiveness in
+    the busiest online shopping day of the year.'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，与延迟的确切答案相比，我们更希望有一个快速的近似答案更有用。近似答案更容易计算，但仍然具有操作价值：一个好的网站管理员将为网站提供资源，以匹配网站访问者的数量的大致范围
+    —— 用户数量的小误差会导致成本增加（未使用的资源），而这些成本将会被年度最繁忙的在线购物日的收入增加所补偿。
+- en: In case more resources are not available, the administrator is also able to
+    organize a more graceful degradation of service, using, for example, admission
+    control (i.e., redirecting a percentage of users to a static page, and serving
+    those users he or she can in an efficient fashion, rather than letting all users
+    suffer through a slow, unusable website). All the administrator needs for this
+    is a ballpark measure.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果资源不足，管理员还可以通过例如接纳控制（即将一部分用户重定向到静态页面，并以高效的方式为这些用户提供服务，而不是让所有用户遭受慢速、无法使用的网站）来更优雅地降低服务的质量。管理员所需的仅仅是一个大概的估计。
+- en: Approximation Algorithms
+  id: totrans-44
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 近似算法
+- en: Approximation algorithms have much better scalability than the textbook exact
+    algorithms, in a manner that we’ll quantify precisely in the following pages.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 近似算法在可扩展性上比传统的精确算法要好得多，我们将在接下来的页面上详细量化这一点。
+- en: In this section, we are going to introduce a number of approximation algorithms
+    that compute a result on real-time data streams, including algorithms that allow
+    us to count distinct users, algorithms that allow us to get an idea of the histogram
+    of the values that we are seeing on the data stream, and algorithms that get us
+    an approximation of the most frequently encountered values occurring over a stream
+    of data.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将介绍多种近似算法，这些算法可以在实时数据流上计算结果，包括允许我们计算不同用户数量的算法，允许我们得到数据流中数值直方图的概念的算法，以及得到数据流中经常遇到的数值的近似的算法。
+- en: 'Hashing and Sketching: An Introduction'
+  id: totrans-47
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 哈希和草图：简介
+- en: A hash function is a function that maps inputs of any size to outputs of a fixed
+    size. They are used in computer science applications for use cases including cryptography
+    applications, hash tables, and databases. One of these uses is as a representative
+    of the equality—or near equality—of several objects.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 哈希函数是一个将任意大小的输入映射到固定大小输出的函数。它们在计算机科学应用中被广泛使用，用例包括加密应用、哈希表和数据库。其中之一是作为几个对象的等价或接近等价的代表。
+- en: 'Let’s go back to the definition of a hash function. The hash function maps
+    an object of its input domain—for example, arbitrarily long `String` elements—to
+    a fixed-size output domain. Let’s consider this output domain to be the space
+    of 32-bit integers. One interesting property that is that those integers are good
+    *identifiers* of these strings: if we are able to work with integers of 32 bits,
+    we have only a small amount of computation to do in order to determine whether
+    two large strings are equal.'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们回到哈希函数的定义。哈希函数将其输入域的对象（例如，任意长的`String`元素）映射到固定大小的输出域。让我们将这个输出域考虑为32位整数的空间。一个有趣的特性是这些整数很好地*标识*这些字符串：如果我们能够处理32位整数，我们只需进行少量计算就能确定两个大字符串是否相等。
+- en: In the design of hash functions, we often say that we would like them to have
+    *collision resistance*, meaning that it is improbable to hit the same hash for
+    two distinct, randomly chosen input documents.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在哈希函数的设计中，我们经常说我们希望它们具有*碰撞抵抗力*，这意味着对于随机选择的两个不同输入文档来说，它们产生相同的哈希是不可能的。
+- en: Warning
+  id: totrans-51
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Our definition of collision resistance is relaxed because *cryptographically
+    secure* hash functions are not relevant to our context. In this context, we would
+    require that it be difficult for an adversary to intentionally find two distinct
+    documents that produce the same hash value.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们对碰撞抵抗力的定义是放松的，因为*密码学安全*的哈希函数与我们的上下文无关。在这个情况下，我们要求敌手难以有意找到两个产生相同哈希值的不同文档。
+- en: 'Naturally, it is not trivial to give numbers to every possible string: there
+    are only 4,294,967,295 integers of 32 bits that we can represent on the Java virtual
+    machine (JVM) (or roughly four billion), and there are more `String` elements
+    than that.'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当然，给每个可能的字符串编号并不是简单的事情：在Java虚拟机（JVM）上，我们只能表示4,294,967,295个32位整数（大约40亿个），而`String`元素却比这更多。
+- en: Indeed, if we are mapping more than five billion distinct documents to the space
+    of 32-bit integers, which has a size of 4 billion, there are at least a billion
+    documents for which our hash function, will reuse integers it already associated
+    to previous documents. We call this mapping of two distinct documents to the same
+    hash a *collision*. They always occur, irrespective of the function when our function
+    is used on an input set larger than its fixed-sized output domain.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，如果我们将超过五十亿个不同的文档映射到具有四十亿大小的32位整数空间中，那么至少有十亿个文档会导致我们的哈希函数重新使用它已经与先前文档关联的整数。我们称这种将两个不同文档映射到相同哈希的映射为*碰撞*。无论函数如何，当我们的函数用于比其固定大小输出域更大的输入集时，这些碰撞总会发生。
+- en: However, as our application deals with documents extracted from a very large
+    dataset, we would hope that we will either have a large enough hash function,
+    or never compare those few elements that would result in a collision (i.e., a
+    *false positive* for document equality).
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，由于我们的应用处理从非常大的数据集中提取的文档，我们希望我们要么有一个足够大的哈希函数，要么永远不会比较那些会导致碰撞的几个元素（即，文档相等的*误判*）。
+- en: We’re going to consider hashes as a marker for the identity of a particular
+    element, and as we pick good hash functions, it means that we will save a lot
+    of computation comparing hashes rather than entire documents, and that collision
+    probabilities are reduced to cardinality comparisons.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将哈希值视为特定元素身份的标记，选择良好的哈希函数意味着我们将节省大量计算时间，因为我们比较的是哈希值而不是整个文档，并且碰撞概率降低到基数比较。
+- en: Hash Probability Collision
+  id: totrans-57
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 哈希概率碰撞
+- en: 'Rigorously, the probability of having a collision among *k* keys represented
+    by a domain of size *N* is computed from the probability of generating *k* unique
+    integers, as follows:'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 严格来说，由大小为*N*的域表示的*k*个键发生碰撞的概率是通过生成*k*个唯一整数的概率来计算的，如下所示：
+- en: <math display="block"><mrow><mn>1</mn> <mo>-</mo> <munderover><mo>∏</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow>
+    <mrow><mi>k</mi><mo>-</mo><mn>1</mn></mrow></munderover> <mfrac><mrow><mo>(</mo><mi>N</mi><mo>-</mo><mi>i</mi><mo>)</mo></mrow>
+    <mi>N</mi></mfrac> <mo>≈</mo> <mn>1</mn> <mo>-</mo> <msup><mi>e</mi> <mfrac><mrow><mo>-</mo><mi>k</mi><mo>(</mo><mi>k</mi><mo>-</mo><mn>1</mn><mo>)</mo></mrow>
+    <mrow><mn>2</mn><mi>N</mi></mrow></mfrac></msup></mrow></math>
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math display="block"><mrow><mn>1</mn> <mo>-</mo> <munderover><mo>∏</mo> <mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow>
+    <mrow><mi>k</mi><mo>-</mo><mn>1</mn></mrow></munderover> <mfrac><mrow><mo>(</mo><mi>N</mi><mo>-</mo><mi>i</mi><mo>)</mo></mrow>
+    <mi>N</mi></mfrac> <mo>≈</mo> <mn>1</mn> <mo>-</mo> <msup><mi>e</mi> <mfrac><mrow><mo>-</mo><mi>k</mi><mo>(</mo><mi>k</mi><mo>-</mo><mn>1</mn><mo>)</mo></mrow>
+    <mrow><mn>2</mn><mi>N</mi></mrow></mfrac></msup></mrow></math>
+- en: In the next few sections, we look at how we can take advantage of this by having
+    very small representations for the set of elements we’re going to observe on a
+    stream. However, it will always be useful to keep in mind the necessity to control
+    for collisions in our hashes, and the pseudo-randomness of the mapping a good
+    hash function creates between its domain and image.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将看看如何利用这一点，通过非常小的表示来观察我们将在流中观察到的元素集合。然而，牢记需要控制哈希碰撞的必要性和良好哈希函数创建的映射的伪随机性始终是有用的。
+- en: 'Counting Distinct Elements: HyperLogLog'
+  id: totrans-61
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 计数不同元素：HyperLogLog
+- en: 'The necessity for counting distinct elements in a large amount of data exists
+    in many analytics tasks, often because this unicity is the marker of discrete
+    “cases” in the data: think of the different sessions of users in a website log,
+    the number of transactions in a commerce registry, and so on. But it is also called
+    in a statistic the first “moment” of the dataset, with “moments” designating various
+    indicators of the distribution of the frequencies of the elements in the stream.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多分析任务中存在对大量数据中不同元素进行计数的需求，这通常是因为这种唯一性是数据中离散“情况”的标记：例如网站日志中用户会话的不同、商业注册中的交易数量等。但在统计学中，它也被称为数据集的第一个“瞬间”，“瞬间”指的是流中元素频率分布的各种指标。
+- en: 'The naïve version of counting all of the distinct elements in a DStream would
+    have us store a multiset of every single distinct element observed. For data that
+    comes in a streaming fashion, however, this is not practical: the number of distinct
+    elements might be unbounded.'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在DStream中计算所有不同元素的天真版本将要求我们存储观察到的每个单独不同元素的多重集。然而，对于以流方式到来的数据来说，这是不实际的：不同元素的数量可能是无限的。
+- en: Thankfully, since 1983, we know a probabilistic way of counting distinct elements
+    of a stream, the Flageolet-Martin algorithm. It has since been extended successively
+    into the LogLog counting, the HyperLogLog algorithms, and a particular hybrid
+    implementation, HyperLogLog++, a version of which is used in Spark today under
+    the `approxCountDistinct` API of DataSets and RDDs.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，自1983年以来，我们知道一种概率计算流中不同元素的方法，即Flageolet-Martin算法。此后，它已逐步扩展为LogLog计数、HyperLogLog算法以及一种特定的混合实现，HyperLogLog++，其中的一种版本在Spark中通过DataSets和RDDs的`approxCountDistinct`
+    API中使用。
+- en: All of those algorithms inherit from the central idea of the Flajolet-Martin
+    algorithm, which we will now explain. First, however, we begin with an example.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些算法都继承自Flajolet-Martin算法的核心思想，我们现在将对其进行解释。然而，首先，我们从一个例子开始。
+- en: 'Role-Playing Exercise: If We Were a System Administrator'
+  id: totrans-66
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 角色扮演练习：如果我们是系统管理员
+- en: The first thing we can consider to count the elements of our DStream is to hash
+    those elements. Let’s assume that we are a system administrator counting the distinct
+    URLs accessed by customers, to scope the size of a caching proxy. If we consider
+    only the most common URLs in the modern web, which could have a plausible median
+    length of 77 ASCII characters,^([1](ch27.xhtml#idm46385810310648)) and if we actually
+    store all the possibilities, we are looking at an average 616 bits per effectively
+    accessed URL (one ASCII character is 1 byte or 8 bits).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以考虑用来计算我们的DStream元素数量的第一件事是对这些元素进行哈希。让我们假设我们是一个系统管理员，计算客户访问的不同URL数量，以确定缓存代理的大小。如果我们只考虑现代网络中最常见的URL，其可能的中位长度为77个ASCII字符，^([1](ch27.xhtml#idm46385810310648))
+    并且如果我们实际存储所有可能性，我们会看到平均每个有效访问的URL占用616位（一个ASCII字符是1字节或8位）。
+- en: 'Let’s size our hash function correctly. We would have reached the 97th percentile
+    of URL lengths by character 172,^([2](ch27.xhtml#idm46385810308376)) which means
+    that there’s a possible dataset size of 8^(172), something that is represented
+    by log_2(8^(172)) = 516 bits. But, of course, not all combinations of 172 ASCII
+    characters are correct. According to the resource mentioned earlier, there are
+    6,627,999 publicly unique URLs from 78,764 domains, which means that we can expect
+    a URL density of about 84 URLs per domain. Let’s multiply this by 10 for good
+    measure (the article we quote is from 2010) and compare this to the number of
+    existing websites: about 1.2 billion, as of this writing.^([3](ch27.xhtml#idm46385810306248))
+    Therefore, we can expect a dataset of a maximum of 960 billion possible URLs.
+    This is adequately represented by a hash of about 40 bits. Hence, we can pick
+    a hash of size 64 bits instead of the 600 bits we were considering earlier—a reduction
+    of 10 times over storing every distinct element of the stream.'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们正确规模化我们的哈希函数。通过第172个字符，我们将达到URL长度的第97百分位数，^([2](ch27.xhtml#idm46385810308376))
+    这意味着可能的数据集大小为8^(172)，这被log_2(8^(172)) = 516位所表示。但当然，并不是所有172个ASCII字符的组合都是正确的。根据前面提到的资源，从78,764个域中有6,627,999个公共唯一URL，这意味着我们可以预期每个域名大约有84个URL。为了安全起见（我们引用的文章是2010年的），我们将这个数字乘以10，并将其与现有网站数（截至本文撰写时约为12亿）进行比较。因此，我们可以预期最多可能有9600亿个URL的数据集。这可以由大约40位的哈希值充分表示。因此，我们可以选择64位大小的哈希值，而不是之前考虑的600位，这将数据存储每个不同流元素的数量减少了10倍。^([3](ch27.xhtml#idm46385810306248))
+- en: The way our counting method is going to work is by considering statistical properties
+    of the binary representation of our hashes. As a general prelude, let’s consider
+    how unlikely it is to obtain four tails in a row in a repeated coin flip. Given
+    that a coin flip has a binary outcome, the probability of obtaining such a flip
+    is 1/2⁴. In general, to expect to hit a four-tails-in-a row, we expect to need
+    to repeat the four-coin-flips experiment 2⁴ times, which is 16 times (for a total
+    of 64 flips). We note how this easily extrapolates to *n* tails in a row. The
+    binary representation of our hashes functions in a similar way, because the spread
+    of encountered distinct numbers is uniform. As a consequence, if we pick a particular
+    number of length *k* bits in the binary representation of our hashes, we can expect
+    that we’ll need to see 2^(*k*) samples (unique stream elements) to reach it.^([4](ch27.xhtml#idm46385810300472))
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们计数方法的运作方式是通过考虑我们的哈希值的二进制表示的统计特性来实现的。作为一个一般的前提条件，让我们考虑在重复的硬币翻转中连续获得四个反面的概率有多么不可能。鉴于硬币翻转具有二元结果，获得这样的翻转的概率是1/2⁴。一般来说，期望获得四个连续反面，我们预计需要重复四次硬币翻转实验2⁴次，这是16次（总共64次翻转）。我们注意到这如何轻松推广到*n*个连续反面。我们哈希函数的二进制表示方式也以类似的方式运作，因为遇到的不同数的分布是均匀的。因此，如果我们从我们的哈希值的二进制表示中选择一个长度为*k*比特的特定数字，我们可以预期我们需要看到2^(*k*)个样本（唯一流元素）才能达到它。^([4](ch27.xhtml#idm46385810300472))
+- en: Let’s now consider a particular sequence of bits. Arbitrarily, we can decide
+    to consider a long sequence of zeros preceded by a nonzero higher-order bit.^([5](ch27.xhtml#idm46385810298008))
+    Let’s call the trailing (lower-order) zeros in the binary representation of a
+    number its *tail*. For example, the tail of 12 (1100 in binary) is two, the tail
+    of 8 (1000 in binary) is three, the tail of 10 (1010) is one. Therefore, we can
+    infer that, if we observe a number of tail size at least *k*, 2^(*k*) is an expectation
+    of the number of samples we’ve had to draw from the set to reach that tail length.
+    Because the uniformity of our hash function lets us assimilate hashing our inputs
+    to drawing independent samples, we can conclude that *if we observe a maximal
+    tail of size* k *among the hashes of the elements of our stream, 2^k is a good
+    estimate of the number of distinct elements in the stream*—if very unstable.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们考虑一个特定的位序列。任意地，我们可以决定考虑一个以非零高阶位为前导的长序列的零。[^5] 让我们把一个数的二进制表示中的末尾（较低阶位）零称为*尾部*。例如，12的尾部（二进制为1100）是两，8的尾部（二进制为1000）是三，10的尾部（1010）是一。因此，我们可以推断，如果我们观察到一个至少为*k*的尾部大小的数，2^(*k*)是我们必须从集合中抽取样本达到该尾部长度的期望数。由于我们哈希函数的均匀性让我们将哈希化输入视为独立抽样，我们可以得出结论：*如果我们观察到流元素的哈希中的最大尾部大小为*k*，那么2^k是流中不同元素数量的良好估计*
+    ——虽然非常不稳定。
+- en: 'However, this has two problems:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这个方法存在两个问题：
+- en: Because this is a randomized method toward computing the number of elements
+    in the stream, it is sensitive to outliers. That is, though very improbable, we
+    could encounter a stream element with a very long tail as the first element of
+    the stream and vastly overestimate the number of distinct elements on the stream.
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由于这是一种随机方法来计算流中元素的数量，它对异常值非常敏感。也就是说，虽然非常不太可能，我们可能会遇到流元素的一个非常长的尾部作为流的第一个元素，并且大大高估流中不同元素的数量。
+- en: 'Moreover, because the measure for the increase of our estimate of the longest
+    tail in hashes of elements of the stream is used as an exponent of our estimate,
+    we produce only estimates in powers of two: 2, 4, 8, …, 1,024, 2,048, and so on.'
+  id: totrans-73
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 此外，由于我们对流元素的哈希的最长尾部估计的增量被用作我们估计的指数，我们只能生成2的幂次估计：2、4、8，…，1,024、2,048等。
+- en: 'A way to alleviate this problem is to use several pairwise-independent hash
+    functions *in parallel*: if those hash functions are independent, we can hedge
+    the risks of one particular hash function giving out unusual results in one particular
+    experiment. But it is costly in terms of computation time (we would need to compute
+    several hashed values per element scanned), and, worse, it would require a large
+    set of pairwise-independent hashing functions, which we don’t necessarily know
+    to construct. However, we can emulate this use of several hash functions by partitioning
+    our input stream into *p* subsets, treated by the same function, using a fixed-size
+    prefix of the hash of the element as an indicator of the bucket this hash falls
+    in.'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缓解这个问题的方法是*并行*使用几个成对独立的哈希函数：如果这些哈希函数是独立的，我们可以在特定实验中防止一个特定的哈希函数给出异常结果的风险。但是这样做在计算时间上是昂贵的（我们需要计算每个扫描元素的多个哈希值），更糟糕的是，这将需要大量成对独立的哈希函数，而我们并不一定知道如何构造。然而，我们可以通过将输入流分成*p*个子集来模拟使用多个哈希函数，这些子集由相同的函数处理，使用元素的哈希的固定大小前缀作为该哈希所属桶的指示器。
+- en: The subtleties of comparing the estimated tail sizes in each of these buckets
+    are not to be underestimated; their impact on the accuracy of the estimate is
+    significant. The HyperLogLog algorithm, shown in [Figure 27-3](#dataflow_hyperloglog)
+    uses the harmonic mean to compensate for the possible presence of outliers in
+    each bucket while preserving the ability to return estimates that are not powers
+    of 2\. As a consequence, for a hash of 64 bits, we can use *p* buckets, each of
+    (64-*p*) bits. In each of these buckets, the only number to store is the size
+    of the longest tail met so far, which can be represented in log2(64-*p*).
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 比较这些桶中估计的尾部大小的微妙之处不容小觑；它们对估计精度的影响是显著的。HyperLogLog 算法在[图27-3](#dataflow_hyperloglog)中使用调和平均来补偿每个桶中可能存在的异常值，同时保留返回非2的幂次估计的能力。因此，对于64位哈希，我们可以使用*p*个桶，每个桶有(64-*p*)位。在这些桶中，唯一需要存储的数字是迄今为止遇到的最长尾部的大小，可以用log2(64-*p*)表示。
+- en: '![spas 2703](Images/spas_2703.png)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2703](Images/spas_2703.png)'
+- en: Figure 27-3\. The dataflow of the HyperLogLog algorithm
+  id: totrans-77
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图27-3\. HyperLogLog 算法的数据流
+- en: In sum, our storage use is <math alttext="2 Superscript p Baseline left-parenthesis
+    l o g 2 left-parenthesis l o g 2 left-parenthesis upper N slash 2 Superscript
+    p Baseline right-parenthesis right-parenthesis right-parenthesis"><mrow><msup><mn>2</mn>
+    <mi>p</mi></msup> <mrow><mo>(</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub>
+    <mrow><mo>(</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mrow><mo>(</mo>
+    <mi>N</mi> <mo>/</mo> <msup><mn>2</mn> <mi>p</mi></msup> <mo>)</mo></mrow> <mo>)</mo></mrow>
+    <mo>)</mo></mrow></mrow></math> , where *N* is the cardinality that we are trying
+    to measure. The striking gap between the cardinal we want to measure (potentially
+    960 billion URLs) and the actual amount of data stored 4 log2(60) = 24 bits is
+    amazing.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总之，我们的存储使用量为 <math alttext="2 Superscript p Baseline left-parenthesis l o g
+    2 left-parenthesis l o g 2 left-parenthesis upper N slash 2 Superscript p Baseline
+    right-parenthesis right-parenthesis right-parenthesis"><mrow><msup><mn>2</mn>
+    <mi>p</mi></msup> <mrow><mo>(</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub>
+    <mrow><mo>(</mo> <mi>l</mi> <mi>o</mi> <msub><mi>g</mi> <mn>2</mn></msub> <mrow><mo>(</mo>
+    <mi>N</mi> <mo>/</mo> <msup><mn>2</mn> <mi>p</mi></msup> <mo>)</mo></mrow> <mo>)</mo></mrow>
+    <mo>)</mo></mrow></mrow></math> ，其中 *N* 是我们试图测量的基数。我们想要测量的基数（潜在的 9600 亿个 URL）与实际存储的数据量
+    4 log2(60) = 24 位之间的显著差距令人惊叹。
+- en: Caution
+  id: totrans-79
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The LogLog counting algorithm, on the one hand—and the specific variant, called
+    HyperLogLog++—that is used by Spark and in the example that follows, while proceeding
+    from the same ideas, are yet significantly different. In particular, HyperLogLog
+    is a hybrid algorithm, that replaces the LogLog counting algorithm by linear counting
+    for small cardinalities. Moreover, implementations often make choices of hash
+    length and indexing length. We hope our explanation has helped convey the ideas
+    of the basic algorithm, but using a more advanced implementation implies more
+    parameters and choices.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，LogLog 计数算法及其特定变体 HyperLogLog++，它由 Spark 和以下示例使用，虽然从相同的思想出发，但实际上有很大不同。特别是，HyperLogLog
+    是一种混合算法，用线性计数代替 LogLog 计数算法处理小基数。此外，实现通常会选择散列长度和索引长度。我们希望我们的解释有助于传达基本算法的思想，但使用更高级的实现意味着有更多的参数和选择。
+- en: For this reason, its always important to look at the documentation of the used
+    implementation in detail, comparing it to the literature, to see if the parameters
+    are what is right for your use case.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，详细查看所使用实现的文档，与文献进行比较，看看参数是否适合您的用例非常重要。
+- en: In the streamlib implementation that we are going to use, the relative accuracy
+    is approximately 1.054/sqrt(2^p) where *p* is the number of bits of the input
+    we are going to use for deciding the bucket in which an element should fall (our
+    number of buckets is therefore 2^(*p*)). HyperLogLog++ has a second optional parameter,
+    a nonzero `sp > p` in `HyperLogLogPlus(p, sp)` that would trigger sparse representation
+    of registers. For cases in which *n* < *m*, it might reduce the memory consumption
+    and increase accuracy, but only when the cardinality is small, falling outside
+    of the big data case.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们将使用的 streamlib 实现中，相对精确度约为 1.054/sqrt(2^p)，其中 *p* 是我们用于确定元素应落入的桶的输入位数（因此我们的桶数为
+    2^(*p*)）。HyperLogLog++ 还有第二个可选参数，在 `HyperLogLogPlus(p, sp)` 中，其中 `sp > p` 会触发寄存器的稀疏表示。对于
+    *n* < *m* 的情况，它可能会减少内存消耗并增加准确性，但仅当基数较小时，超出大数据案例的范围。
+- en: Practical HyperLogLog in Spark
+  id: totrans-83
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在 Spark 中实际使用的 HyperLogLog
+- en: 'Let’s now create a distinct element counter in Spark. We begin by importing
+    the `streamlib` library, adding the following dependency:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们在 Spark 中创建一个独立元素计数器。我们首先导入 `streamlib` 库，并添加以下依赖项：
+- en: '[PRE0]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'When this is done, we can create an instance of an HyperLogLog++ counter in
+    the following way:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当这一步骤完成后，我们可以按照以下方式创建 HyperLogLog++ 计数器的实例：
+- en: '[PRE1]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'To understand this invocation, we need to consult the constructor of `HyperLogLog`,
+    which tells us that:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要理解这个调用，我们需要查阅 `HyperLogLog` 的构造函数，它告诉我们：
+- en: '[this implementation] Has two representation modes: sparse and normal Has two
+    procedures based on current mode. *Normal* mode works similar to HLL but has some
+    new bias corrections. *Sparse* mode is linear counting.'
+  id: totrans-89
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: '[此实现] 有两种表示模式：稀疏和正常有两种基于当前模式的程序。*正常* 模式类似于 HLL，但具有一些新的偏差校正。*稀疏* 模式是线性计数。'
+- en: The parameters to the constructor are `HyperLogLog(p, sp)`, where `p` is the
+    number of buckets for our hash function. If `sp` = 0, the Hyperloglog is in normal
+    mode, and if `sp > 0` it works in sparse mode for small cardinalities, as a hybrid
+    algorithm. `p` should be between 4 and `sp` if `sp` is nonzero, and `sp` should
+    be between `p` and `32`, to determine the number of bits used for linear counting.
+    If the cardinality being measured becomes too large, the representation of our
+    set will be converted to a HyperLogLog.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构造函数的参数是 `HyperLogLog(p, sp)`，其中 `p` 是我们的哈希函数的桶数。如果 `sp` = 0，则 Hyperloglog 处于普通模式，如果
+    `sp > 0`，则对于小基数，它以稀疏模式工作，作为混合算法。如果 `sp` 不为零，则 `p` 应该在 4 和 `sp` 之间，而 `sp` 应该在 `p`
+    和 32 之间，以确定用于线性计数的位数。如果被测基数过大，则集合的表示将转换为 HyperLogLog。
+- en: The relative precision of our HyperLogLog is around 1.054/sqrt(2^p), which means
+    that to reach a relative precision of 2%, we should be aiming at using 19 bits
+    of indexing for our buckets. As a result, we can expect to have 2^(19) buckets,
+    or 4,096.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的 HyperLogLog 的相对精度大约是 1.054/sqrt(2^p)，这意味着为了达到 2% 的相对精度，我们应该使用 19 位索引来为我们的桶进行索引。因此，我们可以预期有
+    2^(19) 个桶，即 4,096 个。
+- en: 'We can add elements to the counter using `hll.offer()` and obtain the results
+    using `hll.cardinality()`. Note, interestingly, that two `HyperLogLog` counters
+    that are compatible (same *p* and *sp*) are mergeable using `hll.addAll(hll2)`,
+    which means that they are a perfect match for many reduce functions in Spark,
+    like the following:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以使用 `hll.offer()` 向计数器添加元素，并使用 `hll.cardinality()` 获取结果。有趣的是，两个兼容的 `HyperLogLog`
+    计数器（相同的 *p* 和 *sp*）可以使用 `hll.addAll(hll2)` 合并，这意味着它们对于 Spark 中许多 reduce 函数非常合适，比如下面这些：
+- en: The `aggregateByKey` class of functions on our DStreams, their window counterparts
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的 DStreams 上 `aggregateByKey` 类函数及其窗口对应函数
+- en: Accumulators, which depend on the `merge` function to `reduce` the different
+    local counts registered on each executor.
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 累加器依赖 `merge` 函数来 `reduce` 每个执行器上注册的不同本地计数。
+- en: For a practical illustration of the use of HyperLogLog to calculate cardinality,
+    we will consider the case of a simple website. Suppose that we have a media website
+    and we want to know what is the current trendy content. Next to that, we also
+    want to know the unique number of visitors at any time. Even though we can calculate
+    the trends using a sliding window, as we learned in [Chapter 21](ch21.xhtml#sps-windows),
+    we will make use of a custom accumulator to keep track of the unique visitors.
+    Accumulators are mergeable data structures that let us keep tabs on particular
+    metrics across the distributed execution of some logic. In Spark, there are built-in
+    accumulators to count with integers and longs. We could use a `longAccumulator`
+    if we wanted to know how many hits we received on our website across all content.
+    There’s also an API to create custom accumulators, and we will make use of it
+    to create a HyperLogLog-based accumulator to keep a count of the unique users.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实际说明使用 HyperLogLog 计算基数的用途，我们将考虑一个简单的网站案例。假设我们有一个媒体网站，我们想知道当前流行的内容是什么。此外，我们还想知道任何时间点的独立访问者人数。尽管我们可以使用滑动窗口计算趋势，就像我们在
+    [第 21 章](ch21.xhtml#sps-windows) 中学到的那样，我们将利用自定义累加器来跟踪独立访问者的数量。累加器是可合并的数据结构，让我们能够在某些逻辑的分布式执行过程中跟踪特定的指标。在
+    Spark 中，有内置的累加器来计数整数和长整型。如果我们想知道网站上所有内容的点击次数，我们可以使用 `longAccumulator`。还有一个 API
+    可以创建自定义累加器，我们将利用它来创建基于 HyperLogLog 的累加器，以跟踪独立用户的数量。
+- en: Online Resources
+  id: totrans-96
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在线资源
+- en: The functional code of this accumulator is available on this book’s accompanying
+    code repository, located at [*https://github.com/stream-processing-with-spark/HLLAccumulator*](https://github.com/stream-processing-with-spark/HLLAccumulator).
+    In this section, we cover only the key characteristics of the implementation.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个累加器的功能代码可以在这本书附带的代码库中找到，位于[*https://github.com/stream-processing-with-spark/HLLAccumulator*](https://github.com/stream-processing-with-spark/HLLAccumulator)。在这一节中，我们只讨论实现的关键特性。
+- en: 'To create a new `HyperLogLogAccumulator`, we call the constructor using the
+    parameter `p` explained earlier. Note that we have already provided a sensible
+    default value. Also, note that the accumulator is typed. This type represents
+    the kind of objects that we are going to track. Behind the scenes, all different
+    types are treated as `Object` given that we are interested only in their hashcode:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建一个新的`HyperLogLogAccumulator`，我们使用之前解释过的参数`p`来调用构造函数。注意，我们已经提供了一个合理的默认值。还要注意，累加器是有类型的。这种类型代表了我们将要跟踪的对象类型。在幕后，所有不同类型都被视为`Object`，因为我们只关注它们的哈希码：
+- en: '[PRE2]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: To add an element to the accumulator, we call the method `add` with the object
+    to be added. In turn, this will call the method `offer` in the HyperLogLog implementation
+    to apply the hashing method already discussed.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要向累加器添加元素，我们使用要添加的对象调用方法`add`。然后，这将调用`HyperLogLog`实现中已讨论的哈希方法的`offer`方法。
+- en: '[PRE3]'
+  id: totrans-101
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'The last method that we would like to highlight is `merge`. The ability to
+    `merge` is vital to reconcile partial calculations done in separate executors
+    in parallel. Note that merging two HyperLogLog instances is like computing the
+    union of a set, in that the resulting representation will contain the common and
+    noncommon elements of both parts:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们想要强调的最后一个方法是`merge`。合并能力对于在并行执行中协调部分计算至关重要。请注意，合并两个`HyperLogLog`实例类似于计算集合的并集，结果表示将包含两部分的公共和非公共元素：
+- en: '[PRE4]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: After we have our `HyperLogLogAccumulator`, we can use it in our Spark Streaming
+    job.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在拥有`HyperLogLogAccumulator`之后，我们可以在我们的Spark Streaming作业中使用它。
+- en: As we mentioned earlier, our streaming job tracks the popularity of content
+    on a media website that contains blogs in different categories. The core logic
+    is to track which articles are popular, by maintaining a register of the clicks
+    received by URL, partitioned by path. To keep track of the unique visitors, we
+    make use of accumulators, which are maintained as a parallel channel to the main
+    streaming logic.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如前面提到的，我们的流处理作业跟踪媒体网站上包含不同类别博客的内容流行度。核心逻辑是通过维护一个按路径分区的 URL 点击寄存器来跟踪哪些文章受欢迎。为了跟踪唯一访问者，我们使用累加器，这些累加器作为主要流处理逻辑的并行通道进行维护。
+- en: 'We use a simplified representation of a view stream, in the form of a schema
+    that contains the `timestamp` of the click, the `userId`, and the `path` where
+    the view was registered:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用了简化的视图流表示形式，该形式包含点击的`timestamp`、`userId`和注册视图的`path`：
+- en: '[PRE5]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: 'Our Stream context has a batch interval of two seconds to keep regular updates
+    to our data:'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的流上下文具有两秒的批处理间隔，以保持数据的定期更新：
+- en: '[PRE6]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Note
+  id: totrans-110
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The use of `@transient` in this declaration prevents the serialization of the
+    nonserializable streaming context in case it gets captured by the closures used
+    in the streaming application.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此声明中使用`@transient`可以防止非可序列化流上下文被闭包捕获时进行序列化，这在流应用中非常重要。
+- en: 'We are going to create and register our custom accumulator. The process differs
+    slightly from the built-in accumulators available from the `SparkContext`. To
+    use a custom accumulator, we first create a local instance and then we register
+    it with the `SparkContext` so that Spark can keep track of it as it’s used in
+    the distributed computation process:'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将创建并注册我们的自定义累加器。该过程与`SparkContext`提供的内置累加器稍有不同。要使用自定义累加器，我们首先创建一个本地实例，然后将其注册到`SparkContext`，以便Spark可以在分布式计算过程中跟踪它：
+- en: '[PRE7]'
+  id: totrans-113
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Here we use the knowledge we recently acquired about sliding windows to create
+    a view of recent trends of our website traffic. Before decomposing the click info
+    into a URL count, we also add the `userId` to our accumulator to register the
+    `userId` of the click.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们利用最近学到的滑动窗口知识，创建一个视图，展示网站流量的最新趋势。在将点击信息分解为 URL 计数之前，我们还将`userId`添加到累加器中，以注册点击的`userId`。
+- en: 'First, we offer the `users` to the accumulator. We might be tempted to think
+    that we could get away with our count by using simple set operations here in order
+    to calculate the unique users in a batch. But to do this, we would need to remember
+    all users seen in a long period of time. This brings us back to the supporting
+    arguments for the use of probabilistic data structures because we do not need
+    to remember all seen users, but only the HyperLogLog combination of their hashes:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们将`users`提供给累加器。我们可能会认为可以通过简单的集合操作来计算批处理中的唯一用户数，但为了做到这一点，我们需要记住长时间内见过的所有用户。这让我们回到了支持使用概率数据结构的论点，因为我们不需要记住所有见过的用户，而只需要记住它们哈希的HyperLogLog组合：
+- en: '[PRE8]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Warning
+  id: totrans-117
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: It’s important to highlight again the differences in execution contexts within
+    the `foreachRDD` in this case; the process of offering the data to the accumulator
+    happens within an `rdd.foreach` operation, meaning that it will take place distributed
+    in the cluster.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次强调，本例中在`foreachRDD`的执行上下文中有不同之处；在此情况下，将数据提供给累加器的过程发生在`rdd.foreach`操作中，这意味着它将在集群中分布执行。
+- en: Right after, we access the value of the accumulator to update our charts. This
+    call is executed in the driver. The driver is the exclusive execution context
+    in which an accumulator can be read.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 紧接着，我们访问累加器的值来更新我们的图表。此调用在驱动程序中执行。驱动程序是唯一可以读取累加器的执行上下文。
+- en: The charts used in this example are also local to the driver machine. Their
+    backing data is also updated locally.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此示例中使用的图表也位于驱动程序机器上。它们的后备数据也在本地更新。
+- en: 'Next, we use a sliding window to analyze our website traffic trends. Here we
+    use a fairly short window duration. This is for illustration purposes in the provided
+    notebooks because we can observe the changes rather quickly. For a production
+    environment, this parameter needs to be tuned according to the context of the
+    application:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们使用滑动窗口分析我们的网站流量趋势。在这里，我们使用了一个相当短的窗口持续时间。这仅用于提供的笔记本中的示例，因为我们可以很快观察到变化。在生产环境中，这个参数需要根据应用程序的上下文进行调整：
+- en: '[PRE9]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: In the provided notebook, we can execute this example and observe how the two
+    charts are updated, computing a rank of popular content at the same time that
+    we keep track of unique users of our system.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在提供的笔记本中，我们可以执行此示例并观察两个图表如何更新，同时计算我们系统中唯一用户的排名。
+- en: Tip
+  id: totrans-124
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: 'The Databricks blog contains a post on the implementation of approximate algorithms
+    in Spark, including approximate counting. Even though we suggest using this algorithm
+    on Streams and Spark provides it only as part of the Dataset API, the implementation
+    chosen here is the same as the one used by Spark: the HyperLogLog++ of Streamlib.
+    As a consequence, the insights provided in [*Approximate Algorithms in Apache
+    Spark: HyperLogLog and Quantiles*](http://bit.ly/2UUQmiJ) apply here:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Databricks博客中有一篇关于在Spark中实现近似算法的文章，包括近似计数。尽管我们建议在流处理中使用此算法，而Spark只在Dataset API的一部分中提供它，但这里选择的实现与Spark使用的实现相同：Streamlib的HyperLogLog++。因此，《Apache
+    Spark中的近似算法：HyperLogLog和分位数》（http://bit.ly/2UUQmiJ）中提供的见解同样适用于此处：
+- en: 'As a conclusion, when using approxCountDistinct, you should keep in mind the
+    following:'
+  id: totrans-126
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 总之，使用approxCountDistinct时，您应该记住以下几点：
+- en: ''
+  id: totrans-127
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: When the requested error on the result is high (> 1%), approximate distinct
+    counting is very fast and returns results for a fraction of the cost of computing
+    the exact result. In fact, the performance is more or less the same for a target
+    error of 20% or 1%.
+  id: totrans-128
+  prefs:
+  - PREF_BQ
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当所请求的结果误差较高（> 1%）时，近似不同计数非常快速，并且以计算精确结果成本的一小部分返回结果。事实上，对于目标误差为20%或1%，性能几乎相同。
+- en: ''
+  id: totrans-129
+  prefs:
+  - PREF_BQ
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: ''
+  id: totrans-130
+  prefs:
+  - PREF_BQ
+  - PREF_IND
+  type: TYPE_NORMAL
+- en: For higher precisions, the algorithm hits a wall and starts to take more time
+    than exact counting.
+  id: totrans-131
+  prefs:
+  - PREF_BQ
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 对于更高的精度，算法遇到瓶颈并开始比精确计数花费更多时间。
+- en: Note that irrespective of the run time, the HyperLogLog algorithm uses storage
+    of size loglog(*N*), where *N* is the cardinality we want to report on. For streams
+    of unbounded size, this is the main advantage.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，无论运行时间如何，HyperLogLog算法使用大小为loglog(*N*)的存储空间，其中*N*是我们想要报告的基数。对于无限大小的数据流，这是其主要优势。
+- en: 'Counting Element Frequency: Count Min Sketches'
+  id: totrans-133
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 计算元素频率：计数最小化草图
+- en: 'The problem of correctly determining the most frequent elements of a stream
+    is useful in many applications, especially in problems relating to a “long tail”
+    of elements, users or items. It encompasses the following:'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在许多应用中正确确定流的最频繁元素的问题非常有用，特别是涉及元素、用户或项目的“长尾”问题。它包括以下内容：
+- en: Determining the most popular items on a retail website
+  id: totrans-135
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确定零售网站上最受欢迎的商品。
+- en: Computing the most volatile stocks
+  id: totrans-136
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 计算最易变的股票。
+- en: Understanding which TCP flows send the most traffic to our network, hinting
+    at an attack
+  id: totrans-137
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 理解哪些TCP流向我们的网络发送了最多的流量，暗示可能有攻击。
+- en: Computing frequent web queries to populate a web cache
+  id: totrans-138
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 计算频繁的Web查询以填充Web缓存。
+- en: This problem can be solved easily by storing the count of every distinct element
+    that we see on the stream, along with a copy of each element. We would then sort
+    this dataset and output the first few elements. This works, but at the price of
+    an <math alttext="upper O left-parenthesis n l o g left-parenthesis n right-parenthesis
+    right-parenthesis"><mrow><mi>O</mi> <mo>(</mo> <mi>n</mi> <mi>l</mi> <mi>o</mi>
+    <mi>g</mi> <mo>(</mo> <mi>n</mi> <mo>)</mo> <mo>)</mo></mrow></math> operations
+    and a linear cost in storage. Can we do better?
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个问题可以通过存储我们在流中看到的每个不同元素的计数以及每个元素的副本来轻松解决。然后我们对数据集进行排序并输出前几个元素。这个方法有效，但代价是<math
+    alttext="upper O left-parenthesis n l o g left-parenthesis n right-parenthesis
+    right-parenthesis"><mrow><mi>O</mi> <mo>(</mo> <mi>n</mi> <mi>l</mi> <mi>o</mi>
+    <mi>g</mi> <mo>(</mo> <mi>n</mi> <mo>)</mo> <mo>)</mo></mrow></math>次操作和线性存储成本。我们能做得更好吗？
+- en: 'Under the constraint of exactness, the answer is no, a theorem that is expressed
+    formally as: there is no algorithm that solves the problem of finding the greatest
+    elements with frequency greater than *n*/*k*, where *n* is the number of elements
+    and k is a selector for the ratio of occurrences, in a single pass over the data
+    and sublinear space in storage ([[Alon1999]](app04.xhtml#Alon1999) Prop.3.7).
+    Nevertheless, committing a linear amount of space to computing frequencies is
+    untractable for big data streams. This is, once again, where approximation can
+    come to the rescue.'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在确切性约束下，答案是否定的，即在数据和次线性空间的单次数据通行中找到频率大于*n*/*k*的最大元素的问题没有解决算法，其中*n*是元素数量，k是频率选择器，这在([Alon1999](app04.xhtml#Alon1999)
+    Prop.3.7)中形式化表达。然而，为大数据流计算频率分配线性空间是不可行的。这再次展示了近似可以提供帮助的地方。
+- en: Introducing Bloom Filters
+  id: totrans-141
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 引入布隆过滤器。
+- en: The principle of the count-min sketch is one inspired from a simpler approximate
+    representation of a set called a *Bloom filter*. Which means that to learn how
+    to rank elements with a count-min sketch, we begin by learning whether they are
+    members of a set using a Bloom filter first.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 计数-最小草图的原则是受到称为布隆过滤器的一种更简单的近似集表示的启发。这意味着要学习如何使用计数-最小草图对元素进行排名，我们首先要学会使用布隆过滤器确定它们是否为集合的成员。
+- en: 'Here’s how a Bloom filter works: to represent a set, instead of using an *in
+    extenso* representation of all of the objects in the set, we can choose to store
+    hashes for each element. But this would still make storage linear in the size
+    of the number of elements of the set. We are more ambitious in choosing to store
+    only a constant number of indicator hashes, irrespective of the number of elements
+    of the set. To achieve this, we hash each element into a word of *m* bits, and
+    we superpose all such hashes for all the elements thus encountered. The *i*-th
+    bit of the superposition *S* (the representant of the set) is set to one if any
+    of the bits of the hashes of elements in the set was set to one.'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 布隆过滤器的工作原理如下：为了表示一个集合，我们选择存储每个元素的哈希值，而不是使用集合中所有对象的全面表示。但这仍然使得存储与集合中元素数量线性相关。为了实现这一目标，我们选择仅存储一个常数个数的指示哈希值，而不考虑集合元素的数量。为此，我们将每个元素哈希为*m*位的字，并将所有这些元素的哈希值叠加在一起。集合的代表*S*的第*i*位如果任何元素的哈希值中的位被设置为1，则*S*的第*i*位也被设置为1。
+- en: 'This gives us an indicator with a large number of false positives, but no false
+    negatives: if we take a new element *z* and wonder whether it was in the set,
+    we’ll look at *h*(*z*) and check that in all the bit positions of *h*(*z*) that
+    are nonzero, the same bit position in *S* is nonzero, as well. If any such bit
+    of *S* is zero (while the corresponding *h*(*z*) is one), *z* could not have been
+    part of the set, because any of its nonzero bits would have flipped the corresponding
+    superposed bit to one. Otherwise, if all its nonzero bits are nonzero in *S*,
+    as well, we know that there is a high probability that *z* was present in this
+    set—though we can’t guarantee it, any number *z’* which hash *h*(*z’*) contains
+    one more than *h*(*z*) in its binary notation could have been met instead of *z*.'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这给了我们一个大量误报但没有假阴性的指示器：如果我们拿一个新元素*z*，想知道它是否在集合中，我们会查看*h*(*z*)并检查*h*(*z*)的所有非零位在*S*中的相同位位置也是非零的。如果*S*中任何这样的位是零（而对应的*h*(*z*)是一），*z*不可能是集合的一部分，因为它的任何非零位都会将相应的叠加位翻转为一。否则，如果在*S*中所有非零位也在*h*(*z*)中是非零的，我们知道*z*极有可能存在于这个集合中——尽管我们无法保证，任何哈希*h*(*z’*)包含的数字*z’*比其二进制表示中的*h*(*z*)多一个，都可能遇到，而不是*z*。
+- en: The probability of a collision with this scheme is <math alttext="1 minus left-parenthesis
+    1 minus 1 slash m right-parenthesis Superscript n"><mrow><mn>1</mn> <mo>-</mo>
+    <msup><mrow><mo>(</mo><mn>1</mn><mo>-</mo><mn>1</mn><mo>/</mo><mi>m</mi><mo>)</mo></mrow>
+    <mi>n</mi></msup></mrow></math> if *n* is the number of inserted elements, which
+    we improve into <math alttext="1 minus left-parenthesis 1 minus 1 slash m right-parenthesis
+    Superscript k n"><mrow><mn>1</mn> <mo>-</mo> <msup><mrow><mo>(</mo><mn>1</mn><mo>-</mo><mn>1</mn><mo>/</mo><mi>m</mi><mo>)</mo></mrow>
+    <mrow><mi>k</mi><mi>n</mi></mrow></msup></mrow></math> by using *k* such superpositions
+    in parallel, to reduce the probability of a collision. This is done using independent
+    hash functions to guarantee the product of independent probabilities, and yields
+    to a controlled storage space of (*km*) bits in total for the filter scheme. The
+    Bloom “filter” is called as such because it is used to create a query engine that
+    answers with high probability whether a query is in some problematic set, with
+    the intent of “returning” (or letting through) only the nonproblematic queries.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种方案的碰撞概率是<math alttext="1 minus left-parenthesis 1 minus 1 slash m right-parenthesis
+    Superscript n"><mrow><mn>1</mn> <mo>-</mo> <msup><mrow><mo>(</mo><mn>1</mn><mo>-</mo><mn>1</mn><mo>/</mo><mi>m</mi><mo>)</mo></mrow>
+    <mi>n</mi></msup></mrow></math>，如果*n*是插入元素的数量，我们通过使用*k*这样的叠加并行来改进为<math alttext="1
+    minus left-parenthesis 1 minus 1 slash m right-parenthesis Superscript k n"><mrow><mn>1</mn>
+    <mo>-</mo> <msup><mrow><mo>(</mo><mn>1</mn><mo>-</mo><mn>1</mn><mo>/</mo><mi>m</mi><mo>)</mo></mrow>
+    <mrow><mi>k</mi><mi>n</mi></mrow></msup></mrow></math>，以减少碰撞的概率。这是使用独立的哈希函数来保证独立概率乘积的控制存储空间，对于过滤器方案的总位数为(*km*)。布隆“过滤器”的称呼因其用于创建一个查询引擎，高概率地回答查询是否在某些问题集合中而得名，“返回”（或放过）只有非问题查询的意图。
+- en: Bloom Filters with Spark
+  id: totrans-146
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在Spark中使用布隆过滤器
+- en: 'Though not specifically related to Streaming, Bloom filters are usable for
+    various purposes with Spark, and they are particularly useful when trying to use
+    them for their namesake purpose: filtering elements from a list, with a bias toward
+    false positives.'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然不专门与Streaming相关，布隆过滤器在Spark中可以用于各种目的，并且当试图用它们来过滤列表元素并有偏向于误报时特别有用。
+- en: 'You can use the streamlib library for this, as well:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您也可以使用streamlib库进行此操作：
+- en: '[PRE10]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'The library includes a helper that allows you to compute the best number of
+    hash functions to use given the maximum false-positive probability you’re ready
+    to accept—and this ends up being the easiest constructor for the Bloom filter.
+    After we have this filter of “undesirable” elements built, we can use it to filter
+    stream elements:'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个库包括一个辅助功能，允许您计算最佳的哈希函数数量，以便在您愿意接受的最大误报概率的情况下使用——这最终成为布隆过滤器的最简构造方法。当我们建立了这个“不良”元素的过滤器之后，我们可以用它来过滤流元素：
+- en: '[PRE11]'
+  id: totrans-151
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: If your goal is performance in the speed of hashing and you are comfortable
+    with a Scala-only solution, have a look at Alexandr Nitkin’s implementation ([[Nitkin2016]](app04.xhtml#Nitkin2016)),
+    which compares favorably to the ones in Twitter’s Algebird and Google’s Guava.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的目标是哈希速度的性能，并且您愿意使用Scala的解决方案，请看一看Alexandr Nitkin的实现([[Nitkin2016]](app04.xhtml#Nitkin2016))，它与Twitter的Algebird和Google的Guava中的实现相比具有优势。
+- en: Computing Frequencies with a Count-Min Sketch
+  id: totrans-153
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用Count-Min Sketch计算频率
+- en: Create an integer array initialized to zeros that is *w* wide and *d* deep.
+    Take d pairwise independent hash functions, <math alttext="h Baseline 1 comma
+    period period period comma h Subscript d Baseline"><mrow><mi>h</mi> <mn>1</mn>
+    <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo> <mo>,</mo> <msub><mi>h</mi> <mi>d</mi></msub></mrow></math>
+    and associate one with each row of the table, these functions should produce a
+    value in the range [1..*w*]. When a new value is seen, for each row of the table,
+    hash the value with the corresponding hash function, and increment the counter
+    in the indicated array slot. [Figure 27-4](#count-min-sketch) illustrates this
+    process.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 创建一个初始化为零的整数数组，宽度为*w*，深度为*d*。取d个成对独立的哈希函数，<math alttext="h Baseline 1 comma
+    period period period comma h Subscript d Baseline"><mrow><mi>h</mi> <mn>1</mn>
+    <mo>,</mo> <mo>.</mo> <mo>.</mo> <mo>.</mo> <mo>,</mo> <msub><mi>h</mi> <mi>d</mi></msub></mrow></math>，并将每个函数与表的每一行关联，这些函数应产生在范围[1..*w*]内的值。当看到新值时，对表的每一行，使用相应的哈希函数对该值进行哈希，并递增指示的数组槽中的计数器。[图27-4](#count-min-sketch)说明了此过程。
+- en: '![spas 2704](Images/spas_2704.png)'
+  id: totrans-155
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2704](Images/spas_2704.png)'
+- en: Figure 27-4\. Building a count-min sketch
+  id: totrans-156
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图27-4。构建count-min草图
+- en: If you want to know the estimate of how many instances of a given value have
+    been seen, hash the value as previously and look up the counter values that gives
+    you in each row. Take the smallest of these as your estimate.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想知道给定值的实例已经看到了多少次的估计，请像以前一样哈希该值并查找每行中给出的计数器值。取这些值中的最小值作为您的估计。
+- en: 'It’s clear that in this way, we’ll obtain a number that is greater than the
+    real frequency count of the element *x* we are probing for, because each of its
+    hashes indeed will have incremented each of the positions in the sketch we will
+    be looking at. If we’re lucky, *x* will be the only such element to have incremented
+    these counters, and the estimate of each counter will be the frequency count of
+    *x*. If we are not so lucky, there will be some collisions, and some counters
+    will overestimate the number of occurrences of *x*. For this reason, we take the
+    minimum of all counters: our estimates are biased, in that they only overestimate
+    the real value we are seeking, and it is clear that the least biased estimate
+    is the smallest one.'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这样一来，我们将得到一个大于我们正在查找的元素*x*的实际频率计数的数字，因为每个哈希都将递增我们将查看的草图中的每个位置的计数器。如果我们幸运的话，*x*将是唯一一个递增这些计数器的元素，每个计数器的估计值将是*x*的频率计数。如果我们不那么幸运，会发生一些碰撞，一些计数器会高估*x*的出现次数。因此，我们取所有计数器的最小值：我们的估计是有偏的，因为它们只是高估了我们正在寻找的真实值，很明显，最不偏的估计是最小的那个。
+- en: The count-min sketch has a relative error of ε with a probability of (1 - δ)
+    provided we set *w* = ⌈*e*/ε⌉ and *d* = ⌈ln 1/δ⌉, where *e* is Euler’s number
+    ([[Cormode2003]](app04.xhtml#Cormode2003)).
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: count-min草图具有相对误差ε，并且有一个概率（1 - δ），只要我们设置*w* = ⌈*e*/ε⌉和*d* = ⌈ln 1/δ⌉，其中*e*是欧拉数([[Cormode2003]](app04.xhtml#Cormode2003))。
+- en: 'Using Spark, this is again part of the streamlib library:'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用Spark，这同样是streamlib库的一部分：
+- en: '[PRE12]'
+  id: totrans-161
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: The count-min sketch requires you to specify the relative error and the confidence
+    (1 - δ) you are aiming with for in this construction, and tries to set the values
+    of the width and depth for you, though you can specify the size of the sketch
+    in explicit width and depth. In case you specify the width and depth, you are
+    expected to provide integers, whereas with the probabilistic arguments, it’s expected
+    the constructor arguments will be doubles.
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: count-min草图要求您为此构建指定相对误差和置信度（1 - δ），并尝试为您设置宽度和深度的值，尽管您可以指定显式宽度和深度的草图大小。如果您指定了宽度和深度，您应该提供整数，而对于概率论参数，构造函数参数预计将是双精度。
+- en: 'The conversion is given in the following table:'
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 转换如下表所示：
+- en: '|  | Width of the sketch | Depth of the sketch | Relative error | Confidence
+    level in the relative error |'
+  id: totrans-164
+  prefs: []
+  type: TYPE_TB
+  zh: '|  | 草图的宽度 | 草图的深度 | 相对误差 | 相对误差的置信水平 |'
+- en: '| --- | --- | --- | --- | --- |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- | --- | --- |'
+- en: '| symbol | *w* | *d* | ε | (1 - δ) |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| 符号 | *w* | *d* | ε | (1 - δ) |'
+- en: '| How to compute | ⌈*e*/ε⌉ | ⌈ln 1/δ⌉ | *e* / *w* | 1 - 1 / 2^(*d*) |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| 如何计算 | ⌈*e*/ε⌉ | ⌈ln 1/δ⌉ | *e* / *w* | 1 - 1 / 2^(*d*) |'
+- en: '| Streamlib’s approximation | ⌈2 / ε⌉ | ⌈-log(1 - δ) / log(2)⌉ | 2 / w | 1
+    - 1 / 2^(*d*) |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| Streamlib的近似 | ⌈2 / ε⌉ | ⌈-log(1 - δ) / log(2)⌉ | 2 / w | 1 - 1 / 2^(*d*)
+    |'
+- en: 'The count-min sketch is additive and mergeable, which makes it an ideal candidate
+    for the `updateStateByKey` function:'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: count-min草图是可加的并且可合并的，这使得它成为`updateStateByKey`函数的理想候选：
+- en: '[PRE13]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: The sketch also has functions that allow you to add a `String` or `byte[]` argument.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 草图还具有允许您添加`String`或`byte[]`参数的功能。
+- en: Caution
+  id: totrans-172
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Apache Spark has introduced a count-min sketch in Spark 2.0, under the package
+    `org.apache.spark.util.sketch`.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Spark在Spark 2.0中引入了一个计数最小草图，位于`org.apache.spark.util.sketch`包下。
+- en: This implementation is a pure reuse of the one from streamlib, with the exception
+    of the hash function, for which a few convenience methods converting a Scala `Object`
+    to one of the entry types for the `CountMinSketch` (`long`, `string`, `byte[]`)
+    have been added, and that reuses the internal 32-bit `MurmurHash` hash function
+    that is being used by Scala as the default.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个实现是从streamlib中纯粹地重用的，唯一的例外是哈希函数，为了将Scala的Object转换为`CountMinSketch`的一个入口类型（long、string、byte[]），添加了一些便利方法，并且重用了Scala作为默认的内部32位`MurmurHash`哈希函数。
+- en: The Spark count-min sketch is therefore interchangeable with the one we’re exemplifying
+    here.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，Spark的计数最小草图可以与我们在此展示的草图互换使用。
+- en: 'Ranks and Quantiles: T-Digest'
+  id: totrans-176
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 等级和分位数：T-Digest
+- en: When evaluating the distribution of the values observed on a data stream one
+    of the most useful things to focus on is a picture of the distribution of those
+    values, as illustrated in [Figure 27-5](#distribution-example).
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当评估在数据流中观察到的值的分布时，重点关注的是这些值分布的图像，如[图 27-5](#distribution-example)所示。
+- en: '![spas 2705](Images/spas_2705.png)'
+  id: totrans-178
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2705](Images/spas_2705.png)'
+- en: Figure 27-5\. A distribution suitable for representation with a T-Digest
+  id: totrans-179
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 27-5\. 适合用T-Digest表示的分布
+- en: 'That distribution allows diagnoses of a change in the nature of data stream
+    if it is computed over a recent sample of the stream, and exploratory analysis
+    being a complete picture of various aggregate statistics (average, medium, etc.)
+    delivered all in one. It is often easy to approach that distribution by looking
+    at the cumulative distribution function (CDF), which represents for any value
+    *X* how many of the data points observed on our stream were equal or lesser than
+    *X*. An approximate way of looking at the cumulative distribution function is
+    also easy to understand intuitively: the notion of *quantiles*.'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在最近的流样本上计算，该分布允许诊断数据流性质的变化，而探索性分析则是各种聚合统计信息（平均数、中位数等）的全面图像。通过查看累积分布函数（CDF）来接近该分布通常很容易，它代表了在我们的流上观察到的任意值*X*，有多少数据点等于或小于*X*。对累积分布函数的粗略看法也很容易直观理解：分位数的概念。
+- en: Quantiles are a mapping between a percentage and a value, such that there is
+    exactly that percentage of the values witness on the data stream that is inferior
+    to the image of the percentage. For example, the 50th percentile (i.e., the median)
+    is the value such that half of the data points are inferior.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分位数是百分比和值之间的映射，这样，在数据流上观察到的值的百分比正好是低于该百分比图像的值。例如，第50个百分位数（即中位数）是这样一个值，使得一半的数据点都低于它。
+- en: Hence, it is useful to have as good a view of the CDF of the data points in
+    our stream, even if this view is somewhat approximate. A compact way of representing
+    the CDF that also allows us to quickly compute a representation of the CDF is
+    a digest, in particular, the T-Digest, which answers the difficult problem of
+    parallelizing the quantiles. Note this is not completely trivial. Because quantiles,
+    contrary to averages, are not easily aggregable, whereas the average of a union
+    can be computed using the sum and count of the number of elements of each component
+    of the union, this is not true of the median. The T-Digest proceeds by approaching
+    the representation of quantiles as a compression problem, instead of representing
+    every point in the CDF of a data stream, it summarizes a set of points by a centroid
+    which is the *barycenter* of these points chosen cleverly with respect to “compression
+    rates” that we expect to see in various places in this CDF. [Figure 27-6](#cdf_aprox)
+    depicts a possible distribution of centroids.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，即使这种视图有些粗略，对我们流中数据点的累积分布函数（CDF）有一个良好的视角也是很有用的。代表CDF的一种紧凑表示方式，同时还允许我们快速计算CDF的表示，是一种摘要，特别是T-Digest，它解决了并行计算分位数的难题。请注意，这并不是完全不重要的。因为分位数与平均数相反，并不容易聚合，而联合的平均数可以使用每个联合组件的元素数量的总和和计数来计算，这对于中位数并不适用。T-Digest通过将分位数的表示方法转化为一个压缩问题来进行处理，而不是通过表示数据流的CDF中的每个点，它通过一组点的重心来总结，这些点被选择为这些CDF中各个位置上我们期望看到的“压缩率”的聪明选择。[图 27-6](#cdf_aprox)描述了一种可能的质心分布。
+- en: '![spas 2706](Images/spas_2706.png)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 2706](Images/spas_2706.png)'
+- en: Figure 27-6\. A *CDF* approximated by the centroids of a T-Digest
+  id: totrans-184
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 27-6\. 用T-Digest的质心近似的*CDF*
+- en: For example, under the assumption that our distribution respects the Gaussianity
+    hypothesis or is a mixture of Guassians, it is very approximate of the value of
+    the highest and lowest percentiles with a very low compression rate because the
+    values reached at those percentiles have a very few representations. On the contrary,
+    around the 50th percentile, we can expect that the values around that median will
+    have many representations, and hence the approximation that we make replacing
+    those with their average will not be particularly costly, neither in terms of
+    information lost nor in terms of practical sense.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，假设我们的分布符合高斯假设或是高斯混合物，它非常接近最高和最低百分位数的值，压缩率非常低，因为那些百分位数处的值只有很少的表现。相反，大约在第50百分位数处，我们可以期望在该中位数周围的值有很多表示，因此我们进行的近似替换它们的平均值不会特别昂贵，既不会在信息丢失方面也不会在实际意义方面。
+- en: The T-Digest is a data structure invented by Ted Dunning ( [[Dunning2013]](app04.xhtml#Dunning2013)
+    ) that proceeds by first approximating the subset of a distribution using randomly
+    placed centroids and then splitting those approximated subsets when too many points
+    are attached to a particular centroid. However, the limits on how many points
+    to reach are variable according to the value associated with this centroid. It
+    is indeed a low on the edges of the CDF and relatively high around the median
+    of the CDF. This ensures that this data structure is both compact and reflective
+    of the values of our CDF to the degree that we are interested in a high precision.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: T-Digest 是由 Ted Dunning 发明的数据结构（[[Dunning2013]](app04.xhtml#Dunning2013)），首先通过随机放置的质心来近似分布的子集，然后当特定质心附加的点过多时，会分裂这些近似的子集。然而，达到多少点的限制取决于与该质心相关联的值。这确保了该数据结构在
+    CDF 的边缘处较低，在 CDF 的中位数周围相对较高。这确保了该数据结构既紧凑又反映了我们感兴趣的高精度的 CDF 值。
+- en: T-Digest in Spark
+  id: totrans-187
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Spark 中的 T-Digest
+- en: 'Keeping with a common practice of this chapter, we point you to the implementation
+    of the T-Digest found in the stream-lib library:'
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 遵循本章的常见做法，我们指向 stream-lib 库中 T-Digest 实现的部分：
+- en: '[PRE14]'
+  id: totrans-189
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The instantiation of a new T-Digest data structure requests a compression parameter
+    that indicates how we want to balance accuracy and size for our compressed representation
+    of the CDF of our distribution. Relative errors in accuracy are almost always
+    less than thrice the inverse of the compression for any quantile, with much lower
+    errors expected for the extreme quantiles. However, the number of centroids that
+    we will use to track our distribution will be on the order of five times the compression.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实例化一个新的 T-Digest 数据结构需要一个压缩参数，指示我们希望如何平衡我们分布的压缩表示的准确性和大小。对于任何分位数，准确性的相对误差几乎总是小于压缩的倒数的三倍，对于极端分位数，预期的误差要低得多。然而，我们将用于跟踪我们分布的质心的数量将按压缩的五倍数量。
+- en: 'The T-Digest has the base functions that let it be the core of either an `Accumulator`
+    object (as seen earlier with the HyperLogLog), or an `aggregate` computation:
+    addition of a single element and mergeability:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: T-Digest 具有基本函数，使其成为 `Accumulator` 对象的核心（如之前与 HyperLogLog 见过的），或者是一个聚合计算的核心：添加单个元素和可合并性。
+- en: '[PRE15]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: We can also invoke the `merge` function with a compression and a list of other
+    `TDigest` instances to fuse them in a single one with the required compression.
+    Of course, the sum of compressions of the argument digests should be greater or
+    equal to that of the required final compression.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们还可以使用 `merge` 函数，带有压缩和其他 `TDigest` 实例的列表，将它们融合成一个所需的最终压缩的单一实例。当然，参数摘要的压缩总和应大于或等于所需的最终压缩。
+- en: 'Finally, we can also use the two query functions of the `TDigest`. `digest.cdf(value:
+    Double)` returns the approximate fraction of all samples that were less than or
+    equal to `value`, and `digest.quantile(fraction: Double)` returns the minimum
+    value `v` such that an approximate `fraction` of the samples is lesser than `v`.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '最后，我们还可以使用 `TDigest` 的两个查询函数。`digest.cdf(value: Double)` 返回所有样本中小于或等于 `value`
+    的近似分数，而 `digest.quantile(fraction: Double)` 返回最小值 `v`，使得大约 `fraction` 的样本值小于 `v`。'
+- en: 'Reducing the Number of Elements: Sampling'
+  id: totrans-195
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 减少元素数量：采样
+- en: Spark offers a variety of methods that we can use to sample data, an operation
+    that can be useful for data analytics as well as to guarantee the performance
+    of our distributed application.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 提供了多种方法，用于对数据进行采样，这对数据分析以及保证分布式应用程序的性能非常有用。
+- en: For data analytics under the constraints of time, sampling can enable the use
+    of *heavier* algorithms on smaller datasets. Dominating trends of the original
+    dataset will also appear on the sample, provided that the sampling technique used
+    do not introduce any bias.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在时间约束下的数据分析中，抽样可以使较小的数据集上运行*更重的*算法成为可能。原始数据集的主导趋势也将出现在样本中，前提是所使用的抽样技术不会引入任何偏差。
+- en: As a performance tuning tool, we can use sampling to reduce the load of specific
+    applications that do not require to observe every element of the dataset.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为性能调优工具，我们可以使用抽样来减少不需要观察数据集每个元素的特定应用程序的负载。
+- en: The built-in sampling features of Spark, are expressed directly as functions
+    of RDDs API. Therefore, within the semantics of stream processing, it can be applied
+    at the microbatch level using DStream operations that provide access to the RDD-level
+    of the stream, like `transform` or `foreachRDD`, which we saw in [Chapter 17](ch17.xhtml#sps-programming-model).
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 的内置抽样功能直接表现为 RDDs API 的函数。因此，在流处理的语义中，可以在微批次级别应用 DStream 操作，这些操作提供对流的
+    RDD 级别的访问，如 `transform` 或 `foreachRDD`，我们在[第17章](ch17.xhtml#sps-programming-model)中看到的。
+- en: Warning
+  id: totrans-200
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: 'As of this writing, `sampling` is not supported on Structured Streaming. Attempting
+    to apply *sample* functions to a Streaming DataFrame or Dataset will result in
+    an error:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 截至本文写作时，*抽样*在结构化流处理中不受支持。尝试将*样本*函数应用于流式 DataFrame 或 Dataset 将导致错误：
+- en: '[PRE16]'
+  id: totrans-202
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Random Sampling
+  id: totrans-203
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 随机抽样
+- en: 'The first and simplest option for sampling RDDs is the `RDD.sample` function,
+    which can be tuned to sample a fraction of each microbatch RDD without or with
+    replacement doing, respectively, Poisson or Bernoulli trials to implement this
+    sampling:'
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对 RDD 进行抽样的第一个和最简单的选项是 `RDD.sample` 函数，可以调整为在每个微批次 RDD 中抽样一部分，分别使用泊松或伯努利试验来实现此抽样：
+- en: '[PRE17]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'Here are the parameters:'
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里是参数：
+- en: '`withReplacement: Boolean`'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`withReplacement: Boolean`'
+- en: A flag to indicate whether the sample elements can be sampled multiple times.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指示样本元素是否可以多次抽样的标志。
+- en: '`fraction: Double`'
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fraction: Double`'
+- en: A probability value in the range `[0,1]` that indicates the chance of one element
+    being chosen in the sample.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 概率值在范围 `[0,1]` 内，表示样本中选择一个元素的机会。
+- en: '`seed: Long`'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`seed: Long`'
+- en: The value to use as seed, in case we want repeatable results. Defaults to `Utils.random.nextLong`
+    if not specified.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们希望重复结果的情况下使用的种子值。如果未指定，默认为 `Utils.random.nextLong`。
+- en: Random sampling is particularly useful in that it preserves the fairness of
+    sampling and therefore a larger number of statistical properties when we consider
+    the union of the sampled `RDD`s as being itself a single sample of the data stream.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随机抽样特别有用，因为它保持了抽样的公平性，因此当我们将抽样的 `RDD` 的联合视为数据流的单个样本时，它还保留了更多的统计属性。
+- en: If we would sample by percentage, unequally sized batches will contribute unequally
+    to the final sample and therefore preserve the statistical properties of the data
+    that we will try to tease out of the sample. Beware, however, that sampling without
+    replacement, using the flag `withReplacement = false` can be done only within
+    the scope of a single RDD, meaning that the notion of *without replacement* does
+    not make sense for a DStream.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果按百分比抽样，不均匀大小的批次将不均匀地对最终样本做出贡献，因此保留我们将尝试从样本中挖掘的数据的统计属性。然而，请注意，使用标志 `withReplacement
+    = false` 进行无替换抽样仅限于单个 RDD 的范围内，这意味着*DStream*的概念中*无替换*没有意义。
+- en: Stratified Sampling
+  id: totrans-215
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 分层抽样
+- en: Stratified sampling allows sampling of RDDs by class, where the different classes
+    of data records are marked using the key of a key-value pair.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分层抽样允许按类对 RDD 进行抽样，其中不同类别的数据记录使用键-值对的键标记。
+- en: 'Spark Streaming can make use of stratified sampling using the RDD API, as we
+    show in the following example:'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark Streaming 可以利用 RDD API 使用分层抽样，如下例所示：
+- en: '[PRE18]'
+  id: totrans-218
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'The API is identical to the *random sampling* function except that it operates
+    only on `RDD[(K,V)]`s: `RDD`s containing key-value pairs.'
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: API 与*随机抽样*函数相同，只是它仅在 `RDD[(K,V)]` 上操作：包含键-值对的 RDD。
+- en: However, sampling-by-class is particularly difficult to implement if we do not
+    have an idea of the number of elements that exist in each class of our dataset.
+    Therefore, we can either do two passes over the data set and provide the exact
+    sample or use statistical laws over repeat samples, flipping a coin on each record
+    to decide whether it will be sampled, a technique known as *stratified sampling*.
+    This latter technique is what is used in the `sampleByKey` function, whereas the
+    two-pass sampling bears the name, `sampleByKeyExact`.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，如果我们对数据集的每个类别中的元素数量没有概念，采用按类别抽样就特别难以实施。因此，我们可以两次遍历数据集并提供精确的样本，或者使用重复抽样的统计法则，在每条记录上抛硬币决定是否进行抽样，这种技术称为*分层抽样*。`sampleByKeyExact`函数使用后者技术，而两次遍历抽样则称为`sampleByKeyExact`。
+- en: '`sampleByKeyExact` is not well defined on a DStream, because the *exact* class
+    definition will be computed on each microbatch and won’t be stable across the
+    complete stream.'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在DStream上，`sampleByKeyExact`的确切类别定义将在每个微批次上计算，并且不会在整个流中保持稳定。
+- en: Note that class sampling has an equally important role in batch analytics as
+    it does in streaming analytics; in particular, it is a valuable tool to fight
+    the problem of class imbalance as well as to correct for biases in a dataset using
+    methods such as boosting.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，在批量分析和流分析中，类别抽样的作用同样重要；特别是在通过增强等方法来纠正数据集中的偏差和解决类别不平衡问题时，它是一种有价值的工具。
+- en: ^([1](ch27.xhtml#idm46385810310648-marker)) This length, taken as a ballpark
+    estimate, is the mean length of the URLs found in a large web crawl by [Supermind](http://www.supermind.org/blog/740/average-length-of-a-url-part-2).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch27.xhtml#idm46385810310648-marker)) 这个长度，作为一个粗略估计，是通过[Supermind](http://www.supermind.org/blog/740/average-length-of-a-url-part-2)对大型网络抓取中找到的URL平均长度计算而得。
+- en: ^([2](ch27.xhtml#idm46385810308376-marker)) Ibid.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch27.xhtml#idm46385810308376-marker)) 同上。
+- en: ^([3](ch27.xhtml#idm46385810306248-marker)) [*http://www.internetlivestats.com/total-number-of-websites/*](http://www.internetlivestats.com/total-number-of-websites/)
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch27.xhtml#idm46385810306248-marker)) [*http://www.internetlivestats.com/total-number-of-websites/*](http://www.internetlivestats.com/total-number-of-websites/)
+- en: ^([4](ch27.xhtml#idm46385810300472-marker)) Note how important the uniformity
+    of our hash function is—without it, the value of the bits in our hashes are no
+    longer independent to that of the bits that precede or succeed it, and it will
+    likely result in a loss of the independence of our coin flips. This means that
+    we no longer can consider 2^(*k*) as a good estimate of the number of samples
+    necessary to reach our chosen *k*-bit number.
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch27.xhtml#idm46385810300472-marker)) 请注意我们哈希函数的一致性是多么重要——如果没有它，我们哈希中的位值就不再独立于其前后位值，很可能导致我们的硬币翻转失去独立性。这意味着我们不能再把2^(*k*)作为达到我们选择的*k*位数所需的样本数的良好估计。
+- en: ^([5](ch27.xhtml#idm46385810298008-marker)) In Big Endian notation, of course.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch27.xhtml#idm46385810298008-marker)) 当然，这是大端记法。

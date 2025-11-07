@@ -1,0 +1,2008 @@
+- en: Chapter 3\. The Architecture of Apache Flink
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第三章。Apache Flink 的架构
+- en: '[Chapter 2](ch02.html#chap-2) discussed important concepts of distributed stream
+    processing, such as parallelization, time, and state. In this chapter, we give
+    a high-level introduction to Flink’s architecture and describe how Flink addresses
+    the aspects of stream processing we discussed earlier. In particular, we explain
+    Flink’s distributed architecture, show how it handles time and state in streaming
+    applications, and discuss its fault-tolerance mechanisms. This chapter provides
+    relevant background information to successfully implement and operate advanced
+    streaming applications with Apache Flink. It will help you to understand Flink’s
+    internals and to reason about the performance and behavior of streaming applications.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第二章](ch02.html#chap-2) 讨论了分布式流处理的重要概念，例如并行化、时间和状态。在本章中，我们对 Flink 的架构进行了高层次介绍，并描述了它如何解决我们早前讨论过的流处理方面的问题。特别是，我们解释了
+    Flink 的分布式架构，展示了它在流应用程序中如何处理时间和状态，并讨论了其容错机制。本章提供了成功实施和运行 Apache Flink 高级流处理应用程序所需的相关背景信息。它将帮助您理解
+    Flink 的内部机制，并推断流应用程序的性能和行为。'
+- en: System Architecture
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 系统架构
+- en: Flink is a distributed system for stateful parallel data stream processing.
+    A Flink setup consists of multiple processes that typically run distributed across
+    multiple machines. Common challenges that distributed systems need to address
+    are allocation and management of compute resources in a cluster, process coordination,
+    durable and highly available data storage, and failure recovery.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 是用于有状态并行数据流处理的分布式系统。一个 Flink 设置由多个进程组成，通常分布在多台机器上。分布式系统需要解决的常见挑战包括在集群中分配和管理计算资源、进程协调、持久且高可用的数据存储以及故障恢复。
+- en: Flink does not implement all this functionality by itself. Instead, it focuses
+    on its core function—distributed data stream processing—and leverages existing
+    cluster infrastructure and services. Flink is well integrated with cluster resource
+    managers, such as Apache Mesos, YARN, and Kubernetes, but can also be configured
+    to run as a stand-alone cluster. Flink does not provide durable, distributed storage.
+    Instead, it takes advantage of distributed filesystems like HDFS or object stores
+    such as S3\. For leader election in highly available setups, Flink depends on
+    Apache ZooKeeper.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 并未自行实现所有这些功能。相反，它专注于其核心功能——分布式数据流处理，并利用现有的集群基础设施和服务。Flink 与集群资源管理器（如 Apache
+    Mesos、YARN 和 Kubernetes）集成良好，但也可以配置为独立集群运行。Flink 不提供持久的分布式存储，而是利用诸如 HDFS 或对象存储（如
+    S3）的分布式文件系统。在高可用设置中的领导者选举方面，Flink 依赖于 Apache ZooKeeper。
+- en: In this section, we describe the different components of a Flink setup and how
+    they interact with each other to execute an application. We discuss two different
+    styles of deploying Flink applications and the way each distributes and executes
+    tasks. Finally, we explain how Flink’s highly available mode works.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们描述了 Flink 设置的不同组件以及它们如何相互作用来执行应用程序。我们讨论了部署 Flink 应用程序的两种不同方式，以及每种方式如何分发和执行任务。最后，我们解释了
+    Flink 的高可用模式的工作原理。
+- en: Components of a Flink Setup
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Flink 设置的组件
+- en: 'A Flink setup consists of four different components that work together to execute
+    streaming applications. These components are a JobManager, a ResourceManager,
+    a TaskManager, and a Dispatcher. Since Flink is implemented in Java and Scala,
+    all components run on Java Virtual Machines (JVMs). Each component has the following
+    responsibilities:'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 Flink 设置由四个不同的组件组成，它们共同工作以执行流应用程序。这些组件分别是 JobManager、ResourceManager、TaskManager
+    和 Dispatcher。由于 Flink 是用 Java 和 Scala 实现的，所有组件都在 Java 虚拟机（JVM）上运行。每个组件有以下责任：
+- en: The *JobManager* is the master process that controls the execution of a single
+    application—each application is controlled by a different JobManager. The JobManager
+    receives an application for execution. The application consists of a so-called
+    JobGraph, a logical dataflow graph (see [“Introduction to Dataflow Programming”](ch02.html#chap-2-dataflows)),
+    and a JAR file that bundles all the required classes, libraries, and other resources.
+    The JobManager converts the JobGraph into a physical dataflow graph called the
+    ExecutionGraph, which consists of tasks that can be executed in parallel. The
+    JobManager requests the necessary resources (TaskManager slots) to execute the
+    tasks from the ResourceManager. Once it receives enough TaskManager slots, it
+    distributes the tasks of the ExecutionGraph to the TaskManagers that execute them.
+    During execution, the JobManager is responsible for all actions that require a
+    central coordination such as the coordination of checkpoints (see [“Checkpoints,
+    Savepoints, and State Recovery”](#chap-3-checkpoints)).
+  id: totrans-8
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*JobManager* 是控制单个应用程序执行的主进程 — 每个应用程序由不同的 JobManager 控制。JobManager 接收应用程序进行执行。应用程序包括所谓的
+    JobGraph，即逻辑数据流图（参见 [“数据流编程简介”](ch02.html#chap-2-dataflows)），以及一个捆绑了所有所需类、库和其他资源的
+    JAR 文件。JobManager 将 JobGraph 转换为称为 ExecutionGraph 的物理数据流图，其中包含可以并行执行的任务。JobManager
+    从 ResourceManager 请求必要的资源（TaskManager 槽位）来执行任务。一旦它收到足够的 TaskManager 槽位，就会将 ExecutionGraph
+    的任务分配给执行它们的 TaskManagers。在执行过程中，JobManager 负责所有需要中心协调的操作，比如协调检查点（参见 [“检查点、保存点和状态恢复”](#chap-3-checkpoints)）。'
+- en: Flink features multiple *ResourceManagers* for different environments and resource
+    providers such as YARN, Mesos, Kubernetes, and standalone deployments. The ResourceManager
+    is responsible for managing TaskManager slots, Flink’s unit of processing resources.
+    When a JobManager requests TaskManager slots, the ResourceManager instructs a
+    TaskManager with idle slots to offer them to the JobManager. If the ResourceManager
+    does not have enough slots to fulfill the JobManager’s request, the ResourceManager
+    can talk to a resource provider to provision containers in which TaskManager processes
+    are started. The ResourceManager also takes care of terminating idle TaskManagers
+    to free compute resources.
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Flink 提供了多个 *ResourceManager* 用于不同的环境和资源提供程序，如 YARN、Mesos、Kubernetes 和独立部署。ResourceManager
+    负责管理 TaskManager 槽位，即 Flink 处理资源的单位。当一个 JobManager 请求 TaskManager 槽位时，ResourceManager
+    指示具有空闲槽位的 TaskManager 将其提供给 JobManager。如果 ResourceManager 没有足够的槽位来满足 JobManager
+    的请求，则 ResourceManager 可以与资源提供程序通信，以提供容器，在其中启动 TaskManager 进程。ResourceManager 还负责终止空闲
+    TaskManager 以释放计算资源。
+- en: '*TaskManagers* are the worker processes of Flink. Typically, there are multiple
+    TaskManagers running in a Flink setup. Each TaskManager provides a certain number
+    of slots. The number of slots limits the number of tasks a TaskManager can execute.
+    After it has been started, a TaskManager registers its slots to the ResourceManager.
+    When instructed by the ResourceManager, the TaskManager offers one or more of
+    its slots to a JobManager. The JobManager can then assign tasks to the slots to
+    execute them. During execution, a TaskManager exchanges data with other TaskManagers
+    that run tasks of the same application. The execution of tasks and the concept
+    of slots is discussed in [“Task Execution”](#chap-3-task-execution).'
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*TaskManager* 是 Flink 的工作进程。通常，在 Flink 设置中会运行多个 TaskManager。每个 TaskManager
+    提供一定数量的槽位。槽位的数量限制了 TaskManager 可以执行的任务数。启动后，TaskManager 将其槽位注册给 ResourceManager。当
+    ResourceManager 指示时，TaskManager 将其一个或多个槽位提供给 JobManager。然后，JobManager 可以将任务分配给这些槽位以执行它们。在执行过程中，TaskManager
+    与运行同一应用程序任务的其他 TaskManagers 交换数据。任务的执行和槽位的概念在 [“任务执行”](#chap-3-task-execution)
+    中讨论。'
+- en: The *Dispatcher* runs across job executions and provides a REST interface to
+    submit applications for execution. Once an application is submitted for execution,
+    it starts a JobManager and hands the application over. The REST interface enables
+    the dispatcher to serve as an HTTP entry point to clusters that are behind a firewall.
+    The dispatcher also runs a web dashboard to provide information about job executions.
+    Depending on how an application is submitted for execution (discussed in [“Application
+    Deployment”](#chap-3-app-deployment)), a dispatcher might not be required.
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*Dispatcher* 负责跨作业执行并提供 REST 接口来提交应用程序以进行执行。一旦应用程序提交执行，它启动一个 JobManager 并将应用程序移交给它。REST
+    接口使得调度程序能够作为集群的 HTTP 入口点提供服务，尤其是在防火墙后面的集群中。调度程序还运行一个 web 仪表板，用于提供有关作业执行的信息。根据应用程序的执行方式（详见
+    [“应用部署”](#chap-3-app-deployment)），可能不需要调度程序。'
+- en: '[Figure 3-1](#fig_app-submission) shows how Flink’s components interact with
+    each other when an application is submitted for execution.'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-1](#fig_app-submission) 展示了当提交应用程序进行执行时，Flink 组件如何相互交互。'
+- en: '![Application submission and component interactions](assets/spaf_0301.png)'
+  id: totrans-13
+  prefs: []
+  type: TYPE_IMG
+  zh: '![应用提交和组件交互](assets/spaf_0301.png)'
+- en: Figure 3-1\. Application submission and component interactions
+  id: totrans-14
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-1\. 应用提交和组件交互
+- en: Note
+  id: totrans-15
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '[Figure 3-1](#fig_app-submission) is a high-level sketch to visualize the responsibilities
+    and interactions of the components of an application. Depending on the environment
+    (YARN, Mesos, Kubernetes, standalone cluster), some steps can be omitted or components
+    might run in the same JVM process. For instance, in a standalone setup—a setup
+    without a resource provider—the ResourceManager can only distribute the slots
+    of available TaskManagers and cannot start new TaskManagers on its own. In [“Deployment
+    Modes”](ch09.html#chap-9-deployment), we will discuss how to set up and configure
+    Flink for different environments.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-1](#fig_app-submission) 是一个高级草图，用于可视化应用程序组件的责任和交互。根据环境（如 YARN、Mesos、Kubernetes、独立集群），某些步骤可以省略，或者组件可以在同一个
+    JVM 进程中运行。例如，在独立设置中——没有资源提供者的设置中——ResourceManager 只能分发可用 TaskManager 的插槽，并且不能自行启动新的
+    TaskManager。在 [“部署模式”](ch09.html#chap-9-deployment) 中，我们将讨论如何为不同环境设置和配置 Flink。'
+- en: Application Deployment
+  id: totrans-17
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 应用部署
+- en: Flink applications can be deployed in two different styles.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 应用程序可以以两种不同的方式部署。
+- en: Framework style
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 框架样式
+- en: In this mode, Flink applications are packaged into a JAR file and submitted
+    by a client to a running service. The service can be a Flink Dispatcher, a Flink
+    JobManager, or YARN’s ResourceManager. In any case, there is a service running
+    that accepts the Flink application and ensures it is executed. If the application
+    was submitted to a JobManager, it immediately starts to execute the application.
+    If the application was submitted to a Dispatcher or YARN ResourceManager, it will
+    spin up a JobManager and hand over the application, and the JobManager will start
+    to execute the application.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种模式下，Flink 应用程序被打包成 JAR 文件，并由客户端提交给运行中的服务。该服务可以是 Flink Dispatcher、Flink JobManager
+    或 YARN 的 ResourceManager。无论哪种情况，都有一个运行中的服务接受 Flink 应用程序并确保其执行。如果应用程序提交给了 JobManager，则立即开始执行应用程序。如果应用程序提交给了
+    Dispatcher 或 YARN 的 ResourceManager，则会启动一个 JobManager 并将应用程序移交给它，然后 JobManager
+    开始执行应用程序。
+- en: Library style
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 库样式
+- en: In this mode, the Flink application is bundled in an application-specific container
+    image, such as a Docker image. The image also includes the code to run a JobManager
+    and ResourceManager. When a container is started from the image, it automatically
+    launches the ResourceManager and JobManager and submits the bundled job for execution.
+    A second, job-independent image is used to deploy TaskManager containers. A container
+    that is started from this image automatically starts a TaskManager, which connects
+    to the ResourceManager and registers its slots. Typically, an external resource
+    manager such as Kubernetes takes care of starting the images and ensures that
+    containers are restarted in case of a failure.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种模式下，Flink 应用程序打包在特定于应用程序的容器映像中，例如 Docker 映像。该映像还包括运行 JobManager 和 ResourceManager
+    的代码。当从映像启动容器时，它会自动启动 ResourceManager 和 JobManager，并提交打包的作业以供执行。第二个与作业无关的映像用于部署
+    TaskManager 容器。从该映像启动的容器会自动启动 TaskManager，并连接到 ResourceManager 并注册其插槽。通常，像 Kubernetes
+    这样的外部资源管理器负责启动映像，并确保在故障时重新启动容器。
+- en: The framework style follows the traditional approach of submitting an application
+    (or query) via a client to a running service. In the library style, there is no
+    Flink service. Instead, Flink is bundled as a library together with the application
+    in a container image. This deployment mode is common for microservices architectures.
+    We discuss the topic of application deployment in more detail in [“Running and
+    Managing Streaming Applications”](ch10.html#chap-10-app-deployment).
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 框架样式遵循通过客户端将应用程序（或查询）提交给正在运行的服务的传统方法。在库样式中，没有 Flink 服务。相反，Flink 与应用程序捆绑在一个容器镜像中作为库一起提供。这种部署模式在微服务架构中很常见。我们在[“运行和管理流处理应用程序”](ch10.html#chap-10-app-deployment)中更详细地讨论了应用程序部署的主题。
+- en: Task Execution
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 任务执行
+- en: A TaskManager can execute several tasks at the same time. These tasks can be
+    subtasks of the same operator (data parallelism), a different operator (task parallelism),
+    or even from a different application (job parallelism). A TaskManager offers a
+    certain number of processing slots to control the number of tasks it is able to
+    concurrently execute. A processing slot can execute one slice of an application—one
+    parallel task of each operator of the application. [Figure 3-2](#fig_task-slots)
+    shows the relationships between TaskManagers, slots, tasks, and operators.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个 TaskManager 可以同时执行多个任务。这些任务可以是同一个运算符的子任务（数据并行）、不同运算符的任务（任务并行）甚至来自不同应用程序的任务（作业并行）。TaskManager
+    提供一定数量的处理槽位来控制其能够并发执行的任务数量。每个处理槽位可以执行一个应用程序的一个切片——每个运算符的一个并行任务。[图 3-2](#fig_task-slots)展示了
+    TaskManager、槽位、任务和运算符之间的关系。
+- en: '![Operators, tasks, and processing slots](assets/spaf_0302.png)'
+  id: totrans-26
+  prefs: []
+  type: TYPE_IMG
+  zh: '![运算符、任务和处理槽位](assets/spaf_0302.png)'
+- en: Figure 3-2\. Operators, tasks, and processing slots
+  id: totrans-27
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-2\. 运算符、任务和处理槽位
+- en: On the left-hand side of [Figure 3-2](#fig_task-slots) you see a JobGraph—the
+    nonparallel representation of an application—consisting of five operators. Operators
+    A and C are sources and operator E is a sink. Operators C and E have a parallelism
+    of two. The other operators have a parallelism of four. Since the maximum operator
+    parallelism is four, the application requires at least four available processing
+    slots to be executed. Given two TaskManagers with two processing slots each, this
+    requirement is fulfilled. The JobManager spans the JobGraph into an ExecutionGraph
+    and assigns the tasks to the four available slots. The tasks of the operators
+    with a parallelism of four are assigned to each slot. The two tasks of operators
+    C and E are assigned to slots 1.1 and 2.1 and slots 1.2 and 2.2, respectively.
+    Scheduling tasks as slices to slots has the advantage that many tasks are colocated
+    on the TaskManager, which means they can efficiently exchange data within the
+    the same process and without accessing the network. However, too many colocated
+    tasks can also overload a TaskManager and result in bad performance. In [“Controlling
+    Task Scheduling”](ch10.html#chap-10-scheduling) we discuss how to control the
+    scheduling of tasks.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图 3-2](#fig_task-slots)的左侧，您可以看到一个作业图（JobGraph）——应用程序的非并行表示，由五个运算符组成。运算符 A
+    和 C 是源，运算符 E 是汇。运算符 C 和 E 的并行度为二。其他运算符的并行度为四。由于最大运算符并行度为四，该应用程序需要至少四个可用的处理槽位才能执行。考虑到每个具有两个处理槽位的两个
+    TaskManager，此需求得到满足。JobManager 将作业图拓展为执行图，并将任务分配给这四个可用槽位。具有并行度为四的运算符的任务被分配到每个槽位上。运算符
+    C 和 E 的两个任务分别分配到槽位 1.1 和 2.1，以及槽位 1.2 和 2.2。将任务作为切片调度到槽位的优势在于，许多任务被放置在同一个 TaskManager
+    上，这意味着它们可以在同一进程内有效地交换数据，而无需访问网络。然而，过多的共位任务也可能会使 TaskManager 过载，并导致性能不佳。在[“控制任务调度”](ch10.html#chap-10-scheduling)中，我们讨论了如何控制任务的调度。
+- en: A TaskManager executes its tasks multithreaded in the same JVM process. Threads
+    are more lightweight than separate processes and have lower communication costs
+    but do not strictly isolate tasks from each other. Hence, a single misbehaving
+    task can kill a whole TaskManager process and all tasks that run on it. By configuring
+    only a single slot per TaskManager, you can isolate applications across TaskManagers.
+    By leveraging thread parallelism inside a TaskManager and deploying several TaskManager
+    processes per host, Flink offers a lot of flexibility to trade off performance
+    and resource isolation when deploying applications. We will discuss the configuration
+    and setup of Flink clusters in detail in [Chapter 9](ch09.html#chap-9).
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: TaskManager在同一JVM进程中多线程执行其任务。线程比单独的进程更轻量，并具有较低的通信成本，但不能严格隔离任务。因此，单个表现不佳的任务可以终止整个TaskManager进程及其上运行的所有任务。通过配置每个TaskManager仅有一个槽位，可以在TaskManagers之间隔离应用程序。通过在TaskManager内利用线程并在每台主机上部署多个TaskManager进程，Flink在部署应用程序时提供了灵活性来权衡性能和资源隔离。我们将在[第9章](ch09.html#chap-9)详细讨论Flink集群的配置和设置。
+- en: Highly Available Setup
+  id: totrans-30
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Highly Available Setup
+- en: Streaming applications are typically designed to run 24/7\. Hence, it is important
+    that their execution does not stop even if an involved process fails. To recover
+    from failures, the system first needs to restart failed processes, and second,
+    restart the application and recover its state. In this section, you will learn
+    how Flink restarts failed processes. Restoring the state of an application is
+    described in [“Recovery from a Consistent Checkpoint”](#chap-3-recovery).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流处理应用程序通常设计为24/7运行。因此，即使涉及的进程失败，其执行也不应停止。为从故障中恢复，系统首先需要重新启动失败的进程，其次重新启动应用程序并恢复其状态。在本节中，您将了解Flink如何重新启动失败的进程。应用程序状态的恢复描述在[“从一致检查点恢复”](#chap-3-recovery)中。
+- en: TaskManager failures
+  id: totrans-32
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TaskManager failures
+- en: As discussed before, Flink requires a sufficient number of processing slots
+    in order to execute all tasks of an application. Given a Flink setup with four
+    TaskManagers that provide two slots each, a streaming application can be executed
+    with a maximum parallelism of eight. If one of the TaskManagers fails, the number
+    of available slots drops to six. In this situation, the JobManager will ask the
+    ResourceManager to provide more processing slots. If this is not possible—for
+    example, because the application runs in a standalone cluster—the JobManager can
+    not restart the application until enough slots become available. The application’s
+    restart strategy determines how often the JobManager restarts the application
+    and how long it waits between restart attempts.^([1](ch03.html#idm45499020919416))
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，Flink要求足够数量的处理槽位以执行应用程序的所有任务。假设有四个TaskManager，每个提供两个槽位的Flink设置，流处理应用程序的最大并行性为八。如果其中一个TaskManager失败，则可用槽位数量降至六。在这种情况下，JobManager将要求ResourceManager提供更多处理槽位。如果这不可能，例如因为应用程序在独立集群中运行，JobManager将无法重新启动应用程序，直到足够的槽位变得可用。应用程序的重启策略决定了JobManager重新启动应用程序的频率以及重启尝试之间的等待时间。^([1](ch03.html#idm45499020919416))
+- en: JobManager failures
+  id: totrans-34
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: JobManager故障
+- en: A more challenging problem than TaskManager failures are JobManager failures.
+    The JobManager controls the execution of a streaming application and keeps metadata
+    about its execution, such as pointers to completed checkpoints. A streaming application
+    cannot continue processing if the responsible JobManager process disappears. This
+    makes the JobManager a single point of failure for applications in Flink. To overcome
+    this problem, Flink supports a high-availability mode that migrates the responsibility
+    and metadata for a job to another JobManager in case the original JobManager disappears.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 比TaskManager故障更具挑战性的问题是JobManager故障。JobManager控制流处理应用程序的执行，并保留有关其执行的元数据，如指向完成检查点的指针。如果负责的JobManager进程消失，流处理应用程序将无法继续处理。这使得JobManager成为Flink中应用程序的单点故障。为解决此问题，Flink支持高可用模式，该模式在原始JobManager消失时将作业的责任和元数据迁移到另一个JobManager。
+- en: Flink’s high-availability mode is based on [Apache ZooKeeper](https://zookeeper.apache.org/),
+    a system for distributed services that require coordination and consensus. Flink
+    uses ZooKeeper for leader election and as a highly available and durable datastore.
+    When operating in high-availability mode, the JobManager writes the JobGraph and
+    all required metadata, such as the application’s JAR file, into a remote persistent
+    storage system. In addition, the JobManager writes a pointer to the storage location
+    into ZooKeeper’s datastore. During the execution of an application, the JobManager
+    receives the state handles (storage locations) of the individual task checkpoints.
+    Upon completion of a checkpoint—when all tasks have successfully written their
+    state into the remote storage—the JobManager writes the state handles to the remote
+    storage and a pointer to this location to ZooKeeper. Hence, all data that is required
+    to recover from a JobManager failure is stored in the remote storage and ZooKeeper
+    holds pointers to the storage locations. [Figure 3-3](#fig_ha-setup) illustrates
+    this design.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink的高可用模式基于[Apache ZooKeeper](https://zookeeper.apache.org/)，这是一个用于需要协调和共识的分布式服务系统。Flink使用ZooKeeper进行Leader选举，并作为高可用和持久化的数据存储。在高可用模式下，JobManager将JobGraph和所有必需的元数据（如应用程序的JAR文件）写入远程持久存储系统。此外，JobManager将存储位置的指针写入ZooKeeper的数据存储。在应用程序执行期间，JobManager接收各个任务检查点的状态句柄（存储位置）。完成检查点时（当所有任务成功将其状态写入远程存储时），JobManager将状态句柄写入远程存储，并将指向此位置的指针写入ZooKeeper。因此，从JobManager故障中恢复所需的所有数据都存储在远程存储中，而ZooKeeper则保存了存储位置的指针。图3-3（#fig_ha-setup）说明了这一设计。
+- en: '![A highly available Flink setup](assets/spaf_0303.png)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![高可用Flink设置](assets/spaf_0303.png)'
+- en: Figure 3-3\. A highly available Flink setup
+  id: totrans-38
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-3. 高可用Flink设置
+- en: 'When a JobManager fails, all tasks that belong to its application are automatically
+    cancelled. A new JobManager that takes over the work of the failed master performs
+    the following steps:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当JobManager失败时，其应用程序的所有任务都会自动取消。接管失败主节点工作的新JobManager执行以下步骤：
+- en: It requests the storage locations from ZooKeeper to fetch the JobGraph, the
+    JAR file, and the state handles of the last checkpoint of the application from
+    the remote storage.
+  id: totrans-40
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它从ZooKeeper请求存储位置，以获取JobGraph、JAR文件以及应用程序上次检查点的状态句柄，这些都来自远程存储。
+- en: It requests processing slots from the ResourceManager to continue executing
+    the application.
+  id: totrans-41
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它从ResourceManager请求处理插槽，以继续执行应用程序。
+- en: It restarts the application and resets the state of all its tasks to the last
+    completed checkpoint.
+  id: totrans-42
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它重新启动应用程序，并将其所有任务的状态重置为最后完成的检查点状态。
+- en: When running an application as a library deployment in a container environment,
+    such as Kubernetes, failed JobManager or TaskManager containers are usually automatically
+    restarted by the container orchestration service. When running on YARN or on Mesos,
+    Flink’s remaining processes trigger the restart of JobManager or TaskManager processes.
+    Flink does not provide tooling to restart failed processes when running in a standalone
+    cluster. Hence, it can be useful to run standby JobManagers and TaskManagers that
+    can take over the work of failed processes. We will discuss the configuration
+    of highly available Flink setups later in [“Highly Available Setups”](ch09.html#chap-9-highly-available).
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在容器环境（如Kubernetes）中以库部署方式运行应用程序时，通常由容器编排服务自动重新启动失败的JobManager或TaskManager容器。在YARN或Mesos上运行时，Flink的剩余进程会触发JobManager或TaskManager进程的重启。在独立集群中运行时，Flink不提供重新启动失败进程的工具。因此，在此情况下运行备用JobManagers和TaskManagers以接管失败进程的工作可能非常有用。我们将在[“高可用设置”](ch09.html#chap-9-highly-available)中讨论高可用Flink设置的配置。
+- en: Data Transfer in Flink
+  id: totrans-44
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Flink中的数据传输
+- en: The tasks of a running application are continuously exchanging data. The TaskManagers
+    take care of shipping data from sending tasks to receiving tasks. The network
+    component of a TaskManager collects records in buffers before they are shipped,
+    i.e., records are not shipped one by one but batched into buffers. This technique
+    is fundamental to effectively using the networking resource and achieving high
+    throughput. The mechanism is similar to the buffering techniques used in networking
+    or disk I/O protocols.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行中应用程序的任务不断交换数据。TaskManagers负责将数据从发送任务传输到接收任务。TaskManager的网络组件在将记录发送之前将其收集到缓冲区中，即记录不是逐个发送而是批量发送到缓冲区。这种技术对有效利用网络资源和实现高吞吐量至关重要。该机制类似于网络或磁盘I/O协议中使用的缓冲技术。
+- en: Note
+  id: totrans-46
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that shipping records in buffers does imply that Flink’s processing model
+    is based on microbatches.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，将记录打包到缓冲区中意味着 Flink 的处理模型基于微批处理。
+- en: Each TaskManager has a pool of network buffers (by default 32 KB in size) to
+    send and receive data. If the sender and receiver tasks run in separate TaskManager
+    processes, they communicate via the network stack of the operating system. Streaming
+    applications need to exchange data in a pipelined fashion—each pair of TaskManagers
+    maintains a permanent TCP connection to exchange data.^([2](ch03.html#idm45499020889352))
+    With a shuffle connection pattern, each sender task needs to be able to send data
+    to each receiving task. A TaskManager needs one dedicated network buffer for each
+    receiving task that any of its tasks need to send data to. [Figure 3-4](#fig_data-transfer)
+    shows this architecture.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个 TaskManager 都有一个网络缓冲池（默认大小为 32 KB）用于发送和接收数据。如果发送任务和接收任务在不同的 TaskManager 进程中运行，则它们通过操作系统的网络堆栈进行通信。流处理应用程序需要以流水线方式交换数据，每对
+    TaskManager 之间维护一个永久的 TCP 连接以交换数据。^([2](ch03.html#idm45499020889352)) 使用 shuffle
+    连接模式时，每个发送任务需要能够向每个接收任务发送数据。每个 TaskManager 需要为其任何任务需要向其发送数据的接收任务准备一个专用的网络缓冲区。[图 3-4](#fig_data-transfer)展示了这种架构。
+- en: '![Data transfer between TaskManagers](assets/spaf_0304.png)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_IMG
+  zh: '![TaskManagers 之间的数据传输](assets/spaf_0304.png)'
+- en: Figure 3-4\. Data transfer between TaskManagers
+  id: totrans-50
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-4\. TaskManagers 之间的数据传输
+- en: As shown in [Figure 3-4](#fig_data-transfer), each of the four sender tasks
+    needs at least four network buffers to send data to each of the receiver tasks
+    and each receiver task requires at least four buffers to receive data. Buffers
+    that need to be sent to the other TaskManager are multiplexed over the same network
+    connection. In order to enable a smooth pipelined data exchange, a TaskManager
+    must be able to provide enough buffers to serve all outgoing and incoming connections
+    concurrently. With a shuffle or broadcast connection, each sending task needs
+    a buffer for each receiving task; the number of required buffers is quadratic
+    to the number of tasks of the involved operators. Flink’s default configuration
+    for network buffers is sufficient for small- to medium-sized setups. For larger
+    setups, you need to tune the configuration as described in [“Main Memory and Network
+    Buffers”](ch09.html#chap-9-main-memory).
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[图 3-4](#fig_data-transfer)所示，每个发送任务至少需要四个网络缓冲区来向每个接收任务发送数据，每个接收任务需要至少四个缓冲区来接收数据。需要发送到其他
+    TaskManager 的缓冲区在同一网络连接上进行复用。为了实现平稳的流水线数据交换，一个 TaskManager 必须能够提供足够的缓冲区以同时服务所有的出站和入站连接。对于
+    shuffle 或 broadcast 连接，每个发送任务都需要为每个接收任务准备一个缓冲区；所需的缓冲区数量与涉及的运算符的任务数呈二次关系。对于小型到中型的设置，Flink
+    默认的网络缓冲区配置已经足够。对于更大的设置，需要根据[“主内存和网络缓冲区”](ch09.html#chap-9-main-memory)中描述的内容进行配置调整。
+- en: When a sender task and a receiver task run in the same TaskManager process,
+    the sender task serializes the outgoing records into a byte buffer and puts the
+    buffer into a queue once it is filled. The receiving task takes the buffer from
+    the queue and deserializes the incoming records. Hence, data transfer between
+    tasks that run on the same TaskManager does not cause network communication.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当发送任务和接收任务在同一个 TaskManager 进程中运行时，发送任务将输出的记录序列化为一个字节缓冲区，并在填充完毕后将缓冲区放入队列。接收任务从队列中获取缓冲区并反序列化传入的记录。因此，在同一
+    TaskManager 上运行的任务之间的数据传输不会导致网络通信。
+- en: Flink features different techniques to reduce the communication costs between
+    tasks. In the following sections, we briefly discuss credit-based flow control
+    and task chaining.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了不同的技术来减少任务之间的通信成本。在接下来的章节中，我们将简要讨论基于信用的流量控制和任务链。
+- en: Credit-Based Flow Control
+  id: totrans-54
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 基于信用的流量控制
+- en: Sending individual records over a network connection is inefficient and causes
+    significant overhead. Buffering is needed to fully utilize the bandwidth of network
+    connections. In the context of stream processing, one disadvantage of buffering
+    is that it adds latency because records are collected in a buffer instead of being
+    immediately shipped.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过网络连接发送单独的记录效率低下且会导致显著的开销。需要缓冲以充分利用网络连接的带宽。在流处理的背景下，缓冲的一个缺点是增加了延迟，因为记录被收集到缓冲区而不是立即发送。
+- en: Flink implements a credit-based flow control mechanism that works as follows.
+    A receiving task grants some credit to a sending task, the number of network buffers
+    that are reserved to receive its data. Once a sender receives a credit notification,
+    it ships as many buffers as it was granted and the size of its backlog—the number
+    of network buffers that are filled and ready to be shipped. The receiver processes
+    the shipped data with the reserved buffers and uses the sender’s backlog size
+    to prioritize the next credit grants for all its connected senders.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 实现了一种基于信用的流量控制机制，工作原理如下。接收任务向发送任务授予一些信用，即为接收其数据保留的网络缓冲区数量。一旦发送方接收到信用通知，它就会发送被授予的缓冲区数量以及其积压大小——填充并准备发送的网络缓冲区数量。接收方使用保留的缓冲区处理接收到的数据，并利用发送方的积压大小为其连接的所有发送方优先分配下一次信用授予。
+- en: Credit-based flow control reduces latency because senders can ship data as soon
+    as the receiver has enough resources to accept it. Moreover, it is an effective
+    mechanism to distribute network resources in the case of skewed data distributions
+    because credit is granted based on the size of the senders’ backlog. Hence, credit-based
+    flow control is an important building block for Flink to achieve high throughput
+    and low latency.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于信用的流量控制通过在接收方有足够资源接受数据时发送方可以立即发送数据来减少延迟。此外，它还是分布网络资源的有效机制，特别是在数据分布不均匀的情况下，因为信用是基于发送方积压大小授予的。因此，基于信用的流量控制对于
+    Flink 实现高吞吐量和低延迟至关重要。
+- en: Task Chaining
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 任务链条
+- en: Flink features an optimization technique called task chaining that reduces the
+    overhead of local communication under certain conditions. In order to satisfy
+    the requirements for task chaining, two or more operators must be configured with
+    the same parallelism and connected by local forward channels. The operator pipeline
+    shown in [Figure 3-5](#fig_chaining1) fulfills these requirements. It consists
+    of three operators that are all configured for a task parallelism of two and connected
+    with local forward connections.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了一种优化技术称为任务链条，在某些条件下减少了本地通信的开销。为了满足任务链条的要求，两个或多个操作符必须配置相同的并行度，并通过本地前向通道连接。如图 [图 3-5](#fig_chaining1)
+    所示的操作流水线满足这些要求。它由三个操作符组成，所有操作符都配置为并行度为二，并通过本地前向连接连接起来。
+- en: '![An operator pipeline that complies with the requirements of task chaining](assets/spaf_0305.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![符合任务链条要求的操作流水线](assets/spaf_0305.png)'
+- en: Figure 3-5\. An operator pipeline that complies with the requirements of task
+    chaining
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-5\. 符合任务链条要求的操作流水线
+- en: '[Figure 3-6](#fig_chaining3) depicts how the pipeline is executed with task
+    chaining. The functions of the operators are fused into a single task that is
+    executed by a single thread. Records that are produced by a function are separately
+    handed over to the next function with a simple method call. Hence, there are basically
+    no serialization and communication costs for passing records between functions.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-6](#fig_chaining3) 描述了如何使用任务链条执行流水线。操作符的函数被融合成单个任务，由单个线程执行。一个函数产生的记录通过简单的方法调用传递给下一个函数。因此，在函数间传递记录几乎没有序列化和通信成本。'
+- en: '![Chained task execution with fused functions in a single thread and data passing
+    via method calls](assets/spaf_0306.png)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在单线程中使用融合函数执行链式任务](assets/spaf_0306.png)'
+- en: Figure 3-6\. Chained task execution with fused functions in a single thread
+    and data passing via method calls
+  id: totrans-64
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-6\. 使用单线程和方法调用传递数据执行链式任务
+- en: Task chaining can significantly reduce the communication costs between local
+    tasks, but there are also cases when it makes sense to execute a pipeline without
+    chaining. For example, it can make sense to break a long pipeline of chained tasks
+    or break a chain into two tasks to schedule an expensive function to different
+    slots. [Figure 3-7](#fig_chaining2) shows the same pipeline executed without task
+    chaining. All functions are evaluated by an individual task running in a dedicated
+    thread.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务链条可以显著减少本地任务之间的通信成本，但在某些情况下，执行不使用链条的流水线也是有意义的。例如，可以合理地打破长的任务链或将链分成两个任务，以便将昂贵的函数安排到不同的插槽中执行。[图 3-7](#fig_chaining2)
+    展示了同一流水线在没有任务链条的情况下的执行方式。所有函数都由各自运行在专用线程的单独任务评估。
+- en: '![Nonchained task execution with dedicated threads and data transport via buffer
+    channels and serialization](assets/spaf_0307.png)'
+  id: totrans-66
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在专用线程中执行非链式任务，通过缓冲通道和序列化传输数据](assets/spaf_0307.png)'
+- en: Figure 3-7\. Nonchained task execution with dedicated threads and data transport
+    via buffer channels and serialization
+  id: totrans-67
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-7\. 使用专用线程进行非链式任务执行，数据通过缓冲通道和序列化进行传输。
+- en: Task chaining is enabled by default in Flink. In [“Controlling Task Chaining”](ch10.html#chap-10-chaining),
+    we show how to disable task chaining for an application and how to control the
+    chaining behavior of individual operators.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 默认启用任务链。在 [“控制任务链”](ch10.html#chap-10-chaining) 中，我们展示了如何为应用程序禁用任务链以及如何控制各个操作符的链式行为。
+- en: Event-Time Processing
+  id: totrans-69
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 事件时间处理
+- en: In [“Time Semantics”](ch02.html#chap-2-time-semantics), we highlighted the importance
+    of time semantics for stream processing applications and explained the differences
+    between processing time and event time. While processing time is easy to understand
+    because it is based on the local time of the processing machine, it produces somewhat
+    arbitrary, inconsistent, and nonreproducible results. In contrast, event-time
+    semantics yield reproducible and consistent results, which is a hard requirement
+    for many stream processing use cases. However, event-time applications require
+    additional configuration compared to applications with processing-time semantics.
+    Also, the internals of a stream processor that supports event time are more involved
+    than the internals of a system that purely operates in processing time.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [“时间语义”](ch02.html#chap-2-time-semantics) 中，我们强调了时间语义对流处理应用程序的重要性，并解释了处理时间和事件时间之间的差异。处理时间易于理解，因为它基于处理机器的本地时间，但它产生的结果有时是任意的、不一致的和不可重现的。相比之下，事件时间语义产生可重现且一致的结果，这对许多流处理用例是硬性要求。然而，与处理时间语义的应用程序相比，事件时间应用程序需要额外的配置。此外，支持事件时间的流处理器的内部比纯粹基于处理时间的系统更为复杂。
+- en: 'Flink provides intuitive and easy-to-use primitives for common event-time processing
+    operations but also exposes expressive APIs to implement more advanced event-time
+    applications with custom operators. For such advanced applications, a good understanding
+    of Flink’s internal time handling is often helpful and sometimes required. The
+    previous chapter introduced two concepts Flink leverages to provide event-time
+    semantics: record timestamps and watermarks. In the following, we describe how
+    Flink internally implements and handles timestamps and watermarks to support streaming
+    applications with event-time semantics.'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供直观且易于使用的基本事件时间处理操作原语，同时还提供了表达丰富的 API，用于实现更高级的基于事件时间的应用程序，并支持自定义运算符。对于这类高级应用程序，了解
+    Flink 内部的时间处理机制通常是有帮助的，有时甚至是必需的。上一章介绍了 Flink 利用的两个概念，以提供事件时间语义：记录时间戳和水印。接下来我们将描述
+    Flink 如何在内部实现和处理时间戳和水印，以支持具有事件时间语义的流应用程序。
+- en: Timestamps
+  id: totrans-72
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 时间戳
+- en: All records that are processed by a Flink event-time streaming application must
+    be accompanied by a timestamp. The timestamp associates a record with a specific
+    point in time, usually the point in time at which the event that is represented
+    by the record happened. However, applications can freely choose the meaning of
+    the timestamps as long as the timestamps of the stream records are roughly ascending
+    as the stream is advancing. As seen in [“Time Semantics”](ch02.html#chap-2-time-semantics),
+    a certain degree of timestamp out-of-orderness is given in basically all real-world
+    use cases.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有由 Flink 事件时间流处理应用程序处理的记录都必须附带时间戳。时间戳将记录与特定时刻相关联，通常是表示记录事件发生时的时间点。但是，应用程序可以自由选择时间戳的含义，只要流记录的时间戳大致按照流的推进而升序即可。正如在
+    [“时间语义”](ch02.html#chap-2-time-semantics) 中所见，基本上所有真实世界的用例中都存在一定程度的时间戳无序性。
+- en: When Flink processes a data stream in event-time mode, it evaluates time-based
+    operators based on the timestamps of records. For example, a time-window operator
+    assigns records to windows according to their associated timestamp. Flink encodes
+    timestamps as 16-byte `Long` values and attaches them as metadata to records.
+    Its built-in operators interpret the `Long` value as a Unix timestamp with millisecond
+    precision—the number of milliseconds since 1970-01-01-00:00:00.000\. However,
+    custom operators can have their own interpretation and may, for example, adjust
+    the precision to microseconds.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 Flink 在事件时间模式下处理数据流时，根据记录的时间戳评估基于时间的运算符。例如，时间窗口运算符根据其关联时间戳将记录分配到窗口中。Flink
+    将时间戳编码为 16 字节的 `Long` 值，并将其作为记录的元数据附加。其内置运算符将 `Long` 值解释为具有毫秒精度的 Unix 时间戳——自 1970-01-01-00:00:00.000
+    以来的毫秒数。然而，自定义运算符可以有自己的解释，并可能调整精度到微秒级别。
+- en: Watermarks
+  id: totrans-75
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 水印
+- en: In addition to record timestamps, a Flink event-time application must also provide
+    watermarks. Watermarks are used to derive the current event time at each task
+    in an event-time application. Time-based operators use this time to trigger computations
+    and make progress. For example, a time-window task finalizes a window computation
+    and emits the result when the task event-time passes the window’s end boundary.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了记录时间戳外，Flink 事件时间应用程序还必须提供水印。水印用于在事件时间应用程序中的每个任务中推导当前事件时间。基于时间的运算符使用此时间触发计算并推进进度。例如，时间窗口任务在任务事件时间超过窗口结束边界时完成窗口计算并发出结果。
+- en: In Flink, watermarks are implemented as special records holding a timestamp
+    as a `Long` value. Watermarks flow in a stream of regular records with annotated
+    timestamps as [Figure 3-8](#fig_watermark-stream) shows.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Flink 中，水印实现为包含 `Long` 值时间戳的特殊记录。水印以带有注释时间戳的常规记录流动，如图 3-8 所示。
+- en: '![A stream with timestamped records and watermarks](assets/spaf_0308.png)'
+  id: totrans-78
+  prefs: []
+  type: TYPE_IMG
+  zh: '![带有时间戳记录和水印的数据流](assets/spaf_0308.png)'
+- en: Figure 3-8\. A stream with timestamped records and watermarks
+  id: totrans-79
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-8\. 带有时间戳记录和水印的数据流
+- en: 'Watermarks have two basic properties:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水印具有两个基本属性：
+- en: They must be monotonically increasing to ensure the event-time clocks of tasks
+    are progressing and not going backward.
+  id: totrans-81
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 为了确保任务的事件时间时钟进展而非后退，水印必须单调递增。
+- en: They are related to record timestamps. A watermark with a timestamp T indicates
+    that all subsequent records should have timestamps > T.
+  id: totrans-82
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 它们与记录时间戳相关。具有时间戳 T 的水印表示所有后续记录的时间戳应 > T。
+- en: The second property is used to handle streams with out-of-order record timestamps,
+    such as the records with timestamps 3 and 5 in [Figure 3-8](#fig_watermark-stream).
+    Tasks of time-based operators collect and process records with possibly unordered
+    timestamps and finalize a computation when their event-time clock, which is advanced
+    by the received watermarks, indicates that no more records with relevant timestamps
+    are expected. When a task receives a record that violates the watermark property
+    and has smaller timestamps than a previously received watermark, it may be that
+    the computation it belongs to has already been completed. Such records are called
+    late records. Flink provides different ways to deal with late records, which are
+    discussed in [“Handling Late Data”](ch06.html#chap-6-late-data).
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个属性用于处理具有无序记录时间戳的流，例如图 3-8 中时间戳为 3 和 5 的记录。基于时间的运算符的任务收集和处理具有可能无序时间戳的记录，并在其事件时间时钟（由接收到的水印推进）指示不再期望具有相关时间戳的记录时，完成计算。当任务接收到违反水印属性并且时间戳小于先前接收的水印的记录时，可能是其所属计算已经完成。这些记录称为延迟记录。Flink
+    提供了处理延迟记录的不同方法，详见[“处理延迟数据”](ch06.html#chap-6-late-data)。
+- en: An interesting property of watermarks is that they allow an application to control
+    result completeness and latency. Watermarks that are very tight—close to the record
+    timestamps—result in low processing latency because a task will only briefly wait
+    for more records to arrive before finalizing a computation. At the same time,
+    the result completeness might suffer because relevant records might not be included
+    in the result and would be considered as late records. Inversely, very conservative
+    watermarks increase processing latency but improve result completeness.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水印的一个有趣特性是它们允许应用程序控制结果的完整性和延迟。非常紧密的水印——接近记录时间戳——会导致低处理延迟，因为任务只会在更多记录到达之前短暂等待，然后完成计算。与此同时，结果的完整性可能会受到影响，因为相关记录可能不会包含在结果中，并被视为迟到的记录。相反，非常保守的水印会增加处理延迟，但提高结果的完整性。
+- en: Watermark Propagation and Event Time
+  id: totrans-85
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 水印传播与事件时间
+- en: In this section, we discuss how operators process watermarks. Flink implements
+    watermarks as special records that are received and emitted by operator tasks.
+    Tasks have an internal time service that maintains timers and is activated when
+    a watermark is received. Tasks can register timers at the timer service to perform
+    a computation at a specific point in time in the future. For example, a window
+    operator registers a timer for every active window, which cleans up the window’s
+    state when the event time passes the window’s ending time.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们讨论操作符如何处理水印。Flink将水印实现为操作符任务接收和发出的特殊记录。任务具有维护计时器的内部时间服务，并在接收水印时激活。任务可以在计时器服务中注册定时器，以在未来特定时间点执行计算。例如，窗口操作符为每个活动窗口注册一个定时器，当事件时间超过窗口结束时间时，清理窗口的状态。
+- en: 'When a task receives a watermark, the following actions take place:'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当任务接收到水印时，会执行以下操作：
+- en: The task updates its internal event-time clock based on the watermark’s timestamp.
+  id: totrans-88
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 任务根据水印的时间戳更新其内部事件时间时钟。
+- en: The task’s time service identifies all timers with a time smaller than the updated
+    event time. For each expired timer, the task invokes a callback function that
+    can perform a computation and emit records.
+  id: totrans-89
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 任务的时间服务识别所有时间小于更新的事件时间的定时器。对于每个过期的定时器，任务调用一个回调函数，可以执行计算并发出记录。
+- en: The task emits a watermark with the updated event time.
+  id: totrans-90
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 任务发出带有更新的事件时间的水印。
+- en: Note
+  id: totrans-91
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Flink restricts access to timestamps or watermarks through the DataStream API.
+    Functions cannot read or modify record timestamps and watermarks, except for the
+    process functions, which can read the timestamp of a currently processed record,
+    request the current event time of the operator, and register timers.^([3](ch03.html#idm45499020693912))
+    None of the functions exposes an API to set the timestamps of emitted records,
+    manipulate the event-time clock of a task, or emit watermarks. Instead, time-based
+    DataStream operator tasks configure the timestamps of emitted records to ensure
+    they are properly aligned with the emitted watermarks. For instance, a time-window
+    operator task attaches the end time of a window as the timestamp to all records
+    emitted by the window computation before it emits the watermark with the timestamp
+    that triggered the computation of the window.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink通过DataStream API限制了对时间戳或水印的访问。函数无法读取或修改记录的时间戳和水印，除了处理函数可以读取当前处理记录的时间戳，请求操作符的当前事件时间，并注册定时器。^([3](ch03.html#idm45499020693912))
+    没有一个函数公开的API可以设置发出记录的时间戳，操作任务的事件时间时钟，或者发出水印。相反，基于时间的DataStream操作符任务配置发出记录的时间戳，以确保它们与发出的水印正确对齐。例如，时间窗口操作符任务将窗口结束时间作为时间戳附加到窗口计算发出的所有记录之前，然后发出触发窗口计算的时间戳的水印。
+- en: Let’s now explain in more detail how a task emits watermarks and updates its
+    event-time clock when receiving a new watermark. As you saw in [“Data Parallelism
+    and Task Parallelism”](ch02.html#chap-2-parallelism), Flink splits data streams
+    into partitions and processes each partition in parallel by a separate operator
+    task. Each partition is a stream of timestamped records and watermarks. Depending
+    on how an operator is connected with its predecessor or successor operators, its
+    tasks can receive records and watermarks from one or more input partitions and
+    emit records and watermarks to one or more output partitions. In the following,
+    we describe in detail how a task emits watermarks to multiple output tasks and
+    how it advances its event-time clock from the watermarks it receives from its
+    input tasks.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们更详细地解释一个任务在接收新水印时如何发出水印并更新其事件时间时钟。正如您在[“数据并行和任务并行”](ch02.html#chap-2-parallelism)中看到的那样，Flink
+    将数据流拆分为分区，并通过单独的操作器任务并行处理每个分区。每个分区都是时间戳记录和水印的流。根据操作器与其前驱或后续操作器的连接方式，其任务可以从一个或多个输入分区接收记录和水印，并向一个或多个输出分区发出记录和水印。接下来，我们详细描述一个任务如何向多个输出任务发出水印，并从其接收的水印推进其事件时间时钟。
+- en: A task maintains a partition watermark for each input partition. When it receives
+    a watermark from a partition, it updates the respective partition watermark to
+    be the maximum of the received value and the current value. Subsequently, the
+    task updates its event-time clock to be the minimum of all partition watermarks.
+    If the event-time clock advances, the task processes all triggered timers and
+    finally broadcasts its new event time to all downstream tasks by emitting a corresponding
+    watermark to all connected output partitions.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个任务为每个输入分区维护一个分区水印。当它从分区接收到一个水印时，它会将相应的分区水印更新为接收到的值和当前值中的最大值。随后，任务将其事件时间时钟更新为所有分区水印的最小值。如果事件时间时钟前进，任务将处理所有触发的定时器，并最终通过向所有连接的输出分区发出相应的水印来向所有下游任务广播其新事件时间。
+- en: '[Figure 3-9](#fig_updating-event-time) shows how a task with four input partitions
+    and three output partitions receives watermarks, updates its partition watermarks
+    and event-time clock, and emits watermarks.'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-9](#fig_updating-event-time) 展示了一个具有四个输入分区和三个输出分区的任务如何接收水印，更新其分区水印和事件时间时钟，并发出水印。'
+- en: '![Updating the event time of a task with watermarks](assets/spaf_0309.png)'
+  id: totrans-96
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用水印更新任务的事件时间](assets/spaf_0309.png)'
+- en: Figure 3-9\. Updating the event time of a task with watermarks
+  id: totrans-97
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-9\. 使用水印更新任务的事件时间
+- en: The tasks of operators with two or more input streams such as `Union` or `CoFlatMap`
+    (see [“Multistream Transformations”](ch05.html#chap-5-multi-stream)) also compute
+    their event-time clock as the minimum of all partition watermarks—they do not
+    distinguish between partition watermarks of different input streams. Consequently,
+    records of both inputs are processed based on the same event-time clock. This
+    behavior can cause problems if the event times of the individual input streams
+    of an application are not aligned.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有两个或更多输入流的操作符的任务（例如 `Union` 或 `CoFlatMap`，参见[“多流转换”](ch05.html#chap-5-multi-stream)）也将其事件时间时钟计算为所有分区水印的最小值——它们不区分不同输入流的分区水印。因此，两个输入的记录基于相同的事件时间时钟进行处理。如果应用程序的各个输入流的事件时间不对齐，这种行为可能会导致问题。
+- en: Flink’s watermark-handling and propagation algorithm ensures operator tasks
+    emit properly aligned timestamped records and watermarks. However, it relies on
+    the fact that all partitions continuously provide increasing watermarks. As soon
+    as one partition does not advance its watermarks or becomes completely idle and
+    does not ship any records or watermarks, the event-time clock of a task will not
+    advance and the timers of the task will not trigger. This situation can be problematic
+    for time-based operators that rely on an advancing clock to perform computations
+    and clean up their state. Consequently, the processing latencies and state size
+    of time-based operators can significantly increase if a task does not receive
+    new watermarks from all input tasks at regular intervals.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的水印处理和传播算法确保操作任务发出正确对齐的时间戳记录和水印。但是，它依赖于所有分区持续提供递增的水印。一旦一个分区不再提升其水印或完全空闲且不发送任何记录或水印，任务的事件时间时钟将不会前进，并且任务的定时器不会触发。如果一个任务不定期地从所有输入任务接收新的水印，这种情况对于依赖于前进时钟执行计算和清理状态的基于时间的操作符可能会有问题。因此，如果任务不定期地从所有输入任务接收新的水印，时间基准操作符的处理延迟和状态大小可能会显著增加。
+- en: A similar effect appears for operators with two input streams whose watermarks
+    significantly diverge. The event-time clocks of a task with two input streams
+    will correspond to the watermarks of the slower stream and usually the records
+    or intermediate results of the faster stream are buffered in state until the event-time
+    clock allows processing them.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当两个输入流的水印显著分歧时，操作符也会出现类似的效果。具有两个输入流的任务的事件时间时钟将对应于较慢流的水印，通常情况下，较快流的记录或中间结果会在状态中缓冲，直到事件时间时钟允许处理它们。
+- en: Timestamp Assignment and Watermark Generation
+  id: totrans-101
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 时间戳分配和水印生成
+- en: 'So far we have explained what timestamps and watermarks are and how they are
+    internally handled by Flink. However, we have not yet discussed where they originate
+    from. Timestamps and watermarks are usually assigned and generated when a stream
+    is ingested by a streaming application. Because the choice of the timestamp is
+    application-specific and the watermarks depend on the timestamps and characteristics
+    of the stream, applications have to explicitly assign timestamps and generate
+    watermarks. A Flink DataStream application can assign timestamps and generate
+    watermarks to a stream in three ways:'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经解释了时间戳和水印是什么，以及它们如何在 Flink 中内部处理。然而，我们还没有讨论它们的来源。时间戳和水印通常在流被流处理应用摄取时分配和生成。由于时间戳的选择是特定于应用程序的，并且水印取决于流的时间戳和特性，因此应用程序必须显式分配时间戳并生成水印。Flink
+    DataStream 应用程序可以通过以下三种方式为流分配时间戳并生成水印：
+- en: 'At the source: Timestamps and watermarks can be assigned and generated by a
+    `SourceFunction` when a stream is ingested into an application. A source function
+    emits a stream of records. Records can be emitted together with an associated
+    timestamp, and watermarks can be emitted at any point in time as special records.
+    If a source function (temporarily) does not emit anymore watermarks, it can declare
+    itself idle. Flink will exclude stream partitions produced by idle source functions
+    from the watermark computation of subsequent operators. The idle mechanism of
+    sources can be used to address the problem of not advancing watermarks as discussed
+    earlier. Source functions are discussed in more detail in [“Implementing a Custom
+    Source Function”](ch08.html#chap-8-src-function).'
+  id: totrans-103
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '-   在源处：时间戳和水印可以由 `SourceFunction` 在流摄入到应用程序时分配和生成。源函数会发出一系列记录流。记录可以与相关的时间戳一起发出，并且水印可以作为特殊记录在任何时间点发出。如果源函数（暂时）不再发出水印，它可以声明自己处于空闲状态。Flink
+    将排除由空闲源函数产生的流分区，不参与后续操作符的水印计算。源函数的空闲机制可用于解决前面讨论过的不推进水印的问题。源函数将在[“实现自定义源函数”](ch08.html#chap-8-src-function)中详细讨论。'
+- en: 'Periodic assigner: The DataStream API provides a user-defined function called
+    `AssignerWithPeriodicWatermarks` that extracts a timestamp from each record and
+    is periodically queried for the current watermark. The extracted timestamps are
+    assigned to the respective record and the queried watermarks are ingested into
+    the stream. This function will be discussed in [“Assigning Timestamps and Generating
+    Watermarks”](ch06.html#chap-6-timestamps).'
+  id: totrans-104
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '-   周期性分配器：DataStream API 提供了一个名为 `AssignerWithPeriodicWatermarks` 的用户定义函数，它从每个记录中提取时间戳，并定期查询当前水印。提取的时间戳被分配给相应的记录，并将查询的水印摄取到流中。此功能将在[“分配时间戳和生成水印”](ch06.html#chap-6-timestamps)中讨论。'
+- en: 'Punctuated assigner: `AssignerWithPunctuatedWatermarks` is another user-defined
+    function that extracts a timestamp from each record. It can be used to generate
+    watermarks that are encoded in special input records. In contrast to the `AssignerWithPeriodicWatermarks`
+    function, this function can—but does not need to—extract a watermark from each
+    record. We discuss this function in detail in [“Assigning Timestamps and Generating
+    Watermarks”](ch06.html#chap-6-timestamps) as well.'
+  id: totrans-105
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: '-   中断分配器：`AssignerWithPunctuatedWatermarks` 是另一个用户定义的函数，它从每个记录中提取时间戳。它可用于生成编码在特殊输入记录中的水印。与
+    `AssignerWithPeriodicWatermarks` 函数相反，此函数可以从每个记录中提取水印，但不需要这样做。我们将在[“分配时间戳和生成水印”](ch06.html#chap-6-timestamps)中详细讨论此函数。'
+- en: User-defined timestamp assignment functions are usually applied as close to
+    a source operator as possible because it can be very difficult to reason about
+    the order of records and their timestamps after they have been processed by an
+    operator. This is also the reason it is not a good idea to override existing timestamps
+    and watermarks in the middle of a streaming application, although this is possible
+    with user-defined functions.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户定义的时间戳分配函数通常尽可能接近源操作符应用，因为在操作符处理记录和它们的时间戳之后，理清记录的顺序和时间戳可能非常困难。这也是在流式应用程序中中途覆盖现有时间戳和水印不是一个好主意的原因，尽管这可以通过用户定义的函数实现。
+- en: State Management
+  id: totrans-107
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 状态管理
+- en: In [Chapter 2](ch02.html#chap-2) we pointed out that most streaming applications
+    are stateful. Many operators continuously read and update some kind of state such
+    as records collected in a window, reading positions of an input source, or custom,
+    application-specific operator states like machine learning models. Flink treats
+    all states—regardless of built-in or user-defined operators—the same. In this
+    section, we discuss the different types of states Flink supports. We explain how
+    state is stored and maintained by state backends and how stateful applications
+    can be scaled by redistributing state.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第二章](ch02.html#chap-2)中，我们指出大多数流处理应用程序是有状态的。许多操作符持续读取和更新某种状态，例如在窗口中收集的记录、输入源的读取位置或自定义的应用程序特定操作符状态，如机器学习模型。Flink
+    将所有状态（无论是内置的还是用户定义的操作符）都视为相同。在本节中，我们讨论 Flink 支持的不同类型的状态。我们解释状态如何由状态后端存储和维护，以及如何通过重新分配状态来扩展具有状态的应用程序。
+- en: In general, all data maintained by a task and used to compute the results of
+    a function belong to the state of the task. You can think of state as a local
+    or instance variable that is accessed by a task’s business logic. [Figure 3-10](#fig_stateful-task)
+    shows the typical interaction between a task and its state.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般来说，由任务维护并用于计算函数结果的所有数据都属于任务的状态。您可以将状态视为任务业务逻辑访问的本地或实例变量。图 3-10（#fig_stateful-task）展示了任务与其状态之间的典型交互。
+- en: '![A stateful stream processing task](assets/spaf_0310.png)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_IMG
+  zh: '![一个有状态的流处理任务](assets/spaf_0310.png)'
+- en: Figure 3-10\. A stateful stream processing task
+  id: totrans-111
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-10\. 一个有状态的流处理任务
+- en: A task receives some input data. While processing the data, the task can read
+    and update its state and compute its result based on its input data and state.
+    A simple example is a task that continuously counts how many records it receives.
+    When the task receives a new record, it accesses the state to get the current
+    count, increments the count, updates the state, and emits the new count.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务接收一些输入数据。在处理数据时，任务可以读取和更新其状态，并根据其输入数据和状态计算其结果。一个简单的例子是一个任务，连续计算其接收的记录数。当任务接收到新的记录时，它访问状态以获取当前计数，增加计数，更新状态，并发出新的计数。
+- en: The application logic to read from and write to state is often straightforward.
+    However, efficient and reliable management of state is more challenging. This
+    includes handling of very large states, possibly exceeding memory, and ensuring
+    that no state is lost in case of failures. All issues related to state consistency,
+    failure handling, and efficient storage and access are taken care of by Flink
+    so that developers can focus on the logic of their applications.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从状态读取和写入的应用逻辑通常很简单。但是，高效和可靠地管理状态更具挑战性。这包括处理可能超过内存的非常大的状态，并确保在发生故障时不会丢失任何状态。Flink
+    处理所有与状态一致性、故障处理以及高效存储和访问相关的问题，使开发人员可以专注于其应用程序的逻辑。
+- en: In Flink, state is always associated with a specific operator. In order to make
+    Flink’s runtime aware of the state of an operator, the operator needs to register
+    its state. There are two types of state, *operator state* and *keyed state*, that
+    are accessible from different scopes and discussed in the following sections.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Flink 中，状态始终与特定的操作符相关联。为了让 Flink 运行时了解操作符的状态，操作符需要注册其状态。有两种类型的状态，*操作符状态* 和
+    *键控状态*，它们可以从不同的作用域访问，并在接下来的部分中讨论。
+- en: Operator State
+  id: totrans-115
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 操作符状态
+- en: Operator state is scoped to an operator task. This means that all records processed
+    by the same parallel task have access to the same state. Operator state cannot
+    be accessed by another task of the same or a different operator. [Figure 3-11](#fig_operator-state)
+    shows how tasks access operator state.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作符状态作用域限定在操作符任务内部。这意味着同一并行任务处理的所有记录可以访问相同的状态。操作符状态无法被同一或不同操作符的另一个任务访问。图 3-11（#fig_operator-state）展示了任务如何访问操作符状态。
+- en: '![Tasks with operator state](assets/spaf_0311.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![具有操作符状态的任务](assets/spaf_0311.png)'
+- en: Figure 3-11\. Tasks with operator state
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-11\. 具有操作符状态的任务
+- en: 'Flink offers three primitives for operator state:'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink提供三种操作符状态基元：
+- en: List state
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表状态
+- en: Represents state as a list of entries.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将状态表示为条目列表。
+- en: Union list state
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 联合列表状态
+- en: Represents state as a list of entries as well. But it differs from regular list
+    state in how it is restored in the case of a failure or when an application is
+    started from a savepoint. We discuss this difference later in this chapter.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 也将状态表示为条目列表。但它与常规列表状态不同，因为在故障发生或从保存点启动应用程序时如何恢复会有所不同。我们将在本章后面讨论这种差异。
+- en: Broadcast state
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 广播状态
+- en: Designed for the special case where the state of each task of an operator is
+    identical. This property can be leveraged during checkpoints and when rescaling
+    an operator. Both aspects are discussed in later sections of this chapter.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 设计用于操作符的每个任务的状态都相同的特殊情况。这种属性可以在检查点和重新调整操作符时利用。这两个方面将在本章后面讨论。
+- en: Keyed State
+  id: totrans-126
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 键控状态
+- en: Keyed state is maintained and accessed with respect to a key defined in the
+    records of an operator’s input stream. Flink maintains one state instance per
+    key value and partitions all records with the same key to the operator task that
+    maintains the state for this key. When a task processes a record, it automatically
+    scopes the state access to the key of the current record. Consequently, all records
+    with the same key access the same state. [Figure 3-12](#fig_keyed-state) shows
+    how tasks interact with keyed state.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 键控状态是维护并访问操作符输入流记录中定义的键的状态。Flink为每个键值维护一个状态实例，并将具有相同键的所有记录分区到维护此键状态的操作符任务。当任务处理记录时，自动将状态访问范围限定为当前记录的键。因此，具有相同键的所有记录访问相同的状态。[图 3-12](#fig_keyed-state)
+    显示任务如何与键控状态交互。
+- en: '![Tasks with keyed state](assets/spaf_0312.png)'
+  id: totrans-128
+  prefs: []
+  type: TYPE_IMG
+  zh: '![具有键控状态的任务](assets/spaf_0312.png)'
+- en: Figure 3-12\. Tasks with keyed state
+  id: totrans-129
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-12\. 具有键控状态的任务
+- en: You can think of keyed state as a key-value map that is partitioned (or sharded)
+    on the key across all parallel tasks of an operator. Flink provides different
+    primitives for keyed state that determine the type of the value stored for each
+    key in this distributed key-value map. We will briefly discuss the most common
+    keyed state primitives.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以将键控状态视为按键分区（或分片）的键值映射。Flink为键控状态提供不同的基元，这些基元确定存储在此分布式键值映射中每个键的值的类型。我们将简要讨论最常见的键控状态基元。
+- en: Value state
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 值状态
+- en: Stores a single value of arbitrary type per key. Complex data structures can
+    also be stored as value state.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个键存储任意类型的单个值。复杂数据结构也可以作为值状态存储。
+- en: List state
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 列表状态
+- en: Stores a list of values per key. The list entries can be of arbitrary type.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个键存储一个值列表。列表条目可以是任意类型。
+- en: Map state
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 映射状态
+- en: Stores a key-value map per key. The key and value of the map can be of arbitrary
+    type.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个键存储一个键值映射。映射的键和值可以是任意类型。
+- en: State primitives expose the structure of the state to Flink and enable more
+    efficient state accesses. They are discussed further in [“Declaring Keyed State
+    at RuntimeContext”](ch07.html#chap-7-using-keyed-state).
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 状态基元将状态的结构暴露给Flink，并实现更高效的状态访问。它们将在[“在RuntimeContext中声明键控状态”](ch07.html#chap-7-using-keyed-state)进一步讨论。
+- en: State Backends
+  id: totrans-138
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 状态后端
+- en: 'A task of a stateful operator typically reads and updates its state for each
+    incoming record. Because efficient state access is crucial to processing records
+    with low latency, each parallel task locally maintains its state to ensure fast
+    state accesses. How exactly the state is stored, accessed, and maintained is determined
+    by a pluggable component that is called a state backend. A state backend is responsible
+    for two things: local state management and checkpointing state to a remote location.'
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有状态的操作符任务通常为每个传入记录读取并更新其状态。由于高效的状态访问对于处理具有低延迟的记录至关重要，因此每个并行任务在本地维护其状态以确保快速状态访问。状态的存储、访问和维护方式由可插拔组件——状态后端决定。状态后端负责两件事：本地状态管理和将状态检查点保存到远程位置。
+- en: For local state management, a state backend stores all keyed states and ensures
+    that all accesses are correctly scoped to the current key. Flink provides state
+    backends that manage keyed state as objects stored in in-memory data structures
+    on the JVM heap. Another state backend serializes state objects and puts them
+    into RocksDB, which writes them to local hard disks. While the first option gives
+    very fast state access, it is limited by the size of the memory. Accessing state
+    stored by the RocksDB state backend is slower but its state may grow very large.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于本地状态管理，状态后端存储所有键控状态，并确保所有访问正确地限定在当前键上。Flink提供的状态后端将键控状态管理为存储在JVM堆上的内存数据结构中的对象。另一种状态后端将状态对象序列化并将它们放入RocksDB，然后再写入到本地硬盘。第一种选择提供非常快速的状态访问，但受内存大小的限制。通过RocksDB状态后端存储的状态访问较慢，但其状态可以变得非常大。
+- en: State checkpointing is important because Flink is a distributed system and state
+    is only locally maintained. A TaskManager process (and with it, all tasks running
+    on it) may fail at any point in time. Hence, its storage must be considered volatile.
+    A state backend takes care of checkpointing the state of a task to a remote and
+    persistent storage. The remote storage for checkpointing could be a distributed
+    filesystem or a database system. State backends differ in how state is checkpointed.
+    For instance, the RocksDB state backend supports incremental checkpoints, which
+    can significantly reduce the checkpointing overhead for very large state sizes.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 状态检查点非常重要，因为Flink是一个分布式系统，并且状态仅在本地维护。任何时候，TaskManager进程（及其上运行的所有任务）都可能失败。因此，必须考虑其存储是易失性的。状态后端负责将任务的状态检查点到远程和持久存储。用于检查点的远程存储可以是分布式文件系统或数据库系统。状态后端在检查点状态的方式上有所不同。例如，RocksDB状态后端支持增量检查点，可以显著减少非常大的状态大小的检查点开销。
+- en: We will discuss the different state backends and their advantages and disadvantages
+    in more detail in [“Choosing a State Backend”](ch07.html#chap-7-state-backend).
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将在[“选择状态后端”](ch07.html#chap-7-state-backend)中更详细地讨论不同状态后端及其优缺点。
+- en: Scaling Stateful Operators
+  id: totrans-143
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 缩放有状态操作符
+- en: A common requirement for streaming applications is to adjust the parallelism
+    of operators due to increasing or decreasing input rates. While scaling stateless
+    operators is trivial, changing the parallelism of stateful operators is much more
+    challenging because their state needs to be repartitioned and assigned to more
+    or fewer parallel tasks. Flink supports four patterns for scaling different types
+    of state.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流应用程序的一个常见需求是根据输入速率的增加或减少调整操作符的并行性。尽管缩放无状态操作符很简单，但是调整有状态操作符的并行性要困难得多，因为它们的状态需要重新分区并分配给更多或更少的并行任务。Flink支持四种缩放不同类型状态的模式。
+- en: Operators with keyed state are scaled by repartitioning keys to fewer or more
+    tasks. However, to improve the efficiency of the necessary state transfer between
+    tasks, Flink does not redistribute individual keys. Instead, Flink organizes keys
+    in so-called key groups. A key group is a partition of keys and Flink’s way of
+    assigning keys to tasks. [Figure 3-13](#fig_scale-keyed-state) shows how keyed
+    state is repartitioned in key groups.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有键控状态的操作符通过将键重新分区到更少或更多的任务来进行缩放。然而，为了提高任务之间必要状态传输的效率，Flink不会重新分布单个键。相反，Flink将键组织在所谓的键组中。键组是键的分区，也是Flink分配键到任务的方式。 [图 3-13](#fig_scale-keyed-state)显示了如何在键组中重新分区键控状态。
+- en: '![Scaling an operator with keyed state out and in](assets/spaf_0313.png)'
+  id: totrans-146
+  prefs: []
+  type: TYPE_IMG
+  zh: '![缩放具有键控状态的操作符的内部和外部](assets/spaf_0313.png)'
+- en: Figure 3-13\. Scaling an operator with keyed state out and in
+  id: totrans-147
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-13\. 缩放具有键控状态的操作符的内部和外部
+- en: Operators with operator list state are scaled by redistributing the list entries.
+    Conceptually, the list entries of all parallel operator tasks are collected and
+    evenly redistributed to a smaller or larger number of tasks. If there are fewer
+    list entries than the new parallelism of an operator, some tasks will start with
+    empty state. [Figure 3-14](#fig_scale-op-list-state) shows the redistribution
+    of operator list state.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有操作符列表状态的操作符通过重新分配列表条目来进行缩放。从概念上讲，所有并行操作符任务的列表条目被收集并均匀重新分配到更少或更多的任务中。如果列表条目少于操作符的新并行性，则某些任务将以空状态启动。 [图 3-14](#fig_scale-op-list-state)显示了操作符列表状态的重新分配。
+- en: '![Scaling an operator with operator list state out and in](assets/spaf_0314.png)'
+  id: totrans-149
+  prefs: []
+  type: TYPE_IMG
+  zh: '![缩放具有操作符列表状态的操作符的内部和外部](assets/spaf_0314.png)'
+- en: Figure 3-14\. Scaling an operator with operator list state out and in
+  id: totrans-150
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-14\. 缩放具有操作符列表状态的操作符的内部和外部
+- en: Operators with operator union list state are scaled by broadcasting the full
+    list of state entries to each task. The task can then choose which entries to
+    use and which to discard. [Figure 3-15](#fig_scale-op-union-state) shows how operator
+    union list state is redistributed.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用运算符联合列表状态的操作员通过向每个任务广播完整的状态条目列表来扩展。然后任务可以选择使用哪些条目并丢弃哪些条目。图 [3-15](#fig_scale-op-union-state)
+    显示了运算符联合列表状态的重新分配过程。
+- en: '![Scaling an operator with operator union list state out and in](assets/spaf_0315.png)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用运算符联合列表状态扩展运算符](assets/spaf_0315.png)'
+- en: Figure 3-15\. Scaling an operator with operator union list state out and in
+  id: totrans-153
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-15\. 使用运算符联合列表状态扩展运算符
+- en: Operators with operator broadcast state are scaled up by copying the state to
+    new tasks. This works because broadcasting state ensures that all tasks have the
+    same state. In the case of downscaling, the surplus tasks are simply canceled
+    since state is already replicated and will not be lost. [Figure 3-16](#fig_scale-op-broadcast-state)
+    shows the redistribution of operator broadcast state.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用运算符广播状态的操作员通过将状态复制到新任务来进行扩展。这有效的原因是广播状态可以确保所有任务具有相同的状态。在缩减规模时，多余的任务简单地被取消，因为状态已经被复制，不会丢失。图 [3-16](#fig_scale-op-broadcast-state)
+    显示了运算符广播状态的重新分配过程。
+- en: '![Scaling an operator with operator broadcast state out and in](assets/spaf_0316.png)'
+  id: totrans-155
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用运算符广播状态扩展运算符](assets/spaf_0316.png)'
+- en: Figure 3-16\. Scaling an operator with operator broadcast state out and in
+  id: totrans-156
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-16\. 使用运算符广播状态扩展运算符
+- en: Checkpoints, Savepoints, and State Recovery
+  id: totrans-157
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Checkpoints, Savepoints, and State Recovery
+- en: Flink is a distributed data processing system, and as such, has to deal with
+    failures such as killed processes, failing machines, and interrupted network connections.
+    Since tasks maintain their state locally, Flink has to ensure that this state
+    is not lost and remains consistent in case of a failure.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink是一个分布式数据处理系统，因此必须处理如进程被杀死、机器故障和网络连接中断等故障。由于任务在本地维护其状态，Flink必须确保在故障发生时不会丢失状态，并保持一致性。
+- en: In this section, we present Flink’s checkpointing and recovery mechanism to
+    guarantee exactly-once state consistency. We also discuss Flink’s unique savepoint
+    feature, a “Swiss Army knife”-like tool that addresses many challenges of operating
+    streaming applications.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们介绍了Flink的检查点和恢复机制，以保证状态一致性。我们还讨论了Flink独特的保存点特性，这是一种类似于“瑞士军刀”的工具，用于解决流处理应用的许多挑战。
+- en: Consistent Checkpoints
+  id: totrans-160
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 一致性检查点
+- en: 'Flink’s recovery mechanism is based on consistent checkpoints of application
+    state. A consistent checkpoint of a stateful streaming application is a copy of
+    the state of each of its tasks at a point when all tasks have processed exactly
+    the same input. This can be explained by looking at the steps of a naive algorithm
+    that takes a consistent checkpoint of an application. The steps of this naive
+    algorithm would be:'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink的恢复机制基于应用状态的一致检查点。一个有状态的流处理应用的一致检查点是在所有任务处理完全相同输入时复制每个任务状态的副本。这可以通过查看采用一致检查点应用的简单算法的步骤来解释。这个简单算法的步骤包括：
+- en: Pause the ingestion of all input streams.
+  id: totrans-162
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 暂停所有输入流的摄入。
+- en: Wait for all in-flight data to be completely processed, meaning all tasks have
+    processed all their input data.
+  id: totrans-163
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 等待所有正在传输的数据被完全处理，即所有任务都已处理完其所有输入数据。
+- en: Take a checkpoint by copying the state of each task to a remote, persistent
+    storage. The checkpoint is complete when all tasks have finished their copies.
+  id: totrans-164
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过将每个任务的状态复制到远程持久存储来进行检查点。当所有任务完成其副本时，检查点才算完成。
+- en: Resume the ingestion of all streams.
+  id: totrans-165
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 恢复所有流的摄入。
+- en: Note that Flink does not implement this naive mechanism. We will present Flink’s
+    more sophisticated checkpointing algorithm later in this section.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，Flink不实现这种简单的机制。我们将在本节后面介绍Flink更复杂的检查点算法。
+- en: '[Figure 3-17](#fig_checkpoint) shows a consistent checkpoint of a simple application.'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图 [3-17](#fig_checkpoint) 显示了一个简单应用的一致检查点。
+- en: '![A consistent checkpoint of a streaming application](assets/spaf_0317.png)'
+  id: totrans-168
+  prefs: []
+  type: TYPE_IMG
+  zh: '![流应用的一致检查点](assets/spaf_0317.png)'
+- en: Figure 3-17\. A consistent checkpoint of a streaming application
+  id: totrans-169
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-17\. 流应用的一致检查点
+- en: The application has a single source task that consumes a stream of increasing
+    numbers—1, 2, 3, and so on. The stream of numbers is partitioned into a stream
+    of even and odd numbers. Two tasks of a sum operator compute the running sums
+    of all even and odd numbers. The source task stores the current offset of its
+    input stream as state. The sum tasks persist the current sum value as state. In
+    [Figure 3-17](#fig_checkpoint), Flink took a checkpoint when the input offset
+    was 5, and the sums were 6 and 9.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序有一个单源任务，消费递增数字流——1、2、3等。数字流被分成偶数和奇数流。两个求和运算符任务计算所有偶数和奇数的累积和。源任务存储其输入流的当前偏移量作为状态。求和任务将当前和值作为状态持久化。在[图 3-17](#fig_checkpoint)中，当输入偏移量为
+    5 时，Flink 进行了检查点，并且和分别为 6 和 9。
+- en: Recovery from a Consistent Checkpoint
+  id: totrans-171
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从一致检查点恢复
+- en: During the execution of a streaming application, Flink periodically takes consistent
+    checkpoints of the application’s state. In case of a failure, Flink uses the latest
+    checkpoint to consistently restore the application’s state and restarts the processing. [Figure 3-18](#fig_checkpoint-recovery)
+    shows the recovery process.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在流式应用程序执行期间，Flink 定期获取应用程序状态的一致检查点。在发生故障时，Flink 使用最新的检查点来恢复应用程序状态并重新启动处理。[图 3-18](#fig_checkpoint-recovery)
+    展示了恢复过程。
+- en: '![Recovering an application from a checkpoint](assets/spaf_0318.png)'
+  id: totrans-173
+  prefs: []
+  type: TYPE_IMG
+  zh: '![从检查点恢复应用程序](assets/spaf_0318.png)'
+- en: Figure 3-18\. Recovering an application from a checkpoint
+  id: totrans-174
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-18\. 从检查点恢复应用程序
+- en: 'An application is recovered in three steps:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序恢复分为三个步骤：
+- en: Restart the whole application.
+  id: totrans-176
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 重新启动整个应用程序。
+- en: Reset the states of all stateful tasks to the latest checkpoint.
+  id: totrans-177
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将所有有状态任务的状态重置为最新的检查点。
+- en: Resume the processing of all tasks.
+  id: totrans-178
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 恢复所有任务的处理。
+- en: This checkpointing and recovery mechanism can provide exactly-once consistency
+    for application state, given that all operators checkpoint and restore all of
+    their states and that all input streams are reset to the position up to which
+    they were consumed when the checkpoint was taken. Whether a data source can reset
+    its input stream depends on its implementation and the external system or interface
+    from which the stream is consumed. For instance, event logs like Apache Kafka
+    can provide records from a previous offset of the stream. In contrast, a stream
+    consumed from a socket cannot be reset because sockets discard data once it has
+    been consumed. Consequently, an application can only be operated under exactly-once
+    state consistency if all input streams are consumed by resettable data sources.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此检查点和恢复机制可以为应用程序状态提供精确一次一致性，前提是所有运算符都能检查点和恢复其所有状态，并且所有输入流都被重置到在进行检查点时消费的位置。数据源能否重置其输入流取决于其实现以及从中获取流的外部系统或接口。例如，像
+    Apache Kafka 这样的事件日志可以提供从流的先前偏移量读取的记录。相反，从套接字消费的流无法重置，因为套接字一旦消费数据就会丢弃它。因此，只有当所有输入流都由可重置数据源消费时，应用程序才能在精确一次状态一致性下运行。
+- en: After an application is restarted from a checkpoint, its internal state is exactly
+    the same as when the checkpoint was taken. It then starts to consume and process
+    all data that was processed between the checkpoint and the failure. Although this
+    means Flink processes some messages twice (before and after the failure), the
+    mechanism still achieves *exactly-once state consistency* because the state of
+    all operators was reset to a point that had not seen this data yet.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在从检查点重新启动应用程序后，其内部状态与检查点创建时完全相同。然后开始处理检查点和故障之间处理的所有数据。尽管这意味着 Flink 处理一些消息两次（故障前后各一次），但机制仍然实现了*精确一次状态一致性*，因为所有运算符的状态都被重置到尚未看到这些数据的点。
+- en: We have to point out that Flink’s checkpointing and recovery mechanism only
+    resets the *internal state* of a streaming application. Depending on the sink
+    operators of an application, some result records might be emitted multiple times
+    to downstream systems, such as an event log, a filesystem, or a database, during
+    the recovery. For some storage systems, Flink provides sink functions that feature
+    exactly-once output, for example, by committing emitted records on checkpoint
+    completion. Another approach that works for many storage systems is idempotent
+    updates. The challenges of end-to-end exactly-once applications and approaches
+    to address them are discussed in detail in [“Application Consistency Guarantees”](ch08.html#chap-8-guarantees).
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的检查点和恢复机制仅重置流式应用程序的*内部状态*。根据应用程序的汇聚操作符，一些结果记录在恢复期间可能会被多次发送到下游系统，如事件日志、文件系统或数据库。对于某些存储系统，Flink
+    提供了具备精准一次性输出的汇聚函数，例如在检查点完成时提交已发送的记录。另一种适用于许多存储系统的方法是幂等更新。有关端到端精准一次性应用程序及其解决方法的挑战，详细讨论见[《应用程序一致性保证》](ch08.html#chap-8-guarantees)。
+- en: Flink’s Checkpointing Algorithm
+  id: totrans-182
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Flink 的检查点算法
+- en: Flink’s recovery mechanism is based on consistent application checkpoints. The
+    naive approach to taking a checkpoint from a streaming application—to pause, checkpoint,
+    and resume the application—is not practical for applications that have even moderate
+    latency requirements due to its “stop-the-world” behavior. Instead, Flink implements
+    checkpointing based on the Chandy–Lamport algorithm for distributed snapshots.
+    The algorithm does not pause the complete application but decouples checkpointing
+    from processing, so that some tasks continue processing while others persist their
+    state. In the following, we explain how this algorithm works.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的恢复机制基于一致的应用程序检查点。对于流式应用程序进行简单的检查点（暂停、检查点、恢复）的天真方法对于具有中等延迟要求的应用程序并不实用，因为其“停止世界”的行为。因此，Flink
+    实现了基于 Chandy-Lamport 算法的检查点，用于分布式快照。该算法不会暂停整个应用程序，而是将检查点与处理分离，以便一些任务继续处理，而其他任务持久化其状态。接下来，我们将详细解释该算法的工作原理。
+- en: Flink’s checkpointing algorithm uses a special type of record called a *checkpoint
+    barrier*. Similar to watermarks, checkpoint barriers are injected by source operators
+    into the regular stream of records and cannot overtake or be passed by other records.
+    A checkpoint barrier carries a checkpoint ID to identify the checkpoint it belongs
+    to and logically splits a stream into two parts. All state modifications due to
+    records that precede a barrier are included in the barrier’s checkpoint and all
+    modifications due to records that follow the barrier are included in a later checkpoint.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的检查点算法使用一种称为*检查点障碍*的特殊记录类型。类似于水印，检查点障碍由源操作符注入到常规记录流中，并且不能被其他记录超越或超越。检查点障碍携带检查点
+    ID，用于标识其所属的检查点，并逻辑上将流分为两部分。所有由障碍之前的记录导致的状态修改均包括在障碍的检查点中，所有由障碍之后的记录导致的状态修改均包括在稍后的检查点中。
+- en: We use an example of a simple streaming application to explain the algorithm
+    step by step. The application consists of two source tasks that each consume a
+    stream of increasing numbers. The output of the source tasks is partitioned into
+    streams of even and odd numbers. Each partition is processed by a task that computes
+    the sum of all received numbers and forwards the updated sum to a sink. The application
+    is depicted in [Figure 3-19](#fig_checkpointing-1).
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用一个简单流式应用程序的示例来逐步解释该算法。该应用程序包括两个源任务，每个任务消费一个递增数字流。源任务的输出被分区为偶数和奇数数字流。每个分区由一个任务处理，计算接收到的所有数字的总和，并将更新的总和转发到一个汇聚。应用程序如图[Figure 3-19](#fig_checkpointing-1)所示。
+- en: '![Streaming application with two stateful sources, two stateful tasks, and
+    two stateless sinks](assets/spaf_0319.png)'
+  id: totrans-186
+  prefs: []
+  type: TYPE_IMG
+  zh: '![带有两个有状态源、两个有状态任务和两个无状态汇聚的流式应用程序](assets/spaf_0319.png)'
+- en: Figure 3-19\. Streaming application with two stateful sources, two stateful
+    tasks, and two stateless sinks
+  id: totrans-187
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-19\. 带有两个有状态源、两个有状态任务和两个无状态汇聚的流式应用程序
+- en: A checkpoint is initiated by the JobManager by sending a message with a new
+    checkpoint ID to each data source task as shown in [Figure 3-20](#fig_checkpointing-2).
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将新的检查点 ID 的消息发送给每个数据源任务，作业管理器启动检查点，如图[Figure 3-20](#fig_checkpointing-2)所示。
+- en: '![JobManager initiates a checkpoint by sending a message to all sources](assets/spaf_0320.png)'
+  id: totrans-189
+  prefs: []
+  type: TYPE_IMG
+  zh: '![作业管理器通过发送消息到所有源启动检查点](assets/spaf_0320.png)'
+- en: Figure 3-20\. JobManager initiates a checkpoint by sending a message to all
+    sources
+  id: totrans-190
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-20\. JobManager 通过向所有源发送消息启动检查点。
+- en: When a data source task receives the message, it pauses emitting records, triggers
+    a checkpoint of its local state at the state backend, and broadcasts checkpoint
+    barriers with the checkpoint ID via all outgoing stream partitions. The state
+    backend notifies the task once its state checkpoint is complete and the task acknowledges
+    the checkpoint at the JobManager. After all barriers are sent out, the source
+    continues its regular operations. By injecting the barrier into its output stream,
+    the source function defines the stream position on which the checkpoint is taken. [Figure 3-21](#fig_checkpointing-3)
+    shows the streaming application after both source tasks checkpointed their local
+    state and emitted checkpoint barriers.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当数据源任务接收到消息时，它会暂停发出记录，触发本地状态在状态后端的检查点，并通过所有输出流分区广播带有检查点 ID 的检查点障碍。状态后端在完成任务状态检查点并且任务在
+    JobManager 上确认检查点后通知任务。在所有障碍都发送完毕后，数据源继续其常规操作。通过将障碍注入其输出流，数据源函数定义了检查点的流位置。[图 3-21](#fig_checkpointing-3)
+    显示了在两个源任务检查点其本地状态并发出检查点障碍后的流处理应用程序。
+- en: '![Sources checkpoint their state and emit a checkpoint barrier](assets/spaf_0321.png)'
+  id: totrans-192
+  prefs: []
+  type: TYPE_IMG
+  zh: '![源任务检查点其状态并发出检查点障碍](assets/spaf_0321.png)'
+- en: Figure 3-21\. Sources checkpoint their state and emit a checkpoint barrier
+  id: totrans-193
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-21\. 源任务检查点其状态并发出检查点障碍。
+- en: The checkpoint barriers emitted by the source tasks are shipped to the connected
+    tasks. Similar to watermarks, checkpoint barriers are broadcasted to all connected
+    parallel tasks to ensure that each task receives a barrier from each of its input
+    streams. When a task receives a barrier for a new checkpoint, it waits for the
+    arrival of barriers from all its input partitions for the checkpoint. While it
+    is waiting, it continues processing records from stream partitions that did not
+    provide a barrier yet. Records that arrive on partitions that forwarded a barrier
+    already cannot be processed and are buffered. The process of waiting for all barriers
+    to arrive is called *barrier alignment*, and it is depicted in [Figure 3-22](#fig_checkpointing-4).
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 源任务发出的检查点障碍被发送到连接的任务。与水印类似，检查点障碍被广播到所有连接的并行任务，以确保每个任务从其每个输入流接收到障碍。当任务接收到新检查点的障碍时，它会等待该检查点的所有输入分区的障碍到达。在等待期间，它会继续处理尚未提供障碍的流分区上的记录。已经转发了障碍的分区上到达的记录无法被处理，会被缓冲。等待所有障碍到达的过程称为*障碍对齐*，在[图 3-22](#fig_checkpointing-4)
+    中有所描述。
+- en: '![Tasks wait to receive a barrier on each input partition; records from input
+    streams for which a barrier already arrived are buffered; all other records are
+    regularly processed](assets/spaf_0322.png)'
+  id: totrans-195
+  prefs: []
+  type: TYPE_IMG
+  zh: '![任务在每个输入分区等待障碍的到来；对于已经到达障碍的输入流记录进行缓冲；所有其他记录按照正常方式处理](assets/spaf_0322.png)'
+- en: Figure 3-22\. Tasks wait to receive a barrier on each input partition; records
+    from input streams for which a barrier already arrived are buffered; all other
+    records are regularly processed
+  id: totrans-196
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-22\. 任务在每个输入分区等待障碍的到来；对于已经到达障碍的输入流记录进行缓冲；所有其他记录按照正常方式处理。
+- en: As soon as a task has received barriers from all its input partitions, it initiates
+    a checkpoint at the state backend and broadcasts the checkpoint barrier to all
+    of its downstream connected tasks as shown in [Figure 3-23](#fig_checkpointing-5).
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦任务从其所有输入分区接收到障碍，它会在状态后端发起检查点并向其所有下游连接任务广播检查点障碍，如[图 3-23](#fig_checkpointing-5)
+    所示。
+- en: '![Tasks checkpoint their state once all barriers have been received, then they
+    forward the checkpoint barrier](assets/spaf_0323.png)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_IMG
+  zh: '![任务在接收到所有障碍后检查它们的状态，然后将检查点障碍转发](assets/spaf_0323.png)'
+- en: Figure 3-23\. Tasks checkpoint their state once all barriers have been received,
+    then they forward the checkpoint barrier
+  id: totrans-199
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-23\. 任务在接收到所有障碍后检查它们的状态，然后将检查点障碍转发。
+- en: Once all checkpoint barriers have been emitted, the task starts to process the
+    buffered records. After all buffered records have been emitted, the task continues
+    processing its input streams. [Figure 3-24](#fig_checkpointing-6) shows the application
+    at this point.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦所有检查点障碍被发出，任务开始处理缓冲记录。在所有缓冲记录被发出后，任务继续处理其输入流。[图 3-24](#fig_checkpointing-6)
+    在此时显示了应用程序的状态。
+- en: '![Tasks continue regular processing after the checkpoint barrier is forwarded](assets/spaf_0324.png)'
+  id: totrans-201
+  prefs: []
+  type: TYPE_IMG
+  zh: '![任务在转发检查点障碍后继续正常处理](assets/spaf_0324.png)'
+- en: Figure 3-24\. Tasks continue regular processing after the checkpoint barrier
+    is forwarded
+  id: totrans-202
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-24\. 在转发检查点障碍后，任务继续常规处理
+- en: Eventually, the checkpoint barriers arrive at a sink task. When a sink task
+    receives a barrier, it performs a barrier alignment, checkpoints its own state,
+    and acknowledges the reception of the barrier to the JobManager. The JobManager
+    records the checkpoint of an application as completed once it has received a checkpoint
+    acknowledgement from all tasks of the application. [Figure 3-25](#fig_checkpointing-7)
+    shows the final step of the checkpointing algorithm. The completed checkpoint
+    can be used to recover the application from a failure as described before.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，检查点障碍到达汇聚器任务。当汇聚器任务接收到障碍时，它执行障碍对齐，检查其自身状态，并向作业管理器确认接收障碍。作业管理器一旦从应用程序的所有任务收到检查点确认，就会记录应用程序的检查点为已完成。[图 3-25](#fig_checkpointing-7)
+    显示了检查点算法的最后步骤。完成的检查点可用于根据之前描述的方式从故障中恢复应用程序。
+- en: '![Sinks acknowledge the reception of a checkpoint barrier to the JobManager
+    and a checkpoint is complete when all tasks have acknowledged the successful checkpointing
+    of their state](assets/spaf_0325.png)'
+  id: totrans-204
+  prefs: []
+  type: TYPE_IMG
+  zh: '![汇聚器向作业管理器确认接收检查点障碍，并且当所有任务确认其状态成功检查点化](assets/spaf_0325.png)'
+- en: Figure 3-25\. Sinks acknowledge the reception of a checkpoint barrier to the
+    JobManager and a checkpoint is complete when all tasks have acknowledged the successful
+    checkpointing of their state
+  id: totrans-205
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-25\. 汇聚器向作业管理器确认接收检查点障碍，并且当所有任务确认其状态成功检查点化时，检查点完成。
+- en: Performace Implications of Checkpointing
+  id: totrans-206
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 检查点的性能影响
+- en: Flink’s checkpointing algorithm produces consistent distributed checkpoints
+    from streaming applications without stopping the whole application. However, it
+    can increase the processing latency of an application. Flink implements tweaks
+    that can alleviate the performance impact under certain conditions.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的检查点算法从流应用程序中生成一致的分布式检查点，而无需停止整个应用程序。然而，它可能会增加应用程序的处理延迟。在某些条件下，Flink 实现了一些调整来减轻性能影响。
+- en: While a task checkpoints its state, it is blocked and its input is buffered.
+    Since state can become quite large and checkpointing requires writing the data
+    over the network to a remote storage system, taking a checkpoint can easily take
+    several seconds to minutes—much too long for latency-sensitive applications. In
+    Flink’s design it is the responsibility of the state backend to perform a checkpoint.
+    How exactly the state of a task is copied depends on the implementation of the
+    state backend. For example, the FileSystem state backend and the RocksDB state
+    backend support *asynchronous* checkpoints. When a checkpoint is triggered, the
+    state backend creates a local copy of the state. When the local copy is finished,
+    the task continues its regular processing. A background thread asynchronously
+    copies the local snapshot to the remote storage and notifies the task once it
+    completes the checkpoint. Asynchronous checkpointing significantly reduces the
+    time until a task continues to process data. In addition, the RocksDB state backend
+    also features *incremental* checkpointing, which reduces the amount of data to
+    transfer.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当任务检查其状态时，它会被阻塞，并且其输入会被缓冲。由于状态可能会变得相当大，并且检查点需要通过网络将数据写入远程存储系统，因此检查点可能需要几秒到几分钟的时间——这对于延迟敏感的应用程序来说太长了。在
+    Flink 的设计中，状态后端负责执行检查点。任务的状态如何复制取决于状态后端的实现方式。例如，FileSystem 状态后端和 RocksDB 状态后端支持*异步*检查点。当触发检查点时，状态后端创建状态的本地副本。完成本地副本后，任务继续其常规处理。后台线程异步将本地快照复制到远程存储，并在完成检查点后通知任务。异步检查点显著减少了任务继续处理数据的时间。此外，RocksDB
+    状态后端还支持*增量*检查点，从而减少了需要传输的数据量。
+- en: Another technique to reduce the checkpointing algorithm’s impact on the processing
+    latency is to tweak the barrier alignment step. For applications that require
+    very low latency and can tolerate at-least-once state guarantees, Flink can be
+    configured to process all arriving records during buffer alignment instead of
+    buffering those for which the barrier has already arrived. Once all barriers for
+    a checkpoint have arrived, the operator checkpoints the state, which might now
+    also include modifications caused by records that would usually belong to the
+    next checkpoint. In case of a failure, these records will be processed again,
+    which means the checkpoint provides at-least-once instead of exactly-once consistency
+    guarantees.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少处理延迟对检查点算法影响的另一种技术是调整屏障对齐步骤。对于需要非常低延迟且能够容忍至少一次状态保证的应用程序，可以配置Flink在缓冲对齐期间处理所有到达的记录，而不是缓冲那些屏障已经到达的记录。一旦检查点的所有屏障都到达，操作员将检查点的状态，这可能还包括由通常属于下一个检查点的记录引起的修改。在故障的情况下，这些记录将被再次处理，这意味着检查点提供至少一次而不是精确一次的一致性保证。
+- en: Savepoints
+  id: totrans-210
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Savepoints
+- en: Flink’s recovery algorithm is based on state checkpoints. Checkpoints are periodically
+    taken and automatically discarded according to a configurable policy. Since the
+    purpose of checkpoints is to ensure an application can be restarted in case of
+    a failure, they are deleted when an application is explicitly canceled.^([4](ch03.html#idm45499020458840))
+    However, consistent snapshots of the state of an application can be used for many
+    more things than just failure recovery.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink的恢复算法基于状态检查点。定期采取检查点并根据可配置的策略自动丢弃检查点。由于检查点的目的是确保在发生故障时可以重新启动应用程序，因此当应用程序明确取消时，它们将被删除。^([4](ch03.html#idm45499020458840))
+    然而，应用程序状态的一致快照可以用于更多目的，而不仅仅是故障恢复。
+- en: One of Flink’s most valued and unique features are savepoints. In principle,
+    savepoints are created using the same algorithm as checkpoints and hence are basically
+    checkpoints with some additional metadata. Flink does not automatically take a
+    savepoint, so a user (or external scheduler) has to explicitly trigger its creation.
+    Flink also does not automatically clean up savepoints. [Chapter 10](ch10.html#chap-10)
+    describes how to trigger and dispose savepoints.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink最有价值和独特的功能之一是保存点。原则上，保存点使用与检查点相同的算法创建，因此基本上是带有一些额外元数据的检查点。Flink不会自动创建保存点，因此用户（或外部调度程序）必须显式触发其创建。Flink也不会自动清理保存点。[第10章](ch10.html#chap-10)描述了如何触发和处理保存点。
+- en: Using savepoints
+  id: totrans-213
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用保存点
+- en: Given an application and a compatible savepoint, you can start the application
+    from the savepoint. This will initialize the state of the application to the state
+    of the savepoint and run the application from the point at which the savepoint
+    was taken. While this behavior seems to be exactly the same as recovering an application
+    from a failure using a checkpoint, failure recovery is actually just a special
+    case. It starts the same application with the same configuration on the same cluster.
+    Starting an application from a savepoint allows you to do much more.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定一个应用程序和兼容的保存点，您可以从保存点开始应用程序。这将初始化应用程序的状态到保存点的状态，并从保存点采取的点运行应用程序。虽然这种行为看起来与使用检查点从故障中恢复应用程序完全相同，但故障恢复实际上只是一种特殊情况。它在相同的集群上以相同的配置启动相同的应用程序。从保存点启动应用程序可以让您做更多事情。
+- en: You can start a *different but compatible* application from a savepoint. Hence,
+    you can fix bugs in your application logic and reprocess as many events as your
+    streaming source can provide in order to repair your results. Modified applications
+    can also be used to run A/B tests or what-if scenarios with different business
+    logic. Note that the application and the savepoint must be compatible—the application
+    must be able to load the state of the savepoint.
+  id: totrans-215
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以从保存点开始一个*不同但兼容*的应用程序。因此，您可以修复应用程序逻辑中的错误，并重新处理您的流源能够提供的尽可能多的事件，以修复您的结果。修改后的应用程序还可以用于运行具有不同业务逻辑的A/B测试或假设情景。请注意，应用程序和保存点必须兼容——应用程序必须能够加载保存点的状态。
+- en: You can start the same application with a *different parallelism* and scale
+    the application out or in.
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以以*不同的并行性*启动相同的应用程序，并扩展或缩减应用程序。
+- en: You can start the same application on a *different cluster*. This allows you
+    to migrate an application to a newer Flink version or to a different cluster or
+    data-center.
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以在*不同的集群*上启动相同的应用程序。这使您可以将应用程序迁移到更新的Flink版本或不同的集群或数据中心。
+- en: You can use a savepoint to *pause* an application and *resume* it later. This
+    gives the possibility to release cluster resources for higher-priority applications
+    or when input data is not continuously produced.
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以使用保存点*暂停*应用程序，稍后*恢复*它。这使得可以释放集群资源以供更高优先级的应用程序使用，或者当输入数据不连续生成时。
+- en: You can also just take a savepoint to *version* and *archive* the state of an
+    application.
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您还可以仅仅获取保存点以*版本化*和*归档*应用程序的状态。
+- en: Since savepoints are such a powerful feature, many users periodically create
+    savepoints to be able to go back in time. One of the most interesting applications
+    of savepoints we have seen in the wild is continuously migrating a streaming application
+    to the datacenter that provides the lowest instance prices.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于保存点是如此强大的功能，许多用户定期创建保存点以便能够回溯。我们在实际中看到的最有趣的保存点应用之一是持续将流式应用迁移到提供最低实例价格的数据中心。
+- en: Starting an application from a savepoint
+  id: totrans-221
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从保存点启动应用程序
+- en: All of the previously mentioned use cases for savepoints follow the same pattern.
+    First, a savepoint of a running application is taken and then it is used to restore
+    the state in a starting application. In this section, we describe how Flink initializes
+    the state of an application started from a savepoint.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有之前提到的保存点用例都遵循相同的模式。首先，需要获取运行中应用程序的保存点，然后使用它来恢复起始应用程序的状态。在本节中，我们描述了 Flink 如何初始化从保存点启动的应用程序的状态。
+- en: An application consists of multiple operators. Each operator can define one
+    or more keyed and operator states. Operators are executed in parallel by one or
+    more operator tasks. Hence, a typical application consists of multiple states
+    that are distributed across multiple operator tasks that can run on different
+    TaskManager processes.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个应用程序由多个操作符组成。每个操作符可以定义一个或多个键控和操作符状态。操作符通过一个或多个操作符任务并行执行。因此，典型的应用程序由分布在多个操作符任务上的多个状态组成，这些任务可以运行在不同的
+    TaskManager 进程上。
+- en: '[Figure 3-26](#fig_savepoint) shows an application with three operators, each
+    running with two tasks. One operator (OP-1) has a single operator state (OS-1)
+    and another operator (OP-2) has two keyed states (KS-1 and KS-2). When a savepoint
+    is taken, the states of all tasks are copied to a persistent storage location.'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 3-26](#fig_savepoint) 显示了一个具有三个操作符的应用程序，每个操作符都有两个任务在运行。一个操作符（OP-1）有一个操作符状态（OS-1），另一个操作符（OP-2）有两个键控状态（KS-1
+    和 KS-2）。当获取保存点时，所有任务的状态都被复制到持久存储位置。'
+- en: '![Taking a savepoint from an application and restoring an application from
+    a savepoint](assets/spaf_0326.png)'
+  id: totrans-225
+  prefs: []
+  type: TYPE_IMG
+  zh: '![从应用程序获取保存点并从保存点恢复应用程序](assets/spaf_0326.png)'
+- en: Figure 3-26\. Taking a savepoint from an application and restoring an application
+    from a savepoint
+  id: totrans-226
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 3-26\. 从应用程序获取保存点并从保存点恢复应用程序
+- en: The state copies in the savepoint are organized by an operator identifier and
+    a state name. The operator identifier and state name are required to be able to
+    map the state data of a savepoint to the states of the operators of a starting
+    application. When an application is started from a savepoint, Flink redistributes
+    the savepoint data to the tasks of the corresponding operators.
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存点中的状态副本按操作符标识符和状态名称进行组织。操作符标识符和状态名称是必需的，以便能够将保存点的状态数据映射到启动应用程序的操作符状态。当从保存点启动应用程序时，Flink
+    将保存点数据重新分发到相应操作符的任务中。
+- en: Note
+  id: totrans-228
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that the savepoint does not contain information about operator tasks. That
+    is because the number of tasks might change when an application is started with
+    different parallelism. We discussed Flink’s strategies to scale stateful operators
+    earlier in this section.
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，保存点不包含操作符任务的信息。这是因为当使用不同并行度启动应用程序时，任务数量可能会发生变化。我们在本节早些时候讨论了 Flink 缩放有状态操作符的策略。
+- en: If a modified application is started from a savepoint, a state in the savepoint
+    can only be mapped to the application if it contains an operator with a corresponding
+    identifier and state name. By default, Flink assigns unique operator identifiers.
+    However, the identifier of an operator is deterministically generated based on
+    the identifiers of its preceding operators. Hence, the identifier of an operator
+    changes when one of its predecessors changes, for example, when an operator is
+    added or removed. As a consequence, an application with default operator identifiers
+    is very limited in how it can be evolved without losing state. Therefore, we strongly
+    recommend manually assigning unique identifiers to operators and not relying on
+    Flink’s default assignment. We describe how to assign operator identifiers in
+    detail in [“Specifying Unique Operator Identifiers”](ch07.html#chap-7-uid).
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果从保存点启动修改后的应用程序，则只有保存点中包含具有相应标识符和状态名称的运算符时，才能将其映射到应用程序。默认情况下，Flink 分配唯一的运算符标识符。然而，运算符的标识符是根据其前驱运算符的标识符确定性地生成的。因此，当其前驱运算符之一更改时（例如添加或删除运算符），运算符的标识符也会更改。因此，默认运算符标识符的应用程序在不丢失状态的情况下如何演变非常有限。因此，我们强烈建议手动为运算符分配唯一标识符，而不依赖于
+    Flink 的默认分配。我们在 [“指定唯一运算符标识符”](ch07.html#chap-7-uid) 中详细描述了如何分配运算符标识符。
+- en: Summary
+  id: totrans-231
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概要
+- en: In this chapter we discussed Flink’s high-level architecture and the internals
+    of its networking stack, event-time processing mode, state management, and failure
+    recovery mechanism. This information will come in handy when designing advanced
+    streaming applications, setting up and configuring clusters, and operating streaming
+    applications as well as reasoning about their performance.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们讨论了 Flink 的高级架构及其网络堆栈、事件时间处理模式、状态管理和故障恢复机制的内部工作原理。在设计高级流处理应用程序、设置和配置集群、操作流处理应用程序以及评估其性能时，这些信息将非常有用。
+- en: ^([1](ch03.html#idm45499020919416-marker)) Restart strategies are discussed
+    in more detail in [Chapter 10](ch10.html#chap-10).
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch03.html#idm45499020919416-marker)) 重新启动策略在 [第10章](ch10.html#chap-10)
+    中有更详细的讨论。
+- en: ^([2](ch03.html#idm45499020889352-marker)) Batch applications can—in addition
+    to pipelined communication—exchange data by collecting outgoing data at the sender.
+    Once the sender task completes, the data is sent as a batch over a temporary TCP
+    connection to the receiver.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch03.html#idm45499020889352-marker)) 除了流水线通信外，批处理应用程序还可以通过在发送方收集传出数据来交换数据。一旦发送方任务完成，数据将通过临时TCP连接作为批次发送到接收方。
+- en: ^([3](ch03.html#idm45499020693912-marker)) Process functions are discussed in
+    more detail in [Chapter 6](ch06.html#chap-6).
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch03.html#idm45499020693912-marker)) 进程函数在 [第6章](ch06.html#chap-6) 中有更详细的讨论。
+- en: ^([4](ch03.html#idm45499020458840-marker)) It is also possible to configure
+    an application to retain its last checkpoint when it is canceled.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch03.html#idm45499020458840-marker)) 也可以在取消应用程序时配置其保留最后一个检查点。

@@ -1,0 +1,2479 @@
+- en: Chapter 8\. Reading from and Writing to External Systems
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第8章 从外部系统读取和写入
+- en: Data can be stored in many different systems, such as filesystems, object stores,
+    relational database systems, key-value stores, search indexes, event logs, message
+    queues, and so on. Each class of systems has been designed for specific access
+    patterns and excels at serving a certain purpose. Consequently, today’s data infrastructures
+    often consist of many different storage systems. Before adding a new component
+    into the mix, a logical question to ask should be, “How well does it work with
+    the other components in my stack?”
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据可以存储在许多不同的系统中，如文件系统、对象存储、关系数据库系统、键值存储、搜索索引、事件日志、消息队列等等。每一类系统都被设计用于特定的访问模式，并擅长于服务特定的目的。因此，今天的数据基础设施通常由许多不同的存储系统组成。在将新组件添加到组合中之前，一个合乎逻辑的问题应该是：“它与我的堆栈中的其他组件如何协同工作？”
+- en: Adding a data processing system, such as Apache Flink, requires careful considerations
+    because it does not include its own storage layer but relies on external storage
+    systems to ingest and persist data. Hence, it is important for data processors
+    like Flink to provide a well-equipped library of connectors to read data from
+    and write data to external systems as well as an API to implement custom connectors.
+    However, just being able to read or write data to external datastores is not sufficient
+    for a stream processor that wants to provide meaningful consistency guarantees
+    in the case of failure.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 添加像 Apache Flink 这样的数据处理系统需要仔细考虑，因为它不包括自己的存储层，而是依赖于外部存储系统来摄取和持久化数据。因此，对于像 Flink
+    这样的数据处理器来说，提供一个充分配备的连接器库来从外部系统读取数据并将数据写入其中，以及实现自定义连接器的 API，是非常重要的。然而，仅仅能够读取或写入外部数据存储对于希望在故障情况下提供有意义的一致性保证的流处理器来说是不够的。
+- en: In this chapter, we discuss how source and sink connectors affect the consistency
+    guarantees of Flink streaming applications and present Flink’s most popular connectors
+    to read and write data. You will learn how to implement custom source and sink
+    connectors and how to implement functions that send asynchronous read or write
+    requests to external datastores.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们讨论源和接收器连接器如何影响 Flink 流应用程序的一致性保证，并介绍 Flink 的最流行的连接器来读取和写入数据。您将学习如何实现自定义源和接收器连接器，以及如何实现发送异步读取或写入请求到外部数据存储的函数。
+- en: Application Consistency Guarantees
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 应用程序一致性保证
+- en: In [“Checkpoints, Savepoints, and State Recovery”](ch03.html#chap-3-checkpoints),
+    you learned that Flink’s checkpointing and recovery mechanism periodically takes
+    consistent checkpoints of an application’s state. In case of a failure, the state
+    of the application is restored from the latest completed checkpoint and processing
+    continues. However, being able to reset the state of an application to a consistent
+    point is not sufficient to achieve satisfying processing guarantees for an application.
+    Instead, the source and sink connectors of an application need to be integrated
+    with Flink’s checkpointing and recovery mechanism and provide certain properties
+    to be able to give meaningful guarantees.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [“检查点、保存点和状态恢复”](ch03.html#chap-3-checkpoints) 中，您了解到 Flink 的检查点和恢复机制周期性地获取应用程序状态的一致检查点。在发生故障时，应用程序的状态将从最新完成的检查点恢复，并继续处理。然而，仅仅能够将应用程序的状态重置到一致点并不足以实现应用程序的令人满意的处理保证。相反，应用程序的源和接收器连接器需要集成到
+    Flink 的检查点和恢复机制中，并提供特定的属性，以能够提供有意义的保证。
+- en: In order to provide exactly-once state consistency for an application,^([1](ch08.html#idm45498996701880))
+    each source connector of the application needs to be able to set its read positions
+    to a previously checkpointed position. When taking a checkpoint, a source operator
+    persists its reading positions and restores these positions during recovery. Examples
+    for source connectors that support the checkpointing of reading positions are
+    file-based sources that store the reading offsets in the byte stream of the file
+    or a Kafka source that stores the reading offsets in the topic partitions it consumes.
+    If an application ingests data from a source connector that is not able to store
+    and reset a reading position, it might suffer from data loss in the case of a
+    failure and only provide at-most-once guarantees.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了确保应用程序的精确一次状态一致性^([1](ch08.html#idm45498996701880))，应用程序的每个源连接器都需要能够将其读取位置设置为先前的检查点位置。在进行检查点时，源操作符会持久化其读取位置，并在恢复过程中恢复这些位置。支持读取位置检查点的源连接器示例包括将读取偏移量存储在文件的字节流中的基于文件的源，或者将读取偏移量存储在消费的
+    Kafka 主题分区中的 Kafka 源。如果应用程序从无法存储和重置读取位置的源连接器摄取数据，在故障发生时可能会导致数据丢失，并且只能提供至多一次保证。
+- en: The combination of Flink’s checkpointing and recovery mechanism and resettable
+    source connectors guarantees that an application will not lose any data. However,
+    the application might emit results twice because all results that have been emitted
+    after the last successful checkpoint (the one to which the application falls back
+    in the case of a recovery) will be emitted again. Therefore, resettable sources
+    and Flink’s recovery mechanism are not sufficient to provide end-to-end exactly-once
+    guarantees even though the application state is exactly-once consistent.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的检查点和恢复机制与可重置的源连接器的结合确保了应用程序不会丢失任何数据。然而，应用程序可能会重复发出结果，因为在最后一个成功检查点之后发出的所有结果（在恢复时应用程序会回退到该检查点）将被再次发出。因此，可重置源和
+    Flink 的恢复机制虽然确保了应用程序状态的精确一次一致性，但不足以提供端到端的精确一次保证。
+- en: 'An application that aims to provide end-to-end exactly-once guarantees requires
+    special sink connectors. There are two techniques that sink connectors can apply
+    in different situations to achieve exactly-once guarantees: *idempotent* writes
+    and *transactional* writes.'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 旨在提供端到端精确一次保证的应用程序需要特殊的接收器连接器。接收器连接器可以在不同情况下应用两种技术来实现精确一次保证：*幂等*写入和*事务*写入。
+- en: Idempotent Writes
+  id: totrans-9
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 幂等写入
+- en: An idempotent operation can be performed several times but will only result
+    in a single change. For example, repeatedly inserting the same key-value pair
+    into a hashmap is an idempotent operation because the first insert operation adds
+    the value for the key into the map and all following insertions will not change
+    the map since it already contains the key-value pair. On the other hand, an append
+    operation is not an idempotent operation, because appending an element multiple
+    times results in multiple appends. Idempotent write operations are interesting
+    for streaming applications because they can be performed multiple times without
+    changing the results. Hence, they can to some extent mitigate the effect of replayed
+    results as caused by Flink’s checkpointing mechanism.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幂等操作可以多次执行，但只会产生单一变化。例如，重复将相同的键值对插入 hashmap 是一种幂等操作，因为第一次插入操作将键的值添加到映射中，所有后续插入操作不会改变映射，因为映射已经包含键值对。另一方面，追加操作不是幂等操作，因为多次追加相同的元素会导致多次追加。对于流应用程序来说，幂等写操作很有意义，因为它们可以多次执行而不改变结果。因此，它们可以在一定程度上缓解由
+    Flink 的检查点机制引起的重播结果的影响。
+- en: It should be noted an application that relies on idempotent sinks to achieve
+    exactly-once results must guarantee that it overrides previously written results
+    while it replays. For example, an application with a sink that upserts into a
+    key-value store must ensure that it deterministically computes the keys that are
+    used to upsert. Moreover, applications that read from the sink system might observe
+    unexpected results during the time when an application recovers. When the replay
+    starts, previously emitted results might be overridden by earlier results. Hence,
+    an application that consumes the output of the recovering application might witness
+    a jump back in time, e.g., read a smaller count than before. Also, the overall
+    result of the streaming application will be in an inconsistent state while the
+    replay is in progress because some results will be overridden while others are
+    not. Once the replay completes and the application is past the point at which
+    it previously failed, the result will be consistent again.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要注意的是，一个依赖于幂等接收器实现精确一次性结果的应用程序必须保证在重播时覆盖先前写入的结果。例如，一个向键值存储进行更新插入的应用程序必须确保确定性地计算用于更新插入的键。此外，从接收器系统读取的应用程序在应用程序恢复期间可能观察到意外的结果。当重播开始时，先前发出的结果可能会被较早的结果覆盖。因此，在恢复应用程序的输出的应用程序可能会看到时间的倒退，例如读取较小的计数。此外，当重播进行时，流应用程序的总体结果将处于不一致状态，因为一些结果将被覆盖，而其他结果则没有。一旦重播完成，并且应用程序超过了先前失败的点，结果将再次变得一致。
+- en: Transactional Writes
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务性写入
+- en: The second approach to achieve end-to-end exactly-once consistency is based
+    on transactional writes. The idea here is to only write those results to an external
+    sink system that have been computed before the last successful checkpoint. This
+    behavior guarantees end-to-end exactly-once because in case of a failure, the
+    application is reset to the last checkpoint and no results have been emitted to
+    the sink system after that checkpoint. By only writing data once a checkpoint
+    is completed, the transactional approach does not suffer from the replay inconsistency
+    of the idempotent writes. However, it adds latency because results only become
+    visible when a checkpoint completes.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二种实现端到端精确一次性一致性的方法基于事务性写入。这里的想法是，仅将那些在最后一个成功检查点之前计算的结果写入外部接收器系统。这种行为保证了端到端精确一次性，因为在发生故障时，应用程序将被重置到最后一个检查点，并且在该检查点之后未将任何结果发出到接收器系统。通过仅在检查点完成后写入数据，事务性方法不会遭受幂等写入重播不一致性的问题。然而，它会增加延迟，因为结果只有在检查点完成时才变得可见。
+- en: Flink provides two building blocks to implement transactional sink connectors—a
+    generic *write-ahead-log (WAL)* sink and a *two-phase-commit (2PC)* sink. The
+    WAL sink writes all result records into application state and emits them to the
+    sink system once it receives the notification that a checkpoint was completed.
+    Since the sink buffers records in the state backend, the WAL sink can be used
+    with any kind of sink system. However, it cannot provide bulletproof exactly-once
+    guarantees,^([2](ch08.html#idm45498996682648)) adds to the state size of an application,
+    and the sink system has to deal with a spiky writing pattern.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了两个构建模块来实现事务性的接收器连接器——一个通用的 *写前日志 (WAL)* 接收器和一个 *两阶段提交 (2PC)* 接收器。WAL
+    接收器将所有结果记录写入应用程序状态，并在收到检查点完成的通知后将它们发送到接收器系统。由于接收器在状态后端缓冲记录，WAL 接收器可以与任何类型的接收器系统一起使用。然而，它无法提供牢固的精确一次性保证，^([2](ch08.html#idm45498996682648))
+    还会增加应用程序的状态大小，并且接收器系统必须处理尖峰写入模式。
+- en: In contrast, the 2PC sink requires a sink system that offers transactional support
+    or exposes building blocks to emulate transactions. For each checkpoint, the sink
+    starts a transaction and appends all received records to the transaction, writing
+    them to the sink system without committing them. When it receives the notification
+    that a checkpoint completed, it commits the transaction and materializes the written
+    results. The mechanism relies on the ability of a sink to commit a transaction
+    after recovering from a failure that was opened before a completed checkpoint.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 相比之下，2PC 接收器要求接收器系统提供事务支持或公开用于模拟事务的构建模块。对于每个检查点，接收器启动一个事务，并将所有接收到的记录追加到事务中，将它们写入接收器系统而不提交它们。当接收到检查点完成的通知时，它提交事务并实现已写入的结果。该机制依赖于接收器在从完成检查点之前打开的故障中恢复后提交事务的能力。
+- en: The 2PC protocol piggybacks on Flink’s existing checkpointing mechanism. The
+    checkpoint barriers are notifications to start a new transaction, the notifications
+    of all operators about the success of their individual checkpoint are their commit
+    votes, and the messages of the JobManager that notify about the success of a checkpoint
+    are the instructions to commit the transactions. In contrast to WAL sinks, 2PC
+    sinks can achieve exactly-once output depending on the sink system and the sink’s
+    implementation. Moreover, a 2PC sink continuously writes records to the sink system
+    compared to the spiky writing pattern of a WAL sink.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两阶段提交协议依赖于 Flink 现有的检查点机制。检查点屏障是启动新事务的通知，所有运算符关于各自检查点成功的通知是它们的提交投票，而 JobManager
+    关于检查点成功的通知则是提交事务的指令。与 WAL 汇流槽相比，2PC 汇流槽在特定的汇流槽系统和实现下可以实现精确一次的输出。此外，与 WAL 汇流槽的突发写入模式相比，2PC
+    汇流槽连续向汇流槽系统写入记录。
+- en: '[Table 8-1](#tab_consistency) shows the end-to-end consistency guarantees for
+    different types of source and sink connectors that can be achieved in the *best
+    case*; depending on the implementation of the sink, the actual consistency might
+    be worse.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 8-1](#tab_consistency) 显示了不同类型的源和汇流槽连接器在最佳情况下可以实现的端到端一致性保证；根据汇流槽的实现，实际一致性可能会更差。'
+- en: Table 8-1\. End-to-end consistency guarantees for different combinations of
+    sources and sinks
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 8-1\. 不同来源和汇流槽组合的端到端一致性保证
+- en: '|   | Nonresettable source | Resettable source |'
+  id: totrans-19
+  prefs: []
+  type: TYPE_TB
+  zh: '|   | 不可重置源 | 可重置源 |'
+- en: '| --- | --- | --- |'
+  id: totrans-20
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| Any sink | At-most-once | At-least-once |'
+  id: totrans-21
+  prefs: []
+  type: TYPE_TB
+  zh: '| 任何汇流槽 | At-most-once | At-least-once |'
+- en: '| Idempotent sink | At-most-once | Exactly-once* (temporary inconsistencies'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '| 幂等汇流槽 | At-most-once | Exactly-once*（临时不一致性'
+- en: during recovery) |
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在恢复期间）|
+- en: '| WAL sink | At-most-once | At-least-once |'
+  id: totrans-24
+  prefs: []
+  type: TYPE_TB
+  zh: '| WAL sink | At-most-once | At-least-once |'
+- en: '| 2PC sink | At-most-once | Exactly-once |'
+  id: totrans-25
+  prefs: []
+  type: TYPE_TB
+  zh: '| 2PC 汇流槽 | At-most-once | Exactly-once |'
+- en: Provided Connectors
+  id: totrans-26
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 提供的连接器
+- en: Apache Flink provides connectors to read data from and write data to a variety
+    of storage systems. Message queues and event logs, such as Apache Kafka, Kinesis,
+    or RabbitMQ, are common sources to ingest data streams. In batch processing-dominated
+    environments, data streams are also often ingested by monitoring a filesystem
+    directory and reading files as they appear.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink 提供了连接器，用于从各种存储系统读取数据和写入数据。消息队列和事件日志，如 Apache Kafka、Kinesis 或 RabbitMQ，是常见的数据流摄取源。在以批处理为主导的环境中，数据流也经常通过监视文件系统目录并在文件出现时读取来进行摄取。
+- en: On the sink side, data streams are often produced into message queues to make
+    the events available to subsequent streaming applications, written to filesystems
+    for archiving or making the data available for offline analytics or batch applications,
+    or inserted into key-value stores or relational database systems, like Cassandra,
+    ElasticSearch, or MySQL, to make the data searchable and queryable, or to serve
+    dashboard applications.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在汇流槽端，数据流通常会被产生到消息队列中，以便后续的流处理应用程序可用事件，写入文件系统进行归档或使数据可用于离线分析或批处理应用程序，或者插入到键值存储或关系数据库系统中，如
+    Cassandra、ElasticSearch 或 MySQL，以使数据可搜索和可查询，或用于服务仪表盘应用程序。
+- en: Unfortunately, there are no standard interfaces for most of these storage systems,
+    except JDBC for relational DBMS. Instead, every system features its own connector
+    library with a proprietary protocol. As a consequence, processing systems like
+    Flink need to maintain several dedicated connectors to be able to read events
+    from and write events to the most commonly used message queues, event logs, filesystems,
+    key-value stores, and database systems.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，除了关系型数据库管理系统的 JDBC 外，大多数存储系统都没有标准接口。相反，每个系统都具有自己的连接器库和专有协议。因此，像 Flink 这样的处理系统需要维护几个专用连接器，以便能够从最常用的消息队列、事件日志、文件系统、键值存储和数据库系统中读取事件并写入事件。
+- en: Flink provides connectors for Apache Kafka, Kinesis, RabbitMQ, Apache Nifi,
+    various filesystems, Cassandra, ElasticSearch, and JDBC. In addition, the Apache
+    Bahir project provides additional Flink connectors for ActiveMQ, Akka, Flume,
+    Netty, and Redis.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了与 Apache Kafka、Kinesis、RabbitMQ、Apache Nifi、各种文件系统、Cassandra、ElasticSearch
+    和 JDBC 相连的连接器。此外，Apache Bahir 项目为 ActiveMQ、Akka、Flume、Netty 和 Redis 提供了额外的 Flink
+    连接器。
+- en: In order to use a provided connector in your application, you need to add its
+    dependency to the build file of your project. We explained how to add connector
+    dependencies in [“Including External and Flink Dependencies”](ch05.html#chap-5-dependencies).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在应用程序中使用提供的连接器，需要将其依赖项添加到项目的构建文件中。我们解释了如何在[“包括外部和Flink依赖项”](ch05.html#chap-5-dependencies)中添加连接器依赖项。
+- en: In the following section, we discuss the connectors for Apache Kafka, file-based
+    sources and sinks, and Apache Cassandra. These are the most widely used connectors
+    and they also represent important types of source and sink systems. You can find
+    more information about the other connectors in the documentation for [Apache Flink](http://bit.ly/2UtSrGk)
+    or [Apache Bahir](http://bit.ly/2HOGWmE).
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的章节中，我们将讨论Apache Kafka的连接器、基于文件的源和汇、以及Apache Cassandra。这些是最常用的连接器，也代表了重要的源和汇系统类型。您可以在[Apache
+    Flink](http://bit.ly/2UtSrGk)或[Apache Bahir](http://bit.ly/2HOGWmE)的文档中找到更多关于其他连接器的信息。
+- en: Apache Kafka Source Connector
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Apache Kafka源连接器
+- en: Apache Kafka is a distributed streaming platform. Its core is a distributed
+    publish-subscribe messaging system that is widely adopted to ingest and distribute
+    event streams. We briefly explain the main concepts of Kafka before we dive into
+    the details of Flink’s Kafka connector.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka是一个分布式流处理平台。其核心是一个分布式发布-订阅消息系统，被广泛采用来摄取和分发事件流。在我们深入了解Flink的Kafka连接器之前，我们简要解释Kafka的主要概念。
+- en: Kafka organizes event streams as so-called topics. A topic is an event log that
+    guarantees that events are read in the same order in which they were written.
+    In order to scale writing to and reading from a topic, it can be split into partitions
+    that are distributed across a cluster. The ordering guarantee is limited to a
+    partition—Kafka does not provide ordering guarantees when reading from different
+    partitions. The reading position in a Kafka partition is called an offset.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka将事件流组织为所谓的主题（topics）。主题是一个事件日志，保证事件按照写入的顺序读取。为了扩展对主题的写入和读取，可以将其分割为分区，分布在集群中。顺序保证仅限于分区内部——当从不同分区读取时，Kafka不提供顺序保证。在Kafka分区中的读取位置称为偏移量（offset）。
+- en: Flink provides source connectors for all common Kafka versions. Through Kafka
+    0.11, the API of the client library evolved and new features were added. For instance,
+    Kafka 0.10 added support for record timestamps. Since release 1.0, the API has
+    remained stable. Flink provides a universal Kafka connector that works for all
+    Kafka versions since 0.11\. Flink also features version-specific connectors for
+    the Kafka versions 0.8, 0.9, 0.10, and 0.11\. For the remainder of this section,
+    we focus on the universal connector and for the version-specific connectors, we
+    refer you to Flink’s documentation.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink为所有常见的Kafka版本提供源连接器。从Kafka 0.11开始，客户端库的API发生了演变，并添加了新功能。例如，Kafka 0.10增加了对记录时间戳的支持。从1.0版本开始，API保持稳定。Flink提供了一个通用的Kafka连接器，适用于自Kafka
+    0.11以来的所有版本。Flink还提供了针对Kafka版本0.8、0.9、0.10和0.11的特定版本连接器。在本节的其余部分，我们将专注于通用连接器，并且对于特定版本的连接器，我们建议您查阅Flink的文档。
+- en: 'The dependency for the universal Flink Kafka connector is added to a Maven
+    project as shown in the following:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将通用的Flink Kafka连接器的依赖项添加到Maven项目中，如下所示：
+- en: '[PRE0]'
+  id: totrans-38
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: The Flink Kafka connector ingests event streams in parallel. Each parallel source
+    task can read from one or more partitions. A task tracks for each partition its
+    current reading offset and includes it into its checkpoint data. When recovering
+    from a failure, the offsets are restored and the source instance continues reading
+    from the checkpointed offset. The Flink Kafka connector does not rely on Kafka’s
+    own offset-tracking mechanism, which is based on so-called consumer groups. [Figure 8-1](#fig_kafka-offsets)
+    shows the assignment of partitions to source instances.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink Kafka连接器并行摄取事件流。每个并行源任务可以从一个或多个分区读取。任务跟踪每个分区的当前读取偏移量，并将其包含在其检查点数据中。在从故障中恢复时，将恢复偏移量，并且源实例将继续从检查点偏移量读取。Flink
+    Kafka连接器不依赖于Kafka自身的偏移量跟踪机制，后者基于所谓的消费者组（consumer groups）。[图8-1](#fig_kafka-offsets)展示了将分区分配给源实例的过程。
+- en: '![](assets/spaf_0801.png)'
+  id: totrans-40
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/spaf_0801.png)'
+- en: Figure 8-1\. Read offsets of Kafka topic partitions
+  id: totrans-41
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-1\. Kafka主题分区的读取偏移量
+- en: A Kafka source connector is created as shown in [Example 8-1](#code-create-kafka-source).
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka源连接器的创建如示例[8-1](#code-create-kafka-source)所示。
+- en: Example 8-1\. Creating a Flink Kafka source
+  id: totrans-43
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例8-1\. 创建一个Flink Kafka源
+- en: '[PRE1]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: The constructor takes three arguments. The first argument defines the topics
+    to read from. This can be a single topic, a list of topics, or a regular expression
+    that matches all topics to read from. When reading from multiple topics, the Kafka
+    connector treats all partitions of all topics the same and multiplexes their events
+    into a single stream.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构造函数接受三个参数。第一个参数定义了要读取的主题。这可以是单个主题、主题列表或匹配所有要读取的主题的正则表达式。当从多个主题读取时，Kafka连接器将所有主题的所有分区视为相同，并将它们的事件复用到单个流中。
+- en: The second argument is a `DeserializationSchema` or `KeyedDeserializationSchema`.
+    Kafka messages are stored as raw byte messages and need to be deserialized into
+    Java or Scala objects. The `SimpleStringSchema`, which is used in [Example 8-1](#code-create-kafka-source),
+    is a built-in `DeserializationSchema` that simply deserializes a byte array into
+    a `String`. In addition, Flink provides implementations for Apache Avro and text-based
+    JSON encodings. `DeserializationSchema` and `KeyedDeserializationSchema` are public
+    interfaces so you can always implement custom deserialization logic.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第二个参数是一个`DeserializationSchema`或`KeyedDeserializationSchema`。Kafka消息存储为原始字节消息，需要反序列化为Java或Scala对象。`SimpleStringSchema`是一个内置的`DeserializationSchema`，用于简单地将字节数组反序列化为`String`，如在[示例 8-1](#code-create-kafka-source)中所示。此外，Flink提供了Apache
+    Avro和基于文本的JSON编码的实现。`DeserializationSchema`和`KeyedDeserializationSchema`是公共接口，因此您可以随时实现自定义的反序列化逻辑。
+- en: The third parameter is a `Properties` object that configures the Kafka client
+    that is internally used to connect to and read from Kafka. A minimum `Properties`
+    configuration consists of two entries, `"bootstrap.servers"` and `"group.id"`.
+    Consult the Kafka documentation for additional configuration properties.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三个参数是一个`Properties`对象，用于配置用于连接和从Kafka读取的Kafka客户端。最少的`Properties`配置包括两个条目，`"bootstrap.servers"`和`"group.id"`。请参阅Kafka文档获取额外的配置属性。
+- en: In order to extract event-time timestamps and generate watermarks, you can provide
+    an `AssignerWithPeriodicWatermark` or an `AssignerWithPunctuatedWatermark` to
+    a Kafka consumer by calling a `FlinkKafkaConsumer.assignTimestampsAndWatermark().`^([3](ch08.html#idm45498996384504))
+    An assigner is applied to each partition to leverage the per partition ordering
+    guarantees, and the source instance merges the partition watermarks according
+    to the watermark propagation protocol (see [“Watermark Propagation and Event Time”](ch03.html#chap-3-watermark-propagation)).
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了提取事件时间戳并生成水印，您可以通过调用`FlinkKafkaConsumer.assignTimestampsAndWatermark()`向Kafka消费者提供一个`AssignerWithPeriodicWatermark`或`AssignerWithPunctuatedWatermark`。为每个分区应用分配器以利用每个分区的顺序保证，并且源实例根据水印传播协议合并分区水印（参见[“水印传播和事件时间”](ch03.html#chap-3-watermark-propagation)）。
+- en: Note
+  id: totrans-49
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that the watermarks of a source instance cannot make progress if a partition
+    becomes inactive and does not provide messages. As a consequence, a single inactive
+    partition causes the whole application to stall because the application’s watermarks
+    do not make progress.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，如果分区变为非活动状态并且不提供消息，源实例的水印将无法取得进展。因此，单个不活动的分区会导致整个应用程序停滞，因为应用程序的水印无法取得进展。
+- en: As of version 0.10.0, Kafka supports message timestamps. When reading from Kafka
+    version 0.10 or later, the consumer will automatically extract the message timestamp
+    as an event-time timestamp if the application runs in event-time mode. In this
+    case, you still need to generate watermarks and should apply an `AssignerWithPeriodicWatermark`
+    or an `AssignerWithPunctuatedWatermark` that forwards the previously assigned
+    Kafka timestamp.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自0.10.0版本起，Kafka支持消息时间戳。当从Kafka 0.10或更高版本读取时，如果应用程序在事件时间模式下运行，消费者将自动提取消息时间戳作为事件时间时间戳。在这种情况下，您仍然需要生成水印，并应用一个`AssignerWithPeriodicWatermark`或`AssignerWithPunctuatedWatermark`，以转发先前分配的Kafka时间戳。
+- en: 'There are a few more notable configuration options. You can configure the starting
+    position from which the partitions of a topic are initially read. Valid options
+    are:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有一些其他值得注意的配置选项。您可以配置从主题的分区最初读取的起始位置。有效选项包括：
+- en: 'The last reading position known by Kafka for the consumer group that was configured
+    via the `group.id` parameter. This is the default behavior:'
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kafka为通过`group.id`参数配置的消费者组所知的最后读取位置。这是默认行为：
+- en: '`FlinkKafkaConsumer.setStartFromGroupOffsets()`'
+  id: totrans-54
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`FlinkKafkaConsumer.setStartFromGroupOffsets()`'
+- en: 'The earliest offset of each individual partition:'
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个单独分区的最早偏移量：
+- en: '`FlinkKafkaConsumer.setStartFromEarliest()`'
+  id: totrans-56
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`FlinkKafkaConsumer.setStartFromEarliest()`'
+- en: 'The latest offset of each individual partition:'
+  id: totrans-57
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个分区的最新偏移量：
+- en: '`FlinkKafkaConsumer.setStartFromLatest()`'
+  id: totrans-58
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`FlinkKafkaConsumer.setStartFromLatest()`'
+- en: 'All records with a timestamp greater than a given timestamp (requires Kafka
+    0.10.x or later):'
+  id: totrans-59
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有时间戳大于给定时间戳的记录（需要 Kafka 0.10.x 或更高版本）：
+- en: '`FlinkKafkaConsumer.setStartFromTimestamp(long)`'
+  id: totrans-60
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`FlinkKafkaConsumer.setStartFromTimestamp(long)`'
+- en: 'Specific reading positions for all partitions as provided by a `Map` object:'
+  id: totrans-61
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 由 `Map` 对象提供的所有分区的特定读取位置：
+- en: '`FlinkKafkaConsumer.setStartFromSpecificOffsets(Map)`'
+  id: totrans-62
+  prefs:
+  - PREF_IND
+  type: TYPE_NORMAL
+  zh: '`FlinkKafkaConsumer.setStartFromSpecificOffsets(Map)`'
+- en: Note
+  id: totrans-63
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that this configuration only affects the first reading positions. In the
+    case of a recovery or when starting from a savepoint, an application will start
+    reading from the offsets stored in the checkpoint or savepoint.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，此配置仅影响第一次读取位置。在恢复或从保存点启动时，应用程序将从检查点或保存点中存储的偏移量开始读取。
+- en: A Flink Kafka consumer can be configured to automatically discover new topics
+    that match the regular expression or new partitions that were added to a topic.
+    These features are disabled by default and can be enabled by adding the parameter
+    `flink.partition-discovery.interval-millis` with a nonnegative value to the `Properties`
+    object.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以配置 Flink Kafka 消费者自动发现与正则表达式匹配的新主题或已添加到主题的新分区。这些功能默认情况下是禁用的，可以通过将参数 `flink.partition-discovery.interval-millis`
+    添加到 `Properties` 对象中并设置非负值来启用。
+- en: Apache Kafka Sink Connector
+  id: totrans-66
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Apache Kafka Sink Connector
+- en: 'Flink provides sink connectors for all Kafka versions since 0.8\. Through Kafka
+    0.11, the API of the client library evolved and new features were added, such
+    as record timestamp support with Kafka 0.10 and transactional writes with Kafka
+    0.11\. Since release 1.0, the API has remained stable. Flink provides a universal
+    Kafka connector that works for all Kafka versions since 0.11\. Flink also features
+    version-specific connectors for Kafka versions 0.8, 0.9, 0.10, and 0.11\. For
+    the remainder of this section, we focus on the universal connector and refer you
+    to Flink’s documentation for the version-specific connectors. The dependency for
+    Flink’s universal Kafka connector is added to a Maven project as shown in the
+    following:'
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 为自 Kafka 0.8 以来的所有 Kafka 版本提供了汇流连接器。通过 Kafka 0.11，客户端库的 API 发生了演变，并添加了新特性，例如
+    Kafka 0.10 中的记录时间戳支持和 Kafka 0.11 中的事务写入。自 1.0 版本以来，API 保持稳定。Flink 提供了一个通用的 Kafka
+    连接器，适用于自 Kafka 0.11 以来的所有 Kafka 版本。Flink 还为 Kafka 版本 0.8、0.9、0.10 和 0.11 提供了特定版本的连接器。在本节的其余部分，我们专注于通用连接器，并建议您查阅
+    Flink 的文档以获取特定版本的连接器信息。Flink 的通用 Kafka 连接器的依赖项如下所示添加到 Maven 项目中：
+- en: '[PRE2]'
+  id: totrans-68
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: A Kafka sink is added to a DataStream application as shown in [Example 8-2](#code-create-kafka-sink).
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka sink 可以像示例 [Example 8-2](#code-create-kafka-sink) 中所示添加到 DataStream 应用程序中。
+- en: Example 8-2\. Creating a Flink Kafka sink
+  id: totrans-70
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-2\. 创建 Flink Kafka sink
+- en: '[PRE3]'
+  id: totrans-71
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The constructor used in [Example 8-2](#code-create-kafka-sink) receives three
+    parameters. The first parameter is a comma-separated string of Kafka broker addresses.
+    The second is the name of the topic to which the data is written, and the last
+    is a `SerializationSchema` that converts the input types of the sink (`String`
+    in [Example 8-2](#code-create-kafka-sink)) into a byte array. `SerializationSchema`
+    is the counterpart of the `DeserializationSchema` that we discussed in the Kafka
+    source section.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [Example 8-2](#code-create-kafka-sink) 中使用的构造函数接收三个参数。第一个参数是逗号分隔的 Kafka 代理地址字符串。第二个参数是要写入数据的主题名称，最后一个是将汇流中的输入类型（在
+    [Example 8-2](#code-create-kafka-sink) 中为 `String`）转换为字节数组的 `SerializationSchema`。`SerializationSchema`
+    是我们在 Kafka 源部分讨论的 `DeserializationSchema` 的对应项。
+- en: '`FlinkKafkaProducer` provides more constructors with different combinations
+    of arguments as follows:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`FlinkKafkaProducer` 提供了更多构造函数，具有不同的参数组合，如下所示：'
+- en: Similar to the Kafka source connector, you can pass a `Properties` object to
+    provide custom options to the internal Kafka client. When using `Properties`,
+    the list of brokers has to be provided as a `"bootstrap.servers"` property. Have
+    a look at the Kafka documentation for a comprehensive list of parameters.
+  id: totrans-74
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 与 Kafka 源连接器类似，您可以传递一个 `Properties` 对象以向内部 Kafka 客户端提供自定义选项。在使用 `Properties`
+    时，必须提供代理服务器列表作为 `"bootstrap.servers"` 属性。请参阅 Kafka 文档获取参数的详细列表。
+- en: You can specify a `FlinkKafkaPartitioner` to control how records are mapped
+    to Kafka partitions. We will discuss this feature in more depth later in this
+    section.
+  id: totrans-75
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您可以指定一个 `FlinkKafkaPartitioner` 来控制如何将记录映射到 Kafka 分区。我们稍后在本节中会更详细地讨论这个功能。
+- en: Instead of using a `SerializationSchema` to convert records into byte arrays,
+    you can also specify a `KeyedSerializationSchema`, which serializes a record into
+    two byte arrays—one for the key and one for the value of a Kafka message. Moreover,
+    `KeyedSerializationSchema` also exposes more Kafka-specific functionality, such
+    as overriding the target topic to write to multiple topics.
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 除了使用 `SerializationSchema` 将记录转换为字节数组之外，还可以指定 `KeyedSerializationSchema`，它将记录序列化为两个字节数组——一个用于
+    Kafka 消息的键，另一个用于值。此外，`KeyedSerializationSchema` 还公开更多面向 Kafka 的功能，例如覆盖目标主题以写入多个主题。
+- en: At-least-once guarantees for the Kafka sink
+  id: totrans-77
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Kafka sink 提供至少一次的保证
+- en: 'The consistency guarantees that Flink’s Kafka sink provides depend on its configuration.
+    The Kafka sink provides at-least-once guarantees under the following conditions:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的 Kafka sink 提供的一致性保证取决于其配置。在以下条件下，Kafka sink 提供至少一次的保证：
+- en: Flink’s checkpointing is enabled and all sources of the application are resettable.
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Flink 的检查点已启用，应用程序的所有来源均可重置。
+- en: The sink connector throws an exception if a write does not succeed, causing
+    the application to fail and recover. This is the default behavior. The internal
+    Kafka client can be configured to retry writes before declaring them failed by
+    setting the `retries` property to a value larger than zero (the default). You
+    can also configure the sink to log write only failures by calling `setLogFailuresOnly(true)`
+    on the sink object. Note that this will void any output guarantees of the application.
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果写入失败，sink 连接器会抛出异常，导致应用程序失败和恢复。这是默认行为。通过将 `retries` 属性设置为大于零的值（默认值），可以配置内部
+    Kafka 客户端重试写入。还可以通过在 sink 对象上调用 `setLogFailuresOnly(true)` 配置仅记录写入失败。请注意，这将使应用程序的任何输出保证失效。
+- en: The sink connector waits for Kafka to acknowledge in-flight records before completing
+    its checkpoint. This is the default behavior. By calling `setFlushOnCheck point(false)`
+    on the sink object, you can disable this waiting. However, this will also disable
+    any output guarantees.
+  id: totrans-81
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 当 Kafka sink 等待 Kafka 确认正在传输的记录后才完成检查点。这是默认行为。通过在 sink 对象上调用 `setFlushOnCheckpoint(false)`
+    可以禁用此等待。但是，这也会禁用任何输出保证。
+- en: Exactly-once guarantees for the Kafka sink
+  id: totrans-82
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: Kafka sink 提供确保一次的保证
+- en: 'Kafka 0.11 introduced support for transactional writes. Due to this feature,
+    Flink’s Kafka sink is also able to provide exactly-once output guarantees given
+    that the sink and Kafka are properly configured. Again, a Flink application must
+    enable checkpointing and consume from resettable sources. Moreover, `FlinkKafkaProducer`
+    provides a constructor with a `Semantic` parameter that controls the consistency
+    guarantees provided by the sink. Possible consistency values are:'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka 0.11 引入了对事务写入的支持。由于此功能，Flink 的 Kafka sink 在正确配置的情况下还能提供确保一次的输出保证。同样，Flink
+    应用程序必须启用检查点并从可重置的源消费。此外，`FlinkKafkaProducer` 提供了一个带有 `Semantic` 参数的构造函数，用于控制 sink
+    提供的一致性保证。可能的一致性值有：
+- en: '`Semantic.NONE`, which provides no guarantees—records might be lost or written
+    multiple times.'
+  id: totrans-84
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Semantic.NONE`，不提供任何保证——可能会丢失记录或写入多次。'
+- en: '`Semantic.AT_LEAST_ONCE`, which guarantees that no write is lost but might
+    be duplicated. This is the default setting.'
+  id: totrans-85
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Semantic.AT_LEAST_ONCE`，确保不会丢失写入但可能会重复。这是默认设置。'
+- en: '`Semantic.EXACTLY_ONCE`, which builds on Kafka’s transactions to write each
+    record exactly once.'
+  id: totrans-86
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`Semantic.EXACTLY_ONCE`，建立在Kafka的事务基础上，确保每条记录只写入一次。'
+- en: There are a few things to consider when running a Flink application with a Kafka
+    sink that operates in exactly-once mode, and it helps to roughly understand how
+    Kafka processes transactions. In a nutshell, Kafka’s transactions work by appending
+    all messages to the log of a partition and marking messages of open transactions
+    as uncommitted. Once a transaction is committed, the markers are changed to committed.
+    A consumer that reads from a topic can be configured with an isolation level (via
+    the `isolation.level` property) to declare whether it can read uncommitted messages
+    (`read_uncommitted`, the default) or not (`read_committed`). If the consumer is
+    configured to `read_committed`, it stops consuming from a partition once it encounters
+    an uncommitted message and resumes when the message is committed. Hence, open
+    transactions can block consumers from reading a partition and introduce significant
+    delays. Kafka guards against this by rejecting and closing transactions after
+    a timeout interval, which is configured with the `transaction.timeout.ms` property.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行使用 Kafka sink 以恰好一次模式操作的 Flink 应用程序时，有几个需要考虑的事项，了解 Kafka 如何处理事务会有所帮助。简而言之，Kafka
+    的事务通过将所有消息附加到分区的日志中，并将未提交的事务的消息标记为未提交来工作。一旦事务提交，标记将更改为已提交。从主题读取消息的消费者可以通过隔离级别（通过
+    `isolation.level` 属性）配置，声明是否可以读取未提交的消息（`read_uncommitted`，默认情况下）或不可以（`read_committed`）。如果将消费者配置为
+    `read_committed`，它在遇到未提交的消息时停止从分区消费，并在消息提交后恢复。因此，未提交的事务可能会阻塞消费者从分区读取，并引入显著的延迟。Kafka
+    通过在超时间隔后拒绝并关闭事务来防范这种情况，这是通过 `transaction.timeout.ms` 属性配置的。
+- en: In the context of Flink’s Kafka sink, this is important because transactions
+    that time out—due to long recovery cycles, for example—lead to data loss. So,
+    it is crucial to configure the transaction timeout property appropriately. By
+    default, the Flink Kafka sink sets `transaction.timeout.ms` to one hour, which
+    means you probably need to adjust the `transaction.max.timeout.ms` property of
+    your Kafka setup, which is set to 15 minutes by default. Moreover, the visibility
+    of committed messages depends on the checkpoint interval of a Flink application.
+    Refer to the Flink documentation to learn about a few other corner cases when
+    enabling exactly-once consistency.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Flink 的 Kafka sink 上下文中，这一点非常重要，因为由于长时间的恢复周期等原因导致的事务超时会导致数据丢失。因此，适当配置事务超时属性至关重要。默认情况下，Flink
+    Kafka sink 将 `transaction.timeout.ms` 设置为一小时，这意味着您可能需要调整 Kafka 设置中 `transaction.max.timeout.ms`
+    属性的默认设置为 15 分钟。此外，已提交消息的可见性取决于 Flink 应用程序的检查点间隔。请参考 Flink 文档，了解在启用恰好一次的一致性时的几个其他特殊情况。
+- en: Check the Configuration of Your Kafka Cluster
+  id: totrans-89
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 检查您的 Kafka 集群配置
+- en: 'The default configuration of a Kafka cluster can still lead to data loss, even
+    after a write is acknowledged. You should carefully revise the configuration of
+    your Kafka setup, paying special attention to the following parameters:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使在确认写入后，Kafka 集群的默认配置仍可能导致数据丢失。您应该仔细审查 Kafka 设置的配置，特别注意以下参数：
+- en: '`acks`'
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`acks`'
+- en: '`log.flush.interval.messages`'
+  id: totrans-92
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`log.flush.interval.messages`'
+- en: '`log.flush.interval.ms`'
+  id: totrans-93
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`log.flush.interval.ms`'
+- en: '`log.flush.*`'
+  id: totrans-94
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`log.flush.*`'
+- en: We refer you to the Kafka documentation for details about its configuration
+    parameters and guidelines for a suitable configuration.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们建议您参考 Kafka 文档，了解其配置参数的详细信息以及适当配置的指南。
+- en: Custom Partitioning and Writing Message Timestamps
+  id: totrans-96
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 自定义分区和写入消息时间戳
+- en: When writing messages to a Kafka topic, a Flink Kafka sink task can choose to
+    which partition of the topic to write. `FlinkKafkaPartitioner` can be defined
+    in some constructors of the Flink Kafka sink. If not specified, the default partitioner
+    maps each sink task to a single Kafka partition—all records emitted by the same
+    sink task are written to the same partition and a single partition may contain
+    the records of multiple sink tasks if there are more tasks than partitions. If
+    the number of partitions is larger than the number of subtasks, the default configuration
+    results in empty partitions, which can cause problems for Flink applications consuming
+    the topic in event-time mode.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在向 Kafka 主题写入消息时，Flink Kafka sink 任务可以选择写入主题的哪个分区。在 Flink Kafka sink 的某些构造函数中可以定义
+    `FlinkKafkaPartitioner`。如果未指定，默认分区器将每个 sink 任务映射到单个 Kafka 分区 —— 由同一 sink 任务发出的所有记录都写入同一个分区，如果任务多于分区，则单个分区可能包含多个
+    sink 任务的记录。如果分区数大于子任务数，则默认配置会导致空分区，这可能会对以事件时间模式消费主题的 Flink 应用程序造成问题。
+- en: By providing a custom `FlinkKafkaPartitioner`, you can control how records are
+    routed to topic partitions. For example, you can create a partitioner based on
+    a key attribute of the records or a round-robin partitioner for even distribution.
+    There is also the option to delegate the partitioning to Kafka based on the message
+    key. This requires a `KeyedSerializationSchema` in order to extract the message
+    keys and configure the `FlinkKafkaPartitioner` parameter with `null` to disable
+    the default partitioner.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过提供自定义的 `FlinkKafkaPartitioner`，您可以控制记录如何路由到主题分区。例如，可以基于记录的键属性创建一个分区器，或者创建一个轮询分区器以进行均匀分布。还可以选择将分区委托给基于消息键的
+    Kafka。这需要一个 `KeyedSerializationSchema` 来提取消息键，并将 `FlinkKafkaPartitioner` 参数配置为
+    `null` 以禁用默认分区器。
+- en: Finally, Flink’s Kafka sink can be configured to write message timestamps as
+    supported since Kafka 0.10\. Writing the event-time timestamp of a record to Kafka
+    is enabled by calling `setWriteTimestampToKafka(true)` on the sink object.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，Flink 的 Kafka 汇流器可以配置为写入消息时间戳，自 Kafka 0.10 起支持。通过在汇流器对象上调用 `setWriteTimestampToKafka(true)`
+    来启用将记录的事件时间戳写入 Kafka。
+- en: Filesystem Source Connector
+  id: totrans-100
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 文件系统源连接器
+- en: Filesystems are commonly used to store large amounts of data in a cost-efficient
+    way. In big data architectures they often serve as data source and data sink for
+    batch processing applications. In combination with advanced file formats, such
+    as Apache Parquet or Apache ORC, filesystems can efficiently serve analytical
+    query engines such as Apache Hive, Apache Impala, or Presto. Therefore, filesystems
+    are commonly used to “connect” streaming and batch applications.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 文件系统通常用于以成本效益的方式存储大量数据。在大数据架构中，它们经常用作批处理应用程序的数据源和数据接收器。与高级文件格式（例如 Apache Parquet
+    或 Apache ORC）结合使用时，文件系统可以有效地为 Apache Hive、Apache Impala 或 Presto 等分析查询引擎提供服务。因此，文件系统通常用于“连接”流和批处理应用程序。
+- en: Apache Flink features a resettable source connector to ingest data in files
+    as streams. The filesystem source is part of the `flink-streaming-java` module.
+    Hence, you do not need to add any other dependency to use this feature. Flink
+    supports different types of filesystems, such as local filesystems (including
+    locally mounted NFS or SAN shares, Hadoop HDFS, Amazon S3, and OpenStack Swift
+    FS). Refer to [“Filesystem Configuration”](ch09.html#chap-9-fs-configuration)
+    to learn how to configure filesystems in Flink. [Example 8-3](#code-create-fs-source)
+    shows how to ingest a stream by reading text files line-wise.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink 提供了可重置的源连接器，用于将文件中的数据作为流进行摄取。文件系统源是`flink-streaming-java`模块的一部分。因此，您无需添加其他依赖项即可使用此功能。Flink
+    支持不同类型的文件系统，例如本地文件系统（包括本地挂载的NFS或SAN共享，Hadoop HDFS，Amazon S3和OpenStack Swift FS）。请参阅
+    [“文件系统配置”](ch09.html#chap-9-fs-configuration) 以了解如何在 Flink 中配置文件系统。[示例 8-3](#code-create-fs-source)
+    显示了如何通过逐行读取文本文件来摄取流。
+- en: Example 8-3\. Creating a filesystem source
+  id: totrans-103
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-3\. 创建文件系统源
+- en: '[PRE4]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'The arguments of the `StreamExecutionEnvironment.readFile()` method are:'
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamExecutionEnvironment.readFile()` 方法的参数包括：'
+- en: A `FileInputFormat`, which is responsible for reading the content of the files.
+    We discuss the details of this interface later in this section. The `null` parameter
+    of `TextInputFormat` in [Example 8-3](#code-create-fs-source) defines the path
+    that is separately set.
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`FileInputFormat` 负责读取文件内容。我们稍后在本节讨论此接口的详细信息。在 [示例 8-3](#code-create-fs-source)
+    中，`TextInputFormat` 的 `null` 参数定义了单独设置的路径。'
+- en: The path that should be read. If the path refers to a file, the single file
+    is read. If it refers to a directory, `FileInputFormat` scans the directory for
+    files to read.
+  id: totrans-107
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应读取的路径。如果路径引用的是文件，则读取单个文件。如果引用的是目录，则 `FileInputFormat` 会扫描目录以读取文件。
+- en: The mode in which the path should be read. The mode can either be `PROCESS_ONCE`
+    or `PROCESS_CONTINUOUSLY`. In `PROCESS_ONCE` mode, the read path is scanned once
+    when the job is started and all matching files are read. In `PROCESS_CONTINUOUSLY`,
+    the path is periodically scanned (after an initial scan) and new and modified
+    files are continuously read.
+  id: totrans-108
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应读取路径的模式。模式可以是 `PROCESS_ONCE` 或 `PROCESS_CONTINUOUSLY`。在 `PROCESS_ONCE` 模式下，作业启动时会扫描一次读取路径，并读取所有匹配的文件。在
+    `PROCESS_CONTINUOUSLY` 模式下，在初始扫描后，路径会定期扫描，并持续读取新文件和修改过的文件。
+- en: The interval in milliseconds in which the path is periodically scanned. The
+    parameter is ignored in `PROCESS_ONCE` mode.
+  id: totrans-109
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 扫描路径的周期（毫秒）。在 `PROCESS_ONCE` 模式下，此参数被忽略。
+- en: '`FileInputFormat` is a specialized `InputFormat` to read files from a filesystem.^([4](ch08.html#idm45498996122808))
+    A `FileInputFormat` reads files in two steps. First it scans a filesystem path
+    and creates so-called input splits for all matching files. An input split defines
+    a range on a file, typically via a start offset and a length. After dividing a
+    large file into multiple splits, the splits can be distributed to multiple reader
+    tasks to read the file in parallel. Depending on the encoding of a file, it can
+    be necessary to only generate a single split to read the file as a whole. The
+    second step of a `FileInputFormat` is to receive an input split, read the file
+    range that is defined by the split, and return all corresponding records.'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`FileInputFormat`是专门用于从文件系统读取文件的`InputFormat`。^[4](ch08.html#idm45498996122808)
+    `FileInputFormat`读取文件分为两步。首先，它扫描文件系统路径并为所有匹配文件创建所谓的输入分片。输入分片定义文件的范围，通常通过起始偏移量和长度。在将大文件分割为多个分片后，可以将分片分发给多个读取任务以并行读取文件。根据文件的编码方式，可能需要仅生成单个分片来整体读取文件。`FileInputFormat`的第二步是接收输入分片，读取由分片定义的文件范围，并返回所有相应的记录。'
+- en: A `FileInputFormat` used in a DataStream application should also implement the
+    `CheckpointableInputFormat` interface, which defines methods to checkpoint and
+    reset the the current reading position of an `InputFormat` within a file split.
+    The filesystem source connector provides only at-least-once guarantees when checkpointing
+    is enabled if the `FileInputFormat` does not implement the `CheckpointableInputFormat`
+    interface because the input format will start reading from the beginning of the
+    split that was processed when the last complete checkpoint was taken.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在DataStream应用程序中使用的`FileInputFormat`还应实现`CheckpointableInputFormat`接口，该接口定义了在文件分片中检查点和重置`InputFormat`当前读取位置的方法。如果`FileInputFormat`没有实现`CheckpointableInputFormat`接口，那么当启用检查点时，文件系统源连接器只提供至少一次的保证，因为输入格式将从上次完成检查点时处理的分片的开头开始读取。
+- en: In version 1.7, Flink provides a few classes that extend `FileInputFormat` and
+    implement `CheckpointableInputFormat`. `TextInputFormat` reads text files line-wise
+    (split by newline characters), subclasses of `CsvInputFormat` read files with
+    comma-separated values, and `AvroInputFormat` reads files with Avro-encoded records.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在1.7版本中，Flink提供了几个扩展`FileInputFormat`并实现`CheckpointableInputFormat`的类。`TextInputFormat`按行读取文本文件（由换行符分割），`CsvInputFormat`的子类读取逗号分隔值文件，`AvroInputFormat`读取Avro编码记录文件。
+- en: In `PROCESS_CONTINUOUSLY` mode, the filesystem source connector identifies new
+    files based on their modification timestamp. This means a file is completely reprocessed
+    if it is modified because its modification timestamp changes. This includes modifications
+    due to appending writes. Therefore, a common technique to continuously ingest
+    files is to write them in a temporary directory and atomically move them to the
+    monitored directory once they are finalized. When a file is completely ingested
+    and a checkpoint completed, it can be removed from the directory. Monitoring ingested
+    files by tracking the modification timestamp also has implications if you read
+    from file stores with eventually consistent list operations, such as S3\. Since
+    files might not appear in order of their modification timestamps, they may be
+    ignored by the filesystem source connector.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`PROCESS_CONTINUOUSLY`模式下，文件系统源连接器根据文件的修改时间戳识别新文件。这意味着如果文件被修改，其修改时间戳发生变化，那么文件将完全重新处理。这包括由于追加写入而进行的修改。因此，连续摄取文件的常见技术是将它们写入临时目录，并在最终确定后原子性地将它们移动到监视的目录中。当文件完全摄取并且检查点完成后，它可以从目录中移除。通过跟踪修改时间戳监控已摄取的文件，还涉及从具有最终一致性列表操作的文件存储（例如S3）中读取文件的情况。由于文件可能不会按其修改时间戳的顺序显示，它们可能会被文件系统源连接器忽略。
+- en: Note that in `PROCESS_ONCE` mode, no checkpoints are taken after the filesystem
+    path is scanned and all splits are created.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，在`PROCESS_ONCE`模式下，文件系统路径扫描和创建所有分片后不会进行任何检查点。
+- en: If you want to use a filesystem source connector in an event-time application,
+    you should be aware that it can be challenging to generate watermarks since input
+    splits are generated in a single process and round-robin distributed to all parallel
+    readers that process them in order of the modification timestamp of the file.
+    In order to generate satisfying watermarks you need to reason about the smallest
+    timestamp of a record that is included in a split later processed by the task.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您想在事件时间应用程序中使用文件系统源连接器，则应注意，由于输入分片是在单个进程中生成并以修改时间戳的顺序轮询分布到所有并行读取器中，因此生成水印可能具有挑战性。为了生成令人满意的水印，您需要考虑稍后由任务处理的分片中包含的记录的最小时间戳。
+- en: Filesystem Sink Connector
+  id: totrans-116
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 文件系统接收器连接器
+- en: Writing a stream into files is a common requirement, for example, to prepare
+    data with low latency for offline ad-hoc analysis. Since most applications can
+    only read files once they are finalized and streaming applications run for long
+    periods of time, streaming sink connectors typically chunk their output into multiple
+    files. Moreover, it is common to organize records into so-called buckets, so that
+    consuming applications have more control over which data to read.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将流写入文件是一个常见的需求，例如，为了为离线的即席分析准备低延迟的数据。由于大多数应用程序只能在文件最终完成后读取，并且流应用程序运行时间较长，流目标连接器通常将其输出分成多个文件。此外，通常会将记录组织成所谓的桶，以便消费应用程序更有控制地读取哪些数据。
+- en: Like the filesystem source connector, Flink’s `StreamingFileSink` connector
+    is contained in the `flink-streaming-java` module. Hence, you do not need to add
+    a dependency to your build file to use it.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似于文件系统源连接器，Flink 的 `StreamingFileSink` 连接器包含在 `flink-streaming-java` 模块中。因此，您无需在构建文件中添加依赖项即可使用它。
+- en: '`StreamingFileSink` provides end-to-end exactly-once guarantees for an application
+    given that the application is configured with exactly-once checkpoints and all
+    its sources are reset in the case of a failure. We will discuss the recovery mechanism
+    in more detail later in this section. [Example 8-4](#code-create-fs-sink) shows
+    how to create a `StreamingFileSink` with minimal configuration and append it to
+    a stream.'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamingFileSink` 为应用程序提供端到端的精确一次性保证，前提是应用程序配置了精确一次性检查点，并且所有源在失败的情况下重置。我们将在本节后面更详细地讨论恢复机制。
+    [示例 8-4](#code-create-fs-sink) 显示了如何使用最小配置创建 `StreamingFileSink` 并将其追加到流中。'
+- en: Example 8-4\. Creating a StreamingFileSink in row-encoding mode
+  id: totrans-120
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-4\. 在行编码模式下创建 `StreamingFileSink`
+- en: '[PRE5]'
+  id: totrans-121
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: When a `StreamingFileSink` receives a record, the record is assigned to a bucket.
+    A bucket is a subdirectory of the base path that is configured with the builder
+    of `StreamingFileSink`—`"/base/path"` in [Example 8-4](#code-create-fs-sink).
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 `StreamingFileSink` 接收到一条记录时，该记录将被分配到一个桶中。桶是配置在 `StreamingFileSink` 构建器中的基路径的子目录——`"/base/path"`
+    在 [示例 8-4](#code-create-fs-sink) 中。
+- en: The bucket is chosen by a `BucketAssigner`, which is a public interface and
+    returns for every record a `BucketId` that determines the directory to which the
+    record will be written. The `BucketAssigner` can be configured on the builder
+    using the `withBucketAssigner()` method. If no `BucketAssigner` is explicitly
+    specified, it uses a `DateTimeBucketAssigner` that assigns records to hourly buckets
+    based on the processing time when they are written.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 桶由 `BucketAssigner` 选择，它是一个公共接口，并为每条记录返回一个确定记录将被写入的目录的 `BucketId`。可以使用构建器上的
+    `withBucketAssigner()` 方法配置 `BucketAssigner`。如果没有明确指定 `BucketAssigner`，则使用 `DateTimeBucketAssigner`，根据写入时的处理时间将记录分配给每小时的桶。
+- en: 'Each bucket directory contains multiple part files that are concurrently written
+    by multiple parallel instances of the `StreamingFileSink`. Moreover, each parallel
+    instance chunks its output into multiple part files. The path of a part file has
+    the following format:'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个桶目录包含多个由多个并行 `StreamingFileSink` 实例同时写入的分片文件。此外，每个并行实例将其输出分成多个分片文件。分片文件的路径格式如下：
+- en: '`[base-path]/[bucket-path]/part-[task-idx]-[id]`'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`[base-path]/[bucket-path]/part-[task-idx]-[id]`'
+- en: For example, given a base path of `"/johndoe/demo"` and a part prefix of `"part"`,
+    the path `"/johndoe/demo/2018-07-22--17/part-4-8"` points to the eight file that
+    was written by the fifth (0-indexed) sink task to bucket `"2018-07-22--17"`—the
+    5 p.m. bucket of July 22, 2018.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，给定基路径 `"/johndoe/demo"` 和部分前缀 `"part"`，路径 `"/johndoe/demo/2018-07-22--17/part-4-8"`
+    指向了由第五个（0索引）sink 任务写入到桶 `"2018-07-22--17"` ——2018年7月22日下午5点的第八个文件。
+- en: IDs of Committed Files May Not Be Consecutive
+  id: totrans-127
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 提交文件的 ID 可能不连续
+- en: Nonconsecutive file IDs, the last number in a committed file’s name, do not
+    indicate data loss. `StreamingFileSink` simply increments the file IDs. When discarding
+    pending files it does not reuse their IDs.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 非连续的文件 ID，即提交文件名称中的最后一个数字，不表示数据丢失。`StreamingFileSink` 简单地递增文件 ID。在丢弃待处理文件时，不会重用它们的
+    ID。
+- en: A `RollingPolicy` determines when a task creates a new part file. You can configure
+    the `RollingPolicy` with the `withRollingPolicy()` method on the builder. By default,
+    `StreamingFileSink` uses a `DefaultRollingPolicy`, which is configured to roll
+    part files when they exceed 128 MB or are older than 60 seconds. You can also
+    configure an inactivity interval after which a part file is rolled.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RollingPolicy` 决定任务何时创建新的部分文件。您可以使用构建器的 `withRollingPolicy()` 方法配置 `RollingPolicy`。默认情况下，`StreamingFileSink`
+    使用 `DefaultRollingPolicy`，配置为在部分文件超过 128 MB 或旧于 60 秒时滚动。您还可以配置一个非活动间隔，之后将滚动部分文件。'
+- en: '`StreamingFileSink` supports two modes of writing records to part files: row
+    encoding and bulk encoding. In row encoding mode, every record is individually
+    encoded and appended to a part file. In bulk encoding, records are collected and
+    written in batches. Apache Parquet, which organizes and compresses records in
+    a columnar format, is a file format that requires bulk encoding.'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamingFileSink` 支持两种向部分文件写入记录的模式：行编码和批量编码。在行编码模式下，每个记录都单独编码并附加到部分文件中。在批量编码模式下，记录被收集并批量写入。Apache
+    Parquet 是一种需要批量编码的文件格式，它以列式格式组织和压缩记录。'
+- en: '[Example 8-4](#code-create-fs-sink) creates a `StreamingFileSink` with row
+    encoding by providing an `Encoder` that writes single records to a part file.
+    In [Example 8-4](#code-create-fs-sink), we use a `SimpleStringEncoder`, which
+    calls the `toString()` method of the record and writes the `String` representation
+    of the record to the file. `Encoder` is a simple interface with a single method
+    that can be easily implemented.'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-4](#code-create-fs-sink) 创建了一个使用行编码的 `StreamingFileSink`，通过提供一个 `Encoder`
+    将单个记录写入部分文件。在 [示例 8-4](#code-create-fs-sink) 中，我们使用了 `SimpleStringEncoder`，它调用记录的
+    `toString()` 方法，并将记录的 `String` 表示写入文件。`Encoder` 是一个简单的接口，只有一个方法，可以轻松实现。'
+- en: A bulk-encoding `StreamingFileSink` is created as shown in [Example 8-5](#code-create-fs-sink-bulk).
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [示例 8-5](#code-create-fs-sink-bulk) 所示，可以创建一个批量编码的 `StreamingFileSink`。
+- en: Example 8-5\. Creating a StreamingFileSink in bulk-encoding mode
+  id: totrans-133
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-5\. 创建批量编码模式下的 StreamingFileSink
+- en: '[PRE6]'
+  id: totrans-134
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: A `StreamingFileSink` in bulk-encoding mode requires a `BulkWriter.Factory`.
+    In [Example 8-5](#code-create-fs-sink-bulk) we use a Parquet writer for Avro files.
+    Note that the Parquet writer is contained in the `flink-parquet` module, which
+    needs to be added as a dependency. As usual, `BulkWriter.Factory` is an interface
+    that can be implemented for custom file formats, such as Apache Orc.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量编码模式下的 `StreamingFileSink` 需要一个 `BulkWriter.Factory`。在 [示例 8-5](#code-create-fs-sink-bulk)
+    中，我们使用 Parquet 作为 Avro 文件的写入器。请注意，Parquet 写入器位于 `flink-parquet` 模块中，需要将其作为依赖项添加。通常情况下，`BulkWriter.Factory`
+    是一个接口，可以为自定义文件格式（如 Apache Orc）实现。
+- en: Note
+  id: totrans-136
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: A StreamingFileSink in bulk-encoding mode cannot choose a `RollingPolicy`. Bulk-encoding
+    formats can only be combined with the `OnCheckpointRollingPolicy`, which rolls
+    in-progress part files on every checkpoint.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 批量编码模式下的 StreamingFileSink 无法选择 `RollingPolicy`。批量编码格式只能与 `OnCheckpointRollingPolicy`
+    结合使用，该策略在每次检查点时滚动进行中的部分文件。
+- en: '`StreamingFileSink` provides exactly-once output guarantees. The sink achieves
+    this by a commit protocol that moves files through different stages, in progress,
+    pending, and finished, and that is based on Flink’s checkpointing mechanism. While
+    a sink writes to a file, the file is in the in-progress state. When the `RollingPolicy`
+    decides to roll a file, it is closed and moved into the pending state by renaming
+    it. Pending files are moved into the finished state (again by renaming) when the
+    next checkpoint completes.'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`StreamingFileSink` 提供精确一次输出保证。该接收器通过一种提交协议实现这一点，通过不同阶段移动文件：进行中、待处理和已完成，该协议基于
+    Flink 的检查点机制。当接收器写入文件时，文件处于进行中状态。当 `RollingPolicy` 决定滚动文件时，通过重命名将其关闭并移到待处理状态。当下一个检查点完成时，将待处理文件移动到已完成状态（再次通过重命名）。'
+- en: Pending Files Might Never Be Committed
+  id: totrans-139
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 可能永远不会提交的待处理文件
+- en: In some situations, a pending file is never committed. The `StreamingFileSink`
+    ensures this does not result in data loss. However, these files are not automatically
+    cleaned up.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，待处理文件可能永远不会被提交。`StreamingFileSink` 确保这不会导致数据丢失。然而，这些文件不会自动清理。
+- en: Before manually deleting a pending file, you need to check whether it is lingering
+    or about to be committed. Once you find a committed file with the same task index
+    and a higher ID, you can safely remove a pending file.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在手动删除挂起文件之前，您需要检查它是否挂起或即将提交。一旦找到一个具有相同任务索引和较高ID的已提交文件，就可以安全地删除一个挂起文件。
+- en: In the case of a failure, a sink task needs to reset its current in-progress
+    file to its writing offset at the last successful checkpoint. This is done by
+    closing the current in-progress file and discarding the invalid part at the file’s
+    end, for example, by using the filesystem’s truncate operation.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在失败的情况下，sink任务需要将其当前正在进行的文件重置为上一个成功检查点处的写入偏移量。这通过关闭当前正在进行的文件并丢弃文件末尾的无效部分来完成，例如通过使用文件系统的截断操作。
+- en: StreamingFileSink Requires Checkpointing Be Enabled
+  id: totrans-143
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: StreamingFileSink 需要启用检查点
+- en: '`StreamingFileSink` will never move files from pending into finished state,
+    if an application does not enable checkpointing.'
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果应用程序不启用检查点，`StreamingFileSink`将永远不会将文件从挂起状态移动到完成状态。
+- en: Apache Cassandra Sink Connector
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Apache Cassandra Sink 连接器
+- en: Apache Cassandra is a popular, scalable, and highly available column store database
+    system. Cassandra models datasets as tables of rows that consist of multiple typed
+    columns. One or more columns have to be defined as (composite) primary keys. Each
+    row can be uniquely identified by its primary key. Among other APIs, Cassandra
+    features the Cassandra Query Language (CQL), a SQL-like language to read and write
+    records and create, modify, and delete database objects, such as keyspaces and
+    tables.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Cassandra 是一个流行的、可扩展的和高可用的列存储数据库系统。Cassandra 将数据集建模为包含多个类型列的行表。一个或多个列必须被定义为（复合）主键。每行可以通过其主键唯一标识。除了其他API之外，Cassandra
+    还提供Cassandra查询语言（CQL），这是一种类似于SQL的语言，用于读取和写入记录以及创建、修改和删除数据库对象，例如键空间和表。
+- en: Flink provides a sink connector to write data streams to Cassandra. Cassandra’s
+    data model is based on primary keys, and all writes to Cassandra happen with upsert
+    semantics. In combination with exactly-once checkpointing, resettable sources,
+    and deterministic application logic, upsert writes yield eventually exactly-once
+    output consistency. The output is only eventually consistent, because results
+    are reset to a previous version during recovery, meaning consumers might read
+    older results than read previously. Also, the versions of values for multiple
+    keys might be out of sync.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了一个sink连接器，用于将数据流写入Cassandra。Cassandra的数据模型基于主键，并且所有写入到Cassandra的操作都具有upsert语义。结合确切一次的检查点、可重置源和确定性应用逻辑，upsert写操作产生最终确切一次的输出一致性。输出只是最终一致，因为在恢复期间结果会重置到先前的版本，这意味着消费者可能会读取比之前读取的更旧的结果。此外，多个键的值的版本可能会不同步。
+- en: 'In order to prevent temporal inconsistencies during recovery and provide exactly-once
+    output guarantees for applications with nondeterministic application logic, Flink’s
+    Cassandra connector can be configured to leverage a WAL. We will discuss the WAL
+    mode in more detail later in this section. The following code shows the dependency
+    you need to add to the build file of your application in order to use the Cassandra
+    sink connector:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了在恢复期间防止时间不一致性并为具有非确定性应用逻辑的应用程序提供确切一次的输出保证，Flink的Cassandra连接器可以配置为利用WAL。我们稍后在本节中会详细讨论WAL模式。以下代码显示了您需要在应用程序的构建文件中添加的依赖项，以使用Cassandra
+    sink连接器：
+- en: '[PRE7]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: To illustrate the use of the Cassandra sink connector, we use the simple example
+    of a Cassandra table that holds data about sensor readings and consists of two
+    columns, `sensorId` and `temperature`. The CQL statements in [Example 8-6](#code-cassandra-example)
+    create a keyspace “example” and a table “sensors” in that keyspace.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明Cassandra sink连接器的使用，我们使用一个简单的示例，展示一个包含传感器读数数据的Cassandra表，由`sensorId`和`temperature`两列组成。在[示例
+    8-6](#code-cassandra-example)中的CQL语句创建了一个名为“example”的键空间和一个名为“sensors”的表。
+- en: Example 8-6\. Defining a Cassandra example table
+  id: totrans-151
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-6\. 定义一个Cassandra示例表
+- en: '[PRE8]'
+  id: totrans-152
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Flink provides different sink implementations to write data streams of different
+    data types to Cassandra. Flink’s Java tuples and `Row` type and Scala’s built-in
+    tuples and case classes are handled differently than user-defined POJO types.
+    We discuss both cases separately. [Example 8-7](#code-create-cassandra-tuple-sink) shows
+    how to create a sink that writes a `DataStream` of tuples, case classes, or rows
+    into a Cassandra table. In this example, a `DataStream[(String, Float)]` is written
+    into the “sensors” table.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了不同的 sink 实现，用于将不同数据类型的数据流写入 Cassandra。Flink 的 Java 元组和 `Row` 类型以及 Scala
+    的内置元组和案例类与用户定义的 POJO 类型处理方式不同。我们分别讨论这两种情况。示例 [8-7](#code-create-cassandra-tuple-sink)
+    展示了如何创建一个将 `DataStream[(String, Float)]` 写入“sensors”表的 sink。
+- en: Example 8-7\. Creating a Cassandra sink for tuples
+  id: totrans-154
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-7\. 为元组创建一个 Cassandra sink
+- en: '[PRE9]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: Cassandra sinks are created and configured using a builder that is obtained
+    by calling the `CassandraSink.addSink()` method with the `DataStream` object that
+    should be emitted. The method returns the right builder for the data type of the
+    `DataStream`. In [Example 8-7](#code-create-cassandra-tuple-sink), it returns
+    a builder for a Cassandra sink that handles Scala tuples.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cassandra sink 使用通过调用 `CassandraSink.addSink()` 方法并传入应发出的 `DataStream` 对象来获取的构建器进行创建和配置。该方法返回适合
+    `DataStream` 数据类型的正确构建器。在示例 [8-7](#code-create-cassandra-tuple-sink) 中，它返回一个处理
+    Scala 元组的 Cassandra sink 构建器。
+- en: The Cassandra sink builders for tuples, case classes, and rows require the specification
+    of a CQL INSERT query.^([5](ch08.html#idm45498995771800)) The query is configured
+    using the `CassandraSinkBuilder.setQuery()` method. During execution, the sink
+    registers the query as a prepared statement and converts the fields of tuples,
+    case classes, or rows into parameters for the prepared statement. The fields are
+    mapped to the parameters based on their position; the first value is converted
+    to the first parameter and so on.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了元组、案例类和行创建的 Cassandra sink 构建器需要指定 CQL INSERT 查询。^([5](ch08.html#idm45498995771800))
+    该查询使用 `CassandraSinkBuilder.setQuery()` 方法进行配置。在执行期间，sink 将查询注册为准备好的语句，并将元组、案例类或行的字段转换为准备好的语句的参数。根据它们的位置将字段映射到参数；第一个值转换为第一个参数，依此类推。
+- en: Since POJO fields do not have a natural order, they need to be treated differently. [Example 8-8](#code-create-cassandra-pojo-sink)
+    shows how to configure a Cassandra sink for a POJO of type `SensorReading`.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 POJO 字段没有自然顺序，它们需要进行不同的处理。示例 [8-8](#code-create-cassandra-pojo-sink) 展示了如何为类型为
+    `SensorReading` 的 POJO 配置 Cassandra sink。
+- en: Example 8-8\. Create a Cassandra sink for POJOs
+  id: totrans-159
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-8\. 为 POJO 创建一个 Cassandra sink
+- en: '[PRE10]'
+  id: totrans-160
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: As you can see in [Example 8-8](#code-create-cassandra-pojo-sink), we do not
+    specify an INSERT query. Instead, POJOs are handed to Cassandra’s Object Mapper,
+    which automatically maps POJO fields to fields of a Cassandra table. In order
+    for this to work, the POJO class and its fields need to be annotated with Cassandra
+    annotations and provide setters and getters for all fields as shown in [Example 8-9](#code-cassandra-pojo).
+    The default constructor is required by Flink as mentioned in [“Supported Data
+    Types”](ch05.html#chap-5-supported-types) when discussing supported data types.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您在示例 [8-8](#code-create-cassandra-pojo-sink) 中所看到的，我们并未指定 INSERT 查询。相反，POJO
+    交给了 Cassandra 的对象映射器，后者会自动将 POJO 字段映射到 Cassandra 表的字段。为了使其正常工作，需要使用 Cassandra
+    注解对 POJO 类及其字段进行注释，并为所有字段提供如示例 [8-9](#code-cassandra-pojo) 所示的设置器和获取器。在讨论支持的数据类型时，Flink
+    要求使用默认构造函数，如 [“支持的数据类型”](ch05.html#chap-5-supported-types) 中所述。
+- en: Example 8-9\. POJO class with Cassandra Object Mapper annotations
+  id: totrans-162
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-9\. 带有 Cassandra 对象映射器注解的 POJO 类
+- en: '[PRE11]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'In addition to the configuration options in Figures [8-7](#code-create-cassandra-tuple-sink)
+    and [8-8](#code-create-cassandra-pojo-sink), a Cassandra sink builder provides
+    a few more methods to configure the sink connector:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了图 [8-7](#code-create-cassandra-tuple-sink) 和图 [8-8](#code-create-cassandra-pojo-sink)
+    中的配置选项外，Cassandra sink 构建器提供了一些额外的方法来配置 sink 连接器：
+- en: '`setClusterBuilder(ClusterBuilder)`: The `ClusterBuilder` builds a Cassandra
+    `Cluster` that manages the connection to Cassandra. Among other options, it can
+    configure the hostnames and ports of one or more contact points; define load balancing,
+    retry, and reconnection policies; and provide access credentials.'
+  id: totrans-165
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`setClusterBuilder(ClusterBuilder)`: `ClusterBuilder` 构建了一个管理与 Cassandra 的连接的
+    Cassandra `Cluster`。除了其他选项外，它可以配置一个或多个联系点的主机名和端口；定义负载均衡、重试和重新连接策略；并提供访问凭据。'
+- en: '`setHost(String, [Int])`: This method is a shortcut for a simple `ClusterBuilder`
+    configured with the hostname and port of a single contact point. If no port is
+    configured, Cassandra’s default port 9042 is used.'
+  id: totrans-166
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`setHost(String, [Int])`: 这个方法是一个简化版的`ClusterBuilder`，配置了单个联系点的主机名和端口。如果未配置端口，则使用Cassandra的默认端口9042。'
+- en: '`setQuery(String)`: This specifies the CQL INSERT query to write tuples, case
+    classes, or rows to Cassandra. A query must not be configured to emit POJOs.'
+  id: totrans-167
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`setQuery(String)`: 这指定了CQL INSERT查询，用于将元组、case类或行写入Cassandra。查询不能配置为发射POJO。'
+- en: '`setMapperOptions(MapperOptions)`: This provides options for Cassandra’s Object
+    Mapper, such as configurations for consistency, time-to-live (TTL), and null field
+    handling. The options are ignored if the sink emits tuples, case classes, or rows.'
+  id: totrans-168
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`setMapperOptions(MapperOptions)`: 这为Cassandra的对象映射器提供选项，如一致性配置、生存时间（TTL）和空字段处理。如果接收器发射元组、case类或行，则选项将被忽略。'
+- en: '`enableWriteAheadLog([CheckpointCommitter])`: This enables the WAL to provide
+    exactly-once output guarantees in the case of nondeterministic application logic.
+    `CheckpointCommitter` is used to store information about completed checkpoints
+    in an external datastore. If no `CheckpointCommitter` is configured, the information
+    is written into a specific Cassandra table.'
+  id: totrans-169
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`enableWriteAheadLog([CheckpointCommitter])`: 这启用了WAL，在非确定性应用逻辑的情况下提供了精确一次性输出保证。`CheckpointCommitter`用于将已完成检查点的信息存储在外部数据存储中。如果未配置`CheckpointCommitter`，则将信息写入特定的Cassandra表中。'
+- en: The Cassandra sink connector with WAL is implemented based on Flink’s `GenericWriteAheadSink`
+    operator. How this operator works, including the role of the `CheckpointCommitter`,
+    and which consistency guarantees it provides, is described in more detail in [“Transactional
+    Sink Connectors”](#chap-8-trans-sink).
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于Flink的`GenericWriteAheadSink`运算符实现了带WAL的Cassandra接收器连接器。关于这个运算符的工作方式，包括`CheckpointCommitter`的角色以及提供的一致性保证，在
+    [“事务性接收器连接器”](#chap-8-trans-sink) 中有更详细的描述。
+- en: Implementing a Custom Source Function
+  id: totrans-171
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实现自定义源函数
+- en: 'The DataStream API provides two interfaces to implement source connectors along
+    with corresponding `RichFunction` abstract classes:'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: DataStream API 提供了两个接口来实现源连接器，以及相应的`RichFunction`抽象类：
+- en: '`SourceFunction` and `RichSourceFunction` can be used to define nonparallel
+    source connectors—sources that run with a single task.'
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`SourceFunction`和`RichSourceFunction`可以用来定义非并行源连接器，即运行单个任务的源。'
+- en: '`ParallelSourceFunction` and `RichParallelSourceFunction` can be used to define
+    source connectors that run with multiple parallel task instances.'
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`ParallelSourceFunction`和`RichParallelSourceFunction`可用于定义使用多个并行任务实例运行的源连接器。'
+- en: With the exception of being nonparallel and parallel, both interfaces are identical.
+    Just like the rich variants of processing functions,^([6](ch08.html#idm45498995563064))
+    subclasses of `RichSourceFunction` and `RichParallelSourceFunction` can override
+    the `open()` and `close()` methods and access a `RuntimeContext` that provides
+    the number of parallel task instances and the index of the current instance, among
+    other things.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了非并行和并行之外，两个接口是相同的。就像处理函数的富变体一样，`RichSourceFunction`和`RichParallelSourceFunction`的子类可以重写`open()`和`close()`方法，并访问提供并行任务实例数及当前实例索引等信息的`RuntimeContext`。
+- en: '`SourceFunction` and `ParallelSourceFunction` define two methods:'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SourceFunction`和`ParallelSourceFunction`定义了两种方法：'
+- en: '`void run(SourceContext<T> ctx)`'
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`void run(SourceContext<T> ctx)`'
+- en: '`void cancel()`'
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`void cancel()`'
+- en: The `run()` method is doing the actual work of reading or receiving records
+    and ingesting them into a Flink application. Depending on the system from which
+    the data is received, the data might be pushed or pulled. The `run()` method is
+    called once by Flink and runs in a dedicated source thread, typically reading
+    or receiving data and emitting records in an endless loop (infinite stream). The
+    task can be explicitly canceled at some point in time or terminated in the case
+    of a finite stream when the input is fully consumed.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`run()` 方法实际上是读取或接收记录并将其输入到Flink应用程序的工作。根据数据来源系统的不同，数据可能是推送或拉取的。`run()` 方法由Flink调用一次，并在专用源线程中运行，通常以无限循环（无限流）读取或接收数据并发出记录。任务可以在某个时间点被显式取消，或者在输入完全消耗时终止，例如有限流的情况。'
+- en: The `cancel()` method is invoked by Flink when the application is canceled and
+    shut down. In order to perform a graceful shutdown, the `run()` method, which
+    runs in a separate thread, should terminate as soon as the `cancel()` method is
+    called. [Example 8-10](#code-simple-custom-source) shows a simple source function
+    that counts from 0 to `Long.MaxValue`.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当应用程序被取消并关闭时，Flink会调用`cancel()`方法。为了执行优雅的关闭，运行在单独线程中的`run()`方法应该在调用`cancel()`方法时立即终止。[示例 8-10](#code-simple-custom-source)展示了一个从0计数到`Long.MaxValue`的简单源函数。
+- en: Example 8-10\. SourceFunction that counts to Long.MaxValue
+  id: totrans-181
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-10\. 计数到 Long.MaxValue 的SourceFunction
+- en: '[PRE12]'
+  id: totrans-182
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Resettable Source Functions
+  id: totrans-183
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 可重置的源函数
+- en: Earlier in this chapter we explained that Flink can only provide satisfying
+    consistency guarantees for applications that use source connectors that can replay
+    their output data. A source function can replay its output if the external system
+    that provides the data exposes an API to retrieve and reset a reading offset.
+    Examples of such systems are filesystems that provide the offset of a file stream
+    and a seek method to move a file stream to a specific position or Apache Kafka,
+    which provides offsets for each partition of a topic and can set the reading position
+    of a partition. A counterexample is a source connector that reads data from a
+    network socket, which immediately discards delivered the data.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章前面我们解释过，Flink只能为使用可以重放其输出数据的源连接器的应用程序提供满意的一致性保证。如果外部系统提供数据的源函数暴露了检索和重置读取偏移的API，则源函数可以重放其输出。此类系统的示例包括提供文件流的偏移和用于将文件流移动到特定位置的查找方法的文件系统，以及为主题的每个分区提供偏移并可以设置分区读取位置的Apache
+    Kafka。相反的例子是从网络套接字读取数据的源连接器，它会立即丢弃传递的数据。
+- en: A source function that supports output replay needs to be integrated with Flink’s
+    checkpointing mechanism and must persist all current reading positions when a
+    checkpoint is taken. When the application is started from a savepoint or recovers
+    from a failure, the reading offsets are retrieved from the latest checkpoint or
+    savepoint. If the application is started without existing state, the reading offsets
+    must be set to a default value. A resettable source function needs to implement
+    the `CheckpointedFunction` interface and should store the reading offsets and
+    all related meta information, such as file paths or partition ID, in operator
+    list state or operator union list state depending on how the offsets should be
+    distributed to parallel task instances in the case of a rescaled application.
+    See [“Scaling Stateful Operators”](ch03.html#chap-3-scaling-stateful) for details
+    on the distribution behavior of operator list state and union list state.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 支持输出重播的源函数需要与Flink的检查点机制集成，并且在进行检查点时必须持久化所有当前的读取位置。当应用程序从保存点启动或从故障中恢复时，读取偏移会从最新的检查点或保存点中检索。如果应用程序在没有现有状态的情况下启动，则必须将读取偏移设置为默认值。可重置的源函数需要实现`CheckpointedFunction`接口，并应该将读取偏移和所有相关的元信息（例如文件路径或分区ID）存储在操作符列表状态或操作符联合列表状态中，具体取决于在重新缩放应用程序的情况下如何分发偏移。有关操作符列表状态和联合列表状态的分发行为详情，请参见[“扩展有状态操作符”](ch03.html#chap-3-scaling-stateful)。
+- en: In addition, it is important to ensure that the `SourceFunction.run()` method,
+    which runs in a separate thread, does not advance the reading offset and emit
+    data while a checkpoint is taken; in other words, while the `CheckpointedFunction.snapshotState()`
+    method is called. This is done by guarding the code in `run()` that advances the
+    reading position and emits records in a block that synchronizes on a lock object,
+    which is obtained from the `SourceContext.getCheckpointLock()` method. [Example 8-11](#code_resettable-source-function)
+    makes the `CountSource` of [Example 8-10](#code-simple-custom-source) resettable.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，确保在进行检查点时不会在`SourceFunction.run()`方法中推进读取偏移并发出数据非常重要；换句话说，在调用`CheckpointedFunction.snapshotState()`方法时也是如此。这是通过在在一个同步于从`SourceContext.getCheckpointLock()`方法获取的锁对象上的代码中保护推进读取位置和发出记录的代码块来实现的。[示例 8-11](#code_resettable-source-function)展示了如何使得 [示例 8-10](#code-simple-custom-source)中的`CountSource`可重置。
+- en: Example 8-11\. A resettable SourceFunction
+  id: totrans-187
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-11\. 可重置的SourceFunction
+- en: '[PRE13]'
+  id: totrans-188
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Source Functions, Timestamps, and Watermarks
+  id: totrans-189
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 源函数、时间戳和水印
+- en: Another important aspect of source functions are timestamps and watermarks.
+    As pointed out in [“Event-Time Processing”](ch03.html#chap-3-event-time) and [“Assigning
+    Timestamps and Generating Watermarks”](ch06.html#chap-6-timestamps), the DataStream
+    API provides two options to assign timestamps and generate watermarks. Timestamps
+    and watermarks can be assigned and generate by a dedicated `TimestampAssigner`
+    (see [“Assigning Timestamps and Generating Watermarks”](ch06.html#chap-6-timestamps)
+    for details) or be assigned and generated by a source function.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 源函数的另一个重要方面是时间戳和水印。如[“事件时间处理”](ch03.html#chap-3-event-time)和[“分配时间戳和生成水印”](ch06.html#chap-6-timestamps)所指出的，DataStream
+    API提供了两种选项来分配时间戳和生成水印。可以通过专用的`TimestampAssigner`（详见[“分配时间戳和生成水印”](ch06.html#chap-6-timestamps)）分配和生成时间戳和水印，或者由源函数分配和生成。
+- en: 'A source function assigns timestamps and emits watermarks through its `SourceContext`
+    object. `SourceContext` provides the following methods:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 源函数通过其`SourceContext`对象分配时间戳并发出水印。`SourceContext`提供以下方法：
+- en: '`def collectWithTimestamp(T record, long timestamp): Unit`'
+  id: totrans-192
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`def collectWithTimestamp(T record, long timestamp): Unit`'
+- en: '`def emitWatermark(Watermark watermark): Unit`'
+  id: totrans-193
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`def emitWatermark(Watermark watermark): Unit`'
+- en: '`collectWithTimestamp()` emits a record with its associated timestamp and `emitWatermark()`
+    emits the provided watermark.'
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`collectWithTimestamp()`以其关联的时间戳发出记录，而`emitWatermark()`则发出提供的水印。'
+- en: Besides removing the need for an additional operator, assigning timestamps and
+    generating watermarks in a source function can be beneficial if one parallel instance
+    of a source function consumes records from multiple stream partitions, such as
+    partitions of a Kafka topic. Typically, external systems, such as Kafka, only
+    guarantee message order within a stream partition. Given the case of a source
+    function operator that runs with a parallelism of two and that reads data from
+    a Kafka topic with six partitions, each parallel instance of the source function
+    will read records from three Kafka topic partitions. Consequently, each instance
+    of the source function multiplexes the records of three stream partitions to emit
+    them. Multiplexing records most likely introduces additional out-of-orderness
+    with respect to the event-time timestamps such that a downstream timestamp assigner
+    might produce more late records than expected.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了消除额外运算符的需求之外，在源函数中分配时间戳和生成水印还具有以下好处，例如，如果源函数的一个并行实例从多个流分区中消费记录，比如Kafka主题的分区。通常情况下，如Kafka之类的外部系统只能保证流分区内的消息顺序。考虑到源函数操作符的并行度为2，并从具有六个分区的Kafka主题读取数据的情况，则源函数的每个并行实例将从三个Kafka主题分区中读取记录。因此，源函数的每个实例复用三个流分区的记录来发出它们。复用记录很可能会引入与事件时间时间戳相关的额外无序性，从而导致下游时间戳分配器产生比预期更多的延迟记录。
+- en: To avoid such behavior, a source function can generate watermarks for each stream
+    partition independently and always emit the smallest watermark of its partitions
+    as its watermark. This way, it can ensure that the order guarantees on each partition
+    are leveraged and no unnecessary late records are emitted.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为避免这种行为，源函数可以为每个流分区独立生成水印，并始终将其分区的最小水印作为其水印发出。这样可以确保在每个分区上的顺序保证被利用，且不会发出不必要的延迟记录。
+- en: Another problem source functions have to deal with are instances that become
+    idle and do not emit anymore data. This can be very problematic, because it may
+    prevent the whole application from advancing its watermarks and hence lead to
+    a stalling application. Since watermarks should be data driven, a watermark generator
+    (either integrated in a source function or in a timestamp assigner) will not emit
+    new watermarks if it does not receive input records. If you look at how Flink
+    propagates and updates watermarks (see [“Watermark Propagation and Event Time”](ch03.html#chap-3-watermark-propagation)),
+    you can see that a single operator that does not advance watermarks can grind
+    all watermarks of an application to a halt if the application involves a shuffle
+    operation (`keyBy()`, `rebalance()`, etc.).
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 源函数必须处理的另一个问题是那些变得空闲且不再发出数据的实例。这可能非常棘手，因为它可能阻止整个应用程序推进其水印，从而导致应用程序停滞。由于水印应该是数据驱动的，水印生成器（无论是集成在源函数中还是在时间戳分配器中）如果没有收到输入记录，则不会发出新的水印。如果查看Flink如何传播和更新水印（参见[“水印传播和事件时间”](ch03.html#chap-3-watermark-propagation)），您可以看到，如果应用程序涉及到分区操作（`keyBy()`、`rebalance()`等），单个不推进水印的操作符可能会使应用程序的所有水印都停滞。
+- en: Flink provides a mechanism to avoid such situations by marking source functions
+    as temporarily idle. While being idle, Flink’s watermark propagation mechanism
+    will ignore the idle stream partition. The source is automatically set as active
+    as soon as it starts to emit records again. A source function can decide when
+    to mark itself as idle and does so by calling the method `SourceContext.markAsTemporarilyIdle()`.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink通过将源函数标记为临时空闲的机制来避免这种情况。在空闲时，Flink的水印传播机制将忽略空闲的流分区。一旦源函数重新开始发出记录，源就会自动设置为活动状态。源函数可以通过调用方法`SourceContext.markAsTemporarilyIdle()`来决定何时将自己标记为空闲。
+- en: Implementing a Custom Sink Function
+  id: totrans-199
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实现自定义的Sink函数
+- en: 'In Flink’s DataStream API, any operator or function can send data to an external
+    system or application. A `DataStream` does not have to eventually flow into a
+    sink operator. For instance, you could implement a `FlatMapFunction` that emits
+    each incoming record via an HTTP POST call and not via its `Collector`. Nonetheless,
+    the DataStream API provides a dedicated `SinkFunction` interface and a corresponding
+    `RichSinkFunction` abstract class.^([7](ch08.html#idm45498995156248)) The `SinkFunction`
+    interface provides a single method:'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Flink的DataStream API中，任何操作符或函数都可以向外部系统或应用程序发送数据。一个`DataStream`不一定要最终流向一个sink操作符。例如，您可以实现一个`FlatMapFunction`，通过HTTP
+    POST调用将每个传入的记录发送出去，而不是通过其`Collector`。尽管如此，DataStream API提供了一个专用的`SinkFunction`接口和一个相应的`RichSinkFunction`抽象类。^([7](ch08.html#idm45498995156248))
+    `SinkFunction`接口提供了一个方法：
+- en: '`void invoke(IN value, Context ctx)`'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`void invoke(IN value, Context ctx)`'
+- en: The `Context` object of `SinkFunction` provides access to the current processing
+    time, the current watermark (i.e., the current event time at the sink), and the
+    timestamp of the record.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`SinkFunction`的`Context`对象提供了当前处理时间，当前水印（即在sink端的当前事件时间）以及记录的时间戳的访问权限。'
+- en: '[Example 8-12](#code_simple-sink-function) shows a simple `SinkFunction` that
+    writes sensor readings to a socket. Note that you need to start a process that
+    listens on the socket before starting the program. Otherwise, the program fails
+    with a `ConnectException` because a connection to the socket could not be opened.
+    Run the command `nc -l localhost 9191` on Linux to listen on localhost:9191.'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-12](#code_simple-sink-function)展示了一个简单的`SinkFunction`，将传感器读数写入到一个socket中。请注意，在启动程序之前，您需要启动一个监听socket的进程。否则，程序会因为无法打开到socket的连接而失败，抛出`ConnectException`。在Linux上运行命令`nc
+    -l localhost 9191`来监听localhost:9191。'
+- en: Example 8-12\. A simple SinkFunction that writes to a socket
+  id: totrans-204
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-12\. 一个简单的SinkFunction，将数据写入到socket中
+- en: '[PRE14]'
+  id: totrans-205
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: As discussed, the end-to-end consistency guarantees of an application depend
+    on the properties of its sink connectors. In order to achieve end-to-end exactly-once
+    semantics, an application requires either idempotent or transactional sink connectors.
+    The `SinkFunction` in [Example 8-12](#code_simple-sink-function) neither performs
+    idempotent writes nor features transactional writes. Due to the append-only characteristic
+    of a socket, it is not possible to perform idempotent writes. Since a socket does
+    not have built-in transactional support, transactional writes can only be done
+    using Flink’s generic WAL sink. In the following sections, you will learn how
+    to implement idempotent or transactional sink connectors.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如讨论的那样，一个应用程序的端到端一致性保证取决于其sink连接器的属性。为了实现端到端的精确一次语义，一个应用程序需要具有幂等或事务性的sink连接器。示例 8-12中的`SinkFunction`既不执行幂等写入，也不支持事务性写入。由于socket的特性是仅追加，无法执行幂等写入。由于socket不具备内置的事务支持，只能使用Flink的通用WAL
+    sink来执行事务性写入。在接下来的几节中，您将学习如何实现幂等或事务性的sink连接器。
+- en: Idempotent Sink Connectors
+  id: totrans-207
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 幂等的Sink连接器
+- en: 'For many applications, the `SinkFunction` interface is sufficient to implement
+    an idempotent sink connector. This is possible if the following two properties
+    hold:'
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于许多应用程序来说，`SinkFunction`接口足以实现一个幂等的sink连接器。这是可能的，如果满足以下两个属性：
+- en: The result data has a deterministic (composite) key, on which idempotent updates
+    can be performed. For an application that computes the average temperature per
+    sensor and minute, a deterministic key could be the ID of the sensor and the timestamp
+    for each minute. Deterministic keys are important to ensure all writes are correctly
+    overwritten in case of a recovery.
+  id: totrans-209
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 结果数据具有确定性（组合）键，可以在其上执行幂等更新。对于计算每个传感器和每分钟的平均温度的应用程序，确定性键可以是传感器的ID和每分钟的时间戳。确定性键对于确保在恢复时正确覆盖所有写入非常重要。
+- en: The external system supports updates per key, such as a relational database
+    system or a key-value store.
+  id: totrans-210
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 外部系统支持按键更新，如关系数据库系统或键值存储。
+- en: '[Example 8-13](#code_idempotent-sink) illustrates how to implement and use
+    an idempotent `SinkFunction` that writes to a JDBC database, in this case an embedded
+    Apache Derby database.'
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-13](#code_idempotent-sink)展示了如何实现和使用一个幂等的`SinkFunction`，用于写入到JDBC数据库，本例中为内置的Apache
+    Derby数据库。'
+- en: Example 8-13\. An idempotent SinkFunction that writes to a JDBC database
+  id: totrans-212
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-13\. 一个幂等的SinkFunction，用于向JDBC数据库写入
+- en: '[PRE15]'
+  id: totrans-213
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: Since Apache Derby does not provide a built-in `UPSERT` statement, the example
+    sink performs `UPSERT` writes by first trying to update a row and inserting a
+    new row if no row with the given key exists. The Cassandra sink connector follows
+    the same approach when the WAL is not enabled.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Apache Derby没有提供内置的`UPSERT`语句，示例的sink在首先尝试更新行并在给定键不存在行时插入新行的情况下执行`UPSERT`写入操作。当WAL未启用时，Cassandra
+    sink连接器采用相同的方法。
+- en: Transactional Sink Connectors
+  id: totrans-215
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务性Sink连接器
+- en: Whenever an idempotent sink connector is not suitable, either the characteristics
+    of the application’s output, the properties of the required sink system, or due
+    to stricter consistency requirements, transactional sink connectors can be an
+    alternative. As described before, transactional sink connectors need to be integrated
+    with Flink’s checkpointing mechanism because they may only commit data to the
+    external system when a checkpoint completes successfully.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每当幂等的sink连接器不适用时，无论是应用程序输出的特性、所需sink系统的属性，还是由于更严格的一致性要求，事务性sink连接器都可以作为一种选择。如前所述，事务性sink连接器需要与Flink的检查点机制集成，因为它们只有在检查点成功完成时才能将数据提交到外部系统。
+- en: 'In order to ease the implementation of transactional sinks, Flink’s DataStream
+    API provides two templates that can be extended to implement custom sink operators.
+    Both templates implement the `CheckpointListener` interface to receive notifications
+    from the JobManager about completed checkpoints (see [“Receiving Notifications
+    About Completed Checkpoints”](ch07.html#chap-7-checkpoint-notifier) for details
+    about the interface):'
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了简化事务性sink的实现，Flink的DataStream API提供了两个模板，可以扩展为实现自定义sink运算符。这两个模板都实现了`CheckpointListener`接口，用于接收来自JobManager关于已完成检查点的通知（有关接口详细信息，请参见[“接收有关已完成检查点的通知”](ch07.html#chap-7-checkpoint-notifier)）：
+- en: The `GenericWriteAheadSink` template collects all outgoing records per checkpoint
+    and stores them in the operator state of the sink task. The state is checkpointed
+    and recovered in the case of a failure. When a task receives a checkpoint completion
+    notification, it writes the records of the completed checkpoints to the external
+    system. The Cassandra sink connector with WAL-enabled implements this interface.
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`GenericWriteAheadSink`模板会收集每个检查点的所有出站记录，并将它们存储在sink任务的操作状态中。在发现任务接收到检查点完成通知时，它会将已完成检查点的记录写入到外部系统。启用了WAL的Cassandra
+    sink连接器实现了此接口。'
+- en: The `TwoPhaseCommitSinkFunction` template leverages transactional features of
+    the external sink system. For every checkpoint, it starts a new transaction and
+    writes all following records to the sink system in the context of the current
+    transaction. The sink commits a transaction when it receives the completion notification
+    of the corresponding checkpoint.
+  id: totrans-219
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`TwoPhaseCommitSinkFunction`模板利用外部sink系统的事务特性。对于每个检查点，它启动一个新事务，并在当前事务的上下文中将所有后续记录写入到sink系统。当接收到相应检查点的完成通知时，sink会提交事务。'
+- en: In the following, we describe both interfaces and their consistency guarantees.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们将描述两种接口及其一致性保证。
+- en: GenericWriteAheadSink
+  id: totrans-221
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: GenericWriteAheadSink
+- en: '`GenericWriteAheadSink` eases the implementation of sink operators with improved
+    consistency properties. The operator is integrated with Flink’s checkpointing
+    mechanism and aims to write each record exactly once to an external system. However,
+    you should be aware that failure scenarios exist in which a write-ahead log sink
+    emits records more than once. Hence, a `GenericWriteAheadSink` does not provide
+    bulletproof exactly-once guarantees but only at-least-once guarantees. We will
+    discuss these scenarios in more detail later in this section.'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`GenericWriteAheadSink`简化了具有改进一致性属性的sink运算符的实现。该运算符集成了Flink的检查点机制，并旨在将每条记录仅写入外部系统一次。但是，请注意，在某些故障场景中，写前日志sink可能会多次发出记录。因此，`GenericWriteAheadSink`不能提供百分之百的恰好一次保证，只能提供至少一次保证。我们将在本节的后续部分详细讨论这些场景。'
+- en: '`GenericWriteAheadSink` works by appending all received records to a write-ahead
+    log that is segmented by checkpoints. Every time the sink operator receives a
+    checkpoint barrier, it starts a new section and all the following records are
+    appended to the new section. The WAL is stored and checkpointed as operator state.
+    Since the log will be recovered, no records will be lost in the case of a failure.'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`GenericWriteAheadSink`通过将所有接收到的记录追加到以检查点为分段的预写式日志中来工作。每当sink操作符接收到检查点屏障时，它就会开始一个新的段，并且所有后续记录都追加到新的段中。WAL作为操作符状态存储和检查点。由于日志将被恢复，在发生故障的情况下不会丢失任何记录。'
+- en: When `GenericWriteAheadSink` receives a notification about a completed checkpoint,
+    it emits all records that are stored in the WAL in the segment corresponding to
+    the successful checkpoint. Depending on the concrete implementation of the sink
+    operator, the records can be written to any kind of storage or message system.
+    When all records have been successfully emitted, the corresponding checkpoint
+    must be internally committed.
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当`GenericWriteAheadSink`接收到有关已完成检查点的通知时，它会发射存储在WAL中与成功检查点对应的段中的所有记录。根据sink操作符的具体实现，记录可以写入任何类型的存储或消息系统。当所有记录成功发射后，相应的检查点必须在内部提交。
+- en: A checkpoint is committed in two steps. First, the sink persistently stores
+    the information that the checkpoint was committed and secondly it removes the
+    records from the WAL. It is not possible to store the commit information in Flink’s
+    application state because it is not persistent and would be reset in case of a
+    failure. Instead, `GenericWriteAheadSink` relies on a pluggable component called
+    `CheckpointCommitter` to store and look up information about committed checkpoints
+    in an external persistent storage. For example, the Cassandra sink connector by
+    default uses a `CheckpointCommitter` that writes to Cassandra.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点在两个步骤中被提交。首先，sink持久存储检查点已提交的信息，其次将记录从WAL中删除。不可能将提交信息存储在Flink的应用程序状态中，因为它不是持久的，并且在发生故障时将被重置。相反，`GenericWriteAheadSink`依赖于一个可插拔的组件称为`CheckpointCommitter`，用于在外部持久存储中存储和查找已提交检查点的信息。例如，默认情况下，Cassandra
+    sink连接器使用一个写入Cassandra的`CheckpointCommitter`。
+- en: 'Thanks to the built-in logic of `GenericWriteAheadSink`, it is not difficult
+    to implement a sink that leverages a WAL. Operators that extend `GenericWriteAheadSink`
+    need to provide three constructor parameters:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于`GenericWriteAheadSink`内置的逻辑，实现利用WAL的sink并不困难。扩展`GenericWriteAheadSink`的操作符需要提供三个构造参数：
+- en: A `CheckpointCommitter` as discussed before
+  id: totrans-227
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如前所述的`CheckpointCommitter`
+- en: A `TypeSerializer` to serialize the input records
+  id: totrans-228
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 用于序列化输入记录的`TypeSerializer`
+- en: A job ID that is passed to the `CheckpointCommitter` to identify commit information
+    across application restarts
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 作业ID会传递给`CheckpointCommitter`，以便在应用程序重启时标识提交信息
+- en: 'Moreover, the write-ahead operator needs to implement a single method:'
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，预写式操作符需要实现一个单一方法：
+- en: '[PRE16]'
+  id: totrans-231
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: '`GenericWriteAheadSink` calls the `sendValues()` method to write the records
+    of a completed checkpoint to the external storage system. The method receives
+    an `Iterable` over all records of a checkpoint, the ID of the checkpoint, and
+    the timestamp of when the checkpoint was taken. The method must return `true`
+    if all writes succeeded and `false` if a write failed.'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`GenericWriteAheadSink`调用`sendValues()`方法将完成检查点的所有记录写入外部存储系统。该方法接收一个检查点中所有记录的可迭代对象，检查点的ID以及检查点被获取的时间戳。如果所有写入都成功，则该方法必须返回`true`，如果写入失败，则返回`false`。'
+- en: '[Example 8-14](#code_wal-sink) shows the implementation of a write-ahead sink
+    that writes to the standard output. It uses `FileCheckpointCommitter`, which we
+    do not discuss here. You can look up its implementation in the repository that
+    contains the examples of the book.'
+  id: totrans-233
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 8-14](#code_wal-sink)展示了一个将数据写入标准输出的预写式sink的实现。它使用了`FileCheckpointCommitter`，这里不进行讨论。您可以在包含本书示例的存储库中查找其实现。'
+- en: Note
+  id: totrans-234
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that `GenericWriteAheadSink` does not implement the `SinkFunction` interface.
+    So, sinks that extend `GenericWriteAheadSink` cannot be added using `DataStream.addSink()`
+    but are attached using the `DataStream.transform()` method.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，`GenericWriteAheadSink`未实现`SinkFunction`接口。因此，扩展`GenericWriteAheadSink`的sink无法使用`DataStream.addSink()`添加，而是使用`DataStream.transform()`方法附加。
+- en: Example 8-14\. A WAL sink that writes to the standard output
+  id: totrans-236
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-14\. 向标准输出写入的WAL sink
+- en: '[PRE17]'
+  id: totrans-237
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: The examples repository contains an application that fails and recovers in regular
+    intervals to demonstrate the behavior of `StdOutWriteAheadSink` and a regular
+    `DataStream.print()` sink in case of failures.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 示例存储库包含一个应用程序，它定期失败和恢复，以演示 `StdOutWriteAheadSink` 和常规 `DataStream.print()` 汇聚在故障情况下的行为。
+- en: 'As mentioned earlier, `GenericWriteAheadSink` cannot provide bulletproof exactly-once
+    guarantees. There are two failure cases that can result in records being emitted
+    more than once:'
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，`GenericWriteAheadSink` 无法提供百分之百的精确一次性保证。有两种故障情况可能导致记录被多次发射：
+- en: The program fails while a task is running the `sendValues()` method. If the
+    external sink system cannot atomically write multiple records—either all or none—some
+    records might have been written and others not. Since the checkpoint was not committed
+    yet, the sink will write all records again during recovery.
+  id: totrans-240
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 当任务在运行 `sendValues()` 方法时程序失败。如果外部汇聚系统无法原子化地写入多条记录（要么全部写入，要么一个也不写入），那么可能会写入部分记录而其他记录未被写入。由于检查点尚未提交，因此在恢复期间，汇聚器将重新写入所有记录。
+- en: All records are correctly written and the `sendValues()` method returns true;
+    however, the program fails before `CheckpointCommitter` is called or `CheckpointCommitter`
+    fails to commit the checkpoint. During recovery, all records of not-yet-committed
+    checkpoints will be written again.
+  id: totrans-241
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 所有记录都已正确写入，`sendValues()` 方法返回 true；然而，在调用 `CheckpointCommitter` 或 `CheckpointCommitter`
+    未能提交检查点之前，程序失败。在恢复期间，所有未提交检查点的记录将再次写入。
+- en: Note
+  id: totrans-242
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that these failure scenarios do not affect the exactly-once guarantees
+    of the Cassandra sink connector because it performs UPSERT writes. The Cassandra
+    sink connector benefits from the WAL because it guards from nondeterministic keys
+    and prevents inconsistent writes to Cassandra.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，这些故障场景不会影响 Cassandra sink 连接器的精确一次性保证，因为它执行 UPSERT 写入。Cassandra sink 连接器受益于
+    WAL，因为它防止非确定性键，并防止向 Cassandra 写入不一致的内容。
+- en: TwoPhaseCommitSinkFunction
+  id: totrans-244
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: TwoPhaseCommitSinkFunction
+- en: 'Flink provides the `TwoPhaseCommitSinkFunction` interface to ease the implementation
+    of sink functions that provide end-to-end exactly-once guarantees. However, whether
+    a 2PC sink function provides such guarantees or not depends on the implementation
+    details. We start the discussion of this interface with a question: “Isn’t the
+    2PC protocol too expensive?”'
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了 `TwoPhaseCommitSinkFunction` 接口来简化提供端到端精确一次性保证的汇聚函数的实现。然而，一个 2PC 汇聚函数是否提供此类保证取决于实现细节。我们从一个问题开始讨论这个接口：“2PC
+    协议是否太昂贵？”
+- en: In general, 2PCs are an expensive approach to ensuring consistency in a distributed
+    system. However, in the context of Flink, the protocol is only run once for every
+    checkpoint. Moreover, the protocol of `TwoPhaseCommitSinkFunction` piggybacks
+    on Flink’s regular checkpointing mechanism and thus adds little overhead. The
+    `TwoPhaseCommitSinkFunction` works quite similar to the WAL sink, but it does
+    not collect records in Flink’s application state; rather, it writes them in an
+    open transaction to an external sink system.
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，2PC 是确保分布式系统一致性的昂贵方法。然而，在 Flink 的背景下，该协议仅在每次检查点时运行一次。此外，`TwoPhaseCommitSinkFunction`
+    协议依赖于 Flink 的常规检查点机制，因此增加的开销很小。`TwoPhaseCommitSinkFunction` 工作方式与 WAL sink 类似，但不会在
+    Flink 的应用状态中收集记录；相反，它会将它们作为开放事务写入外部汇聚系统。
+- en: The `TwoPhaseCommitSinkFunction` implements the following protocol. Before a
+    sink task emits its first record, it starts a transaction on the external sink
+    system. All subsequently received records are written in the context of the transaction.
+    The voting phase of the 2PC protocol starts when the JobManager initiates a checkpoint
+    and injects barriers in the sources of the application. When an operator receives
+    the barrier, it checkpoints it state and sends an acknowledgment message to the
+    JobManager once it is done. When a sink task receives the barrier, it persists
+    its state, prepares the current transaction for committing, and acknowledges the
+    checkpoint at the JobManager. The acknowledgment messages to the JobManager are
+    analogous to the commit vote of the textbook 2PC protocol. The sink task must
+    not yet commit the transaction, because it is not guaranteed that all tasks of
+    the job will complete their checkpoints. The sink task also starts a new transaction
+    for all records that arrive before the next checkpoint barrier.
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TwoPhaseCommitSinkFunction` 实现了以下协议。在接收端任务发出第一条记录之前，它会在外部接收系统上启动一个事务。随后接收到的所有记录都将在事务的上下文中写入。当
+    JobManager 启动检查点并在应用程序源头注入障碍时，2PC协议的投票阶段开始。当操作员接收到障碍时，它会检查其状态并在完成后向 JobManager
+    发送确认消息。当接收端任务接收到障碍时，它会持久化其状态，准备当前事务以供提交，并在 JobManager 处确认检查点。向 JobManager 发送的确认消息类似于教科书2PC协议的提交投票。接收端任务不应立即提交事务，因为不能保证作业的所有任务都会完成其检查点。接收端任务还会为在下一个检查点障碍之前到达的所有记录启动一个新事务。'
+- en: When the JobManager receives successful checkpoint notifications from all task
+    instances, it sends the checkpoint completion notification to all interested tasks.
+    This notification corresponds to the 2PC protocol’s commit command. When a sink
+    task receives the notification, it commits all open transactions of previous checkpoints.^([8](ch08.html#idm45498994288664))
+    Once a sink task acknowledges its checkpoint, it must be able to commit the corresponding
+    transaction, even in the case of a failure. If the transaction cannot be committed,
+    the sink loses data. An iteration of the 2PC protocol succeeds when all sink tasks
+    committed their transactions.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当 JobManager 收到所有任务实例的成功检查点通知时，它会向所有感兴趣的任务发送检查点完成通知。此通知对应于2PC协议中的提交命令。当接收到通知时，接收端任务会提交先前检查点的所有未完成事务。^([8](ch08.html#idm45498994288664))
+    一旦接收端任务确认其检查点，即使出现故障，也必须能够提交相应的事务。如果事务无法提交，则接收端会丢失数据。当所有接收端任务都提交了其事务时，2PC协议的一个迭代成功完成。
+- en: 'Let’s summarize the requirements for the external sink system:'
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们总结外部接收系统的要求：
+- en: The external sink system must provide transactional support or the sink must
+    be able to emulate transactions on the external system. Hence, the sink should
+    be able to write to the sink system, but the written data must not be made visible
+    to the outside before it is committed.
+  id: totrans-250
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 外部接收系统必须提供事务支持，或者接收端必须能够在外部系统上模拟事务。因此，接收端应能够写入接收系统，但在提交前写入的数据不能对外部可见。
+- en: A transaction must be open and accept writes for the duration of a checkpoint
+    interval.
+  id: totrans-251
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在检查点间隔期间，事务必须保持打开状态并接受写入。
+- en: A transaction must wait to be committed until a checkpoint completion notification
+    is received. In the case of a recovery cycle, this may take some time. If the
+    sink system closes a transaction (e.g., with a timeout), the not committed data
+    will be lost.
+  id: totrans-252
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 事务必须等待收到检查点完成通知后才能提交。在恢复周期中，这可能需要一些时间。如果接收系统关闭了一个事务（例如超时），未提交的数据将会丢失。
+- en: The sink must be able to recover a transaction after a process failed. Some
+    sink systems provide a transaction ID that can be used to commit or abort an open
+    transaction.
+  id: totrans-253
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 接收端必须能够在进程失败后恢复事务。一些接收系统提供了可以用于提交或中止未完成事务的事务ID。
+- en: Committing a transaction must be an idempotent operation—the sink or external
+    system should be able to notice that a transaction was already committed or a
+    repeated commit must have no effect.
+  id: totrans-254
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 提交事务必须是幂等操作 - 接收端或外部系统应该能够知道事务已经提交，或者重复提交不会产生影响。
+- en: The protocol and the requirements of the sink system might be easier to understand
+    by looking at a concrete example. [Example 8-15](#code_transactional-sink) shows
+    a `TwoPhaseCommitSinkFunction` that writes with exactly-once guarantees to a filesystem.
+    Essentially, this is a simplified version of the `BucketingFileSink` discussed
+    earlier.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过查看一个具体的示例，可以更容易理解接收器系统的协议和要求。在 [示例 8-15](#code_transactional-sink) 中展示了一个
+    `TwoPhaseCommitSinkFunction`，它向文件系统写入，保证了精确一次性。基本上，这是前面讨论的 `BucketingFileSink`
+    的简化版本。
+- en: Example 8-15\. A transactional sink that writes to files
+  id: totrans-256
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-15\. 一个写入文件的事务性接收器
+- en: '[PRE18]'
+  id: totrans-257
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: '`TwoPhaseCommitSinkFunction[IN, TXN, CONTEXT]` has three type parameters:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TwoPhaseCommitSinkFunction[IN, TXN, CONTEXT]` 有三个类型参数：'
+- en: '`IN` specifies the type of the input records. In [Example 8-15](#code_transactional-sink),
+    this is a `Tuple2` with a `String` and a `Double` field.'
+  id: totrans-259
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`IN` 指定了输入记录的类型。在 [示例 8-15](#code_transactional-sink) 中，这是一个 `Tuple2`，包含一个
+    `String` 和一个 `Double` 字段。'
+- en: '`TXN` defines a transaction identifier that can be used to identify and recover
+    a transaction after a failure. In [Example 8-15](#code_transactional-sink), this
+    is a string holding the name of the transaction file.'
+  id: totrans-260
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`TXN` 定义了一个事务标识符，用于在失败后识别和恢复事务。在 [示例 8-15](#code_transactional-sink) 中，这是一个字符串，保存着事务文件的名称。'
+- en: '`CONTEXT` defines an optional custom context. `TransactionalFileSink` in [Example 8-15](#code_transactional-sink)
+    does not need the context and hence sets the type to `Void`.'
+  id: totrans-261
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`CONTEXT` 定义了一个可选的自定义上下文。在 [示例 8-15](#code_transactional-sink) 中的 `TransactionalFileSink`
+    不需要上下文，因此将其类型设置为 `Void`。'
+- en: The constructor of `TwoPhaseCommitSinkFunction` requires two `TypeSerializer`—one
+    for the `TXN` type and the other for the `CONTEXT` type.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TwoPhaseCommitSinkFunction` 的构造函数需要两个 `TypeSerializer`，一个用于 `TXN` 类型，另一个用于
+    `CONTEXT` 类型。'
+- en: 'Finally, `TwoPhaseCommitSinkFunction` defines five functions that need to be
+    implemented:'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`TwoPhaseCommitSinkFunction` 最终定义了需要实现的五个函数：'
+- en: '`beginTransaction()`: `TXN` starts a new transaction and returns the transaction
+    identifier. `TransactionalFileSink` in [Example 8-15](#code_transactional-sink)
+    creates a new transaction file and returns its name as the identifier.'
+  id: totrans-264
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`beginTransaction()`: `TXN` 开始一个新事务并返回事务标识符。在 [示例 8-15](#code_transactional-sink)
+    中的 `TransactionalFileSink` 创建一个新的事务文件并返回其名称作为标识符。'
+- en: '`invoke(txn: TXN, value: IN, context: Context[_]): Unit` writes a value to
+    the current transaction. The sink in [Example 8-15](#code_transactional-sink)
+    appends the value as a `String` to the transaction file.'
+  id: totrans-265
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`invoke(txn: TXN, value: IN, context: Context[_]): Unit` 将一个值写入当前事务。在 [示例 8-15](#code_transactional-sink)
+    中的接收器将该值作为 `String` 追加到事务文件中。'
+- en: '`preCommit(txn: TXN): Unit` precommits a transaction. A precommitted transaction
+    may not receive further writes. Our implementation in [Example 8-15](#code_transactional-sink)
+    flushes and closes the transaction file.'
+  id: totrans-266
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`preCommit(txn: TXN): Unit` 预提交一个事务。预提交的事务将不会再接收到进一步的写入。我们在 [示例 8-15](#code_transactional-sink)
+    中的实现会刷新并关闭事务文件。'
+- en: '`commit(txn: TXN): Unit` commits a transaction. This operation must be idempotent—records
+    must not be written twice to the output system if this method is called twice.
+    In [Example 8-15](#code_transactional-sink), we check if the transaction file
+    still exists and move it to the target directory if that is the case.'
+  id: totrans-267
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`commit(txn: TXN): Unit` 提交一个事务。该操作必须幂等——如果多次调用该方法，记录不应被写入输出系统两次。在 [示例 8-15](#code_transactional-sink)
+    中，我们检查事务文件是否仍然存在，并在是这种情况下将其移动到目标目录。'
+- en: '`abort(txn: TXN): Unit` aborts a transaction. This method may also be called
+    twice for a transaction. Our `TransactionalFileSink` in [Example 8-15](#code_transactional-sink)
+    checks if the transaction file still exists and deletes it if that is the case.'
+  id: totrans-268
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`abort(txn: TXN): Unit` 中止一个事务。该方法可能会对一个事务调用两次。我们在 [示例 8-15](#code_transactional-sink)
+    中的 `TransactionalFileSink` 检查事务文件是否仍然存在，并在是这种情况下将其删除。'
+- en: As you can see, the implementation of the interface is not too involved. However,
+    the complexity and consistency guarantees of an implementation depend on, among
+    other things, the features and capabilities of the sink system. For instance,
+    Flink’s Kafka producer implements the `TwoPhaseCommitSinkFunction` interface.
+    As mentioned before, the connector might lose data if a transaction is rolled
+    back due to a timeout.^([9](ch08.html#idm45498993867416)) Hence, it does not offer
+    definitive exactly-once guarantees even though it implements the `TwoPhaseCommitSinkFunction`
+    interface.
+  id: totrans-269
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您所看到的，接口的实现并不复杂。然而，实现的复杂性和一致性保证取决于许多因素，包括汇集系统的特性和能力。例如，Flink的Kafka生产者实现了`TwoPhaseCommitSinkFunction`接口。正如前面提到的，如果由于超时而回滚事务，连接器可能会丢失数据。^([9](ch08.html#idm45498993867416))
+    因此，即使实现了`TwoPhaseCommitSinkFunction`接口，它也不能提供确切的仅一次保证。
+- en: Asynchronously Accessing External Systems
+  id: totrans-270
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 异步访问外部系统
+- en: Besides ingesting or emitting data streams, enriching a data stream by looking
+    up information in a remote database is another common use case that requires interacting
+    with an external storage system. An example is the well-known Yahoo! stream processing
+    benchmark, which is based on a stream of advertisement clicks that need to be
+    enriched with details about their corresponding campaign that are stored in a
+    key-value store.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了摄入或发出数据流之外，通过在远程数据库中查找信息来丰富数据流的操作是另一个常见的用例，需要与外部存储系统进行交互。一个示例是著名的Yahoo!流处理基准，它基于广告点击流，需要使用存储在键值存储中的相应广告系列的详细信息来丰富它们。
+- en: 'The straightforward approach for such use cases is to implement a `MapFunction`
+    that queries the datastore for every processed record, waits for the query to
+    return a result, enriches the record, and emits the result. While this approach
+    is easy to implement, it suffers from a major issue: each request to the external
+    datastore adds significant latency (a request/response involves two network messages)
+    and the `MapFunction` spends most of its time waiting for query results.'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 处理此类用例的直接方法是实现一个`MapFunction`，该函数查询数据存储以获取每个处理记录，等待查询返回结果，丰富记录并发出结果。尽管这种方法易于实现，但存在一个主要问题：每次对外部数据存储的请求都会增加显著的延迟（请求/响应涉及两个网络消息），而`MapFunction`大部分时间都在等待查询结果。
+- en: Apache Flink provides the `AsyncFunction` to mitigate the latency of remote
+    I/O calls. `AsyncFunction` concurrently sends multiple queries and processes their
+    results asynchronously. It can be configured to preserve the order of records
+    (requests might return in a different order than the order in which they were
+    sent out) or return the results in the order of the query results to further reduce
+    the latency. The function is also properly integrated with Flink’s checkpointing
+    mechanism—input records that are currently waiting for a response are checkpointed
+    and queries are repeated in the case of a recovery. Moreover, `AsyncFunction`
+    properly works with event-time processing because it ensures watermarks are not
+    overtaken by records even if out-of-order results are enabled.
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink提供了`AsyncFunction`以减少远程I/O调用的延迟。`AsyncFunction`并发地发送多个查询并异步处理它们的结果。可以配置它以保持记录的顺序（请求的返回顺序可能与发送的顺序不同），或者按照查询结果的顺序返回结果以进一步减少延迟。该函数还与Flink的检查点机制完全集成——当前正在等待响应的输入记录被检查点，并且在恢复时重复查询。此外，`AsyncFunction`还能够正确地与事件时间处理配合工作，因为它确保即使启用了无序结果，水印也不会被记录超越。
+- en: 'In order to take advantage of `AsyncFunction`, the external system should provide
+    a client that supports asynchronous calls, which is the case for many systems.
+    If a system only provides a synchronous client, you can spawn threads to send
+    requests and handle them. The interface of `AsyncFunction` is shown in the following:'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了利用`AsyncFunction`，外部系统应提供支持异步调用的客户端，这对许多系统来说是通用的。如果系统仅提供同步客户端，您可以创建线程来发送请求和处理它们。`AsyncFunction`的接口如下所示：
+- en: '[PRE19]'
+  id: totrans-275
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: The type parameters of the function define its input and output types. The `asyncInvoke()`
+    method is called for each input record with two parameters. The first parameter
+    is the input record and the second parameter is a callback object to return the
+    result of the function or an exception. In [Example 8-16](#code_async-usage),
+    we show how to apply `AsyncFunction` on a `DataStream`.
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 函数的类型参数定义其输入和输出类型。`asyncInvoke()` 方法为每个输入记录调用，带有两个参数。第一个参数是输入记录，第二个参数是回调对象，用于返回函数的结果或异常。在
+    [示例 8-16](#code_async-usage) 中，我们展示了如何在 `DataStream` 上应用 `AsyncFunction`。
+- en: Example 8-16\. Applying AsyncFunction on a DataStream
+  id: totrans-277
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-16\. 在 DataStream 上应用 AsyncFunction
+- en: '[PRE20]'
+  id: totrans-278
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: 'The asynchronous operator that applies an `AsyncFunction` is configured with
+    the `AsyncDataStream` object,^([10](ch08.html#idm45498993748872)) which provides
+    two static methods: `orderedWait()` and `unorderedWait()`. Both methods are overloaded
+    for different combinations of parameters. `orderedWait()` applies an asynchronous
+    operator that emits results in the order of the input records, while the operator
+    of `unorderWait()` only ensures watermarks and checkpoint barriers remain aligned.
+    Additional parameters specify when to time out the asynchronous call for a record
+    and how many concurrent requests to start. [Example 8-17](#code_async-function)
+    shows `DerbyAsyncFunction`, which queries an embedded Derby database via its JDBC
+    interface.'
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用 `AsyncFunction` 的异步操作符配置为 `AsyncDataStream` 对象，^([10](ch08.html#idm45498993748872))
+    提供两个静态方法：`orderedWait()` 和 `unorderedWait()`。这两个方法根据不同的参数组合进行重载。`orderedWait()`
+    应用一个异步操作符，按输入记录的顺序发出结果，而 `unorderWait()` 操作符仅确保水印和检查点屏障保持对齐。额外的参数指定了何时超时异步调用以及启动多少并发请求。[示例 8-17](#code_async-function)
+    展示了 `DerbyAsyncFunction`，它通过其 JDBC 接口查询嵌入的 Derby 数据库。
+- en: Example 8-17\. AsyncFunction that queries a JDBC database
+  id: totrans-280
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 8-17\. 查询 JDBC 数据库的 AsyncFunction
+- en: '[PRE21]'
+  id: totrans-281
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: The `asyncInvoke()` method of `DerbyAsyncFunction` in [Example 8-17](#code_async-function)
+    wraps the blocking JDBC query in a `Future`, which is executed via `CachedThreadPool`.
+    To keep the example concise, we create a new JDBC connection for each record,
+    which is, of course, quite inefficient and should be avoided. `Future[String]`
+    holds the result of the JDBC query.
+  id: totrans-282
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`DerbyAsyncFunction` 中的 `asyncInvoke()` 方法在 [示例 8-17](#code_async-function)
+    中将阻塞 JDBC 查询包装在一个 `Future` 中，并通过 `CachedThreadPool` 执行。为了简洁起见，我们为每条记录创建一个新的 JDBC
+    连接，这显然效率不高，应该避免。`Future[String]` 包含了 JDBC 查询的结果。'
+- en: Finally, we apply an `onComplete()` callback on `Future` and pass the result
+    (or a possible exception) to the `ResultFuture` handler. In contrast to the JDBC
+    query `Future`, the `onComplete()` callback is processed by `DirectExecutor` because
+    passing the result to `ResultFuture` is a lightweight operation that does not
+    require a dedicated thread. Note that all operations are done in a nonblocking
+    fashion.
+  id: totrans-283
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们在 `Future` 上应用 `onComplete()` 回调，并将结果（或可能的异常）传递给 `ResultFuture` 处理程序。与
+    JDBC 查询 `Future` 不同，`onComplete()` 回调由 `DirectExecutor` 处理，因为将结果传递给 `ResultFuture`
+    是一个轻量级操作，不需要专用线程。请注意，所有操作都是以非阻塞方式完成的。
+- en: 'It is important to point out that an `AsyncFunction` instance is sequentially
+    called for each of its input records—a function instance is not called in a multithreaded
+    fashion. Therefore, the `asyncInvoke()` method should quickly return by starting
+    an asynchronous request and handling the result with a callback that forwards
+    the result to `ResultFuture`. Common antipatterns that must be avoided include:'
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 需要指出的是，`AsyncFunction` 实例为其每个输入记录顺序调用—函数实例不以多线程方式调用。因此，`asyncInvoke()` 方法应快速返回，通过启动异步请求并使用回调处理结果，将结果转发给
+    `ResultFuture`。必须避免的常见反模式包括：
+- en: Sending a request that blocks the `asyncInvoke()` method
+  id: totrans-285
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 发送阻塞 `asyncInvoke()` 方法的请求
+- en: Sending an asynchronous request but waiting inside the `asyncInvoke()` method
+    for the request to complete
+  id: totrans-286
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 发送异步请求，但在 `asyncInvoke()` 方法内等待请求完成
+- en: Summary
+  id: totrans-287
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter you learned how Flink DataStream applications can read data
+    from and write data to external systems and the requirements for an application
+    to achieve different end-to-end consistency guarantees. We presented Flink’s most
+    commonly used built-in source and sink connectors, which also serve as representatives
+    for different types of storage systems, such as message queues, filesystems, and
+    key-value stores.
+  id: totrans-288
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，您学习了 Flink DataStream 应用程序如何从外部系统读取数据并写入数据，以及应用程序实现不同端到端一致性保证的要求。我们介绍了
+    Flink 最常用的内置源和接收器连接器，这些连接器也代表了不同类型的存储系统，如消息队列、文件系统和键值存储。
+- en: Subsequently, we showed you how to implement custom source and sink connectors,
+    including WAL and 2PC sink connectors, providing detailed examples. Finally, you
+    learned about Flink’s `AsyncFunction`, which can significantly improve the performance
+    of interacting with external systems by performing and handling requests asynchronously.
+  id: totrans-289
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们向您展示了如何实现自定义源和接收器连接器，包括 WAL 和 2PC 接收器连接器，并提供了详细的示例。最后，您了解了 Flink 的 `AsyncFunction`，它通过异步执行和处理请求，显著提高了与外部系统交互的性能。
+- en: ^([1](ch08.html#idm45498996701880-marker)) Exactly-once state consistency is
+    a requirement for end-to-end exactly-once consistency but is not the same.
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch08.html#idm45498996701880-marker)) 精确一次状态一致性是端到端精确一致性的要求，但并不相同。
+- en: ^([2](ch08.html#idm45498996682648-marker)) We discuss the consistency guarantees
+    of a WAL sink in more detail in [“GenericWriteAheadSink”](#GenericWriteAheadSink).
+  id: totrans-291
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch08.html#idm45498996682648-marker)) 我们在 [“GenericWriteAheadSink”](#GenericWriteAheadSink)
+    中更详细地讨论了 WAL 接收器的一致性保证。
+- en: ^([3](ch08.html#idm45498996384504-marker)) See [Chapter 6](ch06.html#chap-6)
+    for details about the timestamp assigner interfaces.
+  id: totrans-292
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch08.html#idm45498996384504-marker)) 有关时间戳分配器接口的详细信息，请参见 [第6章](ch06.html#chap-6)。
+- en: ^([4](ch08.html#idm45498996122808-marker)) `InputFormat` is Flink’s interface
+    to define data sources in the DataSet API.
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch08.html#idm45498996122808-marker)) `InputFormat` 是 Flink 在 DataSet API
+    中定义数据源的接口。
+- en: ^([5](ch08.html#idm45498995771800-marker)) In contrast to SQL INSERT statements,
+    CQL INSERT statements behave like upsert queries—they override existing rows with
+    the same primary key.
+  id: totrans-294
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch08.html#idm45498995771800-marker)) 与 SQL 的 INSERT 语句相比，CQL 的 INSERT
+    语句的行为类似于 upsert 查询——它们会覆盖具有相同主键的现有行。
+- en: ^([6](ch08.html#idm45498995563064-marker)) Rich functions were discussed in
+    [Chapter 5](ch05.html#chap-5).
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch08.html#idm45498995563064-marker)) 在 [第5章](ch05.html#chap-5) 中讨论了 Rich
+    函数。
+- en: ^([7](ch08.html#idm45498995156248-marker)) Usually the `RichSinkFunction` interface
+    is used because sink functions typically need to set up a connection to an external
+    system in the `RichFunction.open()` method. See [Chapter 5](ch05.html#chap-5)
+    for details on the `RichFunction` interface.
+  id: totrans-296
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch08.html#idm45498995156248-marker)) 通常使用 `RichSinkFunction` 接口，因为接收器函数通常需要在
+    `RichFunction.open()` 方法中建立与外部系统的连接。有关 `RichFunction` 接口的详细信息，请参见 [第5章](ch05.html#chap-5)。
+- en: ^([8](ch08.html#idm45498994288664-marker)) A task might need to commit multiple
+    transactions if an acknowledgment message is lost.
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch08.html#idm45498994288664-marker)) 如果确认消息丢失，一个任务可能需要提交多个事务。
+- en: ^([9](ch08.html#idm45498993867416-marker)) See details in [“Apache Kafka Sink
+    Connector”](#chap-8-kafka-sink).
+  id: totrans-298
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch08.html#idm45498993867416-marker)) 请参见 [“Apache Kafka Sink Connector”](#chap-8-kafka-sink)
+    中的详细信息。
+- en: ^([10](ch08.html#idm45498993748872-marker)) The Java API provides an `AsyncDataStream`
+    class with the respective static methods.
+  id: totrans-299
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch08.html#idm45498993748872-marker)) Java API 提供了一个 `AsyncDataStream`
+    类及其相应的静态方法。

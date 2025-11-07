@@ -1,0 +1,3031 @@
+- en: Chapter 10\. Operating Flink and Streaming Applications
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 10 章。操作 Flink 和流应用程序
+- en: Streaming applications are long-running and their workloads are often unpredictable.
+    It is not uncommon for a streaming job to be continuously running for months,
+    so its operational needs are quite different than those of short-lived batch jobs.
+    Consider a scenario where you detect a bug in your deployed application. If your
+    application is a batch job, you can easily fix the bug offline and then redeploy
+    the new application code once the current job instance finishes. But what if your
+    job is a long-running streaming job? How do you apply a reconfiguration with low
+    effort while guaranteeing correctness?
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流应用程序是长时间运行的，其工作负载通常是不可预测的。流作业连续运行几个月并不罕见，因此其操作需求与短暂批处理作业的需求有很大不同。考虑一种情况，您在部署的应用程序中检测到一个
+    bug。如果您的应用程序是批处理作业，您可以轻松地在离线状态下修复 bug，然后在当前作业实例完成后重新部署新的应用程序代码。但是如果您的作业是长时间运行的流作业呢？在保证正确性的同时如何低成本地应用重新配置？
+- en: If you are using Flink, you have nothing to worry about. Flink will do all the
+    hard work so you can easily monitor, operate, and reconfigure your jobs with minimal
+    effort while preserving exactly-once state semantics. In this chapter, we present
+    the tools Flink offers for operating and maintaining continuously running streaming
+    applications. We will show you how to collect metrics and monitor your applications
+    and how to preserve result consistency when you want to update application code
+    or adjust the resources of your application.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在使用 Flink，您无需担心。Flink 将会为您完成所有繁重的工作，因此您可以轻松监视、操作和重新配置您的作业，同时保留精确一次性状态语义。在本章中，我们介绍
+    Flink 用于操作和维护连续运行的流应用程序的工具。我们将向您展示如何收集指标并监视您的应用程序，以及在想要更新应用程序代码或调整应用程序资源时如何保持结果的一致性。
+- en: Running and Managing Streaming Applications
+  id: totrans-3
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 运行和管理流应用程序
+- en: As you might expect, maintaining streaming applications is more challenging
+    than maintaining batch applications. While streaming applications are stateful
+    and continuously running, batch applications are periodically executed. Reconfiguring,
+    scaling, or updating a batch application can be done between executions, which
+    is a lot easier than upgrading an application that is continuously ingesting,
+    processing, and emitting data.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您所预期的那样，维护流应用程序比维护批处理应用程序更具挑战性。流应用程序具有状态并且持续运行，而批处理应用程序则是周期性执行的。重新配置、扩展或更新批处理应用程序可以在执行之间进行，这比升级连续摄取、处理和发射数据的应用程序要容易得多。
+- en: 'However, Apache Flink has many features to significantly ease the maintenance
+    of streaming applications. Most of these features are based on savepoints.^([1](ch10.html#idm45498992586424))
+    Flink exposes the following interfaces to monitor and control its master and worker
+    processes, and applications:'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，Apache Flink 具有许多功能，可以显著简化流应用程序的维护工作。这些功能大多基于保存点。^([1](ch10.html#idm45498992586424))
+    Flink 提供以下接口来监视和控制其主节点、工作节点和应用程序：
+- en: The command-line client is a tool used to submit and control applications.
+  id: totrans-6
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 命令行客户端是用于提交和控制应用程序的工具。
+- en: The REST API is the underlying interface that is used by the command-line client
+    and Web UI. It can be accessed by users and scripts and provides access to all
+    system and application metrics as well as endpoints to submit and manage applications.
+  id: totrans-7
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: REST API 是命令行客户端和 Web UI 使用的基础接口。用户和脚本可以访问它，并提供对系统和应用程序指标的访问，以及提交和管理应用程序的端点。
+- en: The Web UI is a web interface that provides details and metrics about a Flink
+    cluster and running applications. It also offers basic functionality to submit
+    and manage applications. The Web UI is described in [“Flink Web UI”](#chap-10-webui).
+  id: totrans-8
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: Web UI 是一个提供有关 Flink 集群和正在运行的应用程序的详细信息和指标的 Web 界面。它还提供基本功能来提交和管理应用程序。Web UI
+    在 [“Flink Web UI”](#chap-10-webui) 中有描述。
+- en: In this section, we explain the practical aspects of savepoints and discuss
+    how to start, stop, pause and resume, scale, and upgrade stateful streaming applications
+    using Flink’s command-line client and Flink’s REST API.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们解释了保存点的实际方面，并讨论了如何使用 Flink 的命令行客户端和 REST API 启动、停止、暂停和恢复、扩展以及升级具有状态的流应用程序。
+- en: Savepoints
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Savepoints
+- en: A savepoint is basically identical to a checkpoint—it is a consistent and complete
+    snapshot of an application’s state. However, the lifecycles of checkpoints and
+    savepoints differ. Checkpoints are automatically created, loaded in case of a
+    failure, and automatically removed by Flink (depending on the configuration of
+    the application). Moreover, checkpoints are automatically deleted when an application
+    is canceled, unless the application explicitly enabled checkpoint retention. In
+    contrast, savepoints must be manually triggered by a user or an external service
+    and are never automatically removed by Flink.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存点基本上与检查点相同——它是应用程序状态的一致完整快照。但是，检查点和保存点的生命周期不同。检查点会根据应用程序的配置自动创建，在失败时加载，并由
+    Flink 自动删除（具体取决于应用程序的配置）。此外，除非应用程序显式启用检查点保留，否则在取消应用程序时检查点会被自动删除。相比之下，保存点必须由用户或外部服务手动触发，并且永远不会被
+    Flink 自动删除。
+- en: 'A savepoint is a directory in a persistent data storage. It consists of a subdirectory
+    that holds the data files containing the states of all tasks and a binary metadata
+    file that includes absolute paths to all data files. Because the paths in the
+    metadata file are absolute, moving a savepoint to a different path will render
+    it unusable. Here is the structure of a savepoint:'
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存点是持久数据存储中的一个目录。它包括一个子目录，其中包含包含所有任务状态的数据文件，以及一个包含所有数据文件绝对路径的二进制元数据文件。由于元数据文件中的路径是绝对的，将保存点移动到不同路径将使其无法使用。这是保存点的结构：
+- en: '[PRE0]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Managing Applications with the Command-Line Client
+  id: totrans-14
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用命令行客户端管理应用程序
+- en: Flink’s command-line client provides the functionality to start, stop, and manage
+    Flink applications. It reads its configuration from the *./conf/flink-conf.yaml*
+    file (see [“System Configuration”](ch09.html#chap-9-configuration)). You can call
+    it from the root directory of a Flink setup with the command`./bin/flink`.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的命令行客户端提供启动、停止和管理 Flink 应用程序的功能。它从 *./conf/flink-conf.yaml* 文件中读取配置（参见
+    [“系统配置”](ch09.html#chap-9-configuration)）。您可以在 Flink 设置的根目录中使用命令 `./bin/flink`
+    调用它。
+- en: When run without additional parameters, the client prints a help message.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在没有额外参数的情况下运行，客户端会打印帮助消息。
+- en: Command-Line Client on Windows
+  id: totrans-17
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Windows 上的命令行客户端
+- en: The command-line client is based on a bash script. Therefore, it does not work
+    with the Windows command line. The *./bin/flink.bat* script for the Windows command
+    line provides only very limited functionality. If you are a Windows user, we recommend
+    using the regular command-line client and running it on WSL or Cygwin.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令行客户端基于一个 bash 脚本。因此，它无法在 Windows 命令行中运行。*./bin/flink.bat* 脚本提供的功能非常有限。如果您是
+    Windows 用户，建议使用常规命令行客户端，并在 WSL 或 Cygwin 上运行。
+- en: Starting an application
+  id: totrans-19
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 启动应用程序
+- en: 'You can start an application with the `run` command of the command-line client:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用命令行客户端的 `run` 命令启动应用程序：
+- en: '[PRE1]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: The above command starts the application from the `main()` method of the class
+    that is referenced in the `program-class` property of the JAR file’s *META-INF/MANIFEST.MF*
+    file without passing any arguments to the application. The client submits the
+    JAR file to the master process, which distributes it to the worker nodes.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述命令从 JAR 文件的 *META-INF/MANIFEST.MF* 文件的 `program-class` 属性引用的类的 `main()` 方法开始应用程序，而不向应用程序传递任何参数。客户端将
+    JAR 文件提交到主进程，然后将其分发到工作节点。
+- en: 'You can pass arguments to the `main()` method of an application by appending
+    them at the end of the command:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过在命令的末尾附加参数来传递参数给应用程序的 `main()` 方法：
+- en: '[PRE2]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: 'By default, the client does not return after submitting the application but
+    waits for it to terminate. You can submit an application in detached mode with
+    the `-d` flag as shown here:'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，客户端在提交应用程序后不会返回，而是等待其终止。您可以使用 `-d` 标志以分离模式提交应用程序，如下所示：
+- en: '[PRE3]'
+  id: totrans-26
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: 'Instead of waiting for the application to terminate, the client returns and
+    prints the JobID of the submitted job. The JobID is used to specify the job when
+    taking a savepoint, canceling, or rescaling an application. You can specify the
+    default parallelism of an application with the `-p` flag:'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户端不会等待应用程序终止，而是返回并打印提交的作业 ID。作业 ID 用于在获取保存点、取消或重新缩放应用程序时指定作业。您可以使用 `-p` 标志指定应用程序的默认并行度：
+- en: '[PRE4]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: The above command sets the default parallelism of the execution environment
+    to 16\. The default parallelism of an execution environment is overwritten by
+    all settings explicitly specified by the source code of the application—the parallelism
+    that is defined by calling `setParallelism()` on `StreamExecutionEnvironment`
+    or on an operator has precedence over the default value.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述命令将执行环境的默认并行度设置为16。执行环境的默认并行度会被应用源代码显式指定的所有设置覆盖——在`StreamExecutionEnvironment`或操作符上调用`setParallelism()`定义的并行度优先于默认值。
+- en: 'If the manifest file of your application JAR file does not specify an entry
+    class, you can specify the class using the `-c` parameter:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的应用程序JAR文件的清单文件未指定入口类，则可以使用`-c`参数指定该类：
+- en: '[PRE5]'
+  id: totrans-31
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: The client will try to start the static `main()` method of the `my.app.MainClass`
+    class.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户端将尝试启动静态的`main()`方法，位于`my.app.MainClass`类中。
+- en: 'By default, the client submits an application to the Flink master specified
+    by the *./conf/flink-conf.yaml* file (see the configuration for different setups
+    in [“System Configuration”](ch09.html#chap-9-configuration)). You can submit an
+    application to a specific master process using the `-m` flag:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，客户端将应用程序提交到由*./conf/flink-conf.yaml*文件指定的Flink主节点（有关不同设置的配置，请参阅[“系统配置”](ch09.html#chap-9-configuration)）。您可以使用`-m`标志将应用程序提交到特定的主节点进程：
+- en: '[PRE6]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: This command submits the application to the master that runs on host `myMasterHost`
+    at port `9876`.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令将应用程序提交到运行在主机`myMasterHost`端口`9876`上的主节点。
+- en: Note
+  id: totrans-36
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that the state of an application will be empty if you start it for the
+    first time or do not provide a savepoint or checkpoint to initialize the state.
+    In this case, some stateful operators run special logic to initialize their state.
+    For example, a Kafka source needs to choose the partition offsets from which it
+    consumes a topic if no restored read positions are available.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您首次启动应用程序或未提供保存点或检查点以初始化状态，则应用程序的状态将为空。在这种情况下，一些有状态的操作符会运行特殊逻辑来初始化它们的状态。例如，如果没有可恢复的读取位置，则Kafka源需要选择消费主题的分区偏移量。
+- en: Listing running applications
+  id: totrans-38
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 列出正在运行的应用程序
+- en: 'For all actions you want to apply to a running job, you need to provide a JobID
+    that identifies the application. The ID of a job can be obtained from the Web
+    UI, the REST API, or using the command-line client. The client prints a list of
+    all running jobs, including their JobIDs, when you run the following command:'
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于要应用于运行中作业的所有操作，您需要提供一个标识应用程序的JobID。可以从Web UI、REST API或使用命令行客户端获取作业的ID。运行以下命令时，客户端将打印所有运行中作业的列表，包括它们的JobID：
+- en: '[PRE7]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: In this example, the JobID is `bc0b2ad61ecd4a615d92ce25390f61ad`.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在此示例中，JobID为`bc0b2ad61ecd4a615d92ce25390f61ad`。
+- en: Taking and disposing of a savepoint
+  id: totrans-42
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 进行保存点和处理
+- en: 'A savepoint can be taken for a running application with the command-line client
+    as follows:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以使用命令行客户端为正在运行的应用程序获取保存点，如下所示：
+- en: '[PRE8]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: The command triggers a savepoint for the job with the provided JobID. If you
+    explicitly specify a savepoint path, it is stored in the provided directory. Otherwise,
+    the default savepoint directory as configured in the *flink-conf.yaml* file is
+    used.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此命令触发具有提供的JobID的保存点。如果显式指定保存点路径，则保存在提供的目录中。否则，将使用*flink-conf.yaml*文件中配置的默认保存点目录。
+- en: 'To trigger a savepoint for the job `bc0b2ad61ecd4a615d92ce25390f61ad` and store
+    it in the directory *hdfs:///xxx:50070/savepoints*, we call the command-line client:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要为作业`bc0b2ad61ecd4a615d92ce25390f61ad`触发保存点，并将其存储在目录*hdfs:///xxx:50070/savepoints*中，我们调用命令行客户端：
+- en: '[PRE9]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: 'Savepoints can occupy a significant amount of space and are not automatically
+    deleted by Flink. You need to manually remove them to free the consumed storage.
+    A savepoint is removed with the command:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存点可能占用大量空间，并且不会被Flink自动删除。您需要手动删除它们以释放已使用的存储空间。可以使用以下命令删除保存点：
+- en: '[PRE10]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'In order to remove the savepoint we triggered before, call the command:'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要删除之前触发的保存点，请执行以下命令：
+- en: '[PRE11]'
+  id: totrans-51
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: Deleting a Savepoint
+  id: totrans-52
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 删除保存点
+- en: You must not delete a savepoint before another checkpoint or savepoint is completed.
+    Since savepoints are handled by the system similarly to regular checkpoints, operators
+    also receive checkpoint completion notifications for completed savepoints and
+    act on them. For example, transactional sinks commit changes to external systems
+    when a savepoint completes. To guarantee exactly-once output, Flink must recover
+    from the latest completed checkpoint or savepoint. A failure recovery would fail
+    if Flink attempted to recover from a savepoint that was removed. Once another
+    checkpoint (or savepoint) completes, you can safely remove a savepoint.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 删除一个保存点之前，不得在另一个检查点或保存点完成之前进行。由于系统处理保存点类似于常规检查点，运营商也会收到完成保存点的通知并对其进行操作。例如，事务性下沉在保存点完成时提交对外系统的更改。为了确保输出的精确一次性，Flink
+    必须从最新完成的检查点或保存点中恢复。如果 Flink 尝试从已删除的保存点中恢复，故障恢复将失败。一旦另一个检查点（或保存点）完成，您可以安全地删除保存点。
+- en: Canceling an application
+  id: totrans-54
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 取消应用程序
+- en: 'An application can be canceled in two ways: with or without a savepoint. To
+    cancel a running application without taking a savepoint run the following command:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序可以以两种方式取消：带保存点或不带保存点。要取消运行中的应用程序而不获取保存点，请运行以下命令：
+- en: '[PRE12]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'In order to take a savepoint before canceling a running application add the
+    `-s` flag to the `cancel` command:'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了在取消正在运行的应用程序之前获取保存点，请将 `-s` 标志添加到 `cancel` 命令中：
+- en: '[PRE13]'
+  id: totrans-58
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: 'If you do not specify a `savepointPath`, the default savepoint directory as
+    configured in the *./conf/flink-conf.yaml* file is used (see [“System Configuration”](ch09.html#chap-9-configuration)).
+    The command fails if the savepoint folder is neither explicitly specified in the
+    command nor available from the configuration. To cancel the application with the
+    JobID `bc0b2ad61ecd4a615d92ce25390f61ad` and store the savepoint at *hdfs:///xxx:50070/savepoints*,
+    run the command:'
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您未指定 `savepointPath`，则将使用在 *./conf/flink-conf.yaml* 文件中配置的默认保存点目录（详见[“系统配置”](ch09.html#chap-9-configuration)）。如果保存点文件夹既未在命令中显式指定，也未从配置中提供，则命令将失败。要取消具有作业
+    ID `bc0b2ad61ecd4a615d92ce25390f61ad` 的应用程序并将保存点存储在 *hdfs:///xxx:50070/savepoints*，请运行以下命令：
+- en: '[PRE14]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: Canceling an Application Might Fail
+  id: totrans-61
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 取消应用程序可能会失败
+- en: Note that the job will continue to run if taking the savepoint fails. You will
+    need to make another attempt at canceling the job.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，如果获取保存点失败，则作业将继续运行。您需要尝试取消作业的另一个尝试。
+- en: Starting an application from a savepoint
+  id: totrans-63
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从保存点启动应用程序
+- en: 'Starting an application from a savepoint is fairly simple. All you have to
+    do is start an application with the run command and additionally provide a path
+    to a savepoint with the `-s` option:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从保存点启动应用程序非常简单。您只需使用运行命令启动应用程序，并使用 `-s` 选项另外提供保存点的路径：
+- en: '[PRE15]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: When the job is started, Flink matches the individual state snapshots of the
+    savepoint to all states of the started application. This matching is done in two
+    steps. First, Flink compares the unique operator identifiers of the savepoint
+    and application’s operators. Second, it matches for each operator the state identifiers
+    (see [“Savepoints”](ch03.html#chap-3-savepoints) for details) of the savepoint
+    and the application.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当作业启动时，Flink 将保存点的各个状态快照与启动应用程序的所有状态进行匹配。这种匹配分为两步。首先，Flink 比较保存点和应用程序操作符的唯一标识符。其次，它为每个操作符匹配状态标识符（详见[“保存点”](ch03.html#chap-3-savepoints)）。
+- en: You Should Define Unique Operator IDs
+  id: totrans-67
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 您应该定义唯一的操作符 ID
+- en: If you do not assign unique IDs to your operators with the `uid()` method, Flink
+    assigns default identifiers, which are hash values that depend on the type of
+    the operator and all previous operators. Since it is not possible to change the
+    identifiers in a savepoint, you will have fewer options to update and evolve your
+    application if you do not manually assign operator identifiers using `uid()`.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您没有使用 `uid()` 方法为您的操作符分配唯一的 ID，Flink 将分配默认标识符，这些标识符是依赖于操作符类型和所有前面操作符的哈希值。由于无法更改保存点中的标识符，如果您不使用
+    `uid()` 手动分配操作符标识符，则在更新和演变应用程序时的选择将更少。
+- en: 'As mentioned, an application can only be started from a savepoint if it is
+    compatible with the savepoint. An unmodified application can always be restarted
+    from its savepoint. However, if the restarted application is not identical to
+    the application from which the savepoint was taken, there are three cases to consider:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，仅当应用程序与保存点兼容时，才能从保存点启动应用程序。未修改的应用程序始终可以从其保存点重新启动。但是，如果重新启动的应用程序与保存点所取的应用程序不同，则需要考虑三种情况：
+- en: If you *added a new state* to the application or changed the unique identifier
+    of a stateful operator, Flink will not find a corresponding state snapshot in
+    the savepoint. In this case, the new state is initialized as empty.
+  id: totrans-70
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你向应用程序**添加了新的状态**或更改了有状态操作符的唯一标识符，则 Flink 在保存点中找不到相应的状态快照。在这种情况下，新状态将被初始化为空。
+- en: If you *removed a state* from the application or changed the unique identifier
+    of a stateful operator, there is state in the savepoint that cannot be matched
+    to the application. In this case, Flink does not start the application to avoid
+    losing the state in the savepoint. You can disable this safety check by adding
+    the `-n` option to the run command.
+  id: totrans-71
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你从应用程序中**删除了一个状态**或者更改了有状态操作符的唯一标识符，那么在保存点中存在无法匹配到应用程序的状态。在这种情况下，Flink 不会启动应用程序，以避免丢失保存点中的状态。你可以通过在运行命令中添加
+    `-n` 选项来禁用此安全检查。
+- en: If you *changed a state* in the application—changed the state primitive or modified
+    the data type of the state—the application fails to start. This means that you
+    cannot easily evolve the data type of a state in your application, unless you
+    designed your application with state evolution in mind from the start. The Flink
+    community is currently working on improving the support for state evolution. (See
+    [“Modifying the State of an Operator”](ch07.html#chap-7-updating-stateful).)
+  id: totrans-72
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果你在应用程序中**更改了状态**—改变了状态原语或修改了状态的数据类型—应用程序将无法启动。这意味着你不能轻易地演变应用程序中状态的数据类型，除非你从一开始就考虑了应用程序中的状态演变。Flink
+    社区目前正在努力改进对状态演变的支持。（参见[《修改操作符状态》](ch07.html#chap-7-updating-stateful)。）
+- en: Scaling an Application In and Out
+  id: totrans-73
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 扩展应用程序的内部和外部
+- en: Decreasing or increasing the parallelism of an application is not difficult.
+    You need to take a savepoint, cancel the application, and restart it with an adjusted
+    parallelism from the savepoint. The state of the application is automatically
+    redistributed to the larger or smaller number of parallel operator tasks. See
+    [“Scaling Stateful Operators”](ch03.html#chap-3-scaling-stateful) for details
+    on how the different types of operator state and keyed state are scaled. However,
+    there are a few things to consider.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 增加或减少应用程序的并行度并不困难。你需要进行保存点，取消应用程序，并从保存点重新启动并调整并行度。应用程序的状态将自动重新分布到更大或更小数量的并行操作任务中。有关不同类型的操作符状态和键控状态如何扩展的详细信息，请参阅[《扩展有状态操作符》](ch03.html#chap-3-scaling-stateful)。但是，有几点需要考虑。
+- en: If you require exactly-once results, you should take the savepoint and stop
+    the application with the integrated savepoint-and-cancel command. This prevents
+    another checkpoint from completing after the savepoint, which would trigger exactly-once
+    sinks to emit data after the savepoint.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你需要确保一次性结果，你应该进行保存点，并使用集成的保存点并取消命令停止应用程序。这可以防止保存点之后完成另一个检查点，从而触发一次性 sink 在保存点之后发出数据。
+- en: As discussed in [“Setting the Parallelism”](ch05.html#chap-5-setting-parallelism),
+    the parallelism of an application and its operators can be specified in different
+    ways. By default, operators run with the default parallelism of their associated
+    `StreamExecutionEnvironment`. The default parallelism can be specified when starting
+    an application (e.g., using the `-p` parameter in the CLI client). If you implement
+    the application such that the parallelism of its operators depends on the default
+    environment parallelism, you can simply scale an application by starting it from
+    the same JAR file and specifying a new parallelism. However, if you hardcoded
+    the parallelism on the `StreamExecutionEnvironment` or on some of the operators,
+    you might need to adjust the source code and recompile and repackage your application
+    before submitting it for execution.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[《设置并行度》](ch05.html#chap-5-setting-parallelism)中所述，应用程序及其操作符的并行度可以通过不同方式指定。默认情况下，操作符使用其关联的
+    `StreamExecutionEnvironment` 的默认并行度运行。可以在启动应用程序时指定默认并行度（例如，使用 CLI 客户端中的 `-p` 参数）。如果你实现的应用程序使其操作符的并行度依赖于默认环境并行度，那么你可以通过从相同的
+    JAR 文件启动应用程序并指定新的并行度来简单地扩展应用程序。然而，如果在 `StreamExecutionEnvironment` 上或某些操作符上硬编码了并行度，则可能需要在提交执行之前调整源代码并重新编译和重新打包应用程序。
+- en: 'If the parallelism of your application depends on the environment’s default
+    parallelism, Flink provides an atomic rescale command that takes a savepoint,
+    cancels the application, and restarts it with a new default parallelism:'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你的应用程序的并行度依赖于环境的默认并行度，Flink 提供了一个原子重新调整命令，可以进行保存点，取消应用程序，并使用新的默认并行度重新启动：
+- en: '[PRE16]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: 'To rescale the application with the jobId `bc0b2ad61ecd4a615d92ce25390f61ad`
+    to a parallelism of 16, run the command:'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将 jobId `bc0b2ad61ecd4a615d92ce25390f61ad` 的应用程序重新调整到并行度为 16，请运行以下命令：
+- en: '[PRE17]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: As described in [“Scaling Stateful Operators”](ch03.html#chap-3-scaling-stateful),
+    Flink distributes keyed state on the granularity of so-called key groups. Consequently,
+    the number of key groups of a stateful operator determines its maximum parallelism.
+    The number of key groups is configured per operator using the `setMaxParallelism()`
+    method. (See [“Defining the Maximum Parallelism of Keyed State Operators”](ch07.html#chap-7-maxdop).)
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [“缩放有状态操作符”](ch03.html#chap-3-scaling-stateful) 中所述，Flink 将有状态的操作符的键控状态分布在所谓的键组的粒度上。因此，有状态操作符的最大并行度取决于键组的数量。使用
+    `setMaxParallelism()` 方法可为每个操作符配置键组的数量。（见 [“定义键控状态操作符的最大并行度”](ch07.html#chap-7-maxdop)。）
+- en: Managing Applications with the REST API
+  id: totrans-82
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 REST API 管理应用程序
+- en: The REST API can be directly accessed by users or scripts and exposes information
+    about the Flink cluster and its applications, including metrics as well as endpoints
+    to submit and control applications. Flink serves the REST API and the Web UI from
+    the same web server, which runs as part of the Dispatcher process. By default,
+    both are exposed on port 8081\. You can configure a different port at the *./conf/flink-conf.yaml*
+    file with the configuration key `rest.port`. A value of -1 disables the REST API
+    and Web UI.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户或脚本可以直接访问 REST API，并公开有关 Flink 集群及其应用程序的信息，包括指标以及提交和控制应用程序的端点。Flink 从同一 Web
+    服务器运行 REST API 和 Web UI，作为 Dispatcher 进程的一部分。默认情况下，它们都公开在端口 8081 上。您可以通过 *./conf/flink-conf.yaml*
+    文件中的配置键 `rest.port` 配置不同的端口。值为 -1 会禁用 REST API 和 Web UI。
+- en: 'A common command-line tool to interact with REST API is `curl`. A typical `curl`
+    REST command looks like:'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与 REST API 交互的常见命令行工具是 `curl`。典型的 `curl` REST 命令如下：
+- en: '[PRE18]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'The `v1` indicates the version of the REST API. Flink 1.7 exposes the first
+    version (`v1`) of the API. Assuming you are running a local Flink setup that exposes
+    its REST API on port 8081, the following `curl` command submits a `GET` request
+    to the `/overview` REST point:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`v1` 表示 REST API 的版本。Flink 1.7 提供第一个版本 (`v1`) 的 API。假设您在运行本地 Flink 设置，并将其 REST
+    API 公开在端口 8081 上，则以下 `curl` 命令提交一个对 `/overview` REST 端点的 `GET` 请求：'
+- en: '[PRE19]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: 'The command returns some basic information about the cluster, such as the Flink
+    version, the number of TaskManagers, slots, and jobs that are running, finished,
+    cancelled, or failed:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 命令返回有关集群的一些基本信息，如 Flink 版本、TaskManagers 数量、任务槽以及正在运行、已完成、取消或失败的作业：
+- en: '[PRE20]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: In the following, we list and briefly describe the most important REST calls.
+    Refer to the [official documentation](http://bit.ly/2TAPy6N) of Apache Flink for
+    a complete list of supported calls. [“Managing Applications with the Command-Line
+    Client”](#managing-apps-w-command-line) provides more details about some of the
+    operations, such as upgrading or scaling an application.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 下面列出并简要描述了最重要的 REST 调用。有关支持的所有调用列表，请参阅 Apache Flink 的[官方文档](http://bit.ly/2TAPy6N)。[“使用命令行客户端管理应用程序”](#managing-apps-w-command-line)
+    提供了有关一些操作（如升级或扩展应用程序）的更多详细信息。
+- en: Managing and monitoring a Flink cluster
+  id: totrans-91
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 管理和监控 Flink 集群
+- en: The REST API exposes endpoints to query information about a running cluster
+    and to shut it down. Tables [10-1](#basic-cluster-table), [10-2](#config-jobmanager-table),
+    and [10-3](#list-taskmanager-table) show the REST requests to obtain information
+    about a Flink cluster, such as the number of task slots, running and finished
+    jobs, the configuration of the JobManager, or a list of all connected TaskManagers.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: REST API 提供了一些端点，用于查询运行中集群的信息以及关闭它。表 [10-1](#basic-cluster-table)、[10-2](#config-jobmanager-table)
+    和 [10-3](#list-taskmanager-table) 显示了获取有关 Flink 集群信息的 REST 请求，如任务槽数、运行和完成的作业、JobManager
+    的配置或所有连接的 TaskManagers 列表。
+- en: Table 10-1\. REST request to get basic cluster information
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-1\. 获取基本集群信息的 REST 请求
+- en: '| Request | `GET /overview` |'
+  id: totrans-94
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /overview` |'
+- en: '| Response | Basic information about the cluster as shown above |'
+  id: totrans-95
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 显示集群的基本信息如上所示 |'
+- en: Table 10-2\. REST request to get the JobManager configuration
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-2\. 获取 JobManager 配置的 REST 请求
+- en: '| Request | `GET /jobmanager/config` |'
+  id: totrans-97
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /jobmanager/config` |'
+- en: '| Response | Returns the configuration of the JobManager as defined in *./conf/flink-conf.yaml*
+    |'
+  id: totrans-98
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 返回 *./conf/flink-conf.yaml* 中定义的 JobManager 的配置 |'
+- en: Table 10-3\. REST request to list all connected TaskManagers
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-3\. 列出所有连接的 TaskManagers 的 REST 请求
+- en: '| Request | `GET /taskmanagers` |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /taskmanagers` |'
+- en: '| Response | Returns a list of all TaskManagers including their IDs and basic
+    information, such as memory statistics and connection ports |'
+  id: totrans-101
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 返回包括其 ID 和基本信息（如内存统计和连接端口）在内的所有 TaskManager 列表 |'
+- en: '[Table 10-4](#list-jobmanager-table) shows the REST request to list all metrics
+    that are collected for the JobManager.'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表格 10-4](#list-jobmanager-table) 显示了用于列出为 JobManager 收集的所有指标的 REST 请求。'
+- en: Table 10-4\. REST request to list available JobManager metrics
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-4\. 列出可用 JobManager 指标的 REST 请求
+- en: '| Request | `GET /jobmanager/metrics` |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /jobmanager/metrics` |'
+- en: '| Response | Returns a list of metrics that are available for the JobManager
+    |'
+  id: totrans-105
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 返回为 JobManager 可用的指标列表 |'
+- en: 'In order to retrieve one or more JobManager metrics, add the `get` query parameter
+    with all the requested metrics to the request:'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检索一个或多个 JobManager 指标，请将所有请求的指标添加到请求中的 `get` 查询参数：
+- en: '[PRE21]'
+  id: totrans-107
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: '[Table 10-5](#list-taskmanager-metrics-table) shows the REST request to list
+    all metrics that are collected for the TaskManagers.'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表格 10-5](#list-taskmanager-metrics-table) 显示了用于列出 TaskManager 收集的所有指标的 REST
+    请求。'
+- en: Table 10-5\. REST request to list available TaskManager metrics
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-5\. 列出可用 TaskManager 指标的 REST 请求
+- en: '| Request |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 |'
+- en: '[PRE22]'
+  id: totrans-111
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: '|'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Parameters | `tmId`: The ID of a connected TaskManager |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | `tmId`：已连接的 TaskManager 的 ID |'
+- en: '| Response | Returns a list of metrics available for the chosen TaskManager
+    |'
+  id: totrans-114
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 返回所选 TaskManager 可用的指标列表 |'
+- en: 'To retrieve one or more metrics for a TaskManager, add the `get` query parameter
+    with all the requested metrics to the request:'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检索一个或多个 TaskManager 的指标，请将所有请求的指标添加到请求中的 `get` 查询参数：
+- en: '[PRE23]'
+  id: totrans-116
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: You can also shutdown a cluster using the REST call that is shown in [Table 10-6](#shutdown-cluster-table).
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以使用显示在 [表格 10-6](#shutdown-cluster-table) 中的 REST 调用关闭集群。
+- en: Table 10-6\. REST request to shutdown the cluster
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-6\. 关闭集群的 REST 请求
+- en: '| Request | `DELETE /cluster` |'
+  id: totrans-119
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `DELETE /cluster` |'
+- en: '| Action | Shuts down the Flink cluster. Note that in standalone mode, only
+    the master process will be terminated and the worker processes will continue to
+    run. |'
+  id: totrans-120
+  prefs: []
+  type: TYPE_TB
+  zh: '| 动作 | 关闭 Flink 集群。请注意，在独立模式下，只有主进程将被终止，工作进程将继续运行。 |'
+- en: Managing and montioring Flink applications
+  id: totrans-121
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 管理和监控 Flink 应用程序
+- en: The REST API can also be used to manage and monitor Flink applications. To start
+    an application, you first need to upload the application’s JAR file to the cluster.
+    Tables [10-7](#upload-jar-table), [10-8](#list-jar-table), and [10-9](#delete-jar-table)
+    show the REST endpoints to manage these JAR files.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: REST API 还可用于管理和监控 Flink 应用程序。要启动应用程序，首先需要将应用程序的 JAR 文件上传到集群。表格 [10-7](#upload-jar-table)，[10-8](#list-jar-table)
+    和 [10-9](#delete-jar-table) 显示了管理这些 JAR 文件的 REST 终端点。
+- en: Table 10-7\. REST request to upload a JAR file
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-7\. 上传 JAR 文件的 REST 请求
+- en: '| Request | `POST /jars/upload` |'
+  id: totrans-124
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `POST /jars/upload` |'
+- en: '| Parameters | The file must be sent as multipart data |'
+  id: totrans-125
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | 文件必须以多部分数据形式发送 |'
+- en: '| Action | Uploads a JAR file to the cluster |'
+  id: totrans-126
+  prefs: []
+  type: TYPE_TB
+  zh: '| 动作 | 将 JAR 文件上传到集群 |'
+- en: '| Response | The storage location of the uploaded JAR file |'
+  id: totrans-127
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 已上传的 JAR 文件的存储位置 |'
+- en: 'The `curl` command to upload a JAR file:'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上传 JAR 文件的 `curl` 命令：
+- en: '[PRE24]'
+  id: totrans-129
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: Table 10-8\. REST request to list all uploaded JAR files
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-8\. 列出所有已上传 JAR 文件的 REST 请求
+- en: '| Request | `GET /jars` |'
+  id: totrans-131
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /jars` |'
+- en: '| Response | A list of all uploaded JAR files. The list includes the internal
+    ID of a JAR file, its original name, and the time when it was uploaded. |'
+  id: totrans-132
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 所有已上传的 JAR 文件列表。列表包括 JAR 文件的内部 ID、原始名称和上传时间。 |'
+- en: Table 10-9\. REST request to delete a JAR file
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-9\. 删除 JAR 文件的 REST 请求
+- en: '| Request | `DELETE /jars/<jarId>` |'
+  id: totrans-134
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `DELETE /jars/<jarId>` |'
+- en: '| Parameters | `jarId`: The ID of the JAR file as provided by the list JAR
+    file command |'
+  id: totrans-135
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | `jarId`：由列表 JAR 文件命令提供的 JAR 文件的 ID |'
+- en: '| Action | Deletes the JAR file referenced by the provided ID |'
+  id: totrans-136
+  prefs: []
+  type: TYPE_TB
+  zh: '| 动作 | 删除由提供的 ID 引用的 JAR 文件 |'
+- en: An application is started from an uploaded JAR file using the REST call that
+    is shown in [Table 10-10](#start-app-table) .
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序是通过显示在 [表格 10-10](#start-app-table) 中的 REST 调用从上传的 JAR 文件启动的。
+- en: Table 10-10\. REST request to start an application
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表格 10-10\. 启动应用程序的 REST 请求
+- en: '| Request | `POST /jars/<jarId>/run` |'
+  id: totrans-139
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `POST /jars/<jarId>/run` |'
+- en: '| Parameters | `jarId`: The ID of the JAR file from which the application is
+    started. You can pass additional parameters such as the job arguments, the entry
+    class, the default parallelism, a savepoint path, and the allow-nonrestored-state
+    flag as a JSON object. |'
+  id: totrans-140
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | `jarId`：从中启动应用程序的 JAR 文件的 ID。您可以将其他参数作为 JSON 对象传递，例如作业参数、入口类、默认并行度、保存点路径和允许非恢复状态标志。
+    |'
+- en: '| Action | Starts the application defined by the JAR file (and entry-class)
+    with the provided parameters. If a savepoint path is provided, the application
+    state is initialized from the savepoint. |'
+  id: totrans-141
+  prefs: []
+  type: TYPE_TB
+  zh: '| 操作 | 使用提供的参数启动由 JAR 文件（及其入口类）定义的应用程序。如果提供了保存点路径，则从保存点初始化应用程序状态。 |'
+- en: '| Response | The job ID of the started application |'
+  id: totrans-142
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 启动应用程序的作业 ID |'
+- en: 'The `curl` command to start an application with a default parallelism of 4
+    is:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用默认并行度为 4 启动应用程序的 `curl` 命令是：
+- en: '[PRE25]'
+  id: totrans-144
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE25]'
+- en: Tables [10-11](#list-app-table), [10-12](#detail-app-table), and [10-13](#cancel-app-table)
+    show how to manage running applications using the REST API.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 [10-11](#list-app-table)、[10-12](#detail-app-table) 和 [10-13](#cancel-app-table)
+    显示如何使用 REST API 管理运行中的应用程序。
+- en: Table 10-11\. REST request to list all applications
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-11\. 列出所有应用程序的 REST 请求
+- en: '| Request | `GET /jobs` |'
+  id: totrans-147
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /jobs` |'
+- en: '| Response | Lists the job IDs of all running applications and the job IDs
+    of the most recently failed, canceled, and finished applications. |'
+  id: totrans-148
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 列出所有运行中应用程序的作业 ID，以及最近失败、取消和完成的应用程序的作业 ID。 |'
+- en: Table 10-12\. REST request to show details of an application
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-12\. 显示应用程序详细信息的 REST 请求
+- en: '| Request | `GET /jobs/<jobId>` |'
+  id: totrans-150
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 | `GET /jobs/<jobId>` |'
+- en: '| Parameters | `jobId`: The ID of a job as provided by the list application
+    command |'
+  id: totrans-151
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | `jobId`: 由列表应用程序命令提供的作业 ID |'
+- en: '| Response | Basic statistics such as the name of the application, the start
+    time (and end time), and information about the executed tasks including the number
+    of ingested and emitted records and bytes |'
+  id: totrans-152
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 基本统计信息，如应用程序的名称、启动时间（和结束时间），以及有关执行任务的信息，包括摄取和发出的记录数和字节数 |'
+- en: 'The REST API also provides more detailed information about the following aspects
+    of an application:'
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: REST API 还提供有关应用程序以下方面的更详细信息：
+- en: The operator plan of the application
+  id: totrans-154
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序的操作计划
+- en: The configuration of the application
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序的配置
+- en: Collected metrics of an application at various levels of detail
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序在各个详细级别上的收集指标
+- en: Checkpointing metrics
+  id: totrans-157
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 检查点度量
+- en: Backpressure metrics
+  id: totrans-158
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 回压指标
+- en: The exception that caused an application to fail
+  id: totrans-159
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 导致应用程序失败的异常
+- en: Take a look at the [official documentation](http://bit.ly/2TAPy6N) for details
+    about how to access this information.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看 [官方文档](http://bit.ly/2TAPy6N) 获取访问此信息的详细信息。
+- en: Table 10-13\. REST request to cancel an application
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-13\. 取消应用程序的 REST 请求
+- en: '| Request |'
+  id: totrans-162
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 |'
+- en: '[PRE26]'
+  id: totrans-163
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE26]'
+- en: '|'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Parameters | `jobId`: The ID of a job as provided by the list application
+    command |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | `jobId`: 由列表应用程序命令提供的作业 ID |'
+- en: '| Action | Cancels the application |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| 操作 | 取消应用程序 |'
+- en: You can also take a savepoint of a running application via the REST call that
+    is shown in [Table 10-14](#savepoint-app-table) .
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以通过显示在 [表 10-14](#savepoint-app-table) 中的 REST 调用获取正在运行的应用程序的保存点。
+- en: Table 10-14\. REST request to take a savepoint of an application
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-14\. 用于获取应用程序保存点的 REST 请求
+- en: '| Request |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 |'
+- en: '[PRE27]'
+  id: totrans-170
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE27]'
+- en: '|'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Parameters | The ID of a job as provided by the list application command.
+    In addition, you need to provide a JSON object with the path to the savepoint
+    folder and a flag telling whether or not to terminate the application with the
+    savepoint. |'
+  id: totrans-172
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | 由列表应用程序命令提供的作业 ID。此外，您需要提供一个 JSON 对象，其中包含保存点文件夹的路径，并告知是否终止带有保存点的应用程序。
+    |'
+- en: '| Action | Takes a savepoint of the application |'
+  id: totrans-173
+  prefs: []
+  type: TYPE_TB
+  zh: '| 操作 | 获取应用程序的保存点 |'
+- en: '| Response | A request ID to check whether the savepoint trigger action completed
+    successfully |'
+  id: totrans-174
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 用于检查保存点触发操作是否成功完成的请求 ID |'
+- en: 'The `curl` command to trigger a savepoint without canceling is:'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 触发不取消保存点的 `curl` 命令是：
+- en: '[PRE28]'
+  id: totrans-176
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE28]'
+- en: Canceling an Application with a Savepoint Might Fail
+  id: totrans-177
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用保存点取消应用程序可能失败
+- en: A request to cancel the application will only succeed if the savepoint was successfully
+    taken. The application will continue running if the savepoint command failed.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有在成功获取保存点的情况下，取消应用程序的请求才会成功。如果保存点命令失败，应用程序将继续运行。
+- en: 'To check if the request with the ID `ebde90836b8b9dc2da90e9e7655f4179` was
+    successful and to retrieve the path of the savepoint run:'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要检查带有 ID `ebde90836b8b9dc2da90e9e7655f4179` 的请求是否成功，并检索保存点运行的路径：
+- en: '[PRE29]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE29]'
+- en: To dispose a savepoint use the REST call that is shown in [Table 10-15](#dispose-savepoint-table)
+    .
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要释放保存点，请使用显示在 [表 10-15](#dispose-savepoint-table) 中的 REST 调用。
+- en: Table 10-15\. REST request to dispose a savepoint
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-15\. 释放保存点的 REST 请求
+- en: '| Request |'
+  id: totrans-183
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 |'
+- en: '[PRE30]'
+  id: totrans-184
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE30]'
+- en: '|'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Parameters | The path of the savepoint to dispose needs to be provided as
+    a parameter in a JSON object |'
+  id: totrans-186
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | 需要提供作为 JSON 对象参数的保存点路径 |'
+- en: '| Action | Disposes of a savepoint |'
+  id: totrans-187
+  prefs: []
+  type: TYPE_TB
+  zh: '| 操作 | 处置一个保存点 |'
+- en: '| Response | A request ID to check whether the savepoint was successfully disposed
+    or not |'
+  id: totrans-188
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 用于检查保存点是否成功释放的请求 ID |'
+- en: 'To dispose a savepoint with `curl`, run:'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用 `curl` 处置一个保存点，请运行：
+- en: '[PRE31]'
+  id: totrans-190
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE31]'
+- en: '[Table 10-16](#rescale-app-table) shows the REST call to rescale an application.'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[表 10-16](#rescale-app-table) 显示重新缩放应用程序的 REST 调用。'
+- en: Table 10-16\. REST request to rescale an application
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-16\. 重新缩放应用程序的 REST 请求
+- en: '| Request |'
+  id: totrans-193
+  prefs: []
+  type: TYPE_TB
+  zh: '| 请求 |'
+- en: '[PRE32]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE32]'
+- en: '|'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '|'
+- en: '| Parameters | `jobID`: The ID of a job as provided by the list application
+    command. In addition, you need to provide the new parallelism of the application
+    as an URL parameter. |'
+  id: totrans-196
+  prefs: []
+  type: TYPE_TB
+  zh: '| 参数 | `jobID`：由列表应用命令提供的作业 ID。此外，您需要将应用程序的新并行度作为 URL 参数提供。 |'
+- en: '| Action | Takes a savepoint, cancels the application, and restarts it with
+    the new default parallelism from the savepoint |'
+  id: totrans-197
+  prefs: []
+  type: TYPE_TB
+  zh: '| 操作 | 获取一个保存点，取消应用程序，并使用保存点的新默认并行度重新启动应用程序 |'
+- en: '| Response | A request ID to check whether the rescaling request was successful
+    or not |'
+  id: totrans-198
+  prefs: []
+  type: TYPE_TB
+  zh: '| 响应 | 用于检查重缩放请求是否成功的请求 ID |'
+- en: 'To rescale an application with `curl` to a new default parallelism of 16 run:'
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用 `curl` 将应用程序重新缩放到新的默认并行度 16，请运行：
+- en: '[PRE33]'
+  id: totrans-200
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE33]'
+- en: The Application Might Not Rescale
+  id: totrans-201
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 应用程序可能不会重新缩放
+- en: The application will continue to run with the original parallelism if the triggered
+    savepoint failed. You can check the status of the rescale request using the request
+    ID.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果触发的保存点失败，应用程序将继续以原始并行度运行。您可以使用请求 ID 检查重新缩放请求的状态。
+- en: Bundling and Deploying Applications in Containers
+  id: totrans-203
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在容器中捆绑和部署应用程序
+- en: So far we have explained how to start an application on a running Flink cluster.
+    This is what we call the framework style of deploying applications. In [“Application
+    Deployment”](ch03.html#chap-3-app-deployment), we briefly explained an alternative—the
+    library mode that does not require a running Flink cluster to submit a job.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经解释了如何在运行中的 Flink 集群上启动应用程序。这就是我们称之为框架风格的应用程序部署。在[“应用程序部署”](ch03.html#chap-3-app-deployment)中，我们简要介绍了另一种选择——库模式，它不需要运行
+    Flink 集群来提交作业。
+- en: In library mode, the application is bundled into a Docker image that also includes
+    the required Flink binaries. The image can be started in two ways—as a JobMaster
+    container or a TaskManager container. When the image is deployed as a JobMaster,
+    the container starts a Flink master process that immediately picks up the bundled
+    application to start it. A TaskManager container registers itself at the JobMaster
+    and offers its processing slots. As soon as enough slots become available, the
+    JobMaster container deploys the application for execution.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在库模式下，应用程序被捆绑到一个 Docker 镜像中，该镜像还包含所需的 Flink 二进制文件。该镜像可以通过两种方式启动——作为 JobMaster
+    容器或 TaskManager 容器。当镜像作为 JobMaster 部署时，容器启动一个 Flink 主进程，立即启动捆绑的应用程序。TaskManager
+    容器在 JobMaster 注册自己并提供其处理插槽。一旦有足够的插槽可用，JobMaster 容器就会部署应用程序以执行。
+- en: The library style of running Flink applications resembles the deployment of
+    microservices in a containerized environment. When being deployed on a container
+    orchestration framework, such as Kubernetes, the framework restarts failed containers.
+    In this section, we describe how to build a job-specific Docker image and how
+    to deploy a library-style bundled application on Kubernetes.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运行 Flink 应用程序的库式风格类似于在容器化环境中部署微服务。当部署在容器编排框架（如 Kubernetes）上时，框架会重新启动失败的容器。在本节中，我们描述了如何构建特定作业的
+    Docker 镜像以及如何在 Kubernetes 上部署库式捆绑应用程序。
+- en: Building a job-specific Flink Docker image
+  id: totrans-207
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 构建特定作业的 Flink Docker 镜像
+- en: Apache Flink provides a script to build job-specific Flink Docker images. The
+    script is included in the source distribution and Flink’s Git repository. It is
+    not part of Flink’s binary distributions.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink 提供了一个脚本来构建特定作业的 Flink Docker 镜像。该脚本包含在源分发和 Flink 的 Git 存储库中。它不是
+    Flink 二进制分发的一部分。
+- en: You can either download and extract a source distribution of Flink or clone
+    the Git repository. Starting from the base folder of the distribution, the script
+    is located at *./flink-container/docker/build.sh*.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以下载并提取 Flink 的源分发包，或克隆 Git 存储库。从分发包的基本文件夹开始，脚本位于 *./flink-container/docker/build.sh*。
+- en: 'The build script creates and registers a new Docker image that is based on
+    a Java Alpine image, a minimal base image that provides Java. The script requires
+    the following parameters:'
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 构建脚本创建并注册一个新的Docker镜像，该镜像基于Java Alpine镜像，这是一个提供Java的最小基础镜像。脚本需要以下参数：
+- en: A path to a Flink archive
+  id: totrans-211
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Flink存档的路径
+- en: A path to an application JAR file
+  id: totrans-212
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 应用程序JAR文件的路径
+- en: The name for the new image
+  id: totrans-213
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 新镜像的名称
+- en: 'To build an image with Flink 1.7.1 that contains the example applications of
+    this book, execute the script as follows:'
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用包含本书示例应用程序的Flink 1.7.1构建镜像，请执行以下脚本：
+- en: '[PRE34]'
+  id: totrans-215
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE34]'
+- en: If you run the `docker images` command after the build script finishes, you
+    should see a new Docker image called `flink-book-apps`.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在构建脚本完成后运行`docker images`命令，您应该看到一个名为`flink-book-apps`的新Docker镜像。
+- en: The *./flink-container/docker* directory also contains a *docker-compose.yml*
+    file to deploy a Flink application with `docker-compose`.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*./flink-container/docker*目录还包含一个*docker-compose.yml*文件，用于使用`docker-compose`部署Flink应用程序。'
+- en: 'If you run the following command, the example application from [“A Quick Look
+    at Flink”](ch01.html#chap-1-taste-flink) is deployed on one master and three worker
+    containers to Docker:'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果运行以下命令，则从[“A Quick Look at Flink”](ch01.html#chap-1-taste-flink)的示例应用程序部署到一个主控和三个工作容器的Docker上：
+- en: '[PRE35]'
+  id: totrans-219
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE35]'
+- en: You can monitor and control the application by accessing the Web UI running
+    a *http://localhost:8081*.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过访问运行在*http://localhost:8081*的Web UI来监控和控制应用程序。
+- en: Running a job-specific Docker image on Kubernetes
+  id: totrans-221
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在Kubernetes上运行特定作业的Docker镜像
+- en: Running a job-specific Docker image on Kubernetes is very similar to starting
+    a Flink cluster on Kubernetes as described in [“Kubernetes”](ch09.html#chap-9-kubernetes).
+    In principle, you only need to adjust the YAML files that describe your deployments
+    to use an image that contains the job code and configure it to automatically start
+    the job when the container is started.
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Kubernetes上运行特定作业的Docker镜像与在[“Kubernetes”](ch09.html#chap-9-kubernetes)中描述的启动Flink集群非常相似。原则上，您只需调整描述部署的YAML文件以使用包含作业代码的镜像，并配置它在容器启动时自动启动作业。
+- en: 'Flink provides templates for the YAML files provided in the source distribution
+    or found in the project’s Git repository. Starting from the base directory, the
+    templates are located in:'
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink为源分发或项目Git仓库中提供的YAML文件提供模板。从基础目录开始，模板位于以下位置：
+- en: '[PRE36]'
+  id: totrans-224
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE36]'
+- en: 'The directory contains two template files:'
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该目录包含两个模板文件：
+- en: '*job-cluster-job.yaml.template* configures the master container as a Kubernetes
+    job.'
+  id: totrans-226
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*job-cluster-job.yaml.template*将主控容器配置为Kubernetes作业。'
+- en: '*task-manager-deployment.yaml.template* configures the worker container as
+    a Kubernetes deployment.'
+  id: totrans-227
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*task-manager-deployment.yaml.template*将工作容器配置为Kubernetes部署。'
+- en: 'Both template files contain placeholders that need to be replaced with actual
+    values:'
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两个模板文件都包含需要替换为实际值的占位符：
+- en: '`${FLINK_IMAGE_NAME}`: The name of the job-specific image.'
+  id: totrans-229
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`${FLINK_IMAGE_NAME}`：作业特定镜像的名称。'
+- en: '`${FLINK_JOB}`: The main class of the job to start.'
+  id: totrans-230
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`${FLINK_JOB}`：要启动的作业的主类。'
+- en: '`${FLINK_JOB_PARALLELISM}`: The degree of parallelism for the job. This parameter
+    also determines the number of started worker containers.'
+  id: totrans-231
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`${FLINK_JOB_PARALLELISM}`：作业的并行度。此参数还确定启动的工作容器数量。'
+- en: 'As you can see, these are the same parameters we used when deploying the job-specific
+    image with `docker-compose`. The directory also contains a YAML file *job-cluster-service.yaml*
+    that defines a Kubernetes service. Once you have copied the template files and
+    configured required values, you can deploy the application to Kubernetes as before
+    with `kubectl`:'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如您所见，这些是我们在使用`docker-compose`部署作业特定镜像时使用的相同参数。该目录还包含一个定义Kubernetes服务的YAML文件*job-cluster-service.yaml*。一旦复制了模板文件并配置了所需的值，您就可以像以前一样使用`kubectl`将应用程序部署到Kubernetes：
+- en: '[PRE37]'
+  id: totrans-233
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE37]'
+- en: Running Job-Specific Images on Minikube
+  id: totrans-234
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在Minikube上运行特定作业图像
+- en: Running a job-specific image on a Minikube cluster requires a few more steps
+    than those discussed in [“Kubernetes”](ch09.html#chap-9-kubernetes). The problem
+    is that Minikube tries to fetch the custom image from a public Docker image registry
+    instead of the local Docker registry of your machine.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Minikube集群上运行特定作业图像需要比在[“Kubernetes”](ch09.html#chap-9-kubernetes)中讨论的步骤多一些。问题在于Minikube试图从公共Docker镜像注册表而不是您机器的本地Docker注册表中获取自定义镜像。
+- en: 'However, you can configure Docker to deploy its images to Minikube’s own registry
+    by running the following command:'
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，您可以通过运行以下命令配置Docker将其镜像部署到Minikube自己的注册表：
+- en: '[PRE38]'
+  id: totrans-237
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE38]'
+- en: All images you build afterwards in this shell are deployed to Minikube’s image
+    registry. Minikube needs to be running.
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 之后您在此 shell 中构建的所有映像都将部署到 Minikube 的映像注册表中。Minikube 必须在运行状态。
+- en: Moreover, you need to set the `ImagePullPolicy` in the YAML files to `Never`
+    to ensure Minikube fetches the image from its own registry.
+  id: totrans-239
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，您需要在 YAML 文件中设置`ImagePullPolicy`为`Never`，以确保 Minikube 从其自己的注册表中获取映像。
+- en: Once the job-specific containers are running, you can treat the cluster as a
+    regular Flink cluster as described in [“Kubernetes”](ch09.html#chap-9-kubernetes).
+  id: totrans-240
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦特定于作业的容器运行起来，你可以按照[“Kubernetes”](ch09.html#chap-9-kubernetes)章节描述的方式将集群视为常规的
+    Flink 集群。
+- en: Controlling Task Scheduling
+  id: totrans-241
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 控制任务调度
+- en: Flink applications are executed in parallel by parallelizing operators into
+    tasks and distributing these tasks across the worker processes in a cluster. Just
+    like in many other distributed systems, the performance of a Flink application
+    depends a lot on how the tasks are scheduled. The worker process to which a task
+    is assigned, the tasks that are colocated with a task, and the number of tasks
+    that are assigned to a worker process can have a significant impact on an application’s
+    performance.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 应用程序通过将运算符并行化为任务并分布这些任务到集群中的工作进程来并行执行。与许多其他分布式系统一样，Flink 应用程序的性能很大程度上取决于任务的调度方式。分配任务的工作进程、与任务同处一个位置的任务以及分配给工作进程的任务数量，这些因素都可能对应用程序的性能产生显著影响。
+- en: In [“Task Execution”](ch03.html#chap-3-task-execution), we described how Flink
+    assigns tasks to slots and how it leverages task chaining to reduce the cost of
+    local data exchange. In this section, we discuss how you can tweak the default
+    behavior and control task chaining and the assignment of tasks to slots to improve
+    the performance of your applications.
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“任务执行”](ch03.html#chap-3-task-execution)章节中，我们描述了 Flink 如何将任务分配给插槽，并如何利用任务链接来减少本地数据交换的成本。在本节中，我们讨论了如何调整默认行为、控制任务链接以及任务分配到插槽，以提高应用程序的性能。
+- en: Controlling Task Chaining
+  id: totrans-244
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 控制任务链接
+- en: Task chaining fuses the parallel tasks of two or more operators into a single
+    task that is executed by a single thread. The fused tasks exchange records by
+    method calls and thus with basically no communication costs. Since task chaining
+    improves the performance of most applications, it is enabled by default in Flink.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任务链接将两个或多个运算符的并行任务融合成一个由单个线程执行的单个任务。融合的任务通过方法调用交换记录，因此基本上没有通信成本。由于任务链接可以提高大多数应用程序的性能，因此在
+    Flink 中默认启用。
+- en: 'However, certain applications might not benefit from task chaining. One reason
+    is to break a chain of expensive functions in order to execute them on different
+    processing slots. You can completely disable task chaining for an application
+    via the `StreamExecutionEnvironment`:'
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，某些应用程序可能不会从任务链接中获益。一个原因是为了打破昂贵函数的链条，以便在不同的处理插槽上执行它们。您可以通过`StreamExecutionEnvironment`完全禁用应用程序的任务链接：
+- en: '[PRE39]'
+  id: totrans-247
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE39]'
+- en: In addition to disabling chaining for the whole application, you can also control
+    the chaining behavior of individual operators. To disable chaining for a specific
+    operator, you can call its `disableChaining()` method. This will prevent the tasks
+    of the operator from being chained to preceding and succeeding tasks ([Example 10-1](#code_nochain)).
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了为整个应用程序禁用链接外，您还可以控制单个运算符的链接行为。要禁用特定运算符的链接，可以调用其`disableChaining()`方法。这将阻止该运算符的任务链接到前后任务（[Example 10-1](#code_nochain)）。
+- en: Example 10-1\. Disable task chaining for an operator
+  id: totrans-249
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 10-1\. 为运算符禁用任务链接
+- en: '[PRE40]'
+  id: totrans-250
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE40]'
+- en: The code in [Example 10-1](#code_nochain) results in three tasks—a chained task
+    for `Filter1` and `Map1`, an individual task for `Map2`, and a task for `Filter2`,
+    which is not allowed to be chained to `Map2`.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Example 10-1](#code_nochain)中的代码会产生三个任务：`Filter1` 和 `Map1` 的链接任务，`Map2` 的单独任务以及
+    `Filter2` 的任务，不允许链接到 `Map2`。'
+- en: It is also possible to start a new chain with an operator by calling its `startNewChain()`
+    method ([Example 10-2](#code_newchain)). The tasks of the operator will not be
+    chained to preceding tasks but will be chained to succeeding tasks if the requirements
+    for chaining are met.
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还可以通过调用其`startNewChain()`方法（[Example 10-2](#code_newchain)）来启动运算符的新链。该运算符的任务将不会链接到前面的任务，但如果符合链接要求，则会链接到后续任务。
+- en: Example 10-2\. Start a new task chain with an operator
+  id: totrans-253
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 10-2\. 使用运算符启动新的任务链
+- en: '[PRE41]'
+  id: totrans-254
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE41]'
+- en: 'In [Example 10-2](#code_newchain) two chained tasks are created: one task for
+    `Filter1` and `Map1` and another task for `Map2` and `Filter2`. Note that the
+    new chained task starts with the operator on which the `startNewChain()` method
+    is called—`Map2` in our example.'
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[示例 10-2](#code_newchain)中创建了两个链接任务：一个任务用于 `Filter1` 和 `Map1`，另一个任务用于 `Map2`
+    和 `Filter2`。请注意，新的链接任务以调用`startNewChain()`方法的操作符开始——在我们的示例中是`Map2`。
+- en: Defining Slot-Sharing Groups
+  id: totrans-256
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 定义槽共享组
+- en: Flink’s default task scheduling strategy assigns a complete slice of a program—up
+    to one task of each operator of an application to a single processing slot.^([2](ch10.html#idm45498991355896))
+    Depending on the complexity of the application and the computational costs of
+    the operators, this default strategy can overload a processing slot. Flink’s mechanism
+    to manually control the assignment of tasks to slots is slot-sharing groups.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink的默认任务调度策略将程序的完整切片分配给单个处理槽，即将应用程序的每个操作符的一个任务分配给单个处理槽。^([2](ch10.html#idm45498991355896))
+    根据应用程序的复杂性和操作符的计算成本，这种默认策略可能会使处理槽过载。Flink提供手动控制任务分配到槽的机制——即槽共享组。
+- en: Each operator is a member of a slot-sharing group. All tasks of operators that
+    are members of the same slot-sharing group are processed by the same slots. Within
+    a slot-sharing group, the tasks are assigned to slots as described in [“Task Execution”](ch03.html#chap-3-task-execution)—each
+    slot processes up to one task of each operator that is a member. Hence, a slot-sharing
+    group requires as many processing slots as the maximum parallelism of its operators.
+    Tasks of operators that are in different slot-sharing groups are not executed
+    by the same slots.
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个操作符都是槽共享组的成员。所有属于同一槽共享组的操作符任务都由相同的槽处理。在槽共享组内，任务按照[“任务执行”](ch03.html#chap-3-task-execution)中描述的方式分配给槽——每个槽处理每个操作符的最多一个任务。因此，一个槽共享组需要与其操作符的最大并行度相同数量的处理槽。属于不同槽共享组的操作符任务不由相同的槽执行。
+- en: By default, each operator is in the `"default"` slot-sharing group. For each
+    operator, you can explicitly specify its slot-sharing group with the `slotSharingGroup(String)`
+    method. An operator inherits the slot-sharing group of its input operators if
+    they are all members of the same group. If the input operators are in different
+    groups, the operator is in the `"default"` group. [Example 10-3](#code_slotsharing)
+    shows how to specify slot-sharing groups in a Flink DataStream application.
+  id: totrans-259
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，每个操作符都属于`"default"`槽共享组。对于每个操作符，您可以使用`slotSharingGroup(String)`方法显式指定其槽共享组。如果其输入操作符都属于同一组，则操作符继承其输入操作符的槽共享组。如果输入操作符属于不同组，则操作符属于`"default"`组。[示例
+    10-3](#code_slotsharing)展示了如何在Flink DataStream应用程序中指定槽共享组。
+- en: Example 10-3\. Controlling task scheduling with slot-sharing groups
+  id: totrans-260
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-3 控制任务调度与槽共享组
+- en: '[PRE42]'
+  id: totrans-261
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE42]'
+- en: 'The application in [Example 10-3](#code_slotsharing) consists of five operators,
+    two sources, two intermediate operators, and a sink operator. The operators are
+    assigned to three slot-sharing groups: `green`, `yellow`, and `blue`. [Figure 10-1](#fig_slotsharing)
+    shows the JobGraph of the application and how its tasks are mapped to processing
+    slots.'
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序在[示例 10-3](#code_slotsharing)中包括五个操作符、两个源、两个中间操作符和一个接收操作符。这些操作符分配到三个共享槽组中：`green`、`yellow`和`blue`。[图
+    10-1](#fig_slotsharing)显示了应用程序的JobGraph及其任务如何映射到处理槽。
+- en: '![](assets/spaf_1001.png)'
+  id: totrans-263
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/spaf_1001.png)'
+- en: Figure 10-1\. Controlling task scheduling with slot-sharing groups
+  id: totrans-264
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-1 控制任务调度与槽共享组
+- en: The application requires 10 processing slots. The blue and green slot-sharing
+    groups require four slots each due to the maximum parallelism of their assigned
+    operators. The yellow slot-sharing group requires two slots.
+  id: totrans-265
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该应用程序需要10个处理槽。蓝色和绿色的槽共享组各需四个槽，因为其分配的操作符具有最大并行度。黄色的槽共享组需要两个槽。
+- en: Tuning Checkpointing and Recovery
+  id: totrans-266
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调整检查点和恢复
+- en: A Flink application that runs with fault tolerance enabled periodically takes
+    a checkpoint of its state. Checkpointing can be an expensive operation since the
+    amount of data that needs to be copied to a persistent storage can be quite large.
+    Increasing the checkpointing interval reduces the overhead of fault tolerance
+    during regular processing. However, it also increases the amount of data a job
+    needs to reprocess after recovering from a failure before it catches up to the
+    tail of the stream.
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启用故障容错的Flink应用程序会定期对其状态进行检查点。检查点可以是一项昂贵的操作，因为需要复制到持久存储的数据量可能相当大。增加检查点间隔可以减少常规处理期间的故障容错开销。但是，这也会增加作业在从故障中恢复后需要重新处理的数据量，以赶上流的尾部。
+- en: Flink provides a couple of parameters to tune checkpointing and state backends.
+    Configuring these options is important to ensure reliable and smooth operation
+    of streaming applications in production. For instance, reducing the overhead of
+    each checkpoint can facilitate a higher checkpointing frequency, leading to faster
+    recovery cycles. In this section, we describe the parameters used to control checkpointing
+    and recovery of applications.
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink提供了几个参数来调整检查点和状态后端。配置这些选项对于确保生产中流应用程序的可靠和平稳运行非常重要。例如，减少每个检查点的开销可以促进更高的检查点频率，从而加快恢复周期。在本节中，我们描述了用于控制应用程序检查点和恢复的参数。
+- en: Configuring Checkpointing
+  id: totrans-269
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 配置检查点
+- en: When you enable checkpointing for an application, you have to specify the checkpointing
+    interval—the interval in which the JobManager will initiate checkpoints at the
+    sources of the application.
+  id: totrans-270
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您为应用程序启用检查点时，必须指定检查点间隔——JobManager将在该间隔内启动应用程序源头的检查点。
+- en: 'Checkpoints are enabled on the `StreamExecutionEnvironment`:'
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`StreamExecutionEnvironment`上启用了检查点：
+- en: '[PRE43]'
+  id: totrans-272
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE43]'
+- en: 'Further options to configure the checkpointing behavior are provided by the
+    `CheckpointConfig`, which can be obtained from the `StreamExecutionEnvironment`:'
+  id: totrans-273
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 进一步配置检查点行为的选项由`CheckpointConfig`提供，该对象可从`StreamExecutionEnvironment`中获取：
+- en: '[PRE44]'
+  id: totrans-274
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE44]'
+- en: 'By default, Flink creates checkpoints to guarantee exactly-once state consistency.
+    However, it can also be configured to provide at-least-once guarantees:'
+  id: totrans-275
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，Flink创建检查点以确保状态一致性为一次性。但是，也可以配置为提供至少一次性保证：
+- en: '[PRE45]'
+  id: totrans-276
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE45]'
+- en: Depending on the characteristics of an application, the size of its state, and
+    the state backend and its configuration, a checkpoint can take up to a few minutes.
+    Moreover, the size of the state can grow and shrink over time, perhaps due to
+    long-running windows. Hence, it is not uncommon for a checkpoint to take more
+    time than the configured checkpointing interval. By default, Flink allows only
+    one checkpoint to be in progress at a time to avoid checkpointing takeing away
+    too many resources needed for regular processing. If—according to the configured
+    checkpointing interval—a checkpoint needs to be started, but there is another
+    checkpoint in progress, the second checkpoint will be put on hold until the first
+    checkpoint completes.
+  id: totrans-277
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据应用程序的特性、其状态的大小以及状态后端及其配置，检查点可能需要几分钟的时间。此外，状态的大小可能会随时间的推移而增长和缩小，可能是由于长时间运行的窗口。因此，检查点花费的时间可能比配置的检查点间隔长。默认情况下，Flink每次只允许一个检查点处于进行中状态，以避免检查点占用用于常规处理的太多资源。如果根据配置的检查点间隔需要启动检查点，但当前有另一个检查点正在进行，第二个检查点将被暂停，直到第一个检查点完成。
+- en: If many or all checkpoints take longer than the checkpointing interval, this
+    behavior might not be optimal for two reasons. First, it means that the regular
+    data processing of the application will always compete for resources with the
+    concurrent checkpointing. Hence, its processing slows down and it might not be
+    able to make enough progress to keep up with the incoming data. Second, a checkpoint
+    may be delayed because we need to wait for another checkpoint to complete results
+    in a lower checkpointing interval, leading to longer catch-up processing during
+    recovery. Flink provides parameters to address these situations.
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果许多或所有检查点的时间超过了检查点间隔，这种行为可能不是最佳选择，原因有两个。首先，这意味着应用程序的常规数据处理将始终与并发检查点竞争资源。因此，其处理速度减慢，可能无法取得足够的进展以跟上传入的数据。其次，可能会因为需要等待另一个检查点完成而延迟检查点，从而导致较低的检查点间隔，在恢复期间导致较长的赶上处理。Flink提供了参数来解决这些情况。
+- en: To ensure an application can make enough progress, you can configure a minimum
+    pause between checkpoints. If you configure the minimum pause to be 30 seconds,
+    then no new checkpoint will be started within the first 30 seconds after a checkpoint
+    completed. This also means the effective checkpointing interval is at least 30
+    seconds and there is at most one checkpoint happening at the same time.
+  id: totrans-279
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为确保应用程序能够取得足够的进展，您可以配置检查点之间的最小暂停时间。如果将最小暂停时间配置为30秒，则在完成一个检查点后的前30秒内不会启动新的检查点。这也意味着有效的检查点间隔至少为30秒，并且最多同时进行一个检查点。
+- en: '[PRE46]'
+  id: totrans-280
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE46]'
+- en: In certain situations you might want to ensure that checkpoints are taken in
+    the configured checkpointing interval even though a checkpoint takes longer than
+    the interval. One example would be when checkpoints take a long time but do not
+    consume much resources; for example, due to operations with high-latency calls
+    to external systems. In this case you can configure the maximum number of concurrent
+    checkpoints.
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，您可能希望确保在配置的检查点间隔内进行检查点，即使检查点需要的时间超过了该间隔。一个例子是当检查点需要很长时间但不消耗太多资源时；例如，由于对外部系统的高延迟调用操作。在这种情况下，您可以配置最大并发检查点数目。
+- en: '[PRE47]'
+  id: totrans-282
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE47]'
+- en: Note
+  id: totrans-283
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Savepoints are taken concurrently with checkpoints. Flink does not delay explicitly
+    triggered savepoints due to checkpointing operations. A savepoint will always
+    be started regardless of how many checkpoints are in progress.
+  id: totrans-284
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保存点与检查点并发进行。由于检查点操作，Flink不会延迟显式触发的保存点。无论进行中的检查点数目如何，保存点始终会启动。
+- en: To avoid long-running checkpoints, you can configure a timeout interval after
+    which a checkpoint is canceled. By default, checkpoints are canceled after 10
+    minutes.
+  id: totrans-285
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为避免长时间运行的检查点，您可以配置超时间隔，超过此间隔后将取消检查点。默认情况下，检查点在10分钟后取消。
+- en: '[PRE48]'
+  id: totrans-286
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE48]'
+- en: Finally, you might also want to configure what happens if a checkpoint fails.
+    By default, a failing checkpoint causes an exception that results in an application
+    restart. You can disable this behavior and let the application continue after
+    a checkpointing error.
+  id: totrans-287
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，您可能还想配置检查点失败时的处理方式。默认情况下，检查点失败会导致应用程序重新启动的异常。您可以禁用此行为，并在检查点错误后让应用程序继续运行。
+- en: '[PRE49]'
+  id: totrans-288
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE49]'
+- en: Enabling checkpoint compression
+  id: totrans-289
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 启用检查点压缩
+- en: 'Flink supports compressed checkpoints and savepoints. Until Flink 1.7, the
+    only supported compression algorithm is Snappy. You can enable compressed checkpoints
+    and savepoints as follows:'
+  id: totrans-290
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink支持压缩检查点和保存点。在Flink 1.7之前，唯一支持的压缩算法是Snappy。您可以如下启用压缩检查点和保存点：
+- en: '[PRE50]'
+  id: totrans-291
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE50]'
+- en: Note
+  id: totrans-292
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that checkpoint compression is not supported for incremental RocksDB checkpoints.
+  id: totrans-293
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，增量RocksDB检查点不支持检查点压缩。
+- en: Retaining checkpoints after an application has stopped
+  id: totrans-294
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 在应用程序停止后保留检查点
+- en: The purpose of checkpoints is to recover an application after a failure. Hence,
+    they clean up when a job stops running, either due to a failure or explicit cancellation.
+    However, you can also enable a feature called externalized checkpoints to retain
+    checkpoints after the application has stopped.
+  id: totrans-295
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点的目的是在失败后恢复应用程序。因此，在作业停止运行时，无论是由于故障还是显式取消，它们都会清理。但是，您还可以启用一个称为外部化检查点的功能，在应用程序停止后保留检查点。
+- en: '[PRE51]'
+  id: totrans-296
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE51]'
+- en: 'There are two options for externalized checkpoints:'
+  id: totrans-297
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 外部化检查点有两个选项：
+- en: '`RETAIN_ON_CANCELLATION` retains the checkpoint after the application completely
+    fails and when it is explicitly canceled.'
+  id: totrans-298
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RETAIN_ON_CANCELLATION`在应用程序完全失败并显式取消时保留检查点。'
+- en: '`DELETE_ON_CANCELLATION` retains the checkpoint only after the application
+    completely fails. If the application is explicitly canceled, the checkpoint is
+    deleted.'
+  id: totrans-299
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`DELETE_ON_CANCELLATION`仅在应用程序完全失败后保留检查点。如果显式取消应用程序，则删除检查点。'
+- en: Note
+  id: totrans-300
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Externalized checkpoints do not replace savepoints. They use a state backend–specific
+    storage format and do not support rescaling. Hence, they are sufficient to restart
+    an application after it failed but provide less flexibility than savepoints. Once
+    the application is running again, you can take a savepoint.
+  id: totrans-301
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 外部化检查点不替代保存点。它们使用特定于状态后端的存储格式，不支持重新调整大小。因此，在应用程序失败后，它们足以重新启动应用程序，但比保存点灵活性较低。应用程序再次运行后，可以进行保存点。
+- en: Configuring State Backends
+  id: totrans-302
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 配置状态后端
+- en: The state backend of an application is responsible for maintaining the local
+    state, performing checkpoints and savepoints, and recovering the application state
+    after a failure. Hence, the choice and configuration of the application’s state
+    backend has a large impact on the performance of the checkpoints. The individual
+    state backends are described in more detail in [“Choosing a State Backend”](ch07.html#chap-7-state-backend).
+  id: totrans-303
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序的状态后端负责维护本地状态，执行检查点和保存点，并在故障后恢复应用程序状态。因此，应用程序状态后端的选择和配置对检查点性能有很大影响。有关各个状态后端的详细信息，请参阅["选择状态后端"](ch07.html#chap-7-state-backend)。
+- en: The default state backend of an application is `MemoryStateBackend`. Since it
+    holds all state in memory and checkpoints are completely stored in the volatile
+    and JVM-size limited JobManager heap storage, it is not recommended for production
+    environments. However, it serves well for locally developing Flink applications.
+    [“Checkpointing and State Backends”](ch09.html#chap-9-state-backend-configuration)
+    describes how you can configure a default state backend of a Flink cluster.
+  id: totrans-304
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序的默认状态后端是 `MemoryStateBackend`。由于它将所有状态保存在内存中，并且检查点完全存储在易失性和 JVM 大小限制的 JobManager
+    堆存储中，因此不建议用于生产环境。但是，它在本地开发 Flink 应用程序时表现良好。["检查点和状态后端"](ch09.html#chap-9-state-backend-configuration)描述了如何配置
+    Flink 集群的默认状态后端。
+- en: 'You can also explicitly choose the state backend of an application:'
+  id: totrans-305
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以明确选择应用程序的状态后端：
+- en: '[PRE52]'
+  id: totrans-306
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE52]'
+- en: 'The different state backends can be created with minimum settings as shown
+    in the following. `MemoryStateBackend` does not require any parameters. However,
+    there are constructors that take parameters to enable or disable asynchronous
+    checkpointing (enabled by default) and limit the size of state (5 MB by default):'
+  id: totrans-307
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不同的状态后端可以使用最小设置创建，如下所示。`MemoryStateBackend` 不需要任何参数。但是，有些构造函数接受参数以启用或禁用异步检查点（默认情况下启用）并限制状态的大小（默认为
+    5 MB）：
+- en: '[PRE53]'
+  id: totrans-308
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE53]'
+- en: '`FsStateBackend` only requires a path to define the storage location for checkpoints.
+    There are also constructor variants to enable or disable asynchronous checkpointing
+    (enabled by default):'
+  id: totrans-309
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`FsStateBackend` 只需要一个路径来定义检查点的存储位置。还有构造函数变体可用于启用或禁用异步检查点（默认情况下启用）：'
+- en: '[PRE54]'
+  id: totrans-310
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE54]'
+- en: '`RocksDBStateBackend` only requires a path to define the storage location for
+    checkpoints and takes an optional parameter to enable incremental checkpoints
+    (disabled by default). `RocksDBStateBackend` is always writing checkpoints asynchronously:'
+  id: totrans-311
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RocksDBStateBackend` 只需要一个路径来定义检查点的存储位置，并采用一个可选参数来启用增量检查点（默认情况下禁用）。`RocksDBStateBackend`
+    总是异步写入检查点：'
+- en: '[PRE55]'
+  id: totrans-312
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE55]'
+- en: 'In [“Checkpointing and State Backends”](ch09.html#chap-9-state-backend-configuration),
+    we discussed the configuration options for state backends. You can, of course,
+    also configure the state backend in your application, overriding the default values
+    or cluster-wide configuration. For that you have to create a new backend object
+    by passing a `Configuration` object to your state backend. See [“Checkpointing
+    and State Backends”](ch09.html#chap-9-state-backend-configuration) for a description
+    of the available configuration options:'
+  id: totrans-313
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在["检查点和状态后端"](ch09.html#chap-9-state-backend-configuration)中，我们讨论了状态后端的配置选项。当然，您也可以在应用程序中配置状态后端，覆盖默认值或群集范围的配置。为此，您必须通过向状态后端传递一个
+    `Configuration` 对象来创建一个新的后端对象。有关可用配置选项的描述，请参阅["检查点和状态后端"](ch09.html#chap-9-state-backend-configuration)：
+- en: '[PRE56]'
+  id: totrans-314
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE56]'
+- en: 'Since RocksDB is an external component, it brings its own set of tuning parameters
+    that can also be tweaked for your application. By default, RocksDB is optimized
+    for SSD storage and does not provide great performance if state is stored on spinning
+    disks. Flink provides a few predefined settings to improve the performance for
+    common hardware setups. See [the documentation](http://bit.ly/2CQu8bg) to learn
+    more about the available settings. You can apply predefined options to `RocksDBStateBackend`
+    as follows:'
+  id: totrans-315
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 RocksDB 是一个外部组件，它带来了一套自己的调优参数，这些参数也可以为您的应用程序进行调整。默认情况下，RocksDB 针对 SSD 存储进行了优化，如果状态存储在旋转磁盘上，则性能不佳。Flink
+    为常见硬件设置提供了一些预定义的设置以提高性能。查看[文档](http://bit.ly/2CQu8bg)以了解更多可用的设置。您可以按以下方式将预定义选项应用于
+    `RocksDBStateBackend`：
+- en: '[PRE57]'
+  id: totrans-316
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE57]'
+- en: Configuring Recovery
+  id: totrans-317
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 配置恢复
+- en: When a checkpointed application fails, it will be restarted by bringing up its
+    tasks, recovering their states, including the reading offsets of the source tasks,
+    and continuing the processing. Right after the application was restarted it is
+    in a catch-up phase. Since the application’s source tasks were reset to an earlier
+    input position, it processes data that it processed before the failure and data
+    that accumulated while the application was down.
+  id: totrans-318
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当经过检查点的应用程序失败时，将通过启动其任务、恢复其状态（包括源任务的读取偏移量）并继续处理来重启它。应用程序重新启动后立即处于追赶阶段。由于应用程序的源任务被重置到较早的输入位置，它处理先前失败时处理的数据以及应用程序关闭时累积的数据。
+- en: To be able to catch up with the stream—reach its tail—the application must process
+    the accumulated data at a higher rate than new data is arriving. While the application
+    is catching up, the processing latency—the time at which input is available until
+    it is actually processed—increases.
+  id: totrans-319
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了能够赶上流的尾部，应用程序必须以比新数据到达的速度更高的速度处理累积的数据。在应用程序追赶时，处理延迟——即输入变为可用直至实际处理的时间——会增加。
+- en: Consequently, an application needs enough spare resources for the catch-up phase
+    after the application was restarted to successfully resume its regular processing.
+    This means an application should not run close to 100% resource consumption during
+    regular processing. The more resources available for recovery, the faster the
+    catch-up phase completes and the faster processing latencies go back to normal.
+  id: totrans-320
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，应用程序在重启后需要足够的备用资源来成功恢复其常规处理。这意味着应用程序在常规处理期间不应该接近100%的资源消耗。为恢复可用的资源越多，追赶阶段完成得越快，处理延迟恢复正常的速度也越快。
+- en: 'Besides resource considerations for the recovery, there are two other recovery-related
+    topics we will discuss: restart strategies and local recovery.'
+  id: totrans-321
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了对恢复的资源考虑外，我们还将讨论另外两个与恢复相关的话题：重启策略和本地恢复。
+- en: Restart strategies
+  id: totrans-322
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 重启策略
+- en: 'Depending on the failure that caused an application to crash, the application
+    could be killed by the same failure again. A common example is invalid or corrupt
+    input data the application is not able to handle. In such a situation, an application
+    would end up in an infinite recovery cycle consuming lots of resources without
+    a chance of ever getting back into regular processing. Flink features three restart
+    strategies to address this problem:'
+  id: totrans-323
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据导致应用程序崩溃的故障，应用程序可能会因同样的故障再次崩溃。一个常见例子是应用程序无法处理的无效或损坏的输入数据。在这种情况下，应用程序将陷入无尽的恢复循环中，消耗大量资源而无法恢复到常规处理状态。Flink具有三种重启策略来解决这个问题：
+- en: The *fixed-delay restart strategy* restarts an application a fixed number of
+    times and waits a configured time before a restart attempt.
+  id: totrans-324
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*固定延迟重启策略*会重新启动应用程序固定次数，并在重启尝试之前等待一段时间。'
+- en: The *failure-rate restart strategy* restarts an application as long as a configurable
+    failure rate is not exceeded. The failure rate is specified as the maximum number
+    of failures within a time interval. For example, you can configure that an application
+    be restarted as long as it did not fail more than three times in the last ten
+    minutes.
+  id: totrans-325
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*故障率重启策略*在可配置的故障率未超出范围的情况下重启应用程序。故障率指定为在时间间隔内的最大故障次数。例如，您可以配置应用程序只要在过去的十分钟内没有超过三次失败就会重启。'
+- en: The *no-restart strategy* does not restart an application, but fails it immediately.
+  id: totrans-326
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*无重启策略*不会重启应用程序，而是立即失败。'
+- en: The restart strategy of an application is configured via `StreamExecutionEnvironment`
+    as shown in [Example 10-4](#code_restart_config).
+  id: totrans-327
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序的重启策略是通过`StreamExecutionEnvironment`配置的，如[示例 10-4](#code_restart_config)所示。
+- en: Example 10-4\. Configuring the restart strategy of an application
+  id: totrans-328
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-4\. 配置应用程序的重启策略
+- en: '[PRE58]'
+  id: totrans-329
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE58]'
+- en: The default restart strategy used if no restart strategy is explicitly defined
+    is a fixed-delay restart strategy with `Integer.MAX_VALUE` restart attempts and
+    a 10-second delay.
+  id: totrans-330
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果没有显式定义重启策略，则使用的默认重启策略是固定延迟重启策略，重启尝试次数为`Integer.MAX_VALUE`，延迟为10秒。
+- en: Local recovery
+  id: totrans-331
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 本地恢复
+- en: Flink’s state backends (except for `MemoryStateBackend`) store checkpoints in
+    a remote filesystem. This ensures first that the state is saved and persistent
+    and second that it can be redistributed if a worker node is lost or the application
+    is rescaled. However, reading state from remote storage during recovery is not
+    very efficient. Moreover, on recovery, it might be possible to restart an application
+    on the same workers it was running before the failure.
+  id: totrans-332
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 的状态后端（除了 `MemoryStateBackend`）将检查点存储在远程文件系统中。这样首先保证状态已保存且持久化，其次能够在工作节点丢失或应用程序重新缩放时重新分发状态。然而，在恢复期间从远程存储读取状态并不是非常高效的。此外，在恢复时，可能能够在与故障前相同的工作节点上重新启动应用程序。
+- en: Flink supports a feature called local recovery to significantly speed up recovery
+    if the application can be restarted on the same machines. When enabled, state
+    backends also store a copy of the checkpoint data on the local disk of their worker
+    node in addition to writing the data to the remote storage system. When the application
+    is restarted, Flink tries to schedule the same tasks to the same worker nodes.
+    If that succeeds, the tasks first try to load the checkpoint data from the local
+    disk. In case of any problem, they fall back to the remote storage.
+  id: totrans-333
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 支持一个称为本地恢复的功能，可显著加快恢复速度，如果应用程序能够重新启动到相同的机器上。启用时，状态后端还将检查点数据的副本存储在其工作节点的本地磁盘上，除了将数据写入远程存储系统。应用程序重新启动时，Flink
+    尝试将相同的任务调度到相同的工作节点。如果成功，任务首先尝试从本地磁盘加载检查点数据。如果出现任何问题，它们会回退到远程存储。
+- en: Local recovery is implemented so that the state copy in the remote system is
+    the source of truth. A task only acknowledges a checkpoint if the remote write
+    succeeded. Also, a checkpoint will not fail because a local state copy failed.
+    Since the checkpoint data is written twice, local recovery adds overhead to checkpointing.
+  id: totrans-334
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地恢复的实现方式是远程系统中的状态副本为真实数据源。任务仅在远程写入成功时才确认检查点。此外，检查点不会因为本地状态副本失败而失败。由于检查点数据被写入两次，本地恢复会增加检查点的开销。
+- en: 'Local recovery can be enabled and configured for a cluster in the *flink-conf.yaml*
+    file or per application by including the following in the state backend configuration:'
+  id: totrans-335
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以在 *flink-conf.yaml* 文件中为集群或每个应用程序启用和配置本地恢复，方法如下所示：
+- en: '`state.backend.local-recovery`: This flag enables or disables local recovery.
+    By default, local recovery is deactivated.'
+  id: totrans-336
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`state.backend.local-recovery`: 此标志用于启用或禁用本地恢复。默认情况下，本地恢复未激活。'
+- en: '`taskmanager.state.local.root-dirs`: This parameter specifies one or more local
+    paths at which the local state copies are stored.'
+  id: totrans-337
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`taskmanager.state.local.root-dirs`: 此参数指定一个或多个本地路径，用于存储本地状态副本。'
+- en: Note
+  id: totrans-338
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Local recovery only affects keyed state, which is always partitioned and usually
+    accounts for most of the state size. Operator state will not be stored locally
+    and needs to be retrieved from the remote storage system. However, it is typically
+    much smaller than keyed state. Moreover, local recovery is not supported by the
+    `MemoryStateBackend`, which does not support large state anyway.
+  id: totrans-339
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本地恢复仅影响分区键控状态，这种状态始终被分区，并且通常占据大部分状态大小。操作符状态不会存储在本地，需要从远程存储系统中检索。然而，操作符状态通常比键控状态小得多。此外，`MemoryStateBackend`
+    不支持本地恢复，因为它本身不支持大状态。
+- en: Monitoring Flink Clusters and Applications
+  id: totrans-340
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 监控 Flink 集群和应用程序
+- en: Monitoring your streaming job is essential to ensure its healthy operation and
+    to detect potential symptoms of misconfigurations, underprovisioning, or unexpected
+    behavior early. Especially when a streaming job is part of a larger data processing
+    pipeline or event-driven service in a user-facing application, you probably want
+    to monitor its performance as precisely as possible and make sure it meets certain
+    targets for latency, throughput, resource utilization, etc.
+  id: totrans-341
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监控您的流处理作业对确保其健康运行至关重要，并及早检测到可能的配置错误、资源不足或意外行为的症状。特别是当流处理作业是更大数据处理管道或用户面向应用程序的事件驱动服务的一部分时，您可能希望尽可能精确地监控其性能，并确保其满足延迟、吞吐量、资源利用率等特定目标。
+- en: Flink gathers a set of predefined metrics during runtime and also provides a
+    framework that allows you to define and track your own metrics.
+  id: totrans-342
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 在运行时收集一组预定义的指标，并提供一个框架，允许您定义和跟踪自己的指标。
+- en: Flink Web UI
+  id: totrans-343
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Flink Web UI
+- en: The simplest way to get an overview of your Flink cluster as well as a glimpse
+    of what your jobs are doing internally is to use Flink’s Web UI. You can access
+    the dashboard by visiting `http://**<jobmanager-hostname>**:8081`.
+  id: totrans-344
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用 Flink 的 Web UI 是了解您的 Flink 集群概况以及了解作业内部运行情况的最简单方法。您可以通过访问 `http://**<jobmanager-hostname>**:8081`
+    来访问仪表板。
+- en: On the home screen, you will see an overview of your cluster configuration including
+    the number of TaskManagers, number of configured and available task slots, and
+    running and completed jobs. [Figure 10-2](#fig_dashboard) shows an instance of
+    the dashboard home screen. The menu on the left links to more detailed information
+    on jobs and configuration parameters and also allows job submission by uploading
+    a JAR.
+  id: totrans-345
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在主屏幕上，您将看到集群配置的概述，包括 TaskManagers 的数量，配置和可用任务插槽数量，以及正在运行和已完成的作业数。[图 10-2](#fig_dashboard)
+    展示了仪表板主屏幕的一个实例。左侧菜单链接到有关作业和配置参数的更详细信息，还允许通过上传 JAR 文件进行作业提交。
+- en: '![](assets/spaf_1002.png)'
+  id: totrans-346
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](assets/spaf_1002.png)'
+- en: Figure 10-2\. Apache Flink Web UI home screen
+  id: totrans-347
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-2\. Apache Flink Web UI 主屏幕
+- en: If you click on a running job, you can get a quick glimpse of running statistics
+    per task or subtask as shown in [Figure 10-3](#fig_statistics). You can inspect
+    the duration, bytes, and records exchanged, and aggregate those per TaskManager
+    if you prefer.
+  id: totrans-348
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您单击正在运行的作业，可以快速查看每个任务或子任务的运行统计信息，如图 10-3](#fig_statistics) 所示。您可以检查交换的持续时间、字节和记录，并根据需要对每个
+    TaskManager 进行汇总。
+- en: '![Statistics for a running job](assets/spaf_1003.png)'
+  id: totrans-349
+  prefs: []
+  type: TYPE_IMG
+  zh: '![运行中作业的统计数据](assets/spaf_1003.png)'
+- en: Figure 10-3\. Statistics for a running job
+  id: totrans-350
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-3\. 运行中作业的统计数据
+- en: If you click on the Task Metrics tab, you can select more metrics from a dropdown
+    menu, as shown in [Figure 10-4](#fig_metrics). These include more fine-grained
+    statistics about your tasks, such as buffer usage, watermarks, and input/output
+    rates.
+  id: totrans-351
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您单击“任务度量”选项卡，可以从下拉菜单中选择更多度量指标，如图 10-4](#fig_metrics) 所示。这些指标包括有关任务的更精细的统计信息，例如缓冲区使用情况、水印和输入/输出速率。
+- en: '![Selecting metrics to plot](assets/spaf_1004.png)'
+  id: totrans-352
+  prefs: []
+  type: TYPE_IMG
+  zh: '![选择要绘制的指标](assets/spaf_1004.png)'
+- en: Figure 10-4\. Selecting metrics to plot
+  id: totrans-353
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-4\. 选择要绘制的指标
+- en: '[Figure 10-5](#fig_plotmetrics) shows how selected metrics are shown as continuously
+    updated charts.'
+  id: totrans-354
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 10-5](#fig_plotmetrics) 展示了选择的指标如何显示为持续更新的图表。'
+- en: '![Real-time metric plots](assets/spaf_1005.png)'
+  id: totrans-355
+  prefs: []
+  type: TYPE_IMG
+  zh: '![实时度量图](assets/spaf_1005.png)'
+- en: Figure 10-5\. Real-time metric plots
+  id: totrans-356
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 10-5\. 实时度量图
+- en: The *Checkpoints* tab ([Figure 10-3](#fig_statistics)) displays statistics about
+    previous and current checkpoints. Under *Overview* you can see how many checkpoints
+    have been triggered, are in progress, have completed successfully, or have failed.
+    If you click on the *History* view, you can retrieve more fine-grained information,
+    such as the status, trigger time, state size, and how many bytes were buffered
+    during the checkpoint’s alignment phase. The *Summary* view aggregates checkpoint
+    statistics and provides minimum, maximum, and average values over all completed
+    checkpoints. Finally, under *Configuration*, you can inspect the configuration
+    properties of checkpoints, such as the interval and the timeout values set.
+  id: totrans-357
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*检查点* 选项卡（[图 10-3](#fig_statistics)）显示有关先前和当前检查点的统计信息。在 *概述* 下，您可以查看触发了多少个检查点、正在进行中的检查点、成功完成的检查点或失败的检查点。如果单击
+    *历史* 视图，可以检索更详细的信息，例如状态、触发时间、状态大小以及在检查点对齐阶段期间缓冲的字节数。*摘要* 视图汇总检查点统计信息，并提供所有已完成检查点的最小、最大和平均值。最后，在
+    *配置* 下，您可以查看检查点的配置属性，例如设置的间隔和超时值。'
+- en: Similarly, the *Back Pressure* tab displays back-pressure statistics per operator
+    and subtask. If you click on a row, you trigger back-pressure sampling and you
+    will see the message *Sampling in progress...* for about five seconds. Once sampling
+    is complete, you will see the back-pressure status in the second column. Back-pressured
+    tasks will display a *HIGH* sign; otherwise you should see a nice green *OK* message
+    displayed.
+  id: totrans-358
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似地，*背压* 选项卡显示每个操作符和子任务的背压统计信息。如果单击行，将触发背压采样，并且将在大约五秒钟内看到消息 *采样进行中…*。采样完成后，您将在第二列中看到背压状态。受背压影响的任务将显示
+    *HIGH* 标志；否则，您应该看到一个漂亮的绿色 *OK* 消息显示。
+- en: Metric System
+  id: totrans-359
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 度量系统
+- en: When running a data processing system such as Flink in production, it is essential
+    to monitor its behavior to be able to discover and diagnose the cause of performance
+    degradations. Flink collects several system and application metrics by default.
+    Metrics are gathered per operator, TaskManager, or JobManager. Here we describe
+    some of the most commonly used metrics and refer you to Flink’s documentation
+    for a full list of available metrics.
+  id: totrans-360
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中运行诸如Flink之类的数据处理系统时，监控其行为至关重要，以便发现和诊断性能下降的原因。Flink默认收集多个系统和应用程序指标。指标按操作符、TaskManager或JobManager收集。在这里，我们描述了一些常用的指标，并引导您参阅Flink文档获取可用指标的完整列表。
+- en: Categories include CPU utilization, memory used, number of active threads, garbage
+    collection statistics, network metrics such as the number of queued input/output
+    buffers, cluster-wide metrics such as the number or running jobs and available
+    resources, job metrics including runtime, the number of retries and checkpointing
+    information, I/O statistics including the number of record exchanges locally and
+    remotely, watermark information, connector-specific metrics, etc.
+  id: totrans-361
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类别包括CPU利用率、内存使用情况、活动线程数、垃圾收集统计信息、网络指标（如排队的输入/输出缓冲区数）、整个集群的指标（如运行中的作业数和可用资源）、作业指标（包括运行时间、重试次数和检查点信息）、I/O统计信息（包括本地和远程记录交换数）、水印信息、特定连接器的指标等。
+- en: Registering and using metrics
+  id: totrans-362
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 注册和使用指标
+- en: To register metrics you have to retrieve a `MetricGroup` by calling the `getMetrics()`
+    method on the `RuntimeContext`, as shown in [Example 10-5](#registering-a-counter).
+  id: totrans-363
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要注册指标，您需要通过在`RuntimeContext`上调用`getMetrics()`方法来检索`MetricGroup`，如示例[Example 10-5](#registering-a-counter)所示。
+- en: Example 10-5\. Registering and using metrics in a FilterFunction
+  id: totrans-364
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-5\. 在FilterFunction中注册和使用指标
+- en: '[PRE59]'
+  id: totrans-365
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE59]'
+- en: Metric groups
+  id: totrans-366
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 指标组
+- en: 'Flink metrics are registered and accessed through the `MetricGroup` interface.
+    The `MetricGroup` provides ways to create nested, named metrics hierarchies and
+    provides methods to register the following metric types:'
+  id: totrans-367
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink指标通过`MetricGroup`接口进行注册和访问。`MetricGroup`提供了创建嵌套的命名指标层次结构的方法，并提供了注册以下指标类型的方法：
+- en: Counter
+  id: totrans-368
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Counter
+- en: An `org.apache.flink.metrics.Counter` metric measures a count and provides methods
+    for increment and decrement. You can register a counter metric using the `counter(String
+    name, Counter counter)` method on `MetricGroup`.
+  id: totrans-369
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`org.apache.flink.metrics.Counter`指标用于计量计数，并提供了增加和减少计数的方法。您可以使用`MetricGroup`上的`counter(String
+    name, Counter counter)`方法注册计数器指标。'
+- en: Gauge
+  id: totrans-370
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Gauge
+- en: A `Gauge` metric calculates a value of any type at a point in time. To use a
+    `Gauge` you implement the `org.apache.flink.metrics.Gauge` interface and register
+    it using the `gauge(String name, Gauge gauge)` method on `MetricGroup`. The code
+    in [Example 10-6](#implementation-of-a-w) shows the implementation of the `WatermarkGauge`
+    metric, which exposes the current watermark.
+  id: totrans-371
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Gauge`指标在某一时刻计算任意类型的值。要使用`Gauge`，您需要实现`org.apache.flink.metrics.Gauge`接口，并使用`MetricGroup`上的`gauge(String
+    name, Gauge gauge)`方法进行注册。代码示例[Example 10-6](#implementation-of-a-w)展示了`WatermarkGauge`指标的实现，它公开了当前水印。'
+- en: Example 10-6\. Implementation of a WatermarkGauge metric that exposes the current
+    watermark
+  id: totrans-372
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-6\. 实现了一个展示当前水印的WatermarkGauge指标
+- en: '[PRE60]'
+  id: totrans-373
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE60]'
+- en: Metrics Reported as Strings
+  id: totrans-374
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 指标以字符串形式报告
+- en: Metric reporters will turn the `Gauge` value into a `String`, so make sure you
+    provide a meaningful `toString()` implementation if it is not provided by the
+    type you use.
+  id: totrans-375
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果类型没有提供有意义的`toString()`实现，指标报告器将把`Gauge`值转换为`String`，因此请确保您提供一个有意义的实现。
+- en: Histogram
+  id: totrans-376
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Histogram
+- en: You can use a histogram to represent the distribution of numerical data. Flink’s
+    histogram is especially implemented for reporting metrics on long values. The
+    `org.apache.flink.metrics.Histogram` interface allows you to collect values, get
+    the current count of collected values, and create statistics, such as min, max,
+    standard deviation, and mean, for the values seen so far.
+  id: totrans-377
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用直方图表示数值数据的分布情况。Flink的直方图专门用于报告长整型值的指标。`org.apache.flink.metrics.Histogram`接口允许您收集值，获取已收集值的当前计数，并为迄今为止见过的值创建统计信息，如最小值、最大值、标准差和平均值。
+- en: 'Apart from creating your own histogram implementation, Flink also allows you
+    to use a [DropWizard](https://github.com/dropwizard/metrics) histogram by adding
+    the dependency in the following:'
+  id: totrans-378
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了创建自己的直方图实现外，Flink还允许您使用[DropWizard](https://github.com/dropwizard/metrics)直方图，方法是在以下位置添加依赖：
+- en: '[PRE61]'
+  id: totrans-379
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE61]'
+- en: You can then register a >DropWizard histogram in your Flink program using the
+    `DropwizardHistogramWrapper` class as shown in [Example 10-7](#dropwizard-wrapper).
+  id: totrans-380
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 `DropwizardHistogramWrapper` 类在 Flink 程序中注册一个 DropWizard 直方图，如 [示例 10-7](#dropwizard-wrapper)
+    所示。
+- en: Example 10-7\. Using the DropwizardHistogramWrapper
+  id: totrans-381
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-7\. 使用 DropwizardHistogramWrapper
+- en: '[PRE62]'
+  id: totrans-382
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE62]'
+- en: Meter
+  id: totrans-383
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 米
+- en: You can use a `Meter` metric to measure the rate (in events per second) at which
+    certain events happen. The `org.apache.flink.metrics.Meter` interface provides
+    methods to mark the occurrence of one or more events, get the current rate of
+    events per second, and get the current number of events marked on the meter.
+  id: totrans-384
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用 `Meter` 指标来测量某些事件发生的速率（每秒事件数）。`org.apache.flink.metrics.Meter` 接口提供了标记一个或多个事件发生、获取每秒事件当前速率以及获取计量器上标记的当前事件数的方法。
+- en: As with histograms, you can use `DropWizard` meters by adding the `flink-metrics-dropwizard`
+    dependency in your `pom.xml` and wrapping the meter in a `DropwizardMeterWrapper`
+    class.
+  id: totrans-385
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与直方图一样，您可以通过在 `pom.xml` 中添加 `flink-metrics-dropwizard` 依赖项并使用 `DropwizardMeterWrapper`
+    类将 Meter 用作 `DropWizard` 米来实现。
+- en: Scoping and formatting metrics
+  id: totrans-386
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 作用域和格式化指标
+- en: 'Flink metrics belong to a scope, which can be either the system scope, for
+    system-provided metrics, or the user scope for custom, user-defined metrics. Metrics
+    are referenced by a unique identifier that contains up to three parts:'
+  id: totrans-387
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 指标属于一个作用域，可以是系统作用域（用于系统提供的指标）或用户作用域（用于自定义用户指标）。指标由一个包含最多三个部分的唯一标识符引用：
+- en: The name that the user specifies when registering the metric
+  id: totrans-388
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 用户在注册指标时指定的名称
+- en: An optional user scope
+  id: totrans-389
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 可选的用户作用域
+- en: A system scope
+  id: totrans-390
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 系统作用域
+- en: For instance, the name “myCounter,” the user scope “MyMetrics,” and the system
+    scope “localhost.taskmanager.512” would result into the identifier “localhost.taskmanager.512.MyMetrics.myCounter.”
+    You can change the default “.” delimiter by setting the `metrics.scope.delimiter`
+    configuration option.
+  id: totrans-391
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，名称“myCounter”，用户作用域“MyMetrics”和系统作用域“localhost.taskmanager.512”将导致标识符“localhost.taskmanager.512.MyMetrics.myCounter”。您可以通过设置
+    `metrics.scope.delimiter` 配置选项来更改默认的“.” 分隔符。
+- en: The system scope declares what component of the system the metric refers to
+    and what context information it should include. Metrics can be scoped to the JobManager,
+    a TaskManager, a job, an operator, or a task. You can configure which context
+    information the metric should contain by setting the corresponding metric options
+    in the *flink-conf.yaml* file. We list some of these configuration options and
+    their default values in [Table 10-17](#tbl-config).
+  id: totrans-392
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统作用域声明指标引用的系统组件以及应包含的上下文信息。指标可以作用于作业管理器、任务管理器、作业、操作器或任务。您可以通过在 *flink-conf.yaml*
+    文件中设置相应的指标选项来配置指标应包含的上下文信息。我们在 [表 10-17](#tbl-config) 中列出了一些这些配置选项及其默认值。
+- en: Table 10-17\. System scope configuration options and their default values
+  id: totrans-393
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-17\. 系统作用域配置选项及其默认值
+- en: '| Scope | Configuration key | Default value |'
+  id: totrans-394
+  prefs: []
+  type: TYPE_TB
+  zh: '| 作用域 | 配置键 | 默认值 |'
+- en: '| --- | --- | --- |'
+  id: totrans-395
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| JobManager | metrics.scope.jm | <host>.jobmanager |'
+  id: totrans-396
+  prefs: []
+  type: TYPE_TB
+  zh: '| 作业管理器 | metrics.scope.jm | <host>.jobmanager |'
+- en: '| JobManager and job | metrics.scope.jm.job | <host>.jobmanager.<job_name>
+    |'
+  id: totrans-397
+  prefs: []
+  type: TYPE_TB
+  zh: '| 作业管理器和作业 | metrics.scope.jm.job | <host>.jobmanager.<job_name> |'
+- en: '| TaskManager | metrics.scope.tm | <host>.taskmanager.<tm_id> |'
+  id: totrans-398
+  prefs: []
+  type: TYPE_TB
+  zh: '| 任务管理器 | metrics.scope.tm | <host>.taskmanager.<tm_id> |'
+- en: '| TaskManager and job | metrics.scope.tm.job | <host>.taskmana**​****​**ger.<tm_id>.<job_name>
+    |'
+  id: totrans-399
+  prefs: []
+  type: TYPE_TB
+  zh: '| 任务管理器和作业 | metrics.scope.tm.job | <host>.taskmana**​****​**ger.<tm_id>.<job_name>
+    |'
+- en: '| Task | metrics.scope.task | <host>.taskmanager.<tm_id>.<job_name>.<task_name>.<subtask_index>
+    |'
+  id: totrans-400
+  prefs: []
+  type: TYPE_TB
+  zh: '| 任务 | metrics.scope.task | <host>.taskmanager.<tm_id>.<job_name>.<task_name>.<subtask_index>
+    |'
+- en: '| Operator | metrics.scope.operator | <host>.taskmanager.<tm_id>.<job_name>.<operator_name>.<subtask_index>
+    |'
+  id: totrans-401
+  prefs: []
+  type: TYPE_TB
+  zh: '| 操作器 | metrics.scope.operator | <host>.taskmanager.<tm_id>.<job_name>.<operator_name>.<subtask_index>
+    |'
+- en: The configuration keys contain constant strings, such as “taskmanager,” and
+    variables shown in angle brackets. The latter will be replaced at runtime with
+    actual values. For instance, the default scope for `TaskManager` metrics might
+    create the scope “localhost.taskmanager.512” where “localhost” and “512” are parameter
+    values. [Table 10-18](#scope-variables-table) shows all variables that are available
+    to configure metrics scopes.
+  id: totrans-402
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置键包含常量字符串，如“taskmanager”，以及显示在尖括号中的变量。后者将在运行时替换为实际值。例如，`TaskManager` 指标的默认作用域可能创建作用域“localhost.taskmanager.512”，其中“localhost”和“512”是参数值。[表 10-18](#scope-variables-table)
+    显示了可用于配置指标作用域的所有变量。
+- en: Table 10-18\. Available variables to configure the formatting of metrics scopes
+  id: totrans-403
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-18\. 可用于配置指标作用域格式的所有变量
+- en: '| Scope | Available Variables |'
+  id: totrans-404
+  prefs: []
+  type: TYPE_TB
+  zh: '| 范围 | 可用变量 |'
+- en: '| --- | --- |'
+  id: totrans-405
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `JobManager:` | `<host>` |'
+  id: totrans-406
+  prefs: []
+  type: TYPE_TB
+  zh: '| `作业管理器：` | `<host>` |'
+- en: '| `TaskManager:` | `<host>, <tm_id>` |'
+  id: totrans-407
+  prefs: []
+  type: TYPE_TB
+  zh: '| `任务管理器：` | `<host>, <tm_id>` |'
+- en: '| `Job:` | `<job_id>, <job_name>` |'
+  id: totrans-408
+  prefs: []
+  type: TYPE_TB
+  zh: '| `作业：` | `<job_id>, <job_name>` |'
+- en: '| `Task:` | `<task_id>, <task_name>, <task_attempt_id>, <task_attempt_num>,
+    <subtask_index>` |'
+  id: totrans-409
+  prefs: []
+  type: TYPE_TB
+  zh: '| `任务：` | `<task_id>, <task_name>, <task_attempt_id>, <task_attempt_num>, <subtask_index>`
+    |'
+- en: '| `Operator:` | `<operator_id>, <operator_name>, <subtask_index>` |'
+  id: totrans-410
+  prefs: []
+  type: TYPE_TB
+  zh: '| `操作符：` | `<operator_id>, <operator_name>, <subtask_index>` |'
+- en: Scope Identifiers per Job Must Be Unique
+  id: totrans-411
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 作业范围标识符必须是唯一的。
+- en: If multiple copies of the same job are run concurrently, metrics might become
+    inaccurate, due to string conflicts. To avoid such risk, you should make sure
+    that scope identifiers per job are unique. This can be easily handled by including
+    the `<job_id>`.
+  id: totrans-412
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果同时运行多个相同的作业副本，由于字符串冲突，可能会导致指标不准确。为避免此风险，您应确保每个作业的作用域标识符是唯一的。可以通过包含 `<job_id>`
+    来轻松处理此问题。
+- en: You can also define a user scope for metrics by calling the `addGroup()` method
+    of the `MetricGroup`, as shown in [Example 10-8](#user-scope).
+  id: totrans-413
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以通过调用 `MetricGroup` 的 `addGroup()` 方法来为指标定义用户范围，如 [示例 10-8](#user-scope)
+    中所示。
+- en: Example 10-8\. Defining the user scope “MyMetrics”
+  id: totrans-414
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-8\. 定义用户范围“我的指标”
+- en: '[PRE63]'
+  id: totrans-415
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE63]'
+- en: Exposing metrics
+  id: totrans-416
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 暴露指标
+- en: Now that you have learned how to register, define, and group metrics, you might
+    be wondering how to access them from external systems. After all, you probably
+    gather metrics because you want to create a real-time dashboard or feed the measurements
+    to another application. You can expose metrics to external backends through *reporters*
+    and Flink provides implementation for several of them (see [Table 10-19](#reporter-implementation-table)
+    ).
+  id: totrans-417
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在您已经学会了如何注册、定义和分组指标，您可能想知道如何从外部系统访问它们。毕竟，您可能收集指标是为了创建实时仪表板或将测量结果馈送给另一个应用程序。您可以通过*报告器*将指标暴露给外部后端系统，而
+    Flink 为其中的几种提供了实现（参见 [表 10-19](#reporter-implementation-table) ）。
+- en: Table 10-19\. List of available metrics reporters
+  id: totrans-418
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 10-19\. 可用指标报告器列表
+- en: '| Reporter | Implementation |'
+  id: totrans-419
+  prefs: []
+  type: TYPE_TB
+  zh: '| 报告器 | 实现 |'
+- en: '| --- | --- |'
+  id: totrans-420
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `JMX` | org.apache.flink.metrics.jmx.JMXReporter |'
+  id: totrans-421
+  prefs: []
+  type: TYPE_TB
+  zh: '| `JMX` | org.apache.flink.metrics.jmx.JMXReporter |'
+- en: '| `Graphite` | org.apache.flink.metrics.graphite.GraphiteReporter |'
+  id: totrans-422
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Graphite` | org.apache.flink.metrics.graphite.GraphiteReporter |'
+- en: '| `Prometheus` | org.apache.flink.metrics.prometheus.PrometheusReporter |'
+  id: totrans-423
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Prometheus` | org.apache.flink.metrics.prometheus.PrometheusReporter |'
+- en: '| `PrometheusPushGateway` | org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporter
+    |'
+  id: totrans-424
+  prefs: []
+  type: TYPE_TB
+  zh: '| `PrometheusPushGateway` | org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporter
+    |'
+- en: '| `StatsD` | org.apache.flink.metrics.statsd.StatsDReporter |'
+  id: totrans-425
+  prefs: []
+  type: TYPE_TB
+  zh: '| `StatsD` | org.apache.flink.metrics.statsd.StatsDReporter |'
+- en: '| `Datadog` | org.apache.flink.metrics.datadog.DatadogHttpReporter |'
+  id: totrans-426
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Datadog` | org.apache.flink.metrics.datadog.DatadogHttpReporter |'
+- en: '| `Slf4j` | org.apache.flink.metrics.slf4j.Slf4jReporter |'
+  id: totrans-427
+  prefs: []
+  type: TYPE_TB
+  zh: '| `Slf4j` | org.apache.flink.metrics.slf4j.Slf4jReporter |'
+- en: If you want to use a metrics backend that is not included in the above list,
+    you can also define your own reporter by implementing the *org.apache.flink.metrics.reporter.MetricReporter*
+    interface.
+  id: totrans-428
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果要使用不在上述列表中的指标后端系统，还可以通过实现 *org.apache.flink.metrics.reporter.MetricReporter*
+    接口来定义自己的报告器。
+- en: 'Reporters need to be configured in `flink-conf.yaml`. Adding the following
+    lines to your configuration will define a JMX reporter “my_reporter” that listens
+    to ports 9020-9040:'
+  id: totrans-429
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 报告器需要在 `flink-conf.yaml` 中进行配置。将以下行添加到您的配置文件中将定义一个名为“my_reporter”的 JMX 报告器，监听
+    9020-9040 端口：
+- en: '[PRE64]'
+  id: totrans-430
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE64]'
+- en: Consult the [Flink documentation](http://bit.ly/2FcdlBe) for a full list of
+    configuration options per supported reporter.
+  id: totrans-431
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请参阅[Flink文档](http://bit.ly/2FcdlBe)获取每个受支持报告器的完整配置选项列表。
+- en: Monitoring Latency
+  id: totrans-432
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 监控延迟
+- en: Latency is probably one of the first metrics you want to monitor to assess the
+    performance characteristics of your streaming job. At the same time, it is also
+    one of the trickiest metrics to define in a distributed streaming engine with
+    rich semantics such as Flink. In [“Latency”](ch02.html#chap-2-latency), we defined
+    latency broadly as *the time it takes to process an event*. You can imagine how
+    a precise implementation of this definition can get problematic in practice if
+    we try to track the latency per event in a high-rate streaming job with a complex
+    dataflow. Considering window operators complicate latency tracking even further,
+    if an event contributes to several windows, do we need to report the latency of
+    the first invocation or do we need to wait until we evaluate all windows an event
+    might belong to? And what if a window triggers multiple times?
+  id: totrans-433
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 延迟可能是您希望监控以评估流式作业性能特征的第一个指标。与此同时，它也是分布式流式引擎（如Flink）中定义的最棘手的指标之一。在[“延迟”](ch02.html#chap-2-latency)中，我们广义地定义延迟为*处理事件所需的时间*。您可以想象，在高速率流式作业中尝试按事件跟踪延迟的精确实现在实践中可能会出现问题。如果事件对多个窗口贡献，考虑到窗口运算符会进一步复杂化延迟跟踪，我们是否需要报告第一次调用的延迟，还是需要等到评估事件可能属于的所有窗口？如果一个窗口多次触发会怎么样？
+- en: Flink follows a simple and low-overhead approach to provide useful latency metric
+    measurements. Instead of trying to strictly measure latency for each and every
+    event, it approximates latency by periodically emitting a special record at the
+    sources and allowing users to track how long it takes for this record to arrive
+    at the sinks. This special record is called a *latency marker*, and it bears a
+    timestamp indicating when it was emitted.
+  id: totrans-434
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink采用简单和低开销的方法来提供有用的延迟度量测量。它并不试图严格为每个事件测量延迟，而是通过定期从源发出特殊记录并允许用户跟踪这些记录到达接收器所需时间来近似延迟。这种特殊记录称为*延迟标记*，它携带一个时间戳，指示其发出时间。
+- en: 'To enable latency tracking, you need to configure how often latency markers
+    are emitted from the sources. You can do this by setting the `latencyTrackingInterval`
+    in the `ExecutionConfig` as shown here:'
+  id: totrans-435
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要启用延迟跟踪，您需要配置从源发出延迟标记的频率。您可以通过在`ExecutionConfig`中设置`latencyTrackingInterval`来实现这一点，如下所示：
+- en: '[PRE65]'
+  id: totrans-436
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE65]'
+- en: The interval is specified in milliseconds. Upon receiving a latency marker,
+    all operators except sinks forward it downstream. Latency markers use the same
+    dataflow channels and queues as normal stream records, thus their tracked latency
+    reflects the time records wait to be processed. However, they do not measure the
+    time it takes for records to be processed or the time that records wait in state
+    until they are processed.
+  id: totrans-437
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 延迟间隔以毫秒为单位指定。接收到延迟标记后，除接收器外的所有运算符将其向下游转发。延迟标记使用与正常流记录相同的数据流通道和队列，因此它们的跟踪延迟反映了记录等待处理的时间。但是，它们不测量记录处理所需的时间，也不测量记录在状态中等待处理的时间。
+- en: Operators keep latency statistics in a latency gauge that contains min, max,
+    and mean values, as well as 50, 95, and 99 percentile values. Sink operators keep
+    statistics on latency markers received per parallel source instance, thus checking
+    the latency marker at sinks can be used to approximate how long it takes for records
+    to traverse the dataflow. If you would like to customize the handling the latency
+    marker at operators, you can override the `processLatencyMarker()` method and
+    retrieve the relevant information using the `LatencyMarker`’s methods `getMarkedTime()`,
+    `getVertexId()`, and `getSubTaskIndex()`.
+  id: totrans-438
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运算符在一个延迟度量器中保留延迟统计信息，其中包含最小值、最大值和平均值，以及50、95和99百分位值。接收器运算符则保留每个并行源实例接收到的延迟标记统计信息，因此检查接收器处的延迟标记可以用来近似记录在数据流中遍历的时间。如果您想自定义运算符处理延迟标记的方式，您可以覆盖`processLatencyMarker()`方法，并使用`LatencyMarker`的方法`getMarkedTime()`、`getVertexId()`和`getSubTaskIndex()`来检索相关信息。
+- en: Beware of Clock Skew
+  id: totrans-439
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 警惕时钟偏移
+- en: If you are not using an automatic clock synchronization service such as NTP,
+    your machines' clocks might suffer from clock skew. In this case, latency-tracking
+    estimation will not be reliable, as its current implementation assumes synchronized
+    clocks.
+  id: totrans-440
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您没有使用像NTP这样的自动时钟同步服务，您的机器时钟可能会出现时钟偏移。在这种情况下，延迟跟踪估计将不可靠，因为其当前实现假设时钟已同步。
+- en: Configuring the Logging Behavior
+  id: totrans-441
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 配置日志记录行为
+- en: Logging is another essential tool for debugging and understanding the behavior
+    of your applications. By default, Flink uses the [SLF4J logging abstraction](https://www.slf4j.org/) together
+    with the log4j logging framework.
+  id: totrans-442
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 日志记录是调试和理解应用程序行为的另一个重要工具。默认情况下，Flink 使用[SLF4J 日志抽象](https://www.slf4j.org/)以及
+    log4j 日志框架。
+- en: '[Example 10-9](#logging-mapfunction) shows a `MapFunction` that logs every
+    input record conversion.'
+  id: totrans-443
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 10-9](#logging-mapfunction) 展示了一个 `MapFunction`，它记录每个输入记录的转换过程。'
+- en: Example 10-9\. Using logging in a MapFunction
+  id: totrans-444
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 10-9\. 在 MapFunction 中使用日志记录
+- en: '[PRE66]'
+  id: totrans-445
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE66]'
+- en: 'To change the properties of log4j loggers, modify the *log4j.properties* file
+    in the *conf/* folder. For instance, the following line sets the root logging
+    level to “warning”:'
+  id: totrans-446
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要修改 log4j 记录器的属性，请修改 *conf/* 文件夹中的 *log4j.properties* 文件。例如，以下行将根日志级别设置为“warning”：
+- en: '[PRE67]'
+  id: totrans-447
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE67]'
+- en: To set a custom filename and location of this file, pass the -`Dlog4j.configuration=`
+    parameter to the JVM. Flink also provides the *log4j-cli.properties* file used
+    by the command-line client and the *log4j-yarn-session.properties* file used by
+    the command-line client when starting a YARN session.
+  id: totrans-448
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要设置自定义文件名和文件位置，请将 `-Dlog4j.configuration=` 参数传递给 JVM。Flink 还提供了 *log4j-cli.properties*
+    文件（用于命令行客户端）和 *log4j-yarn-session.properties* 文件（用于启动 YARN 会话的命令行客户端）。
+- en: An alternative to log4j is logback and Flink provides default configuration
+    files for this backend as well. To use logback instead of log4j, you will need
+    to remove log4j from the *lib/* folder. We refer you to [Flink’s documentation](http://bit.ly/2JgrAZJ)
+    and the [logback manual](http://bit.ly/2FPJbUH) for details on how to set up and
+    configure the backend.
+  id: totrans-449
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了 log4j 外，logback 也是一种替代方案，Flink 为该后端提供了默认配置文件。若要使用 logback 替代 log4j，则需要从 *lib/*
+    文件夹中移除 log4j。关于如何设置和配置后端的详细信息，请参阅[Flink 的文档](http://bit.ly/2JgrAZJ)和[logback 手册](http://bit.ly/2FPJbUH)。
+- en: Summary
+  id: totrans-450
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概述
+- en: In this chapter, we discussed how to run, manage, and monitor Flink applications
+    in production. We explained the Flink component that collects and exposes system
+    and application metrics, how to configure a logging system, and how to start,
+    stop, resume, and rescale applications with the command-line client and the REST
+    API.
+  id: totrans-451
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章中，我们讨论了如何在生产环境中运行、管理和监控 Flink 应用程序。我们解释了收集和公开系统和应用程序指标的 Flink 组件、如何配置日志记录系统，以及如何使用命令行客户端和
+    REST API 启动、停止、恢复和调整应用程序。
+- en: ^([1](ch10.html#idm45498992586424-marker)) See [Chapter 3](ch03.html#chap-3)
+    to learn about savepoints and what you can do with them.
+  id: totrans-452
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch10.html#idm45498992586424-marker)) 请参阅[第 3 章](ch03.html#chap-3)了解保存点的详细信息及其功能。
+- en: ^([2](ch10.html#idm45498991355896-marker)) The default scheduling behavior was
+    explained in [Chapter 3](ch03.html#chap-3).
+  id: totrans-453
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch10.html#idm45498991355896-marker)) 默认调度行为在[第 3 章](ch03.html#chap-3)中有解释。

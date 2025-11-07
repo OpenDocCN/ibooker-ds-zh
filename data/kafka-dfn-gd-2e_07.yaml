@@ -1,0 +1,1444 @@
+- en: Chapter 5\. Managing Apache Kafka Programmatically
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第5章。以编程方式管理Apache Kafka
+- en: 'There are many CLI and GUI tools for managing Kafka (we’ll discuss them in
+    [Chapter 9](ch09.html#building_data_pipelines)), but there are also times when
+    you want to execute some administrative commands from within your client application.
+    Creating new topics on demand based on user input or data is an especially common
+    use case: Internet of Things (IoT) apps often receive events from user devices,
+    and write events to topics based on the device type. If the manufacturer produces
+    a new type of device, you either have to remember, via some process, to also create
+    a topic, or the application can dynamically create a new topic if it receives
+    events with an unrecognized device type. The second alternative has downsides,
+    but avoiding the dependency on an additional process to generate topics is an
+    attractive feature in the right scenarios.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有许多用于管理Kafka的CLI和GUI工具（我们将在[第9章](ch09.html#building_data_pipelines)中讨论它们），但有时您也希望从客户端应用程序中执行一些管理命令。根据用户输入或数据按需创建新主题是一个特别常见的用例：物联网（IoT）应用程序经常从用户设备接收事件，并根据设备类型将事件写入主题。如果制造商生产了一种新类型的设备，您要么必须通过某种流程记住也创建一个主题，要么应用程序可以在收到未识别设备类型的事件时动态创建一个新主题。第二种选择有缺点，但在适当的场景中避免依赖其他流程生成主题是一个吸引人的特性。
+- en: 'Apache Kafka added the AdminClient in version 0.11 to provide a programmatic
+    API for administrative functionality that was previously done in the command line:
+    listing, creating, and deleting topics; describing the cluster; managing ACLs;
+    and modifying configuration.'
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka在0.11版本中添加了AdminClient，以提供用于管理功能的编程API，以前是在命令行中完成的：列出、创建和删除主题；描述集群；管理ACL；以及修改配置。
+- en: 'Here’s one example. Your application is going to produce events to a specific
+    topic. This means that before producing the first event, the topic has to exist.
+    Before Apache Kafka added the AdminClient, there were few options, none of them
+    particularly user-friendly: you could capture an `UNKNOWN_TOPIC_OR_PARTITION`
+    exception from the `producer.send()` method and let your user know that they needed
+    to create the topic, or you could hope that the Kafka cluster you were writing
+    to enabled automatic topic creation, or you could try to rely on internal APIs
+    and deal with the consequences of no compatibility guarantees. Now that Apache
+    Kafka provides AdminClient, there is a much better solution: use AdminClient to
+    check whether the topic exists, and if it does not, create it on the spot.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里有一个例子。您的应用程序将向特定主题生成事件。这意味着在生成第一个事件之前，主题必须存在。在Apache Kafka添加AdminClient之前，几乎没有什么选择，而且没有一个特别用户友好的选择：您可以从“producer.send()”方法捕获“UNKNOWN_TOPIC_OR_PARTITION”异常，并让用户知道他们需要创建主题，或者您可以希望您写入的Kafka集群启用了自动主题创建，或者您可以尝试依赖内部API并处理没有兼容性保证的后果。现在Apache
+    Kafka提供了AdminClient，有一个更好的解决方案：使用AdminClient检查主题是否存在，如果不存在，立即创建它。
+- en: 'In this chapter we’ll give an overview of the AdminClient before we drill down
+    into the details of how to use it in your applications. We’ll focus on the most
+    commonly used functionality: management of topics, consumer groups, and entity
+    configuration.'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将概述AdminClient，然后深入探讨如何在应用程序中使用它的细节。我们将重点介绍最常用的功能：主题、消费者组和实体配置的管理。
+- en: AdminClient Overview
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: AdminClient概述
+- en: As you start using Kafka AdminClient, it helps to be aware of its core design
+    principles. When you understand how the AdminClient was designed and how it should
+    be used, the specifics of each method will be much more intuitive.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您开始使用Kafka AdminClient时，了解其核心设计原则将有所帮助。当您了解了AdminClient的设计方式以及应该如何使用时，每种方法的具体内容将更加直观。
+- en: Asynchronous and Eventually Consistent API
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 异步和最终一致的API
+- en: Perhaps the most important thing to understand about Kafka’s AdminClient is
+    that it is asynchronous. Each method returns immediately after delivering a request
+    to the cluster controller, and each method returns one or more `Future` objects.
+    `Future` objects are the result of asynchronous operations, and they have methods
+    for checking the status of the asynchronous operation, canceling it, waiting for
+    it to complete, and executing functions after its completion. Kafka’s AdminClient
+    wraps the `Future` objects into `Result` objects, which provide methods to wait
+    for the operation to complete and helper methods for common follow-up operations.
+    For example, `Kafka​AdminClient.createTopics` returns the `CreateTopicsResult`
+    object, which lets you wait until all topics are created, check each topic status
+    individually, and retrieve the configuration of a specific topic after it was
+    created.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 也许关于Kafka的AdminClient最重要的一点是它是异步的。每个方法在将请求传递给集群控制器后立即返回，并且每个方法返回一个或多个“Future”对象。“Future”对象是异步操作的结果，并且具有用于检查异步操作状态、取消异步操作、等待其完成以及在其完成后执行函数的方法。Kafka的AdminClient将“Future”对象封装到“Result”对象中，提供了等待操作完成的方法和用于常见后续操作的辅助方法。例如，“Kafka​AdminClient.createTopics”返回“CreateTopicsResult”对象，该对象允许您等待所有主题创建完成，单独检查每个主题的状态，并在创建后检索特定主题的配置。
+- en: 'Because Kafka’s propagation of metadata from the controller to the brokers
+    is asynchronous, the `Futures` that AdminClient APIs return are considered complete
+    when the controller state has been fully updated. At that point, not every broker
+    might be aware of the new state, so a `listTopics` request may end up handled
+    by a broker that is not up-to-date and will not contain a topic that was very
+    recently created. This property is also called *eventual consistency*: eventually
+    every broker will know about every topic, but we can’t guarantee exactly when
+    this will happen.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Kafka从控制器到代理的元数据传播是异步的，AdminClient API返回的“Futures”在控制器状态完全更新后被视为完成。在那时，不是每个代理都可能意识到新状态，因此“listTopics”请求可能会由一个不是最新的代理处理，并且不会包含最近创建的主题。这种属性也被称为*最终一致性*：最终每个代理都将了解每个主题，但我们无法保证这将在何时发生。
+- en: Options
+  id: totrans-10
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选项
+- en: 'Every method in AdminClient takes as an argument an `Options` object that is
+    specific to that method. For example, the `listTopics` method takes the `ListTopicsOptions`
+    object as an argument, and `describeCluster` takes `DescribeClusterOptions` as
+    an argument. Those objects contain different settings for how the request will
+    be handled by the broker. The one setting that all AdminClient methods have is
+    `timeoutMs`: this controls how long the client will wait for a response from the
+    cluster before throwing a `TimeoutException`. This limits the time in which your
+    application may be blocked by AdminClient operation. Other options include whether
+    `listTopics` should also return internal topics and whether `describeCluster`
+    should also return which operations the client is authorized to perform on the
+    cluster.'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AdminClient中的每个方法都接受一个特定于该方法的`Options`对象作为参数。例如，`listTopics`方法将`ListTopicsOptions`对象作为参数，`describeCluster`将`DescribeClusterOptions`作为参数。这些对象包含了请求将由代理如何处理的不同设置。所有AdminClient方法都具有的一个设置是`timeoutMs`：这控制客户端在抛出`TimeoutException`之前等待来自集群的响应的时间。这限制了您的应用程序可能被AdminClient操作阻塞的时间。其他选项包括`listTopics`是否还应返回内部主题，以及`describeCluster`是否还应返回客户端被授权在集群上执行哪些操作。
+- en: Flat Hierarchy
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 扁平层次结构
+- en: All admin operations supported by the Apache Kafka protocol are implemented
+    in `KafkaAdminClient` directly. There is no object hierarchy or namespaces. This
+    is a bit controversial as the interface can be quite large and perhaps a bit overwhelming,
+    but the main benefit is that if you want to know how to programmatically perform
+    any admin operation on Kafka, you have exactly one JavaDoc to search, and your
+    IDE autocomplete will be quite handy. You don’t have to wonder whether you are
+    just missing the right place to look. If it isn’t in AdminClient, it was not implemented
+    yet (but contributions are welcome!).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka协议支持的所有管理操作都直接在`KafkaAdminClient`中实现。没有对象层次结构或命名空间。这有点有争议，因为接口可能相当庞大，也许有点令人不知所措，但主要好处是，如果您想知道如何在Kafka上以编程方式执行任何管理操作，您只需搜索一个JavaDoc，并且您的IDE自动完成将非常方便。您不必纠结于是否只是错过了查找的正确位置。如果不在AdminClient中，那么它还没有被实现（但欢迎贡献！）。
+- en: Tip
+  id: totrans-14
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: If you are interested in contributing to Apache Kafka, take a look at our [“How
+    to Contribute” guide](https://oreil.ly/8zFsj). Start with smaller, noncontroversial
+    bug fixes and improvements before tackling a more significant change to the architecture
+    or the protocol. Noncode contributions such as bug reports, documentation improvements,
+    responses to questions, and blog posts are also encouraged.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您有兴趣为Apache Kafka做出贡献，请查看我们的[“如何贡献”指南](https://oreil.ly/8zFsj)。在着手进行对架构或协议的更重大更改之前，先从较小的、不具争议的错误修复和改进开始。也鼓励非代码贡献，如错误报告、文档改进、回答问题和博客文章。
+- en: Additional Notes
+  id: totrans-16
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 附加说明
+- en: All the operations that modify the cluster state—create, delete, and alter—are
+    handled by the controller. Operations that read the cluster state—list and describe—can
+    be handled by any broker and are directed to the least-loaded broker (based on
+    what the client knows). This shouldn’t impact you as an API user, but it can be
+    good to know in case you are seeing unexpected behavior, you notice that some
+    operations succeed while others fail, or if you are trying to figure out why an
+    operation is taking too long.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 修改集群状态的所有操作——创建、删除和更改——都由控制器处理。读取集群状态的操作——列出和描述——可以由任何代理处理，并且会被定向到最不负载的代理（基于客户端所知）。这不应影响您作为API用户，但如果您发现意外行为，注意到某些操作成功而其他操作失败，或者如果您试图弄清楚为什么某个操作花费太长时间，这可能是有好处的。
+- en: At the time we are writing this chapter (Apache Kafka 2.5 is about to be released),
+    most admin operations can be performed either through AdminClient or directly
+    by modifying the cluster metadata in ZooKeeper. We highly encourage you to never
+    use ZooKeeper directly, and if you absolutely have to, report this as a bug to
+    Apache Kafka. The reason is that in the near future, the Apache Kafka community
+    will remove the ZooKeeper dependency, and every application that uses ZooKeeper
+    directly for admin operations will have to be modified. On the other hand, the
+    AdminClient API will remain exactly the same, just with a different implementation
+    inside the Kafka cluster.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们撰写本章时（Apache Kafka 2.5即将发布），大多数管理操作可以通过AdminClient或直接通过修改ZooKeeper中的集群元数据来执行。我们强烈建议您永远不要直接使用ZooKeeper，如果您绝对必须这样做，请将其报告为Apache
+    Kafka的错误。原因是在不久的将来，Apache Kafka社区将删除对ZooKeeper的依赖，每个使用ZooKeeper直接进行管理操作的应用程序都必须进行修改。另一方面，AdminClient
+    API将保持完全相同，只是在Kafka集群内部有不同的实现。
+- en: 'AdminClient Lifecycle: Creating, Configuring, and Closing'
+  id: totrans-19
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: AdminClient生命周期：创建、配置和关闭
+- en: 'To use Kafka’s AdminClient, the first thing you have to do is construct an
+    instance of the AdminClient class. This is quite straightforward:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用Kafka的AdminClient，您首先必须构建AdminClient类的实例。这非常简单：
+- en: '[PRE0]'
+  id: totrans-21
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'The static `create` method takes as an argument a `Properties` object with
+    configuration. The only mandatory configuration is the URI for your cluster: a
+    comma-separated list of brokers to connect to. As usual, in production environments,
+    you want to specify at least three brokers just in case one is currently unavailable.
+    We’ll discuss how to configure a secure and authenticated connection separately
+    in [Chapter 11](ch11.html#securing_kafka).'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 静态的`create`方法接受一个配置了`Properties`对象的参数。唯一必需的配置是集群的URI：一个逗号分隔的要连接的代理列表。通常在生产环境中，您希望至少指定三个代理，以防其中一个当前不可用。我们将在[第11章](ch11.html#securing_kafka)中讨论如何单独配置安全和经过身份验证的连接。
+- en: If you start an AdminClient, eventually you want to close it. It is important
+    to remember that when you call `close`, there could still be some AdminClient
+    operations in progress. Therefore, the `close` method accepts a timeout parameter.
+    Once you call `close`, you can’t call any other methods and send any more requests,
+    but the client will wait for responses until the timeout expires. After the timeout
+    expires, the client will abort all ongoing operations with timeout exception and
+    release all resources. Calling `close` without a timeout implies that the client
+    will wait as long as it takes for all ongoing operations to complete.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您启动了AdminClient，最终您会想要关闭它。重要的是要记住，当您调用`close`时，可能仍然有一些AdminClient操作正在进行中。因此，`close`方法接受一个超时参数。一旦您调用`close`，就不能调用任何其他方法或发送任何其他请求，但客户端将等待响应直到超时到期。超时到期后，客户端将中止所有正在进行的操作，并释放所有资源。在没有超时的情况下调用`close`意味着客户端将等待所有正在进行的操作完成。
+- en: You probably recall from Chapters [3](ch03.html#writing_messages_to_kafka) and
+    [4](ch04.html#reading_data_from_kafka) that the `KafkaProducer` and `Kafka​Con⁠sumer`
+    have quite a few important configuration parameters. The good news is that AdminClient
+    is much simpler, and there is not much to configure. You can read about all the
+    configuration parameters in the [Kafka documentation](https://oreil.ly/0kjKE).
+    In our opinion, the important configuration parameters are described in the following
+    sections.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能还记得第[3](ch03.html#writing_messages_to_kafka)章和第[4](ch04.html#reading_data_from_kafka)章中提到的`KafkaProducer`和`Kafka​Con⁠sumer`有许多重要的配置参数。好消息是AdminClient要简单得多，没有太多需要配置的地方。您可以在[Kafka文档](https://oreil.ly/0kjKE)中阅读所有配置参数。在我们看来，重要的配置参数在以下部分中有描述。
+- en: client.dns.lookup
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: client.dns.lookup
+- en: This configuration was introduced in the Apache Kafka 2.1.0 release.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个配置是在Apache Kafka 2.1.0版本中引入的。
+- en: 'By default, Kafka validates, resolves, and creates connections based on the
+    hostname provided in the bootstrap server configuration (and later in the names
+    returned by the brokers as specified in the `advertised.listeners` configuration).
+    This simple model works most of the time but fails to cover two important use
+    cases: the use of DNS aliases, especially in a bootstrap configuration, and the
+    use of a single DNS that maps to multiple IP addresses. These sound similar but
+    are slightly different. Let’s look at each of these mutually exclusive scenarios
+    in a bit more detail.'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，Kafka根据引导服务器配置中提供的主机名（以及稍后在`advertised.listeners`配置中由代理返回的名称）验证、解析和创建连接。这种简单的模型在大多数情况下都有效，但未能涵盖两个重要的用例：使用DNS别名，特别是在引导配置中，以及使用映射到多个IP地址的单个DNS。这些听起来相似，但略有不同。让我们更详细地看看这两种互斥的情况。
+- en: Use of a DNS alias
+  id: totrans-28
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 使用DNS别名
+- en: 'Suppose you have multiple brokers with the following naming convention: `broker1.hostname.com`,
+    `broker2.hostname.com`, etc. Rather than specifying all of them in a bootstrap
+    server configuration, which can easily become challenging to maintain, you may
+    want to create a single DNS alias that will map to all of them. You’ll use `all-brokers.hostname.com`
+    for bootstrapping, since you don’t actually care which broker gets the initial
+    connection from clients. This is all very convenient, except if you use SASL to
+    authenticate. If you use SASL, the client will try to authenticate `all-brokers.hostname.com`,
+    but the server principal will be `broker2.hostname.com`. If the names don’t match,
+    SASL will refuse to authenticate (the broker certificate could be a man-in-the-middle
+    attack), and the connection will fail.'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设您有多个代理，命名规则如下：`broker1.hostname.com`，`broker2.hostname.com`等。您可能希望创建一个单个的DNS别名，将所有这些代理映射到一个别名上，而不是在引导服务器配置中指定所有这些代理，这可能很难维护。您将使用`all-brokers.hostname.com`进行引导，因为您实际上并不关心哪个代理从客户端获得初始连接。这一切都非常方便，除非您使用SASL进行身份验证。如果使用SASL，客户端将尝试对`all-brokers.hostname.com`进行身份验证，但服务器主体将是`broker2.hostname.com`。如果名称不匹配，SASL将拒绝进行身份验证（代理证书可能是中间人攻击），连接将失败。
+- en: In this scenario, you’ll want to use `client.dns.lookup=resolve_canonical_bootstrap_servers_only`.
+    With this configuration, the client will “expend” the DNS alias, and the result
+    will be the same as if you included all the broker names the DNS alias connects
+    to as brokers in the original bootstrap list.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，您将希望使用`client.dns.lookup=resolve_canonical_bootstrap_servers_only`。通过这种配置，客户端将“展开”DNS别名，结果将与在原始引导列表中将DNS别名连接到的所有代理作为代理一样。
+- en: DNS name with multiple IP addresses
+  id: totrans-31
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 具有多个IP地址的DNS名称
+- en: With modern network architectures, it is common to put all the brokers behind
+    a proxy or a load balancer. This is especially common if you use Kubernetes, where
+    load balancers are necessary to allow connections from outside the Kubernetes
+    cluster. In these cases, you don’t want the load balancers to become a single
+    point of failure. It is therefore very common to have `broker1.hostname.com` point
+    at a list of IPs, all of which resolve to load balancers, and all of which route
+    traffic to the same broker. These IPs are also likely to change over time. By
+    default, the Kafka client will just try to connect to the first IP that the hostname
+    resolves. This means that if that IP becomes unavailable, the client will fail
+    to connect, even though the broker is fully available. It is therefore highly
+    recommended to use `client.dns.lookup=​use_all_dns_ips` to make sure the client
+    doesn’t miss out on the benefits of a highly available load balancing layer.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在现代网络架构中，通常会将所有代理放在代理或负载均衡器后面。如果您使用Kubernetes，这种情况尤其常见，因为负载均衡器是必要的，以允许来自Kubernetes集群外部的连接。在这些情况下，您不希望负载均衡器成为单点故障。因此，非常常见的是`broker1.hostname.com`指向一组IP，所有这些IP都解析为负载均衡器，并且所有这些IP都将流量路由到同一个代理。这些IP也可能随时间而变化。默认情况下，Kafka客户端将尝试连接主机名解析的第一个IP。这意味着如果该IP不可用，客户端将无法连接，即使代理完全可用。因此，强烈建议使用`client.dns.lookup=use_all_dns_ips`，以确保客户端不会错过高可用负载均衡层的好处。
+- en: request.timeout.ms
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: request.timeout.ms
+- en: This configuration limits the time that your application can spend waiting for
+    AdminClient to respond. This includes the time spent on retrying if the client
+    receives a retriable error.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个配置限制了应用程序等待AdminClient响应的时间。这包括在客户端收到可重试错误时重试的时间。
+- en: The default value is 120 seconds, which is quite long, but some AdminClient
+    operations, especially consumer group management commands, can take a while to
+    respond. As we mentioned in [“AdminClient Overview”](#adminclient_overview), each
+    AdminClient method accepts an `Options` object, which can contain a timeout value
+    that applies specifically to that call. If an AdminClient operation is on the
+    critical path for your application, you may want to use a lower timeout value
+    and handle a lack of timely response from Kafka in a different way. A common example
+    is that services try to validate the existence of specific topics when they first
+    start, but if Kafka takes longer than 30 seconds to respond, you may want to continue
+    starting the server and validate the existence of topics later (or skip this validation
+    entirely).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认值是120秒，这相当长，但某些AdminClient操作，特别是消费者组管理命令，可能需要一段时间才能响应。正如我们在[“AdminClient Overview”](#adminclient_overview)中提到的，每个AdminClient方法都接受一个`Options`对象，其中可以包含一个特定于该调用的超时值。如果AdminClient操作对于您的应用程序的关键路径，您可能希望使用较低的超时值，并以不同的方式处理来自Kafka的及时响应的缺乏。一个常见的例子是，服务在首次启动时尝试验证特定主题的存在，但如果Kafka花费超过30秒来响应，您可能希望继续启动服务器，并稍后验证主题的存在（或完全跳过此验证）。
+- en: Essential Topic Management
+  id: totrans-36
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 基本主题管理
+- en: Now that we created and configured an AdminClient, it’s time to see what we
+    can do with it. The most common use case for Kafka’s AdminClient is topic management.
+    This includes listing topics, describing them, creating topics, and deleting them.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经创建并配置了一个AdminClient，是时候看看我们可以用它做什么了。Kafka的AdminClient最常见的用例是主题管理。这包括列出主题、描述主题、创建主题和删除主题。
+- en: 'Let’s start by listing all topics in the cluster:'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们首先列出集群中的所有主题：
+- en: '[PRE1]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: Note that `admin.listTopics()` returns the `ListTopicsResult` object, which
+    is a thin wrapper over a collection of `Futures`. Note also that `topics.name()`
+    returns a `Future` set of `name`. When we call `get()` on this `Future`, the executing
+    thread will wait until the server responds with a set of topic names, or we get
+    a timeout exception. Once we get the list, we iterate over it to print all the
+    topic names.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，`admin.listTopics()`返回`ListTopicsResult`对象，它是对`Futures`集合的薄包装。还要注意，`topics.name()`返回`name`的`Future`集。当我们在这个`Future`上调用`get()`时，执行线程将等待服务器响应一组主题名称，或者我们收到超时异常。一旦我们得到列表，我们遍历它以打印所有主题名称。
+- en: 'Now let’s try something a bit more ambitious: check if a topic exists, and
+    create it if it doesn’t. One way to check if a specific topic exists is to get
+    a list of all topics and check if the topic you need is in the list. On a large
+    cluster, this can be inefficient. In addition, sometimes you want to check for
+    more than just whether the topic exists—you want to make sure the topic has the
+    right number of partitions and replicas. For example, Kafka Connect and Confluent
+    Schema Registry use a Kafka topic to store configuration. When they start up,
+    they check if the configuration topic exists, that it has only one partition to
+    guarantee that configuration changes will arrive in strict order, that it has
+    three replicas to guarantee availability, and that the topic is compacted so the
+    old configuration will be retained indefinitely:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在让我们尝试一些更有雄心的事情：检查主题是否存在，如果不存在则创建。检查特定主题是否存在的一种方法是获取所有主题的列表，并检查您需要的主题是否在列表中。在大型集群上，这可能效率低下。此外，有时您希望检查的不仅仅是主题是否存在
+    - 您希望确保主题具有正确数量的分区和副本。例如，Kafka Connect和Confluent Schema Registry使用Kafka主题存储配置。当它们启动时，它们会检查配置主题是否存在，它只有一个分区以确保配置更改按严格顺序到达，它有三个副本以确保可用性，并且主题是压缩的，因此旧配置将被无限期保留：
+- en: '[PRE2]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO1-1)'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO1-1)'
+- en: To check that the topic exists with the correct configuration, we call `describe​Top⁠ics()`
+    with a list of topic names we want to validate. This returns `Descri⁠be​TopicResult`
+    object, which wraps a map of topic names to `Future` descriptions.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 验证主题是否以正确的配置存在，我们使用要验证的主题名称列表调用`describe​Top⁠ics()`。这将返回`Descri⁠be​TopicResult`对象，其中包装了主题名称到`Future`描述的映射。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO1-2)'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO1-2)'
+- en: We’ve already seen that if we wait for the `Future` to complete, using `get()`
+    we can get the result we wanted, in this case, a `TopicDescription`. But there
+    is also a possibility that the server can’t complete the request correctly—if
+    the topic does not exist, the server can’t respond with its description. In this
+    case, the server will send back an error, and the `Future` will complete by throwing
+    an `Execution​Exception`. The actual error sent by the server will be the `cause`
+    of the exception. Since we want to handle the case where the topic doesn’t exist,
+    we handle these exceptions.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到，如果我们等待`Future`完成，使用`get()`我们可以得到我们想要的结果，在这种情况下是`TopicDescription`。但也有可能服务器无法正确完成请求
+    - 如果主题不存在，服务器无法响应其描述。在这种情况下，服务器将返回错误，并且`Future`将通过抛出`Execution​Exception`完成。服务器发送的实际错误将是异常的`cause`。由于我们想要处理主题不存在的情况，我们处理这些异常。
+- en: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO1-3)'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO1-3)'
+- en: If the topic does exist, the `Future` completes by returning a `TopicDescription`,
+    which contains a list of all the partitions of the topic, and for each partition
+    in which a broker is the leader, a list of replicas and a list of in-sync replicas.
+    Note that this does not include the configuration of the topic. We’ll discuss
+    configuration later in this chapter.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果主题存在，`Future`将通过返回`TopicDescription`来完成，其中包含主题所有分区的列表，以及每个分区中作为领导者的经纪人的副本列表和同步副本列表。请注意，这不包括主题的配置。我们将在本章后面讨论配置。
+- en: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO1-4)'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO1-4)'
+- en: Note that all AdminClient result objects throw `ExecutionException` when Kafka
+    responds with an error. This is because AdminClient results are wrapped `Future`
+    objects, and those wrap exceptions. You always need to examine the cause of `ExecutionException`
+    to get the error that Kafka returned.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，当Kafka响应错误时，所有AdminClient结果对象都会抛出`ExecutionException`。这是因为AdminClient结果被包装在`Future`对象中，而这些对象包装了异常。您总是需要检查`ExecutionException`的原因以获取Kafka返回的错误。
+- en: '[![5](assets/5.png)](#co_managing_apache_kafka_programmatically_CO1-5)'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](assets/5.png)](#co_managing_apache_kafka_programmatically_CO1-5)'
+- en: If the topic does not exist, we create a new topic. When creating a topic, you
+    can specify just the name and use default values for all the details. You can
+    also specify the number of partitions, number of replicas, and the configuration.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果主题不存在，我们将创建一个新主题。在创建主题时，您可以仅指定名称并对所有细节使用默认值。您还可以指定分区数、副本数和配置。
+- en: '[![6](assets/6.png)](#co_managing_apache_kafka_programmatically_CO1-6)'
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![6](assets/6.png)](#co_managing_apache_kafka_programmatically_CO1-6)'
+- en: Finally, you want to wait for topic creation to return, and perhaps validate
+    the result. In this example, we are checking the number of partitions. Since we
+    specified the number of partitions when we created the topic, we are fairly certain
+    it is correct. Checking the result is more common if you relied on broker defaults
+    when creating the topic. Note that since we are again calling `get()` to check
+    the results of `CreateTopic`, this method could throw an exception. `TopicExists​Exception`
+    is common in this scenario, and you’ll want to handle it (perhaps by describing
+    the topic to check for the correct configuration).
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，您希望等待主题创建完成，并可能验证结果。在此示例中，我们正在检查分区数。由于我们在创建主题时指定了分区数，我们相当确定它是正确的。如果您在创建主题时依赖经纪人默认值，则更常见地检查结果。请注意，由于我们再次调用`get()`来检查`CreateTopic`的结果，此方法可能会抛出异常。在这种情况下，`TopicExists​Exception`很常见，您需要处理它（也许通过描述主题来检查正确的配置）。
+- en: 'Now that we have a topic, let’s delete it:'
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个主题，让我们删除它：
+- en: '[PRE3]'
+  id: totrans-56
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: At this point the code should be quite familiar. We call the method `deleteTopics`
+    with a list of topic names to delete, and we use `get()` to wait for this to complete.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此时代码应该相当熟悉。我们使用`deleteTopics`方法删除一个主题名称列表，并使用`get()`等待完成。
+- en: Warning
+  id: totrans-58
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: Although the code is simple, please remember that in Kafka, deletion of topics
+    is final—there is no recycle bin or trash can to help you rescue the deleted topic,
+    and no checks to validate that the topic is empty and that you really meant to
+    delete it. Deleting the wrong topic could mean unrecoverable loss of data, so
+    handle this method with extra care.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管代码很简单，请记住，在Kafka中，删除主题是最终的——没有回收站或垃圾桶可以帮助您恢复已删除的主题，也没有检查来验证主题是否为空，以及您是否真的想要删除它。删除错误的主题可能意味着无法恢复的数据丢失，因此请特别小心处理此方法。
+- en: 'All the examples so far have used the blocking `get()` call on the `Future`
+    returned by the different `AdminClient` methods. Most of the time, this is all
+    you need—admin operations are rare, and waiting until the operation succeeds or
+    times out is usually acceptable. There is one exception: if you are writing to
+    a server that is expected to process a large number of admin requests. In this
+    case, you don’t want to block the server threads while waiting for Kafka to respond.
+    You want to continue accepting requests from your users and sending them to Kafka,
+    and when Kafka responds, send the response to the client. In these scenarios,
+    the versatility of `KafkaFuture` becomes quite useful. Here’s a simple example.'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，所有示例都使用了不同`AdminClient`方法返回的`Future`上的阻塞`get()`调用。大多数情况下，这就是您所需要的——管理操作很少，等待操作成功或超时通常是可以接受的。有一个例外：如果您要写入一个预期处理大量管理请求的服务器。在这种情况下，您不希望在等待Kafka响应时阻塞服务器线程。您希望继续接受用户的请求并将其发送到Kafka，当Kafka响应时，将响应发送给客户端。在这些情况下，`KafkaFuture`的多功能性就变得非常有用。这是一个简单的例子。
+- en: '[PRE4]'
+  id: totrans-61
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO2-1)'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO2-1)'
+- en: We are using Vert.x to create a simple HTTP server. Whenever this server receives
+    a request, it calls the `requestHandler` that we are defining here.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用Vert.x创建一个简单的HTTP服务器。每当此服务器收到请求时，它将调用我们在这里定义的`requestHandler`。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO2-2)'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO2-2)'
+- en: The request includes a topic name as a parameter, and we’ll respond with a description
+    of this topic.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请求包括一个主题名称作为参数，我们将用这个主题的描述作为响应。
+- en: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO2-3)'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO2-3)'
+- en: We call `AdminClient.describeTopics` as usual and get a wrapped `Future` in
+    response.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们像往常一样调用`AdminClient.describeTopics`并获得包装的`Future`作为响应。
+- en: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO2-4)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO2-4)'
+- en: Instead of using the blocking `get()` call, we construct a function that will
+    be called when the `Future` completes.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们不使用阻塞的`get()`调用，而是构造一个在`Future`完成时将被调用的函数。
+- en: '[![5](assets/5.png)](#co_managing_apache_kafka_programmatically_CO2-5)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](assets/5.png)](#co_managing_apache_kafka_programmatically_CO2-5)'
+- en: If the `Future` completes with an exception, we send the error to the HTTP client.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果`Future`完成时出现异常，我们会将错误发送给HTTP客户端。
+- en: '[![6](assets/6.png)](#co_managing_apache_kafka_programmatically_CO2-6)'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![6](assets/6.png)](#co_managing_apache_kafka_programmatically_CO2-6)'
+- en: If the `Future` completes successfully, we respond to the client with the topic
+    description.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果`Future`成功完成，我们将使用主题描述回复客户端。
+- en: 'The key here is that we are not waiting for a response from Kafka. `DescribeTopic​Result`
+    will send the response to the HTTP client when a response arrives from Kafka.
+    Meanwhile, the HTTP server can continue processing other requests. You can check
+    this behavior by using `SIGSTOP` to pause Kafka (don’t try this in production!)
+    and send two HTTP requests to Vert.x: one with a long timeout value and one with
+    a short value. Even though you sent the second request after the first, it will
+    respond earlier thanks to the lower timeout value, and not block behind the first
+    request.'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关键在于我们不会等待Kafka的响应。当来自Kafka的响应到达时，`DescribeTopic​Result`将向HTTP客户端发送响应。与此同时，HTTP服务器可以继续处理其他请求。您可以通过使用`SIGSTOP`来暂停Kafka（不要在生产环境中尝试！）并向Vert.x发送两个HTTP请求来检查此行为：一个具有较长的超时值，一个具有较短的超时值。即使您在第一个请求之后发送了第二个请求，由于较低的超时值，它将更早地响应，并且不会在第一个请求之后阻塞。
+- en: Configuration Management
+  id: totrans-75
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 配置管理
+- en: Configuration management is done by describing and updating collections of `ConfigResource`.
+    Config resources can be brokers, broker loggers, and topics. Checking and modifying
+    broker and broker logging configuration is typically done using tools like `kafka-config.sh`
+    or other Kafka management tools, but checking and updating topic configuration
+    from the applications that use them is quite common.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置管理是通过描述和更新`ConfigResource`集合来完成的。配置资源可以是代理、代理记录器和主题。通常使用`kafka-config.sh`或其他Kafka管理工具来检查和修改代理和代理记录器配置，但从使用它们的应用程序中检查和更新主题配置是非常常见的。
+- en: For example, many applications rely on compacted topics for correct operation.
+    It makes sense that periodically (more frequently than the default retention period,
+    just to be safe), those applications will check that the topic is indeed compacted
+    and take action to correct the topic configuration if it is not.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，许多应用程序依赖于正确操作的压缩主题。有意义的是，定期（比默认保留期更频繁，以确保安全）这些应用程序将检查主题是否确实被压缩，并采取行动来纠正主题配置（如果未被压缩）。
+- en: 'Here’s an example of how this is done:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一个示例：
+- en: '[PRE5]'
+  id: totrans-79
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO3-1)'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO3-1)'
+- en: As mentioned above, there are several types of `ConfigResource`; here we are
+    checking the configuration for a specific topic. You can specify multiple different
+    resources from different types in the same request.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如上所述，有几种类型的`ConfigResource`；在这里，我们正在检查特定主题的配置。您可以在同一请求中指定来自不同类型的多个不同资源。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO3-2)'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO3-2)'
+- en: The result of `describeConfigs` is a map from each `ConfigResource` to a collection
+    of configurations. Each configuration entry has an `isDefault()` method that lets
+    us know which configs were modified. A topic configuration is considered nondefault
+    if a user configured the topic to have a nondefault value, or if a broker-level
+    configuration was modified and the topic that was created inherited this nondefault
+    value from the broker.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`describeConfigs`的结果是从每个`ConfigResource`到一组配置的映射。每个配置条目都有一个`isDefault()`方法，让我们知道哪些配置已被修改。如果用户配置了主题以具有非默认值，或者如果修改了代理级别配置并且创建的主题从代理继承了此非默认值，则认为主题配置是非默认的。'
+- en: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO3-3)'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO3-3)'
+- en: 'To modify a configuration, specify a map of the `ConfigResource` you want to
+    modify and a collection of operations. Each configuration modifying operation
+    consists of a configuration entry (the name and value of the configuration; in
+    this case, `cleanup.policy` is the configuration name and `compacted` is the value)
+    and the operation type. Four types of operations modify configuration in Kafka:
+    `SET`, which sets the configuration value; `DELETE`, which removes the value and
+    resets to the default; `APPEND`; and `SUBSTRACT`. The last two apply only to configurations
+    with a `List` type and allow adding and removing values from the list without
+    having to send the entire list to Kafka every time.'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要修改配置，指定要修改的`ConfigResource`的映射和一组操作。每个配置修改操作由配置条目（配置的名称和值；在本例中，`cleanup.policy`是配置名称，`compacted`是值）和操作类型组成。在Kafka中，有四种类型的操作可以修改配置：`SET`，用于设置配置值；`DELETE`，用于删除值并重置为默认值；`APPEND`；和`SUBSTRACT`。最后两种仅适用于具有`List`类型的配置，并允许添加和删除值，而无需每次都将整个列表发送到Kafka。
+- en: Describing the configuration can be surprisingly handy in an emergency. We remember
+    a time when during an upgrade, the configuration file for the brokers was accidentally
+    replaced with a broken copy. This was discovered after restarting the first broker
+    and noticing that it failed to start. The team did not have a way to recover the
+    original, and we prepared for significant trial and error as we attempted to reconstruct
+    the correct configuration and bring the broker back to life. A site reliability
+    engineer (SRE) saved the day by connecting to one of the remaining brokers and
+    dumping its configuration using the AdminClient.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在紧急情况下，描述配置可能会非常方便。我们记得有一次在升级过程中，代理的配置文件被意外替换为损坏的副本。在重新启动第一个代理后发现它无法启动。团队没有办法恢复原始配置，因此我们准备进行大量的试错，试图重建正确的配置并使代理恢复正常。一位站点可靠性工程师（SRE）通过连接到剩余的代理之一并使用AdminClient转储其配置来挽救了当天。
+- en: Consumer Group Management
+  id: totrans-87
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 消费者组管理
+- en: We’ve mentioned before that unlike most message queues, Kafka allows you to
+    reprocess data in the exact order in which it was consumed and processed earlier.
+    In [Chapter 4](ch04.html#reading_data_from_kafka), where we discussed consumer
+    groups, we explained how to use the Consumer APIs to go back and reread older
+    messages from a topic. But using these APIs means that you programmed the ability
+    to reprocess data in advance into your application. Your application itself must
+    expose the “reprocess” functionality.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前提到过，与大多数消息队列不同，Kafka允许你以先前消费和处理数据的确切顺序重新处理数据。在[第4章](ch04.html#reading_data_from_kafka)中，我们讨论了消费者组时，解释了如何使用消费者API从主题中返回并重新读取旧消息。但是使用这些API意味着你需要提前将重新处理数据的能力编程到你的应用程序中。你的应用程序本身必须暴露“重新处理”功能。
+- en: There are several scenarios in which you’ll want to cause an application to
+    reprocess messages, even if this capability was not built into the application
+    in advance. Troubleshooting a malfunctioning application during an incident is
+    one such scenario. Another is when preparing an application to start running on
+    a new cluster during a disaster recovery failover scenario (we’ll discuss this
+    in more detail in [Chapter 9](ch09.html#building_data_pipelines), when we discuss
+    disaster recovery techniques).
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种情况下，你会想要导致应用程序重新处理消息，即使这种能力事先没有内置到应用程序中。在事故期间排除应用程序故障是其中一种情况。另一种情况是在灾难恢复故障转移场景中准备应用程序在新集群上运行（我们将在[第9章](ch09.html#building_data_pipelines)中更详细地讨论这一点，当我们讨论灾难恢复技术时）。
+- en: In this section, we’ll look at how you can use the AdminClient to programmatically
+    explore and modify consumer groups and the offsets that were committed by those
+    groups. In [Chapter 10](ch10.html#cross_cluster_mirroring) we’ll look at external
+    tools available to perform the same operations.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将看看如何使用AdminClient来以编程方式探索和修改消费者组以及这些组提交的偏移量。在[第10章](ch10.html#cross_cluster_mirroring)中，我们将看看可用于执行相同操作的外部工具。
+- en: Exploring Consumer Groups
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 探索消费者组
+- en: 'If you want to explore and modify consumer groups, the first step is to list
+    them:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果你想要探索和修改消费者组，第一步是列出它们：
+- en: '[PRE6]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Note that by using `valid()` method, the collection that `get()` will return
+    will only contain the consumer groups that the cluster returned without errors,
+    if any. Any errors will be completely ignored, rather than thrown as exceptions.
+    The `errors()` method can be used to get all the exceptions. If you use `all()`
+    as we did in other examples, only the first error the cluster returned will be
+    thrown as an exception. Likely causes of such errors are authorization, where
+    you don’t have permission to view the group, or cases when the coordinator for
+    some of the consumer groups is not available.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过使用`valid()`方法，`get()`将返回的集合只包含集群返回的没有错误的消费者组，如果有的话。任何错误将被完全忽略，而不是作为异常抛出。`errors()`方法可用于获取所有异常。如果像我们在其他示例中所做的那样使用`all()`，集群返回的第一个错误将作为异常抛出。这种错误的可能原因是授权，即你没有权限查看该组，或者某些消费者组的协调者不可用。
+- en: 'If we want more information about some of the groups, we can describe them:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们想要更多关于某些组的信息，我们可以描述它们：
+- en: '[PRE7]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: The description contains a wealth of information about the group. This includes
+    the group members, their identifiers and hosts, the partitions assigned to them,
+    the algorithm used for the assignment, and the host of the group coordinator.
+    This description is very useful when troubleshooting consumer groups. One of the
+    most important pieces of information about a consumer group is missing from this
+    description—inevitably, we’ll want to know what was the last offset committed
+    by the group for each partition that it is consuming and how much it is lagging
+    behind the latest messages in the log.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 描述包含了关于该组的大量信息。这包括了组成员、它们的标识符和主机、分配给它们的分区、用于分配的算法，以及组协调者的主机。在故障排除消费者组时，这个描述非常有用。关于消费者组最重要的信息之一在这个描述中缺失了——不可避免地，我们会想知道该组对于它正在消费的每个分区最后提交的偏移量是多少，以及它落后于日志中最新消息的数量。
+- en: 'In the past, the only way to get this information was to parse the commit messages
+    that the consumer groups wrote to an internal Kafka topic. While this method accomplished
+    its intent, Kafka does not guarantee compatibility of the internal message formats,
+    and therefore the old method is not recommended. We’ll take a look at how Kafka’s
+    AdminClient allows us to retrieve this information:'
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 过去，获取这些信息的唯一方法是解析消费者组写入内部Kafka主题的提交消息。虽然这种方法达到了其目的，但Kafka不保证内部消息格式的兼容性，因此不推荐使用旧方法。我们将看看Kafka的AdminClient如何允许我们检索这些信息：
+- en: '[PRE8]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO4-1)'
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO4-1)'
+- en: We retrieve a map of all topics and partitions that the consumer group handles,
+    and the latest committed offset for each. Note that unlike `describe​ConsumerGroups`,
+    `listConsumerGroupOffsets` only accepts a single consumer group and not a collection.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们获取消费者组处理的所有主题和分区的映射，以及每个分区的最新提交的偏移量。请注意，与`describe​ConsumerGroups`不同，`listConsumerGroupOffsets`只接受单个消费者组，而不是集合。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO4-2)'
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO4-2)'
+- en: 'For each topic and partition in the results, we want to get the offset of the
+    last message in the partition. `OffsetSpec` has three very convenient implementations:
+    `earliest()`, `latest()`, and `forTimestamp()`, which allow us to get the earlier
+    and latest offsets in the partition, as well as the offset of the record written
+    on or immediately after the time specified.'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于结果中的每个主题和分区，我们想要获取分区中最后一条消息的偏移量。`OffsetSpec`有三种非常方便的实现：`earliest()`、`latest()`和`forTimestamp()`，它们允许我们获取分区中的最早和最新的偏移量，以及在指定时间之后或立即之后写入的记录的偏移量。
+- en: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO4-3)'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO4-3)'
+- en: Finally, we iterate over all the partitions, and for each partition print the
+    last committed offset, the latest offset in the partition, and the lag between
+    them.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们遍历所有分区，并对于每个分区打印最后提交的偏移量、分区中的最新偏移量以及它们之间的滞后。
+- en: Modifying Consumer Groups
+  id: totrans-106
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 修改消费者组
+- en: 'Until now, we just explored available information. AdminClient also has methods
+    for modifying consumer groups: deleting groups, removing members, deleting committed
+    offsets, and modifying offsets. These are commonly used by SREs to build ad hoc
+    tooling to recover from an emergency.'
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们只是探索了可用的信息。AdminClient还具有修改消费者组的方法：删除组、删除成员、删除提交的偏移量和修改偏移量。这些通常由SRE用于构建临时工具，以从紧急情况中恢复。
+- en: From all those, modifying offsets is the most useful. Deleting offsets might
+    seem like a simple way to get a consumer to “start from scratch,” but this really
+    depends on the configuration of the consumer—if the consumer starts and no offsets
+    are found, will it start from the beginning? Or jump to the latest message? Unless
+    we have the value of `auto.offset.reset`, we can’t know. Explicitly modifying
+    the committed offsets to the earliest available offsets will force the consumer
+    to start processing from the beginning of the topic, and essentially cause the
+    consumer to “reset.”
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在所有这些情况中，修改偏移量是最有用的。删除偏移量可能看起来像是让消费者“从头开始”的简单方法，但这实际上取决于消费者的配置 - 如果消费者启动并且找不到偏移量，它会从头开始吗？还是跳到最新的消息？除非我们有`auto.offset.reset`的值，否则我们无法知道。显式地修改提交的偏移量为最早可用的偏移量将强制消费者从主题的开头开始处理，并且基本上会导致消费者“重置”。
+- en: Do keep in mind that consumer groups don’t receive updates when offsets change
+    in the offset topic. They only read offsets when a consumer is assigned a new
+    partition or on startup. To prevent you from making changes to offsets that the
+    consumers will not know about (and will therefore override), Kafka will prevent
+    you from modifying offsets while the consumer group is active.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，消费者组在偏移量在偏移量主题中发生变化时不会收到更新。它们只在分配新分区给消费者或启动时读取偏移量。为了防止您对消费者不会知道的偏移量进行更改（因此将覆盖），Kafka将阻止您在消费者组活动时修改偏移量。
+- en: Also keep in mind that if the consumer application maintains state (and most
+    stream processing applications maintain state), resetting the offsets and causing
+    the consumer group to start processing from the beginning of the topic can have
+    a strange impact on the stored state. For example, suppose you have a stream application
+    that is continuously counting shoes sold in your store, and suppose that at 8:00
+    a.m. you discover that there was an error in inputs and you want to completely
+    recalculate the count since 3:00 a.m. If you reset the offsets to 3:00 a.m. without
+    appropriately modifying the stored aggregate, you will count every shoe that was
+    sold today twice (you will also process all the data between 3:00 a.m. and 8:00
+    a.m., but let’s assume that this is necessary to correct the error). You need
+    to take care to update the stored state accordingly. In a development environment,
+    we usually delete the state store completely before resetting the offsets to the
+    start of the input topic.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还要记住，如果消费者应用程序维护状态（大多数流处理应用程序都会维护状态），重置偏移量并导致消费者组从主题的开头开始处理可能会对存储的状态产生奇怪的影响。例如，假设您有一个流应用程序，不断计算商店销售的鞋子数量，并且假设在早上8:00发现输入错误，并且您想要完全重新计算自3:00
+    a.m.以来的数量。如果您将偏移量重置为3:00 a.m.，而没有适当修改存储的聚合，您将计算今天卖出的每双鞋子两次（您还将处理3:00 a.m.和8:00
+    a.m.之间的所有数据，但让我们假设这是必要的来纠正错误）。您需要小心相应地更新存储的状态。在开发环境中，我们通常在重置偏移量到输入主题的开头之前完全删除状态存储。
+- en: 'With all these warnings in mind, let’s look at an example:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在脑海中牢记所有这些警告，让我们来看一个例子：
+- en: '[PRE9]'
+  id: totrans-112
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO5-1)'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO5-1)'
+- en: To reset the consumer group so it will start processing from the earliest offset,
+    we need to get the earliest offsets first. Getting the earliest offsets is similar
+    to getting the latest, shown in the previous example.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要重置消费者组，以便它将从最早的偏移量开始处理，我们需要首先获取最早的偏移量。获取最早的偏移量类似于获取上一个示例中显示的最新的偏移量。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO5-2)'
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO5-2)'
+- en: In this loop we convert the map with `ListOffsetsResultInfo` values that were
+    returned by `listOffsets` into a map with `OffsetAndMetadata` values that are
+    required by `alterConsumerGroupOffsets`.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个循环中，我们将`listOffsets`返回的带有`ListOffsetsResultInfo`值的映射转换为`alterConsumerGroupOffsets`所需的带有`OffsetAndMetadata`值的映射。
+- en: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO5-3)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO5-3)'
+- en: After calling `alterConsumerGroupOffsets`, we are waiting on the `Future` to
+    complete so we can see if it completed successfully.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 调用`alterConsumerGroupOffsets`之后，我们正在等待`Future`完成，以便我们可以看到它是否成功完成。
+- en: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO5-4)'
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO5-4)'
+- en: One of the most common reasons that `alterConsumerGroupOffsets` fails is that
+    we didn’t stop the consumer group first (this has to be done by shutting down
+    the consuming application directly; there is no admin command for shutting down
+    a consumer group). If the group is still active, our attempt to modify the offsets
+    will appear to the consumer coordinator as if a client that is not a member of
+    the group is committing an offset for that group. In this case, we’ll get `Unknown​Mem⁠berIdException`.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`alterConsumerGroupOffsets`失败的最常见原因之一是我们没有首先停止消费者组（这必须通过直接关闭消费应用程序来完成；没有用于关闭消费者组的管理命令）。如果组仍处于活动状态，我们尝试修改偏移量将被消费者协调器视为不是该组成员的客户端提交了该组的偏移量。在这种情况下，我们将收到`Unknown​Mem⁠berIdException`。'
+- en: Cluster Metadata
+  id: totrans-121
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 集群元数据
+- en: It is rare that an application has to explicitly discover anything at all about
+    the cluster to which it connected. You can produce and consume messages without
+    ever learning how many brokers exist and which one is the controller. Kafka clients
+    abstract away this information—clients only need to be concerned with topics and
+    partitions.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序很少需要显式发现连接的集群的任何信息。您可以生产和消费消息，而无需了解存在多少个代理和哪一个是控制器。Kafka客户端会将这些信息抽象化，客户端只需要关注主题和分区。
+- en: 'But just in case you are curious, this little snippet will satisfy your curiosity:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，以防您好奇，这段小片段将满足您的好奇心：
+- en: '[PRE10]'
+  id: totrans-124
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO6-1)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO6-1)'
+- en: Cluster identifier is a GUID and therefore is not human readable. It is still
+    useful to check whether your client connected to the correct cluster.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群标识符是GUID，因此不适合人类阅读。检查您的客户端是否连接到正确的集群仍然是有用的。
+- en: Advanced Admin Operations
+  id: totrans-127
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 高级管理操作
+- en: In this section, we’ll discuss a few methods that are rarely used, and can be
+    risky to use, but are incredibly useful when needed. Those are mostly important
+    for SREs during incidents—but don’t wait until you are in an incident to learn
+    how to use them. Read and practice before it is too late. Note that the methods
+    here have little to do with one another, except that they all fit into this category.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本节中，我们将讨论一些很少使用但在需要时非常有用的方法。这些对于SRE在事故期间非常重要，但不要等到发生事故才学会如何使用它们。在为时已晚之前阅读和练习。请注意，这里的方法除了它们都属于这个类别之外，几乎没有任何关联。
+- en: Adding Partitions to a Topic
+  id: totrans-129
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 向主题添加分区
+- en: Usually the number of partitions in a topic is set when a topic is created.
+    And since each partition can have very high throughput, bumping against the capacity
+    limits of a topic is rare. In addition, if messages in the topic have keys, then
+    consumers can assume that all messages with the same key will always go to the
+    same partition and will be processed in the same order by the same consumer.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常在创建主题时会设置主题的分区数。由于每个分区的吞吐量可能非常高，因此很少会遇到主题容量限制的情况。此外，如果主题中的消息具有键，则消费者可以假定具有相同键的所有消息将始终进入同一分区，并且将由同一消费者按相同顺序处理。
+- en: For these reasons, adding partitions to a topic is rarely needed and can be
+    risky. You’ll need to check that the operation will not break any application
+    that consumes from the topic. At times, however, you will really hit the ceiling
+    of how much throughput you can process with the existing partitions and have no
+    choice but to add some.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 出于这些原因，很少需要向主题添加分区，并且可能会有风险。您需要检查该操作是否不会破坏从主题中消费的任何应用程序。然而，有时您确实会达到现有分区可以处理的吞吐量上限，并且别无选择，只能添加一些分区。
+- en: You can add partitions to a collection of topics using the `createPartitions`
+    method. Note that if you try to expand multiple topics at once, it is possible
+    that some of the topics will be successfully expanded, while others will fail.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用`createPartitions`方法向一组主题添加分区。请注意，如果尝试一次扩展多个主题，则可能会成功扩展其中一些主题，而其他主题将失败。
+- en: '[PRE11]'
+  id: totrans-133
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO7-1)'
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO7-1)'
+- en: When expanding topics, you need to specify the total number of partitions the
+    topic will have after the partitions are added, not the number of new partitions.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在扩展主题时，您需要指定主题在添加分区后将拥有的总分区数，而不是新分区的数量。
+- en: Tip
+  id: totrans-136
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: Since the `createPartition` method takes as a parameter the total number of
+    partitions in the topic after new partitions are added, you may need to describe
+    the topic and find out how many partitions exist prior to expanding it.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于`createPartition`方法将主题中新分区添加后的总分区数作为参数，因此您可能需要描述主题并找出在扩展之前存在多少分区。
+- en: Deleting Records from a Topic
+  id: totrans-138
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从主题中删除记录
+- en: Current privacy laws mandate specific retention policies for data. Unfortunately,
+    while Kafka has retention policies for topics, they were not implemented in a
+    way that guarantees legal compliance. A topic with a retention policy of 30 days
+    can store older data if all the data fits into a single segment in each partition.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当前的隐私法律规定了数据的特定保留政策。不幸的是，虽然Kafka有主题的保留政策，但它们并没有以确保合法合规的方式实施。如果一个主题的保留政策是30天，如果所有数据都适合每个分区中的单个段，那么它可以存储旧数据。
+- en: 'The `deleteRecords` method will mark as deleted all the records with offsets
+    older than those specified when calling the method and make them inaccessible
+    by Kafka consumers. The method returns the highest deleted offsets, so we can
+    check if the deletion indeed happened as expected. Full cleanup from disk will
+    happen asynchronously. Remember that the `listOffsets` method can be used to get
+    offsets for records that were written on or immediately after a specific time.
+    Together, these methods can be used to delete records older than any specific
+    point in time:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`deleteRecords`方法将标记所有偏移量早于调用该方法时指定的偏移量的记录为已删除，并使它们对Kafka消费者不可访问。该方法返回最高的已删除偏移量，因此我们可以检查删除是否确实按预期发生。磁盘上的完全清理将异步进行。请记住，`listOffsets`方法可用于获取在特定时间之后或立即之后编写的记录的偏移量。这些方法可以一起用于删除早于任何特定时间点的记录：'
+- en: '[PRE12]'
+  id: totrans-141
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: Leader Election
+  id: totrans-142
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 领导者选举
+- en: 'This method allows you to trigger two different types of leader election:'
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法允许您触发两种不同类型的领导者选举：
+- en: Preferred leader election
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首选领导者选举
+- en: Each partition has a replica that is designated as the *preferred leader*. It
+    is preferred because if all partitions use their preferred leader replica as the
+    leader, the number of leaders on each broker should be balanced. By default, Kafka
+    will check every five minutes if the preferred leader replica is indeed the leader,
+    and if it isn’t but it is eligible to become the leader, it will elect the preferred
+    leader replica as leader. If `auto.leader.rebalance.enable` is `false`, or if
+    you want this to happen faster, the `electLeader()` method can trigger this process.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个分区都有一个被指定为*首选领导者*的副本。它是首选的，因为如果所有分区都使用其首选领导者副本作为领导者，每个代理上的领导者数量应该是平衡的。默认情况下，Kafka每五分钟会检查首选领导者副本是否确实是领导者，如果不是但有资格成为领导者，它将选举首选领导者副本为领导者。如果`auto.leader.rebalance.enable`为`false`，或者如果您希望此过程更快地发生，`electLeader()`方法可以触发此过程。
+- en: Unclean leader election
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 非干净领导者选举
+- en: If the leader replica of a partition becomes unavailable, and the other replicas
+    are not eligible to become leaders (usually because they are missing data), the
+    partition will be without a leader and therefore unavailable. One way to resolve
+    this is to trigger *unclean leader* election, which means electing a replica that
+    is otherwise ineligible to become a leader as the leader anyway. This will cause
+    data loss—all the events that were written to the old leader and were not replicated
+    to the new leader will be lost. The `electLeader()` method can also be used to
+    trigger unclean leader elections.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果分区的领导者副本变得不可用，并且其他副本没有资格成为领导者（通常是因为它们缺少数据），那么该分区将没有领导者，因此不可用。解决此问题的一种方法是触发*非干净领导者*选举，这意味着将一个否则没有资格成为领导者的副本选举为领导者。这将导致数据丢失——所有写入旧领导者但尚未复制到新领导者的事件将丢失。`electLeader()`方法也可以用于触发非干净领导者选举。
+- en: 'The method is asynchronous, which means that even after it returns successfully,
+    it takes a while until all brokers become aware of the new state, and calls to
+    `describeTopics()` can return inconsistent results. If you trigger leader election
+    for multiple partitions, it is possible that the operation will be successful
+    for some partitions and fail for others:'
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该方法是异步的，这意味着即使在成功返回后，直到所有代理都意识到新状态并调用`describeTopics()`后，调用可能会返回不一致的结果。如果触发多个分区的领导者选举，可能会对一些分区成功，对另一些分区失败：
+- en: '[PRE13]'
+  id: totrans-149
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO8-1)'
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO8-1)'
+- en: We are electing the preferred leader on a single partition of a specific topic.
+    We can specify any number of partitions and topics. If you call the command with
+    `null` instead of a collection of partitions, it will trigger the election type
+    you chose for all partitions.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们正在为特定主题的单个分区选举首选领导者。我们可以指定任意数量的分区和主题。如果您使用`null`而不是分区集合调用该命令，它将触发您选择的所有分区的选举类型。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO8-2)'
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO8-2)'
+- en: If the cluster is in a healthy state, the command will do nothing. Preferred
+    leader election and unclean leader election only take effect when a replica other
+    than the preferred leader is the current leader.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果集群处于健康状态，该命令将不起作用。只有当首选领导者以外的副本是当前领导者时，首选领导者选举和非干净领导者选举才会生效。
+- en: Reassigning Replicas
+  id: totrans-154
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 重新分配副本
+- en: Sometimes, you don’t like the current location of some of the replicas. Maybe
+    a broker is overloaded and you want to move some replicas. Maybe you want to add
+    more replicas. Maybe you want to move all replicas from a broker so you can remove
+    the machine. Or maybe a few topics are so noisy that you need to isolate them
+    from the rest of the workload. In all these scenarios, `alterPartitionReassignments`
+    gives you fine-grain control over the placement of every single replica for a
+    partition. Keep in mind that reassigning replicas from one broker to another may
+    involve copying large amounts of data from one broker to another. Be mindful of
+    the available network bandwidth, and throttle replication using quotas if needed;
+    quotas are a broker configuration, so you can describe them and update them with
+    `AdminClient`.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，您可能不喜欢某些副本的当前位置。也许一个代理已经过载，您想要移动一些副本。也许您想要添加更多的副本。也许您想要从一个代理中移动所有副本，以便您可以移除该机器。或者也许一些主题太吵了，您需要将它们与其余工作负载隔离开来。在所有这些情况下，`alterPartitionReassignments`可以让您对每个分区的每个副本的放置进行精细控制。请记住，将副本从一个代理重新分配到另一个代理可能涉及从一个代理复制大量数据到另一个代理。请注意可用的网络带宽，并根据需要使用配额限制复制；配额是代理配置，因此您可以使用`AdminClient`来描述它们并更新它们。
+- en: 'For this example, assume that we have a single broker with ID 0\. Our topic
+    has several partitions, all with one replica on this broker. After adding a new
+    broker, we want to use it to store some of the replicas of the topic. We are going
+    to assign each partition in the topic in a slightly different way:'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本例中，假设我们有一个ID为0的单个代理。我们的主题有几个分区，每个分区都有一个副本在这个代理上。添加新代理后，我们希望使用它来存储主题的一些副本。我们将以稍微不同的方式为主题中的每个分区分配副本：
+- en: '[PRE14]'
+  id: totrans-157
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO9-1)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO9-1)'
+- en: We’ve added another replica to partition 0, placed the new replica on the new
+    broker, which has ID 1, but left the leader unchanged.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经向分区0添加了另一个副本，将新副本放在了ID为1的新代理上，但保持领导者不变。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO9-2)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO9-2)'
+- en: We didn’t add any replicas to partition 1; we simply moved the one existing
+    replica to the new broker. Since we have only one replica, it is also the leader.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们没有向分区1添加任何副本；我们只是将现有的一个副本移动到新代理上。由于我们只有一个副本，它也是领导者。
+- en: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO9-3)'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_managing_apache_kafka_programmatically_CO9-3)'
+- en: We’ve added another replica to partition 2 and made it the preferred leader.
+    The next preferred leader election will switch leadership to the new replica on
+    the new broker. The existing replica will then become a follower.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经向分区2添加了另一个副本，并将其设置为首选领导者。下一个首选领导者选举将把领导权转移到新经纪人上的新副本。现有副本将成为跟随者。
+- en: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO9-4)'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_managing_apache_kafka_programmatically_CO9-4)'
+- en: There is no ongoing reassignment for partition 3, but if there was, this would
+    have canceled it and returned the state to what it was before the reassignment
+    operation started.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分区3没有正在进行的重新分配，但如果有的话，这将取消它并将状态返回到重新分配操作开始之前的状态。
+- en: '[![5](assets/5.png)](#co_managing_apache_kafka_programmatically_CO9-5)'
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![5](assets/5.png)](#co_managing_apache_kafka_programmatically_CO9-5)'
+- en: We can list the ongoing reassignments.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以列出正在进行的重新分配。
+- en: '[![6](assets/6.png)](#co_managing_apache_kafka_programmatically_CO9-6)'
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![6](assets/6.png)](#co_managing_apache_kafka_programmatically_CO9-6)'
+- en: We can also print the new state, but remember that it can take awhile until
+    it shows consistent results.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们也可以打印新状态，但请记住，直到显示一致的结果可能需要一段时间。
+- en: Testing
+  id: totrans-170
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 测试
+- en: Apache Kafka provides a test class, `MockAdminClient`, which you can initialize
+    with any number of brokers and use to test that your applications behave correctly
+    without having to run an actual Kafka cluster and really perform the admin operations
+    on it. While `MockAdminClient` is not part of the Kafka API and therefore subject
+    to change without warning, it mocks methods that are public, and therefore the
+    method signatures will remain compatible. There is a bit of a trade-off on whether
+    the convenience of this class is worth the risk that it will change and break
+    your tests, so keep this in mind.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 'Apache Kafka提供了一个测试类`MockAdminClient`，您可以用任意数量的经纪人初始化它，并用它来测试您的应用程序是否正确运行，而无需运行实际的Kafka集群并真正执行管理操作。虽然`MockAdminClient`不是Kafka
+    API的一部分，因此可能会在没有警告的情况下发生变化，但它模拟了公共方法，因此方法签名将保持兼容。在这个类的便利性是否值得冒这个风险的问题上存在一些权衡，所以请记住这一点。 '
+- en: 'What makes this test class especially compelling is that some of the common
+    methods have very comprehensive mocking: you can create topics with `MockAdminClient`,
+    and a subsequent call to `listTopics()` will list the topics you “created.”'
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个测试类特别引人注目的地方在于一些常见方法有非常全面的模拟：您可以使用`MockAdminClient`创建主题，然后调用`listTopics()`将列出您“创建”的主题。
+- en: However, not all methods are mocked. If you use `AdminClient` with version 2.5
+    or earlier and call `incrementalAlterConfigs()` of the `MockAdminClient`, you
+    will get an `UnsupportedOperationException`, but you can handle this by injecting
+    your own implementation.
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但并非所有方法都被模拟。如果您使用版本为2.5或更早的`AdminClient`并调用`MockAdminClient`的`incrementalAlterConfigs()`，您将收到一个`UnsupportedOperationException`，但您可以通过注入自己的实现来处理这个问题。
+- en: 'To demonstrate how to test using `MockAdminClient`, let’s start by implementing
+    a class that is instantiated with an admin client and uses it to create topics:'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了演示如何使用`MockAdminClient`进行测试，让我们从实现一个类开始，该类实例化为一个管理客户端，并使用它来创建主题：
+- en: '[PRE15]'
+  id: totrans-175
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: 'The logic here isn’t sophisticated: `maybeCreateTopic` will create the topic
+    if the topic name starts with “test.” We are also modifying the topic configuration,
+    so we can show how to handle a case where the method we use isn’t implemented
+    in the mock client.'
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里的逻辑并不复杂：如果主题名称以“test”开头，`maybeCreateTopic`将创建主题。我们还修改了主题配置，以便演示我们如何处理我们使用的方法在模拟客户端中未实现的情况。
+- en: Note
+  id: totrans-177
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: We are using the [Mockito](https://site.mockito.org) testing framework to verify
+    that the `MockAdminClient` methods are called as expected and to fill in for the
+    unimplemented methods. Mockito is a fairly simple mocking framework with nice
+    APIs, which makes it a good fit for a small example of a unit test.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们使用[Mockito](https://site.mockito.org)测试框架来验证`MockAdminClient`方法是否按预期调用，并填充未实现的方法。Mockito是一个相当简单的模拟框架，具有良好的API，非常适合用于单元测试的小例子。
+- en: 'We’ll start testing by instantiating our mock client:'
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将通过实例化我们的模拟客户端来开始测试：
+- en: '[PRE16]'
+  id: totrans-180
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO10-1)'
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO10-1)'
+- en: '`MockAdminClient` is instantiated with a list of brokers (here we’re using
+    just one), and one broker that will be our controller. The brokers are just the
+    broker ID, hostname, and port—all fake, of course. No brokers will run while executing
+    these tests. We’ll use Mockito’s `spy` injection, so we can later check that `TopicCreator`
+    executed correctly.'
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`MockAdminClient`是用经纪人列表（这里我们只使用一个）和一个将成为我们控制器的经纪人实例化的。经纪人只是经纪人ID，主机名和端口 -
+    当然都是假的。在执行这些测试时，不会运行任何经纪人。我们将使用Mockito的`spy`注入，这样我们以后可以检查`TopicCreator`是否执行正确。'
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO10-2)'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO10-2)'
+- en: Here we use Mockito’s `doReturn` methods to make sure the mock admin client
+    doesn’t throw exceptions. The method we are testing expects the `AlterConfig​Result`
+    object with an `all()` method that returns a `KafkaFuture`. We made sure that
+    the fake `incrementalAlterConfigs` returns exactly that.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们使用Mockito的`doReturn`方法来确保模拟管理客户端不会抛出异常。我们正在测试的方法期望具有`AlterConfig​Result`对象，该对象具有返回`KafkaFuture`的`all()`方法。我们确保虚假的`incrementalAlterConfigs`确实返回了这一点。
+- en: 'Now that we have a properly fake AdminClient, we can use it to test whether
+    the `maybeCreateTopic()` method works properly:'
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们有了一个适当的虚假AdminClient，我们可以使用它来测试`maybeCreateTopic()`方法是否正常工作：
+- en: '[PRE17]'
+  id: totrans-186
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO11-1)'
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_managing_apache_kafka_programmatically_CO11-1)'
+- en: The topic name starts with “test,” so we expect `maybeCreateTopic()` to create
+    a topic. We check that `createTopics()` was called once.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主题名称以“test”开头，因此我们期望`maybeCreateTopic()`创建一个主题。我们检查`createTopics()`是否被调用了一次。
+- en: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO11-2)'
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_managing_apache_kafka_programmatically_CO11-2)'
+- en: When the topic name doesn’t start with “test,” we verify that `createTopics()`
+    was not called at all.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当主题名称不以“test”开头时，我们验证`createTopics()`根本没有被调用。
+- en: 'One last note: Apache Kafka published `MockAdminClient` in a test jar, so make
+    sure your *pom.xml* includes a test dependency:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后一点说明：Apache Kafka发布了`MockAdminClient`在一个测试jar中，所以确保你的*pom.xml*包含一个测试依赖：
+- en: '[PRE18]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Summary
+  id: totrans-193
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: AdminClient is a useful tool to have in your Kafka development kit. It is useful
+    for application developers who want to create topics on the fly and validate that
+    the topics they are using are configured correctly for their application. It is
+    also useful for operators and SREs who want to create tooling and automation around
+    Kafka or need to recover from an incident. AdminClient has so many useful methods
+    that SREs can think of it as a Swiss Army knife for Kafka operations.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: AdminClient是Kafka开发工具包中很有用的工具。对于想要动态创建主题并验证其配置是否正确的应用程序开发人员来说，它非常有用。对于运维人员和SREs来说，他们想要围绕Kafka创建工具和自动化，或者需要从事故中恢复时，AdminClient也非常有用。AdminClient有很多有用的方法，SREs可以把它看作是Kafka操作的瑞士军刀。
+- en: 'In this chapter we covered all the basics of using Kafka’s AdminClient: topic
+    management, configuration management, and consumer group management, plus a few
+    other useful methods that are good to have in your back pocket—you never know
+    when you’ll need them.'
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们涵盖了使用Kafka的AdminClient的所有基础知识：主题管理、配置管理和消费者组管理，以及一些其他有用的方法，这些方法在需要时都很有用。

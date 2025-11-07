@@ -1,0 +1,1697 @@
+- en: Chapter 7\. Stateful Operators and Applications
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第7章。有状态操作符和应用程序
+- en: Stateful operators and user functions are common building blocks of stream processing
+    applications. In fact, most nontrivial operations need to memorize records or
+    partial results because data is streamed and arrives over time.^([1](ch07.html#idm45499000359896))
+    Many of Flink’s built-in DataStream operators, sources, and sinks are stateful
+    and buffer records or maintain partial results or metadata. For instance, a window
+    operator collects input records for a `ProcessWindowFunction` or the result of
+    applying a `ReduceFunction`, a `ProcessFunction` memorizes scheduled timers, and
+    some sink functions maintain state about transactions to provide exactly-once
+    functionality. In addition to built-in operators and provided sources and sinks,
+    Flink’s DataStream API exposes interfaces to register, maintain, and access state
+    in user-defined functions.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有状态操作符和用户函数是流处理应用程序的常见构建块。事实上，大多数复杂的操作需要记忆记录或部分结果，因为数据是流式传输并随时间到达。^([1](ch07.html#idm45499000359896))
+    Flink的许多内置DataStream操作符、源和接收器都是有状态的，它们缓冲记录或维护部分结果或元数据。例如，窗口操作符收集输入记录以供`ProcessWindowFunction`处理，或者应用`ReduceFunction`后的结果，`ProcessFunction`记忆已安排的计时器，某些接收器函数维护关于事务的状态以提供精确一次性功能。除了内置操作符和提供的源和接收器外，Flink的DataStream
+    API还公开了接口以注册、维护和访问用户定义函数中的状态。
+- en: Stateful stream processing has implications on many aspects of a stream processor
+    such as failure recovery and memory management as well as the maintenance of streaming
+    applications. Chapters [2](ch02.html#chap-2) and [3](ch03.html#chap-3) discussed
+    the foundations of stateful stream processing and related details of Flink’s architecture,
+    respectively. [Chapter 9](ch09.html#chap-9) explains how to set up and configure
+    Flink to reliably process stateful applications. [Chapter 10](ch10.html#chap-10)
+    gives guidance on how to operate stateful applications—taking and restoring from
+    application savepoints, rescaling applications, and performing application upgrades.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有状态流处理对流处理器的许多方面都有影响，比如故障恢复、内存管理以及流应用程序的维护。第[2章](ch02.html#chap-2)和第[3章](ch03.html#chap-3)分别讨论了有状态流处理的基础以及Flink架构的相关细节。第[9章](ch09.html#chap-9)解释了如何设置和配置Flink以可靠地处理有状态应用程序。第[10章](ch10.html#chap-10)提供了关于如何操作有状态应用程序的指导——如何从应用程序保存点中进行取值和恢复、应用程序的重新缩放以及应用程序升级。
+- en: This chapter focuses on the implementation of stateful user-defined functions
+    and discusses the performance and robustness of stateful applications. Specifically,
+    we explain how to define and interact with different types of state in user-defined
+    functions. We also discuss performance aspects and how to control the size of
+    function state. Finally, we show how to configure keyed state as queryable and
+    how to access it from an external application.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章重点讨论有状态用户定义函数的实现，并讨论有状态应用的性能和健壮性。具体来说，我们解释了如何在用户定义函数中定义和操作不同类型的状态。我们还讨论了性能方面的问题，以及如何控制函数状态的大小。最后，我们展示了如何将键控状态配置为可查询状态，并如何从外部应用程序访问它。
+- en: Implementing Stateful Functions
+  id: totrans-4
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 实现有状态函数
+- en: In [“State Management”](ch03.html#chap-3-state), we explained that functions
+    can have two types of state, keyed state and operator state. Flink provides multiple
+    interfaces to define stateful functions. In this section, we show how functions
+    with keyed and operator state are implemented.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“状态管理”](ch03.html#chap-3-state)中，我们解释了函数可以具有两种类型的状态，即键控状态和操作符状态。Flink提供了多个接口来定义有状态函数。在本节中，我们展示了如何实现具有键控状态和操作符状态的函数。
+- en: Declaring Keyed State at RuntimeContext
+  id: totrans-6
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在RuntimeContext声明键控状态
+- en: User functions can employ keyed state to store and access state in the context
+    of a key attribute. For each distinct value of the key attribute, Flink maintains
+    one state instance. The keyed state instances of a function are distributed across
+    all parallel tasks of the function’s operator. That means each parallel instance
+    of the function is responsible for a subrange of the key domain and maintains
+    the corresponding state instances. Hence, keyed state is very similar to a distributed
+    key-value map. Consult [“State Management”](ch03.html#chap-3-state) for more details
+    on keyed state.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户函数可以使用键控状态来存储和访问具有键属性上下文中的状态。对于键属性的每个不同值，Flink维护一个状态实例。函数的键控状态实例分布在函数操作符的所有并行任务之间。这意味着函数的每个并行实例负责键域的一个子范围，并维护相应的状态实例。因此，键控状态非常类似于分布式键值映射。请参阅[“状态管理”](ch03.html#chap-3-state)获取有关键控状态的更多详细信息。
+- en: Keyed state can only be used by functions that are applied on a `KeyedStream`.
+    A `KeyedStream` is constructed by calling the `DataStream.keyBy()` method that
+    defines a key on a stream. A `KeyedStream` is partitioned on the specified key
+    and remembers the key definition. An operator that is applied on a `KeyedStream`
+    is applied in the context of its key definition.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有应用于 `KeyedStream` 的函数才能使用键控状态。`KeyedStream` 是通过调用 `DataStream.keyBy()` 方法构建的，该方法在流上定义一个键。`KeyedStream`
+    根据指定的键进行分区，并记住键的定义。应用于 `KeyedStream` 上的操作符是在其键定义的上下文中应用的。
+- en: 'Flink provides multiple primitives for keyed state. A state primitive defines
+    the structure of the state for an individual key. The choice of the right state
+    primitive depends on how the function interacts with the state. The choice also
+    affects the performance of a function because each state backend provides its
+    own implementations for these primitives. The following state primitives are supported
+    by Flink:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了多个用于键控状态的原语。状态原语定义了单个键的状态结构。选择正确的状态原语取决于函数与状态的交互方式。选择还会影响函数的性能，因为每个状态后端为这些原语提供了自己的实现。Flink
+    支持以下状态原语：
+- en: '`ValueState[T]` holds a single value of type `T`. The value can be read using
+    `ValueState.value()` and updated with `ValueState.update(value: T)`.'
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`ValueState[T]` 持有类型为 `T` 的单个值。可以使用 `ValueState.value()` 读取该值，并使用 `ValueState.update(value:
+    T)` 进行更新。'
+- en: '`ListState[T]` holds a list of elements of type `T`. New elements can be appended
+    to the list by calling `ListState.add(value: T)` or `ListState.addAll(values:
+    java.util.List[T])`. The state elements can be accessed by calling `ListState.get()`,
+    which returns an `Iterable[T]` over all state elements. It is not possible to
+    remove individual elements from `ListState`, but the list can be updated by calling
+    `ListState.update(values: java.util.List[T])`. A call to this method will replace
+    existing values with the given list of values.'
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`ListState[T]` 持有类型为 `T` 的元素列表。可以通过调用 `ListState.add(value: T)` 或 `ListState.addAll(values:
+    java.util.List[T])` 将新元素追加到列表中。可以通过调用 `ListState.get()` 来访问状态元素，它返回一个覆盖所有状态元素的
+    `Iterable[T]`。不可能从 `ListState` 中删除单个元素，但可以通过调用 `ListState.update(values: java.util.List[T])`
+    来更新列表。调用此方法将用给定的值列表替换现有的值。'
+- en: '`MapState[K, V]` holds a map of keys and values. The state primitive offers
+    many of the methods of a regular Java `Map` such as `get(key: K)`, `put(key: K,
+    value: V)`, `contains(key: K)`, `remove(key: K)`, and iterators over the contained
+    entries, keys, and values.'
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`MapState[K, V]` 持有键值对的映射。该状态原语提供了许多类似于常规 Java `Map` 的方法，如 `get(key: K)`、`put(key:
+    K, value: V)`、`contains(key: K)`、`remove(key: K)`，以及对包含的条目、键和值进行迭代的方法。'
+- en: '`ReducingState[T]` offers the same methods as `ListState[T]` (except for `addAll()`
+    and `update()`), but instead of appending values to a list, `ReducingState.add(value:
+    T)` immediately aggregates `value` using a `ReduceFunction`. The iterator returned
+    by `get()` returns an `Iterable` with a single entry, which is the reduced value.'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`ReducingState[T]` 提供了与 `ListState[T]` 相同的方法（除了 `addAll()` 和 `update()`），但不是将值追加到列表中，而是立即使用
+    `ReduceFunction` 对值进行聚合。`get()` 返回的迭代器返回一个包含单个条目的 `Iterable`，即被减少的值。'
+- en: '`AggregatingState[I, O]` behaves similar to `ReducingState`. However, it uses
+    the more general `AggregateFunction` to aggregate values. `AggregatingState.get()`
+    computes the final result and returns it as an `Iterable` with a single element.'
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`AggregatingState[I, O]` 的行为类似于 `ReducingState`。但它使用更通用的 `AggregateFunction`
+    来聚合值。`AggregatingState.get()` 计算最终结果并将其作为包含单个元素的 `Iterable` 返回。'
+- en: All state primitives can be cleared by calling `State.clear()`.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有状态原语都可以通过调用 `State.clear()` 来清除。
+- en: '[Example 7-1](#code_keyed-state-apply) shows how to apply a `FlatMapFunction`
+    with a keyed `ValueState` on a stream of sensor measurements. The example application
+    emits an alert event if the temperature measured by a sensor changes by more than
+    a threshold since the last measurement.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 7-1](#code_keyed-state-apply) 展示了如何在传感器测量流中应用带键 `ValueState` 的 `FlatMapFunction`。该示例应用程序在传感器测量的温度与上次测量相比发生变化超过阈值时，发出警报事件。'
+- en: Example 7-1\. Applying a FlatMapFunction with a keyed ValueState
+  id: totrans-17
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-1\. 使用带键 `ValueState` 的 `FlatMapFunction` 的应用
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: A function with keyed state must be applied on a `KeyedStream`. We need to specify
+    the key by calling `keyBy()` on the input stream before we apply the function.
+    When the processing method of a function with keyed input is called, Flink’s runtime
+    automatically puts all keyed state objects of the function into the context of
+    the key of the record that is passed by the function call. Therefore, a function
+    can only access the state that belongs to the record it currently processes.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 带键状态的函数必须应用于`KeyedStream`。我们需要在应用函数之前在输入流上调用`keyBy()`来指定键。当调用带键输入函数的处理方法时，Flink的运行时会自动将函数的所有带键状态对象放入由函数调用传递的记录键的上下文中。因此，函数只能访问当前处理的记录所属的状态。
+- en: '[Example 7-2](#code_keyed-state-impl) shows the implementation of a `FlatMapFunction`
+    with a keyed `ValueState` that checks whether the measured temperature changed
+    more than a configured threshold.'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 7-2](#code_keyed-state-impl)展示了一个带键的`ValueState`的`FlatMapFunction`的实现，它检查测量温度是否超过配置的阈值变化。'
+- en: Example 7-2\. Implementing a FlatMapFunction with a keyed ValueState
+  id: totrans-21
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-2\. 实现带键的`ValueState`的`FlatMapFunction`
+- en: '[PRE1]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: To create a state object, we have to register a `StateDescriptor` with Flink’s
+    runtime via the `RuntimeContext`, which is exposed by `RichFunction` (see [“Implementing
+    Functions”](ch05.html#chap-5-functions) for a discussion of the `RichFunction`
+    interface). The `StateDescriptor` is specific to the state primitive and includes
+    the name of the state and the data types of the state. The descriptors for `ReducingState`
+    and `AggregatingState` also need a `ReduceFunction` or `AggregateFunction` object
+    to aggregate the added values. The state name is scoped to the operator so that
+    a function can have more than one state object by registering multiple state descriptors.
+    The data types handled by the state are specified as `Class` or `TypeInformation`
+    objects (see [“Types”](ch05.html#chap-5-types) for a discussion of Flink’s type
+    handling). The data type must be specified because Flink needs to create a suitable
+    serializer. Alternatively, it is also possible to explicitly specify a `TypeSerializer`
+    to control how state is written into a state backend, checkpoint, and savepoint.^([2](ch07.html#idm45498999896744))
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要创建状态对象，我们必须通过`RuntimeContext`在Flink的运行时中注册一个`StateDescriptor`，这是由`RichFunction`公开的（参见[“实现函数”](ch05.html#chap-5-functions)讨论`RichFunction`接口）。`StateDescriptor`特定于状态原语，并包括状态的名称和数据类型。对于`ReducingState`和`AggregatingState`，描述符还需要一个`ReduceFunction`或`AggregateFunction`对象来聚合添加的值。状态名称在运算符范围内，因此函数可以通过注册多个状态描述符拥有多个状态对象。状态处理的数据类型被指定为`Class`或`TypeInformation`对象（参见[“类型”](ch05.html#chap-5-types)讨论Flink的类型处理）。必须指定数据类型，因为Flink需要创建合适的序列化器。另外，还可以显式指定`TypeSerializer`来控制如何将状态写入状态后端、检查点和保存点。^([2](ch07.html#idm45498999896744))
+- en: Typically, the state handle object is created in the `open()` method of `RichFunction`.
+    `open()` is called before any processing methods, such as `flatMap()` in the case
+    of a `FlatMapFunction`, are called. The state handle object (`lastTempState` in
+    [Example 7-2](#code_keyed-state-impl)) is a regular member variable of the function
+    class.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，状态句柄对象在`RichFunction`的`open()`方法中创建。在调用任何处理方法之前调用`open()`，例如在`FlatMapFunction`的情况下调用`flatMap()`。状态句柄对象（在[示例 7-2](#code_keyed-state-impl)中的`lastTempState`）是函数类的常规成员变量。
+- en: Note
+  id: totrans-25
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The state handle object only provides access to the state, which is stored an
+    maintained in the state backend. The handle does not hold the state itself.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 状态句柄对象仅提供对状态的访问，该状态存储在状态后端中并进行维护。句柄本身不持有状态。
+- en: When a function registers a `StateDescriptor`, Flink checks if the state backend
+    has data for the function and a state with the given name and type. This might
+    happen if the stateful function is restarted to recover from a failure or when
+    an application is started from a savepoint. In both cases, Flink links the newly
+    registered state handle object to the existing state. If the state backend does
+    not contain state for the given descriptor, the state that is linked to the handle
+    is initialized as empty.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当函数注册`StateDescriptor`时，Flink会检查状态后端是否有函数和给定名称和类型的状态数据。如果状态功能由于故障而重新启动或者从保存点启动应用程序，则可能会发生这种情况。在这两种情况下，Flink将新注册的状态句柄对象链接到现有状态。如果状态后端不包含给定描述符的状态，则链接到句柄的状态将初始化为空。
+- en: The Scala DataStream API offers syntactic shortcuts to define `map` and `flatMap`
+    functions with a single `ValueState`. [Example 7-3](#code_scala-keyed-state) shows
+    how to implement the previous example with the shortcut.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Scala DataStream API提供了语法快捷方式，以单个`ValueState`定义`map`和`flatMap`函数。[示例 7-3](#code_scala-keyed-state)展示了如何使用快捷方式实现前面的示例。
+- en: Example 7-3\. Scala DataStream API shortcut for a FlatMap with a keyed ValueState
+  id: totrans-29
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-3\. Scala DataStream API中的FlatMap与键控ValueState的快捷方式
+- en: '[PRE2]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: The `flatMapWithState()` method expects a function that accepts a `Tuple2`.
+    The first field of the tuple holds the input record to `flatMap`, and the second
+    field holds an `Option` of the retrieved state for the key of the processed record.
+    `Option` is not defined if the state has not been initialized yet. The function
+    also returns a `Tuple2`. The first field is a list of the `flatMap` results, and
+    the second field is the new value of the state.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`flatMapWithState()`方法期望一个接受`Tuple2`的函数。元组的第一个字段保存了传递给`flatMap`的输入记录，第二个字段保存了处理记录的键的检索状态的`Option`。如果状态尚未初始化，`Option`未定义。该函数还返回一个`Tuple2`。第一个字段是`flatMap`结果的列表，第二个字段是状态的新值。'
+- en: Implementing Operator List State with the ListCheckpointed Interface
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用`ListCheckpointed`接口实现操作符列表状态
+- en: 'Operator state is managed per parallel instance of an operator. All events
+    that are processed in the same parallel task of an operator have access to the
+    same state. In [“State Management”](ch03.html#chap-3-state), we discussed that
+    Flink supports three types of operator state: list state, list union state, and
+    broadcast state.'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作符状态针对操作符的每个并行实例进行管理。在操作符的同一并行任务中处理的所有事件都可以访问相同的状态。在[“状态管理”](ch03.html#chap-3-state)中，我们讨论了Flink支持三种类型的操作符状态：列表状态、列表联合状态和广播状态。
+- en: 'A function can work with operator list state by implementing the `ListCheckpointed`
+    interface. The `ListCheckpointed` interface does not work with state handles like
+    `ValueState` or `ListState`, which are registered at the state backend. Instead,
+    functions implement operator state as regular member variables and interact with
+    the state backend via callback functions of the `ListCheckpointed` interface.
+    The interface provides two methods:'
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现函数可以通过实现`ListCheckpointed`接口来处理操作符列表状态。`ListCheckpointed`接口不处理像`ValueState`或`ListState`这样在状态后端注册的状态句柄。相反，函数将操作符状态实现为常规成员变量，并通过`ListCheckpointed`接口的回调函数与状态后端交互。该接口提供两个方法：
+- en: '[PRE3]'
+  id: totrans-35
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The `snapshotState()` method is invoked when Flink triggers a checkpoint of
+    the stateful function. The method has two parameters, `checkpointId`, which is
+    a unique, monotonically increasing identifier for checkpoints, and `timestamp`,
+    which is the wall-clock time when the master initiated the checkpoint. The method
+    has to return the operator state as a list of serializable state objects.
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`snapshotState()`方法在Flink触发有状态函数的检查点时被调用。该方法有两个参数，`checkpointId`是检查点的唯一、单调递增标识符，`timestamp`是主节点启动检查点时的墙钟时间。该方法必须返回操作符状态作为可序列化状态对象的列表。'
+- en: The `restoreState()` method is always invoked when the state of a function needs
+    to be initialized—when the job is started (from a savepoint or not) or in the
+    case of a failure. The method is called with a list of state objects and has to
+    restore the state of the operator based on these objects.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`restoreState()`方法在函数的状态需要初始化时总是被调用——当作业启动时（从保存点或其他），或者在发生故障时。该方法使用状态对象列表被调用，并且必须基于这些对象来恢复操作符的状态。'
+- en: '[Example 7-4](#code_op-list-state) shows how to implement the `ListCheckpointed`
+    interface for a function that counts temperature measurements that exceed a threshold
+    per partition, for each parallel instance of the function.'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 7-4](#code_op-list-state)展示了如何为函数实现`ListCheckpointed`接口，以计算每个分区中超过阈值的温度测量次数，对于函数的每个并行实例。'
+- en: Example 7-4\. A RichFlatMapFunction with operator list state
+  id: totrans-39
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-4\. 具有操作符列表状态的RichFlatMapFunction
+- en: '[PRE4]'
+  id: totrans-40
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: The function in the above example counts per parallel instance how many temperature
+    measurements exceeded a configured threshold. The function uses operator state
+    and has a single state variable for each parallel operator instance that is checkpointed
+    and restored using the methods of the `ListCheckpointed` interface. Note that
+    the `ListCheckpointed` interface is implemented in Java and expects a `java.util.List`
+    instead of a Scala native list.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述示例中的函数计算每个并行实例中超过配置阈值的温度测量次数。该函数使用操作状态，并为每个并行操作符实例具有一个单一的状态变量，该变量通过`ListCheckpointed`接口的方法进行检查点和恢复。请注意，`ListCheckpointed`接口在Java中实现，并期望使用`java.util.List`而不是Scala本地列表。
+- en: Looking at the example, you might wonder why operator state is handled as a
+    list of state objects. As discussed in [“Scaling Stateful Operators”](ch03.html#chap-3-scaling-stateful),
+    the list structure supports changing the parallelism of functions with operator
+    state. In order to increase or decrease the parallelism of a function with operator
+    state, the operator state needs to be redistributed to a larger or smaller number
+    of task instances. This requires splitting or merging of state objects. Since
+    the logic for splitting and merging of state is custom for every stateful function,
+    this cannot be automatically done for arbitrary types of state.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 查看示例时，您可能会想知道为什么操作状态被处理为状态对象列表。如[“Scaling Stateful Operators”](ch03.html#chap-3-scaling-stateful)中所讨论的那样，列表结构支持具有操作状态的函数的并行度变化。为了增加或减少具有操作状态函数的并行性，需要将操作状态重新分发到较大或较小数量的任务实例。这需要拆分或合并状态对象。由于拆分和合并状态的逻辑对于每个有状态功能都是自定义的，因此无法自动执行任意类型的状态的操作。
+- en: By providing a list of state objects, functions with operator state can implement
+    this logic using the `snapshotState()` and `restoreState()` methods. The `snapshotState()`
+    method splits the operator state into multiple parts and the `restoreState()`
+    method assembles the operator state from possibly multiple parts. When the state
+    of a function is restored, the parts of the state are distributed among all parallel
+    instances of the function and handed to the `restoreState()` method. If there
+    are more parallel subtasks than state objects, some subtasks are started with
+    no state, and the `restoreState()` method is called with an empty list.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过提供状态对象列表，具有操作状态的函数可以使用`snapshotState()`和`restoreState()`方法实现此逻辑。`snapshotState()`方法将操作状态拆分为多个部分，而`restoreState()`方法将操作状态从可能的多个部分组装起来。当函数的状态被恢复时，状态的各个部分分布在函数的所有并行实例中，并传递给`restoreState()`方法。如果有更多的并行子任务而没有状态对象，则某些子任务将以无状态启动，并且将以空列表调用`restoreState()`方法。
+- en: Looking again at the `HighTempCounter` function in [Example 7-4](#code_op-list-state),
+    we see that each parallel instance of the operator exposes its state as a list
+    with a single entry. If we increased the parallelism of this operator, some of
+    the new subtasks would be initialized with an empty state, and start counting
+    from zero. In order to achieve better state distribution behavior when the `HighTempCounter`
+    function is rescaled, we can implement the `snapshotState()` method so that it
+    splits its count into multiple partial counts as shown in [Example 7-5](#code_rescaled-op-list-state).
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 再次查看[Example 7-4](#code_op-list-state)中的`HighTempCounter`函数，我们看到每个操作符的并行实例将其状态显示为具有单个条目的列表。如果增加此操作符的并行度，则一些新的子任务将使用空状态进行初始化，并从零开始计数。为了在重新调整`HighTempCounter`函数时实现更好的状态分布行为，我们可以实现`snapshotState()`方法，使其将其计数分割成多个部分，如[Example
+    7-5](#code_rescaled-op-list-state)所示。
+- en: Example 7-5\. Split operator list state for better distribution during rescaling
+  id: totrans-45
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: Example 7-5\. 在重新调整比例期间分割操作列表状态以获得更好的分布
+- en: '[PRE5]'
+  id: totrans-46
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: ListCheckpointed Interface Uses Java Serialization
+  id: totrans-47
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: ListCheckpointed接口使用Java序列化
+- en: The `ListCheckpointed` interface uses Java serialization to serialize and deserialize
+    the list of state objects. This can be a problem if you need to update your application
+    because Java serialization does not allow for migrating or configuring a custom
+    serializer. Implement `CheckpointedFunction` instead of the `ListCheckpointed`
+    interface if you need to ensure a function’s operator state can be evolved.
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ListCheckpointed`接口使用Java序列化来序列化和反序列化状态对象列表。如果需要更新应用程序，则可能会遇到问题，因为Java序列化不允许迁移或配置自定义序列化程序。如果需要确保函数的操作状态可以演进，请使用`CheckpointedFunction`而不是`ListCheckpointed`接口。'
+- en: Using Connected Broadcast State
+  id: totrans-49
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用连接广播状态
+- en: A common requirement in streaming applications is to distribute the same information
+    to all parallel instances of a function and maintain it as recoverable state.
+    An example is a stream of rules and a stream of events on which the rules are
+    applied. The function that applies the rules ingests two input streams, the event
+    stream and the rules stream. It remembers the rules in an operator state in order
+    to apply them to all events of the event stream. Since each parallel instance
+    of the function must hold all rules in its operator state, the rules stream needs
+    to be broadcasted to ensure each instance of the function receives all rules.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在流应用程序中的一个常见需求是将相同信息分发给函数的所有并行实例，并将其作为可恢复状态维护。一个示例是规则流和应用规则的事件流。应用规则的函数会接收两个输入流，即事件流和规则流。它将规则记忆在操作符状态中，以便将其应用于事件流的所有事件。由于函数的每个并行实例必须在其操作符状态中保留所有规则，因此需要广播规则流，以确保每个函数实例接收所有规则。
+- en: In Flink, such a state is called a broadcast state. Broadcast state can be combined
+    with a regular `DataStream` or `KeyedStream`. [Example 7-6](#code_broadcast-state-apply)
+    shows how to implement a temperature alert application with thresholds that can
+    be dynamically configured via a broadcasted stream.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Flink中，这样的状态称为广播状态。广播状态可以与常规的`DataStream`或`KeyedStream`结合使用。[示例 7-6](#code_broadcast-state-apply)展示了如何使用广播流动态配置阈值来实现温度警报应用程序。
+- en: Example 7-6\. Connecting a broadcast stream and keyed event stream
+  id: totrans-52
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-6\. 连接广播流和键控事件流
+- en: '[PRE6]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'A function with broadcast state is applied on two streams in three steps:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在三个步骤中，将具有广播状态的函数应用于两个流：
+- en: You create a `BroadcastStream` by calling `DataStream.broadcast()` and providing
+    one or more `MapStateDescriptor` objects. Each descriptor defines a separate broadcast
+    state of the function that is later applied on the `BroadcastStream`.
+  id: totrans-55
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过调用`DataStream.broadcast()`并提供一个或多个`MapStateDescriptor`对象来创建`BroadcastStream`。每个描述符定义了稍后应用于`BroadcastStream`的单独广播状态函数。
+- en: You connect the `BroadcastStream` with a `DataStream` or `KeyedStream`. The
+    `BroadcastStream` must be put as an argument in the `connect()` method.
+  id: totrans-56
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将`BroadcastStream`与`DataStream`或`KeyedStream`连接。必须将`BroadcastStream`作为`connect()`方法的参数。
+- en: You apply a function on the connected streams. Depending on whether the other
+    stream is keyed or not, a `KeyedBroadcastProcessFunction` or `BroadcastProcessFunction`
+    can be applied.
+  id: totrans-57
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 在连接的流上应用函数。根据另一个流是否有键，可以应用`KeyedBroadcastProcessFunction`或`BroadcastProcessFunction`。
+- en: '[Example 7-7](#code_broadcast-state-impl) shows the implementation of a `KeyedBroadcastProcessFunction`
+    that supports the dynamic configuration of sensor thresholds at runtime.'
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 7-7](#code_broadcast-state-impl)展示了支持运行时动态配置传感器阈值的`KeyedBroadcastProcessFunction`的实现。'
+- en: Example 7-7\. Implementing a KeyedBroadcastProcessFunction
+  id: totrans-59
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-7\. 实现`KeyedBroadcastProcessFunction`
+- en: '[PRE7]'
+  id: totrans-60
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: '`BroadcastProcessFunction` and `KeyedBroadcastProcessFunction` differ from
+    a regular `CoProcessFunction` because the element processing methods are not symmetric.
+    The methods, `processElement()` and `processBroadcastElement()`, are called with
+    different context objects. Both context objects offer a method `getBroadcastState(MapStateDescriptor)`
+    that provides access to a broadcast state handle. However, the broadcast state
+    handle that is returned in the `processElement()` method provides read-only access
+    to the broadcast state. This is a safety mechanism to ensure the broadcast state
+    holds the same information in all parallel instances. In addition, both context
+    objects also provide access to the event-time timestamp, the current watermark,
+    the current processing time, and the side outputs, similar to the context objects
+    of other process functions.'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`BroadcastProcessFunction`和`KeyedBroadcastProcessFunction`与常规的`CoProcessFunction`不同，因为元素处理方法不对称。这些方法，`processElement()`和`processBroadcastElement()`，会使用不同的上下文对象调用。两个上下文对象都提供一个方法`getBroadcastState(MapStateDescriptor)`，用于访问广播状态句柄。然而，在`processElement()`方法中返回的广播状态句柄只能进行只读访问。这是一种安全机制，用于确保广播状态在所有并行实例中保存相同的信息。此外，这两个上下文对象还提供访问事件时间戳、当前水位线、当前处理时间和类似于其他处理函数的侧输出。'
+- en: Note
+  id: totrans-62
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The `BroadcastProcessFunction` and `KeyedBroadcastProcessFunction` differ from
+    each other as well. `BroadcastProcessFunction` does not expose a timer service
+    to register timers and consequently does not offer an `onTimer()` method. Note
+    that you should not access keyed state from the `processBroadcastElement()` method
+    of `KeyedBroadcastProcessFunction`. Since the broadcast input does not specify
+    a key, the state backend cannot access a keyed value and will throw an exception.
+    Instead, the context of the `KeyedBroadcastProcessFunction.processBroadcastElement()`
+    method provides a method `applyToKeyedState(StateDescriptor, KeyedStateFunction)`
+    to apply a `KeyedStateFunction` to the value of each key in the keyed state referenced
+    by the `StateDescriptor`.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`BroadcastProcessFunction` 和 `KeyedBroadcastProcessFunction` 也有所不同。`BroadcastProcessFunction`
+    不提供定时器服务用于注册定时器，因此不提供 `onTimer()` 方法。请注意，不应从 `KeyedBroadcastProcessFunction` 的
+    `processBroadcastElement()` 方法中访问键控状态。由于广播输入未指定键，状态后端无法访问键控值，并将抛出异常。相反，`KeyedBroadcastProcessFunction.processBroadcastElement()`
+    方法的上下文提供了一个方法 `applyToKeyedState(StateDescriptor, KeyedStateFunction)`，用于将 `KeyedStateFunction`
+    应用到由 `StateDescriptor` 引用的键控状态的每个键的值上。'
+- en: Broadcasted Events Might Not Arrive in Deterministic Order
+  id: totrans-64
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 广播事件可能不会按确定性顺序到达
+- en: The order in which the broadcasted events arrive at the different parallel tasks
+    of the broadcast state operator might differ if the operator that emits the broadcasted
+    messages runs with a parallelism larger than 1.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 发送到广播状态操作符的不同并行任务的广播事件到达顺序可能会有所不同，如果发出广播消息的操作符的并行度大于1。
+- en: Consequently, you should either ensure the value of the broadcast state does
+    not depend on the order in which the broadcasted messages are received or ensure
+    the parallelism of the broadcasting operator is set to 1.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，您应该确保广播状态的值不依赖于接收广播消息的顺序，或者确保广播操作符的并行度设置为1。
+- en: Using the CheckpointedFunction Interface
+  id: totrans-67
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 使用 `CheckpointedFunction` 接口
+- en: The `CheckpointedFunction` interface is the lowest-level interface to specify
+    stateful functions. It provides hooks to register and maintain keyed state and
+    operator state and is the only interface that gives access to operator list union
+    state—the operator state that is fully replicated in the case of a recovery or
+    savepoint restart.^([3](ch07.html#idm45498998664872))
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`CheckpointedFunction` 接口是指定有状态函数的最低级别接口。它提供了注册和维护键控状态和操作状态的钩子，并且是唯一一个能访问操作符列表联合状态的接口——在恢复或保存点重启时，操作状态完全复制。^([3](ch07.html#idm45498998664872))'
+- en: The `CheckpointedFunction` interface defines two methods, `initializeState()`
+    and `snapshotState()`, which work similar to the methods of the `ListCheckpointed`
+    interface for operator list state. The `initializeState()` method is called when
+    a parallel instance of `CheckpointedFunction` is created. This happens when an
+    application is started or when a task is restarted due to a failure. The method
+    is called with a `FunctionInitializationContext` object that provides access to
+    an `OperatorStateStore` and a `KeyedStateStore` object. The state stores are responsible
+    for registering function state with Flink’s runtime and returning the state objects,
+    such as `ValueState`, `ListState`, or `BroadcastState`. Each state is registered
+    with a name that must be unique for the function. When a function registers state,
+    the state store tries to initialize the state by checking if the state backend
+    holds state for the function registered under the given name. If the task is restarted
+    due to a failure or from a savepoint, the state will be initialized from the saved
+    data. If the application is not started from a checkpoint or savepoint, the state
+    will be initially empty.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`CheckpointedFunction` 接口定义了两个方法，`initializeState()` 和 `snapshotState()`，它们与操作符列表状态的
+    `ListCheckpointed` 接口的方法类似。当创建 `CheckpointedFunction` 的并行实例时调用 `initializeState()`
+    方法。这发生在应用程序启动时或由于故障而重新启动任务时。该方法调用时会传入一个 `FunctionInitializationContext` 对象，该对象提供对
+    `OperatorStateStore` 和 `KeyedStateStore` 对象的访问。状态存储负责在 Flink 运行时注册函数状态并返回状态对象，例如
+    `ValueState`、`ListState` 或 `BroadcastState`。每个状态都使用必须对该函数唯一的名称进行注册。当函数注册状态时，状态存储尝试通过检查状态后端是否持有以给定名称注册的函数状态来初始化状态。如果任务由于故障或从保存点重新启动，则将从保存的数据初始化状态。如果应用程序不是从检查点或保存点启动的，则状态将最初为空。'
+- en: The `snapshotState()` method is called immediately before a checkpoint is taken
+    and receives a `FunctionSnapshotContext` object as the parameter. `FunctionSnapshotContext`
+    gives access to the unique identifier of the checkpoint and the timestamp when
+    the JobManager initiates the checkpoint. The purpose of the `snapshotState()`
+    method is to ensure all state objects are updated before the checkpoint is done.
+    Moreover, in combination with the `CheckpointListener` interface, the `snapshotState()`
+    method can be used to consistently write data to external datastores by synchronizing
+    with Flink’s checkpoints.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`snapshotState()` 方法在进行检查点之前立即被调用，并接收一个 `FunctionSnapshotContext` 对象作为参数。`FunctionSnapshotContext`
+    提供了检查点的唯一标识符和 JobManager 启动检查点时的时间戳。`snapshotState()` 方法的目的是确保所有状态对象在执行检查点之前都已更新。此外，结合
+    `CheckpointListener` 接口，`snapshotState()` 方法可以通过与 Flink 的检查点同步来一致地将数据写入外部数据存储。'
+- en: '[Example 7-8](#code_checkpointed-function) shows how the `CheckpointedFunction`
+    interface is used to create a function with keyed and operator state that counts
+    per key and operator instance how many sensor readings exceed a specified threshold.'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 7-8](#code_checkpointed-function) 展示了如何使用 `CheckpointedFunction` 接口创建一个函数，该函数具有按键和操作状态进行计数的功能，统计超过指定阈值的传感器读数。'
+- en: Example 7-8\. A function implementing the CheckpointedFunction interface
+  id: totrans-72
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-8\. 实现 CheckpointedFunction 接口的函数
+- en: '[PRE8]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Receiving Notifications About Completed Checkpoints
+  id: totrans-74
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 关于完成检查点的通知
+- en: Frequent synchronization is a major reason for performance limitations in distributed
+    systems. Flink’s design aims to reduce synchronization points. Checkpoints are
+    implemented based on barriers that flow with the data and therefore avoid global
+    synchronization across all operators of an application.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 频繁同步是分布式系统性能限制的主要原因。Flink 的设计旨在减少同步点。检查点基于随数据流动的屏障实现，因此避免了跨应用程序的全局同步。
+- en: Due to its checkpointing mechanism, Flink can achieve very good performance.
+    However, another implication is that the state of an application is never in a
+    consistent state except for the logical points in time when a checkpoint is taken.
+    For some operators it can be important to know whether a checkpoint completed
+    or not. For example, sink functions that aim to write data to external systems
+    with exactly-once guarantees must only emit records that were received before
+    a successful checkpoint to ensure the received data will not be recomputed in
+    the case of a failure.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于其检查点机制，Flink 可以实现非常好的性能。然而，另一个影响是应用的状态除了在进行检查点时的逻辑时间点外，永远不处于一致状态。对于某些操作符来说，了解检查点是否完成可能非常重要。例如，那些希望通过精确一次语义保证将数据写入外部系统的汇聚函数必须仅发出在成功检查点之前接收到的记录，以确保在发生故障时不会重新计算接收到的数据。
+- en: As discussed in [“Checkpoints, Savepoints, and State Recovery”](ch03.html#chap-3-checkpoints),
+    a checkpoint is only successful if all operator tasks successfully checkpointed
+    their states to the checkpoint storage. Hence, only the JobManager can determine
+    whether a checkpoint is successful or not. Operators that need to be notified
+    about completed checkpoints can implement the `CheckpointListener` interface.
+    This interface provides the `notifyCheckpointComplete(long chkpntId)` method,
+    which might be called when the JobManager registers a checkpoint as completed—when
+    all operators successfully copied their state to the remote storage.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [“检查点、保存点和状态恢复”](ch03.html#chap-3-checkpoints) 中所讨论的，只有当所有操作符任务成功将它们的状态检查点到检查点存储时，检查点才算成功。因此，只有
+    JobManager 能够确定检查点是否成功。需要接收关于完成检查点的通知的操作符可以实现 `CheckpointListener` 接口。该接口提供了 `notifyCheckpointComplete(long
+    chkpntId)` 方法，在 JobManager 注册检查点完成时可能会被调用——当所有操作符成功将其状态复制到远程存储时。
+- en: Note
+  id: totrans-78
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that Flink does not guarantee that the `notifyCheckpointComplete()` method
+    is called for each completed checkpoint. It is possible that a task misses the
+    notification. This needs to be taken into account when implementing the interface.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，Flink 不保证每个完成的检查点都会调用 `notifyCheckpointComplete()` 方法。可能会有任务错过通知。在实现接口时需要考虑这一点。
+- en: Enabling Failure Recovery for Stateful Applications
+  id: totrans-80
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 为状态化应用程序启用故障恢复
+- en: Streaming applications are supposed to run continuously and must recover from
+    failures, such as failing machines or processes. Most streaming applications require
+    that failures not affect the correctness of the computed results.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流式应用程序应该持续运行，并且必须从故障中恢复，例如机器或进程失败。大多数流式应用程序要求故障不影响计算结果的正确性。
+- en: In [“Checkpoints, Savepoints, and State Recovery”](ch03.html#chap-3-checkpoints),
+    we explained Flink’s mechanism to create consistent checkpoints of a stateful
+    application, a snapshot of the state of all built-in and user-defined stateful
+    functions at a point in time when all operators processed all events up to a specific
+    position in the application’s input streams. In order to provide fault tolerance
+    for an application, the JobManager initiates checkpoints at regular intervals.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 [“检查点、保存点和状态恢复”](ch03.html#chap-3-checkpoints) 中，我们解释了 Flink 创建有状态应用程序一致检查点的机制，即在所有操作者处理所有事件达到应用程序输入流中特定位置的时间点上，所有内置和用户定义的有状态函数的状态快照。为了为应用程序提供容错能力，JobManager
+    在定期间隔内启动检查点。
+- en: Applications need to explicitly enable the periodic checkpointing mechanism
+    via the `StreamExecutionEnvironment` as shown in [Example 7-9](#code_checkpoint_config).
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序需要通过 `StreamExecutionEnvironment` 明确启用周期性检查点机制，如 [示例 7-9](#code_checkpoint_config)
+    所示。
+- en: Example 7-9\. Enabling checkpointing for an application
+  id: totrans-84
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-9\. 为应用程序启用检查点
+- en: '[PRE9]'
+  id: totrans-85
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: The checkpointing interval is an important parameter that affects the overhead
+    of the checkpointing mechanism during regular processing and the time it takes
+    to recover from a failure. A shorter checkpointing interval causes higher overhead
+    during regular processing but can enable faster recovery because less data needs
+    to be reprocessed.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点间隔是一个重要的参数，影响检查点机制在常规处理期间的开销和从故障中恢复所需的时间。较短的检查点间隔会导致常规处理期间的开销增加，但可以实现更快的恢复，因为需要重新处理的数据量较少。
+- en: Flink provides more tuning knobs to configure the checkpointing behavior, such
+    as the choice of consistency guarantees (exactly-once or at-least-once), the number
+    of concurrent checkpoints, and a timeout to cancel long-running checkpoints, as
+    well as several state backend–specific options. We discuss these options in more
+    detail in [“Tuning Checkpointing and Recovery”](ch10.html#chap-10-checkpoint-tuning).
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了更多调整参数来配置检查点行为，如一致性保证选择（精确一次或至少一次）、并发检查点数量以及取消长时间运行检查点的超时时间，以及几个特定于状态后端的选项。我们在
+    [“调整检查点和恢复”](ch10.html#chap-10-checkpoint-tuning) 中详细讨论了这些选项。
+- en: Ensuring the Maintainability of Stateful Applications
+  id: totrans-88
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 确保有状态应用程序的可维护性
+- en: The state of an application that was running for several weeks can be expensive
+    or even impossible to recompute. At the same time, long-running applications need
+    to be maintained. Bugs need to be fixed, functionality adjusted, added, or removed,
+    or the parallelism of the operator needs to be adjusted to account for higher
+    or lower data rates. Therefore, it is important that application state can be
+    migrated to a new version of the application or be redistributed to more or fewer
+    operator tasks.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序运行数周后的状态可能难以重新计算，甚至是不可能的。同时，长时间运行的应用程序需要维护。需要修复错误，调整功能，添加或移除功能，或者调整操作者的并行度以适应更高或更低的数据速率。因此，重要的是应用程序状态能够迁移到应用程序的新版本，或者重新分配给更多或更少的操作者任务。
+- en: Flink features savepoints to maintain applications and their states. However,
+    it requires that all stateful operators of the initial version of an application
+    specify two parameters to ensure the application can be properly maintained in
+    the future. These parameters are a unique operator identifier and the maximum
+    parallelism (for operators with keyed state). In the following we describe how
+    to set these parameters.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink 提供了保存点（savepoints）来维护应用程序及其状态。然而，它要求应用程序初始版本的所有有状态操作符指定两个参数，以确保将来可以正确维护应用程序。这些参数是唯一的操作符标识符和最大并行度（对具有键控状态的操作符而言）。以下是如何设置这些参数的描述。
+- en: Operator Unique Identifiers and Maximum Parallelism Are Baked into Savepoints
+  id: totrans-91
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 操作符唯一标识符和最大并行度已嵌入保存点中
+- en: The unique identifier and maximum parallelism of operators are baked into a
+    savepoint and cannot be changed. It is not possible to start an application from
+    a previously taken savepoint if the identifiers or the maximum parallelism of
+    operators were changed.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 操作符的唯一标识符和最大并行度嵌入到保存点中，不能更改。如果操作符的标识符或最大并行度已更改，则无法从先前获取的保存点启动应用程序。
+- en: Once you change operator identifiers or the maximum parallelism, you cannot
+    start an application from a savepoint but have to start it from scratch without
+    any state initialization.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦更改运算符标识符或最大并行度，就无法从保存点启动应用程序，而必须从头开始，没有任何状态初始化。
+- en: Specifying Unique Operator Identifiers
+  id: totrans-94
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 指定唯一运算符标识符
+- en: Unique identifiers should be specified for every operator of an application.
+    The identifiers are written into a savepoint as metadata with the actual state
+    data of an operator. When an application is started from a savepoint, the identifiers
+    are used to map a state in the savepoint to the corresponding operator of the
+    started application. Savepoint state can only be restored to an operator of a
+    started application if their identifiers are identical.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个应用程序的运算符都应指定唯一标识符。标识符作为运算符的实际状态数据与元数据一同写入保存点。从保存点启动应用程序时，这些标识符用于将保存点中的状态映射到启动的应用程序的相应运算符。只有它们的标识符相同，保存点状态才能还原到启动应用程序的运算符。
+- en: If you do not explicitly set unique identifiers to the operators of your stateful
+    application, you will face significant limitations when you have to evolve the
+    application. We discuss the importance of unique operator identifiers and the
+    mapping of savepoint state in more detail in [“Savepoints”](ch03.html#chap-3-savepoints).
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您没有显式为状态应用程序的运算符设置唯一标识符，那么当您必须演变应用程序时，您将面临显著的限制。我们在[“保存点”](ch03.html#chap-3-savepoints)中更详细地讨论了唯一运算符标识符的重要性以及保存点状态的映射。
+- en: We strongly recommend assigning unique identifiers to every operator of an application.
+    You can set the identifier with the `uid()` method as shown in [Example 7-10](#code_uid).
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们强烈建议为应用的每个运算符分配唯一的标识符。您可以使用`uid()`方法设置标识符，如[示例 7-10](#code_uid)所示。
+- en: Example 7-10\. Setting a unique identifier for an operator
+  id: totrans-98
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-10\. 为运算符设置唯一标识符
+- en: '[PRE10]'
+  id: totrans-99
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Defining the Maximum Parallelism of Keyed State Operators
+  id: totrans-100
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 定义键控状态运算符的最大并行度
+- en: The maximum parallelism parameter of an operator defines the number of key groups
+    into which the keyed state of the operator is split. The number of key groups
+    limits the maximum number of parallel tasks to which keyed state can be scaled.
+    [“Scaling Stateful Operators”](ch03.html#chap-3-scaling-stateful) discusses key
+    groups and how keyed state is scaled out and in. The maximum parallelism can be
+    set for all operators of an application via the `StreamExecutionEnvironment` or
+    per operator using the `setMaxParallelism()` method as shown in [Example 7-11](#code_maxparallelism).
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运算符的最大并行度参数定义了运算符键控状态分割为的键组数。键组的数量限制了可以扩展键控状态的最大并行任务数。[“扩展有状态运算符”](ch03.html#chap-3-scaling-stateful)讨论了键组以及如何扩展和缩减键控状态。可以通过`StreamExecutionEnvironment`为应用程序的所有运算符设置最大并行度，或者使用`setMaxParallelism()`方法为每个运算符单独设置，如[示例 7-11](#code_maxparallelism)所示。
+- en: Example 7-11\. Setting the maximum parallelism of operators
+  id: totrans-102
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-11\. 设置运算符的最大并行度
+- en: '[PRE11]'
+  id: totrans-103
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'The default maximum parallelism of an operator depends on the operator’s parallelism
+    in the application’s first version:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运算符的默认最大并行度取决于应用程序第一个版本中的运算符并行度：
+- en: If the parallelism is less than or equal to 128, the maximum parallelism is
+    128.
+  id: totrans-105
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果并行度小于或等于128，则最大并行度为128。
+- en: If the operator’s parallelism is larger than 128, the maximum parallelism is
+    computed as the minimum of `nextPowerOfTwo(parallelism + (parallelism / 2))` and
+    `2^15`.
+  id: totrans-106
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果运算符的并行度大于128，则最大并行度计算为`nextPowerOfTwo(parallelism + (parallelism / 2))`和`2^15`中的最小值。
+- en: Performance and Robustness of Stateful Applications
+  id: totrans-107
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 状态应用的性能和健壮性
+- en: The way operators interact with state has implications on the robustness and
+    performance of an application. There are several aspects that affect the behavior
+    of an application such as the choice of the state backend that locally maintains
+    the state and performs checkpoints, the configuration of the checkpointing algorithm,
+    and the size of the application’s state. In this section, we discuss aspects that
+    need to be taken into account to ensure robust execution behavior and consistent
+    performance of long-running applications.
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 运算符与状态交互的方式对应用程序的健壮性和性能有影响。有几个方面会影响应用程序的行为，例如本地维护状态和执行检查点的状态后端的选择、检查点算法的配置以及应用程序状态的大小。在本节中，我们讨论需要考虑的方面，以确保长时间运行的应用程序具有健壮的执行行为和一致的性能。
+- en: Choosing a State Backend
+  id: totrans-109
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选择状态后端
+- en: In [“State Backends”](ch03.html#chap-3-state-backends), we explained that Flink
+    maintains application state in a state backend. The state backend is responsible
+    for storing the local state of each task instance and persisting it to remote
+    storage when a checkpoint is taken. Because local state can be maintained and
+    checkpointed in different ways, state backends are pluggable—two applications
+    can use different state backend implementations to maintain their states. The
+    choice of the state backend has implications on the robustness and performance
+    of a stateful application. Each state backend provides implementations for the
+    different state primitives, such as `ValueState`, `ListState`, and `MapState`.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“状态后端”](ch03.html#chap-3-state-backends)中，我们解释了 Flink 如何在状态后端中维护应用程序状态。状态后端负责存储每个任务实例的本地状态，并在检查点被触发时将其持久化到远程存储中。由于本地状态可以以不同的方式进行维护和检查点，因此状态后端是可插拔的——两个应用程序可以使用不同的状态后端实现来维护它们的状态。选择状态后端会影响状态应用程序的稳健性和性能。每种状态后端都提供了不同状态原语的实现，例如`ValueState`、`ListState`和`MapState`。
+- en: 'Currently, Flink offers three state backends, the `MemoryStateBackend`, the
+    `FsStateBackend`, and the `RocksDBStateBackend`:'
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，Flink 提供三种状态后端，分别是`MemoryStateBackend`、`FsStateBackend`和`RocksDBStateBackend`：
+- en: '`MemoryStateBackend` stores state as regular objects on the heap of the TaskManager
+    JVM process. For example, `MapState` is backed by a Java `HashMap` object. While
+    this approach provides very low latencies to read or write state, it has implications
+    on the robustness of an application. If the state of a task instance grows too
+    large, the JVM and all task instances running on it can be killed due to an `OutOfMemoryError`.
+    Moreover, this approach can suffer from garbage collection pauses because it puts
+    many long-lived objects on the heap. When a checkpoint is taken, `MemoryStateBackend`
+    sends the state to the JobManager, which stores it in its heap memory. Hence,
+    the total state of an application must fit into the JobManager’s memory. Since
+    its memory is volatile, the state is lost in case of a JobManager failure. Due
+    to these limitations, `MemoryStateBackend` is only recommended for development
+    and debugging purposes.'
+  id: totrans-112
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`MemoryStateBackend`将状态存储为任务管理器 JVM 进程堆上的常规对象。例如，`MapState`由Java的`HashMap`对象支持。尽管这种方法提供了非常低的读写状态延迟，但它对应用程序的稳健性有影响。如果任务实例的状态增长过大，JVM
+    和其上运行的所有任务实例可能会因为`OutOfMemoryError`而被终止。此外，这种方法可能由于在堆上放置了许多长期存在的对象而受到垃圾回收暂停的影响。在触发检查点时，`MemoryStateBackend`将状态发送到作业管理器，后者将其存储在其堆内存中。因此，应用程序的总状态必须适合于作业管理器的内存。由于其内存是易失性的，作业管理器故障时状态会丢失。由于这些限制，`MemoryStateBackend`仅建议用于开发和调试目的。'
+- en: '`FsStateBackend` stores the local state on the TaskManager’s JVM heap, just
+    like `MemoryStateBackend`. However, instead of checkpointing the state to the
+    JobManager’s volatile memory, `FsStateBackend` writes the state to a remote and
+    persistent file system. Hence, `FsStateBackend` provides in-memory speed for local
+    accesses and fault tolerance in the case of failures. However, it is limited by
+    the size of the TaskManager memory and might suffer from garbage collection pauses.'
+  id: totrans-113
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`FsStateBackend`将本地状态存储在任务管理器的 JVM 堆上，类似于`MemoryStateBackend`。但是，与将状态检查点写入作业管理器的易失性内存不同，`FsStateBackend`将状态写入远程持久化文件系统。因此，`FsStateBackend`在本地访问时提供内存中的速度，并在故障时提供容错性。然而，它受到任务管理器内存大小的限制，并可能因垃圾回收暂停而受到影响。'
+- en: '`RocksDBStateBackend` stores all state into local RocksDB instances. RocksDB
+    is an embedded key-value store that persists data to the local disk. In order
+    to read and write data from and to RocksDB, it needs to be de/serialized. The
+    `RocksDBStateBackend` also checkpoints the state to a remote and persistent file
+    system. Because it writes data to disk and supports incremental checkpoints (more
+    on this in [“Checkpoints, Savepoints, and State Recovery”](ch03.html#chap-3-checkpoints)),
+    `RocksDBStateBackend` is a good choice for applications with very large state.
+    Users have reported applications with state sizes of multiple terabytes leveraging
+    `RocksDBStateBackend`. However, reading and writing data to disk and the overhead
+    of de/serializing objects result in lower read and write performance compared
+    to maintaining state on the heap.'
+  id: totrans-114
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`RocksDBStateBackend`将所有状态存储到本地的RocksDB实例中。RocksDB是一个嵌入式键值存储，将数据持久化到本地磁盘。为了从RocksDB读取和写入数据，需要进行序列化/反序列化。`RocksDBStateBackend`还将状态检查点写入到远程和持久的文件系统中。由于它将数据写入磁盘并支持增量检查点（更多信息请参见[“检查点、保存点和状态恢复”](ch03.html#chap-3-checkpoints)），`RocksDBStateBackend`是处理非常大状态的应用程序的良好选择。用户报告称，具有多个TB状态大小的应用程序可以利用`RocksDBStateBackend`。然而，将数据读取和写入磁盘以及序列化/反序列化对象的开销会导致读取和写入性能较维护堆上状态时更低。'
+- en: Since `StateBackend` is a public interface, it is also possible to implement
+    a custom state backend. [Example 7-12](#code_rocksdb-config) shows how to configure
+    a state backend (here, `RocksDBStateBackend`) for an application and all its stateful
+    functions.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于`StateBackend`是一个公共接口，也可以实现自定义状态后端。示例7-12（见#code_rocksdb-config）展示了如何为应用程序及其所有状态功能配置状态后端（此处为`RocksDBStateBackend`）。
+- en: Example 7-12\. Configuring RocksDBStateBackend for an application
+  id: totrans-116
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例7-12\. 配置应用程序的`RocksDBStateBackend`
+- en: '[PRE12]'
+  id: totrans-117
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: We discuss in [“Tuning Checkpointing and Recovery”](ch10.html#chap-10-checkpoint-tuning)
+    how to use and configure state backends in your application.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在[“调优检查点和恢复”](ch10.html#chap-10-checkpoint-tuning)中讨论了如何在应用程序中使用和配置状态后端。
+- en: Choosing a State Primitive
+  id: totrans-119
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 选择状态原语
+- en: The performance of a stateful operator (built-in or user-defined) depends on
+    several aspects, including the data types of the state, the state backend of the
+    application, and the chosen state primitives.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 状态操作符（内置或用户定义）的性能取决于多个方面，包括状态的数据类型、应用程序的状态后端和选择的状态原语。
+- en: For state backends that de/serialize state objects when reading or writing,
+    such as `RocksDBStateBackend`, the choice of the state primitive (`ValueState`,
+    `ListState`, or `MapState`) can have a major impact on the performance of an application.
+    For instance, `ValueState` is completely deserialized when it is accessed and
+    serialized when it is updated. The `ListState` implementation of `RocksDBStateBackend`
+    deserializes all list entries before constructing `Iterable` to read the values.
+    However, adding a single value to `ListState`—appending it to the end of the list—is
+    a cheap operation because only the appended value is serialized. `MapState` of
+    `RocksDBStateBackend` allows reading and writing values per key—only those keys
+    and values are de/serialized that are read or written. When iterating over the
+    entry set of `MapState`, the serialized entries are prefetched from RocksDB and
+    only deserialized when a key or value is actually accessed.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于像`RocksDBStateBackend`这样在读取或写入时对状态对象进行序列化/反序列化的状态后端，如`ValueState`、`ListState`或`MapState`的选择会对应用程序的性能产生重大影响。例如，当访问`ValueState`时，它会完全反序列化，更新时再序列化。`RocksDBStateBackend`的`ListState`实现在构建`Iterable`以读取值之前会反序列化所有列表条目。然而，向`ListState`添加单个值（追加到列表末尾）是一个廉价的操作，因为只有追加的值会被序列化。`RocksDBStateBackend`的`MapState`允许按键读取和写入值，只有读取或写入的键和值会进行序列化/反序列化。在迭代`MapState`的条目集时，序列化条目会从RocksDB预取，并且只有在实际访问键或值时才会反序列化。
+- en: For example, with `RocksDBStateBackend` it is more efficient to use `MapState[X,
+    Y]` instead of `ValueState[HashMap[X, Y]]`. `ListState[X]` has an advantage over
+    `ValueState[List[X]]` if elements are frequently appended to the list and the
+    elements of the list are less frequently accessed.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，对于`RocksDBStateBackend`，使用`MapState[X, Y]`而不是`ValueState[HashMap[X, Y]]`效率更高。如果经常向列表追加元素并且不经常访问列表的元素，则`ListState[X]`比`ValueState[List[X]]`更有优势。
+- en: Another good practice is to update state only once per function call. Since
+    checkpoints are synchronized with function invocations, multiple state updates
+    do not provide any benefits but can cause additional serialization overhead when
+    updating state several times in a single function call.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个良好的实践是每个函数调用仅更新状态一次。由于检查点与函数调用同步，多次状态更新不会带来任何好处，但在单个函数调用中多次更新状态可能会导致额外的序列化开销。
+- en: Preventing Leaking State
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 防止状态泄漏
+- en: Streaming applications are often designed to run continuously for months or
+    years. If the state of an application is continuously increasing, it will at some
+    point grow too large and kill the application unless action is taken to scale
+    the application to more resources. In order to prevent increasing resource consumption
+    of an application over time, it is important that the size of the operator state
+    be controlled. Since the handling of state directly affects the semantics of an
+    operator, Flink cannot automatically clean up state and free storage. Instead,
+    all stateful operators must control the size of their state and have to ensure
+    it is not infinitely growing.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 流应用通常设计成连续运行数月甚至数年。如果应用状态持续增长，最终会变得过大并导致应用崩溃，除非采取措施将应用扩展到更多资源。为了防止应用的资源消耗随时间增长，控制操作状态的大小至关重要。由于状态处理直接影响操作符的语义，Flink
+    不能自动清理状态和释放存储空间。因此，所有有状态的操作符必须控制其状态的大小，并确保其不会无限增长。
+- en: A common reason for growing state is keyed state on an evolving key domain.
+    In this scenario, a stateful function receives records with keys that are only
+    active for a certain period of time and are never received after that. A typical
+    example is a stream of click events where clicks have a session id attribute that
+    expires after some time. In such a case, a function with keyed state would accumulate
+    state for more and more keys. As the key space evolves, the state of expired keys
+    becomes stale and useless. A solution for this problem is to remove the state
+    of expired keys. However, a function with keyed state can only access the state
+    of a key if it received a record with that key. In many cases, a function does
+    not know if a record will be the last one for a key. Hence, it will not be able
+    to evict the state for the key because it might receive another record for the
+    key.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 状态增长的一个常见原因是在不断变化的键域上的键控状态。在这种情况下，有状态函数接收具有仅在一定时间段内活动且之后永不再接收的键的记录。典型示例是具有会话
+    ID 属性的点击事件流，该属性在一段时间后过期。在这种情况下，具有键控状态的函数将积累越来越多的键的状态。随着键空间的变化，过期键的状态变得陈旧且无用。解决此问题的方法是删除过期键的状态。然而，只有当函数收到具有该键的记录时，具有键控状态的函数才能访问该键的状态。在许多情况下，函数不知道记录是否是键的最后一个。因此，它将无法驱逐该键的状态，因为它可能会接收到键的另一条记录。
+- en: This problem does not only exist for custom stateful functions but also for
+    some of the built-in operators of the DataStream API. For example, computing running
+    aggregates on a `KeyedStream`, either with the built-in aggregations functions
+    such as `min`, `max`, `sum`, `minBy`, or `maxBy` or with a custom `ReduceFunction`
+    or `AggregateFunction`, keeps the state for each key and never discards it. Consequently,
+    these functions should only be used if the key values are from a constant and
+    bounded domain. Other examples are windows with count-based triggers, which process
+    and clean their state when a certain number of records has been received. Windows
+    with time-based triggers (both processing time and event time) are not affected
+    by this because they trigger and purge their state based on time.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个问题不仅存在于自定义有状态函数中，也存在于 DataStream API 的一些内置操作符中。例如，在`KeyedStream`上计算运行聚合，无论是使用内置的聚合函数如`min`、`max`、`sum`、`minBy`，或者使用自定义的`ReduceFunction`或`AggregateFunction`，都会保留每个键的状态并且不会清除它。因此，只有在键值来自于常量且有界的域时，才应使用这些函数。另一个例子是基于计数触发器的窗口，它们在接收到一定数量的记录时会处理和清理它们的状态。基于时间触发器的窗口（处理时间和事件时间）不受此影响，因为它们基于时间触发并清除它们的状态。
+- en: This means that you should take application requirements and the properties
+    of its input data, such as key domain, into account when designing and implementing
+    stateful operators. If your application requires keyed state for a moving key
+    domain, it should ensure the state of keys is cleared when it is not needed anymore.
+    This can be done by registering timers for a point of time in the future.^([4](ch07.html#idm45498997828744))
+    Similar to state, timers are registered in the context of the currently active
+    key. When the timer fires, a callback method is called and the context of timer’s
+    key is loaded. Hence, the callback method has full access to the key’s state and
+    can also clear it. The functions that offer support to register timers are the
+    `Trigger` interface for windows and the process function. Both were covered in
+    [Chapter 6](ch06.html#chap-6).
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着在设计和实现有状态操作符时，应考虑应用程序需求和其输入数据的属性，例如键域。如果应用程序需要用于移动键域的键控状态，则应确保在不再需要时清除键的状态。可以通过为将来的某个时间点注册定时器来实现这一点。^([4](ch07.html#idm45498997828744))
+    与状态类似，定时器也是在当前活动键的上下文中注册的。当定时器触发时，会调用回调方法并加载定时器键的上下文。因此，回调方法可以完全访问键的状态并清除它。支持注册定时器的函数包括窗口的`Trigger`接口和过程函数。两者均在[第6章](ch06.html#chap-6)中有详细介绍。
+- en: '[Example 7-13](#code_cleaning-processfunction) shows a `KeyedProcessFunction`
+    that compares two subsequent temperature measurements and raises an alert if the
+    difference is greater than a certain threshold. This is the same use case as in
+    the keyed state example before, but the `KeyedProcessFunction` also clears the
+    state for keys (i.e., sensors) that have not provided any new temperature measurements
+    within one hour of event time.'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[示例 7-13](#code_cleaning-processfunction)展示了一个`KeyedProcessFunction`，它比较连续两次的温度测量，并在差异大于一定阈值时触发警报。这与之前的键控状态示例相同，但`KeyedProcessFunction`还清除了一个小时内未提供任何新温度测量的键（即传感器）的状态。'
+- en: Example 7-13\. A stateful KeyedProcessFunction that cleans its state
+  id: totrans-130
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-13\. 清除其状态的有状态`KeyedProcessFunction`
+- en: '[PRE13]'
+  id: totrans-131
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: The state-cleaning mechanism implemented by the above `KeyedProcessFunction`
+    works as follows. For each input event, the `processElement()` method is called.
+    Before comparing the temperature measurements and updating the last temperature,
+    the method updates the clean-up timer by deleting the previous timer and registering
+    a new one. The clean-up time is computed by adding one hour to the timestamp of
+    the current record. In order to be able to delete the currently registered timer,
+    its timestamp is stored in an additional `ValueState[Long]` called `lastTimerState`.
+    After that, the method compares the temperatures, possibly emits an alert, and
+    updates its state.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 上述`KeyedProcessFunction`实现的状态清理机制工作如下。对于每个输入事件，都会调用`processElement()`方法。在比较温度测量值并更新最后一个温度之前，该方法通过删除先前的定时器并注册一个新的定时器来更新清理定时器。清理时间通过将当前记录的时间戳加一小时来计算。为了能够删除当前注册的定时器，其时间戳存储在额外的`ValueState[Long]`中，称为`lastTimerState`。之后，该方法比较温度，可能触发警报，并更新其状态。
+- en: Since our `KeyedProcessFunction` always updates the registered timer by deleting
+    the current timer and registering a new one, only a single timer is registered
+    per key. Once that timer fires, the `onTimer()` method is called. The method clears
+    all state associated with the key, the last temperature and the last timer state.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的`KeyedProcessFunction`始终通过删除当前定时器并注册新定时器来更新注册的定时器，因此每个键只注册一个定时器。一旦定时器触发，将调用`onTimer()`方法。该方法清除与键相关联的所有状态，最后一个温度和最后一个定时器状态。
+- en: Evolving Stateful Applications
+  id: totrans-134
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 演进的有状态应用程序
+- en: It is often necessary to fix a bug or to evolve the business logic of a long-running
+    stateful streaming application. Consequently, a running application needs to be
+    replaced by an updated version usually without losing the state of the application.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经常需要修复错误或演变长时间运行的有状态流应用程序的业务逻辑。因此，通常需要将运行中的应用程序替换为更新版本，通常不会丢失应用程序的状态。
+- en: Flink supports such updates by taking a savepoint of a running application,
+    stopping it, and starting a new version of the application from the savepoint.^([5](ch07.html#idm45498997506728))
+    However, updating an application while preserving its state is only possible for
+    certain application changes—the original application and its new version need
+    to be savepoint compatible. In the following, we explain how applications can
+    be evolved while preserving savepoint compatibility.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink通过对运行中的应用程序进行保存点、停止它并从保存点启动应用程序的新版本来支持此类更新。^([5](ch07.html#idm45498997506728))然而，只有在特定应用程序更改情况下，原始应用程序及其新版本需要保存点兼容性才能同时更新应用程序并保留其状态。接下来，我们将解释如何在保留保存点兼容性的同时演进应用程序。
+- en: In [“Savepoints”](ch03.html#chap-3-savepoints), we explained that each state
+    in a savepoint can be addressed by a composite identifier consisting of a unique
+    operator identifier and the state name declared by the state descriptor.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“保存点”](ch03.html#chap-3-savepoints)中，我们解释了保存点中每个状态都可以通过由唯一操作符标识符和状态描述符声明的状态名称组成的复合标识符来访问。
+- en: Implement Your Applications With Evolution in Mind
+  id: totrans-138
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 设计应用程序时要考虑演进
+- en: It is important to understand that the initial design of an application determines
+    if and how it can be modified later on in a savepoint-compatible way. Many changes
+    will not be possible if the original version was not designed with updates in
+    mind. Assigning unique identifiers to operators is mandatory for most application
+    changes.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要理解，应用程序的初始设计决定了以后如何以保存点兼容的方式进行修改。如果原始版本没有考虑更新，许多更改将是不可能的。为操作符分配唯一标识符对大多数应用程序更改是强制性的。
+- en: 'When an application is started from a savepoint, the operators of the started
+    application are initialized by looking up the corresponding states from the savepoint
+    using operator identifiers and state names. From a savepoint-compatibility point
+    of view this means an application can be evolved in three ways:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当从保存点启动应用程序时，启动的应用程序的操作符将通过使用操作符标识符和状态名称从保存点查找相应状态来初始化。从保存点兼容性的角度来看，这意味着应用程序可以通过以下三种方式进行演进：
+- en: Updating or extending the logic of an application without changing or removing
+    an existing state. This includes adding of stateful or stateless operators to
+    the application.
+  id: totrans-141
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 更新或扩展应用程序的逻辑，而不更改或删除现有状态。这包括向应用程序添加有状态或无状态操作符。
+- en: Removing a state from the application.
+  id: totrans-142
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 从应用程序中删除一个状态。
+- en: Modifying the state of an existing operator by changing the state primitive
+    or data type of the state.
+  id: totrans-143
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 通过更改现有操作符的状态原语或状态数据类型来修改现有操作符的状态。
+- en: In the following sections, we discuss these three cases.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的几节中，我们将讨论这三种情况。
+- en: Updating an Application without Modifying Existing State
+  id: totrans-145
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 更新应用程序而不修改现有状态
+- en: If an application is updated without removing or changing existing state, it
+    is always savepoint compatible and can be started from a savepoint of an earlier
+    version.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果应用程序在不删除或更改现有状态的情况下进行更新，则始终符合保存点兼容性，并且可以从早期版本的保存点启动。
+- en: If you add a new stateful operator to the application or a new state to an existing
+    operator, the state will be initialized as empty when the application is started
+    from a savepoint.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果向应用程序添加新的有状态操作符或向现有操作符添加新状态，则在从保存点启动应用程序时状态将初始化为空。
+- en: Changing the Input Data Type of Built-in Stateful Operators
+  id: totrans-148
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 更改内置有状态操作符的输入数据类型
+- en: Note that changing the input data type of built-in stateful operators, such
+    as window aggregation, time-based joins, or asyncronous functions, often modifies
+    the type of their internal state. Therefore, such changes are not safepoint compatible
+    even though they look unobtrusive.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，更改内置有状态操作符（如窗口聚合、基于时间的连接或异步函数的输入数据类型）通常会修改其内部状态的类型。因此，即使这些变化看起来不显眼，这些变化也不符合保存点兼容性。
+- en: Removing State from an Application
+  id: totrans-150
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从应用程序中删除状态
+- en: Instead of adding new states to an application, you might also want to adjust
+    an application by removing state—either by removing a complete stateful operator
+    or just a state from a function. When the new version of the application is started
+    from a savepoint of the previous version, the savepoint contains state that cannot
+    be mapped to the restarted application. This is also the case if the unique identifier
+    of an operator or the name of a state was changed.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 而不是向应用程序添加新状态，您可能还想通过删除状态来调整应用程序——可以通过删除完整的有状态运算符或仅从函数中删除状态。当新版本的应用程序从先前版本的保存点启动时，保存点包含无法映射到重新启动的应用程序的状态。如果运算符的唯一标识符或状态的名称已更改，情况也是如此。
+- en: By default, Flink will not start applications that do not restore all states
+    that are contained in a savepoint to avoid losing the state in the savepoint.
+    However, it is possible to disable this safety check as described in [“Running
+    and Managing Streaming Applications”](ch10.html#chap-10-app-deployment). Hence,
+    it is not difficult to update an application by removing stateful operators or
+    state from an existing operator.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，为了避免丢失保存点中的状态，Flink 不会启动未恢复所有保存点中包含的状态的应用程序。但可以按照 [“运行和管理流应用程序”](ch10.html#chap-10-app-deployment)
+    中描述的方式禁用此安全检查。因此，通过删除现有运算符的有状态运算符或状态，更新应用程序并不困难。
+- en: Modifying the State of an Operator
+  id: totrans-153
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 修改运算符的状态
+- en: 'While adding or removing state from an application is rather easy and does
+    not affect savepoint compatibility, modifying the state of an existing operator
+    is more involved. There are two ways state can be modified:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 虽然在应用程序中添加或删除状态相对简单且不影响保存点的兼容性，但修改现有运算符的状态则更为复杂。有两种方式可以修改状态：
+- en: By changing the data type of a state, such as changing a `ValueState[Int]` to
+    a `ValueState[Double]`
+  id: totrans-155
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过更改状态的数据类型，例如将`ValueState[Int]`更改为`ValueState[Double]`
+- en: By changing the type of a state primitive, as for example by changing a `ValueState[List[String]]`
+    to a `ListState[String]`
+  id: totrans-156
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过更改状态原语的类型，例如将`ValueState[List[String]]`更改为`ListState[String]`
+- en: Changing the data type of a state is possible in a few specific cases. However,
+    Flink currently does not support changing the primitive (or structure) of a state.
+    There are some ideas to support this case by offering an offline tool to convert
+    savepoints. However, as of Flink 1.7 no such tool exists. In the following we
+    focus on changing the data type of a state.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在一些特定情况下，可以更改状态的数据类型。然而，目前 Flink 并不支持更改状态的原语（或结构）。有一些想法支持通过提供离线工具来转换保存点的情况。然而，截至
+    Flink 1.7，还没有这样的工具。以下我们重点讨论更改状态数据类型的问题。
+- en: In order to grasp the problem of modifying the data type of a state, we have
+    to understand how state data is represented within a savepoint. A savepoint consists
+    mainly of serialized state data. The serializers that convert the state JVM objects
+    into bytes are generated and configured by Flink’s type system. This conversion
+    is based on the data type of the state. For example, if you have a `ValueState[String]`,
+    Flink’s type system generates a `StringSerializer` to convert `String` objects
+    into bytes. The serializer is also used to convert the raw bytes back into JVM
+    objects. Depending on whether the state backend stores the data serialized (like
+    the `RocksDBStateBackend`) or as objects on the heap (like the `FSStateBackend`),
+    this happens when the state is read by a function or when an application is restarted
+    from a savepoint.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了理解修改状态数据类型的问题，我们必须了解保存点中状态数据的表示方式。保存点主要由序列化的状态数据组成。将状态 JVM 对象转换为字节的序列化程序由
+    Flink 的类型系统生成和配置。此转换基于状态的数据类型。例如，如果您有一个`ValueState[String]`，Flink 的类型系统会生成一个`StringSerializer`来将`String`对象转换为字节。序列化程序还用于将原始字节转换回
+    JVM 对象。根据状态后端存储数据是序列化的（如`RocksDBStateBackend`）还是作为堆上的对象（如`FSStateBackend`），当函数读取状态或应用程序从保存点重新启动时进行此转换。
+- en: Since Flink’s type system generates serializers depending on the data type of
+    a state, the serializers are likely to change when the data type of a state changes.
+    For example, if you changed the `ValueState[String]` to a `ValueState[Double]`,
+    Flink would create a `DoubleSerializer` to access the state. It is not surprising
+    that using a `DoubleSerializer` to deserialize the binary data generated by serializing
+    a `String` with a `StringSerializer` will fail. Hence, changing the data type
+    of a state is only supported in very specific cases.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于Flink的类型系统根据状态的数据类型生成序列化器，当状态的数据类型发生变化时，序列化器可能会发生变化。例如，如果将`ValueState[String]`更改为`ValueState[Double]`，Flink将创建一个`DoubleSerializer`来访问该状态。令人惊讶的是，使用`DoubleSerializer`来反序列化由`StringSerializer`序列化的二进制数据将失败。因此，在非常特定的情况下才支持更改状态的数据类型。
+- en: In Flink 1.7, changing the data type of a state is supported if the data type
+    was defined as an Apache Avro type and if the new data type is also an Avro type
+    that was evolved from the original type according to Avro’s schema evolution rules.
+    Flink’s type system will automatically generate serializers that can read previous
+    versions of the data type.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Flink 1.7中，如果状态的数据类型被定义为Apache Avro类型，并且新数据类型也是根据Avro模式演化规则从原始类型演化而来的Avro类型，则支持更改状态的数据类型。Flink的类型系统将自动生成能够读取先前数据类型版本的序列化器。
+- en: State evolution and migration is an important topic in the Flink community and
+    receives a lot of attention. You can expect improved support for these scenarios
+    in future versions of Apache Flink. Despite all these efforts, we recommend always
+    double checking if an application can be evolved as planned before putting it
+    into production.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Flink社区中，状态演进和迁移是一个重要的话题，得到了很多关注。您可以期待在Apache Flink未来版本中对这些场景的改进支持。尽管有这些努力，我们建议在将应用程序投入生产之前始终仔细检查是否可以按计划演进应用程序。
+- en: Queryable State
+  id: totrans-162
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 可查询状态
+- en: Many stream processing applications need to share their results with other applications.
+    A common pattern is to write results into a database or key-value store and have
+    other applications retrieve the result from that datastore. Such an architecture
+    implies that a separate system needs to be set up and maintained, which can be
+    a major effort, especially if this needs to be a distributed system as well.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多流处理应用程序需要与其他应用程序共享其结果。常见模式是将结果写入数据库或键值存储，并让其他应用程序从该数据存储中检索结果。这样的架构意味着需要设置和维护一个单独的系统，尤其是如果这需要是一个分布式系统的话，那么工作量可能会很大。
+- en: Apache Flink features queryable state to address use cases that usually would
+    require an external datastore to share data. In Flink, any keyed state can be
+    exposed to external applications as queryable state and act as a read-only key-value
+    store. The stateful streaming application processes events as usual and stores
+    and updates its intermediate or final results in a queryable state. External applications
+    can request the state for a key while the streaming application is running.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink提供了可查询状态功能，以解决通常需要外部数据存储来共享数据的用例。在Flink中，任何键控状态都可以作为可查询状态暴露给外部应用程序，并充当只读键值存储。状态流式处理应用程序像往常一样处理事件，并将其中间或最终结果存储和更新到可查询状态中。外部应用程序可以在流式应用程序运行时请求键的状态。
+- en: Note
+  id: totrans-165
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Note that only key point queries are supported. It is not possible to request
+    key ranges or even run more complex queries.
+  id: totrans-166
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，仅支持关键点查询。不可能请求键范围或运行更复杂的查询。
+- en: Queryable state does not address all use cases that require an external datastore.
+    For example, the queryable state is only accessible while the application is running.
+    It is not accessible while the application is restarted due to an error, for rescaling
+    the application, or to migrate it to another cluster. However, it makes many applications
+    much easier to realize, such as real-time dashboards or other monitoring applications.
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可查询状态并不解决所有需要外部数据存储的用例。例如，可查询状态只在应用程序运行时可访问。在应用程序由于错误而重新启动、重新调整应用程序或将其迁移到另一个集群时，不可访问。然而，它使许多应用程序更容易实现，例如实时仪表盘或其他监控应用程序。
+- en: In the following, we discuss the architecture of Flink’s queryable state service
+    and explain how streaming applications can expose queryable state and external
+    applications can query it.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的内容中，我们将讨论Flink的可查询状态服务的架构，并解释流处理应用程序如何暴露可查询状态以及外部应用程序如何查询它。
+- en: Architecture and Enabling Queryable State
+  id: totrans-169
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 架构和启用可查询状态
+- en: 'Flink’s queryable state service consists of three processes:'
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Flink的可查询状态服务由三个进程组成：
+- en: The `QueryableStateClient` is used by an external application to submit queries
+    and retrieve results.
+  id: totrans-171
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`QueryableStateClient`由外部应用程序用于提交查询并检索结果。'
+- en: The `QueryableStateClientProxy` accepts and serves client requests. Each TaskManager
+    runs a client proxy. Since keyed state is distributed across all parallel instances
+    of an operator, the proxy needs to identify the TaskManager that maintains the
+    state for the requested key. This information is requested from the JobManager
+    that manages the key group assignment, and is cached once received.^([6](ch07.html#idm45498997447656))
+    The client proxy retrieves the state from the state server of the respective TaskManager
+    and serves the result to the client.
+  id: totrans-172
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`QueryableStateClientProxy`接受并提供客户端请求的服务。每个TaskManager运行一个客户端代理。由于键控状态分布在运算符的所有并行实例之间，代理需要识别维护所请求键的状态的TaskManager。此信息从管理键组分配的JobManager请求，并且一旦收到，会被缓存。^([6](ch07.html#idm45498997447656))
+    客户端代理从相应TaskManager的状态服务器检索状态并将结果提供给客户端。'
+- en: The `QueryableStateServer` serves the requests of a client proxy. Each TaskManager
+    runs a state server that fetches the state of a queried key from the local state
+    backend and returns it to the requesting client proxy.
+  id: totrans-173
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`QueryableStateServer`为客户端代理提供服务请求。每个TaskManager运行一个状态服务器，该服务器从本地状态后端获取查询键的状态并将其返回给请求的客户端代理。'
+- en: '[Figure 7-1](#fig_queryable-state-arch) shows the architecture of the queryable
+    state service.'
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 7-1](#fig_queryable-state-arch)展示了可查询状态服务的架构。'
+- en: '![Architecture of Flink''s queryable state service](assets/spaf_0701.png)'
+  id: totrans-175
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Flink可查询状态服务的架构](assets/spaf_0701.png)'
+- en: Figure 7-1\. Architecture of Flink’s queryable state service
+  id: totrans-176
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 7-1\. Flink可查询状态服务的架构
+- en: 'In order to enable the queryable state service in a Flink setup—to start client
+    proxy and server threads within the TaskManagers—you need to add the *flink-queryable-state-runtime*
+    JAR file to the classpath of the TaskManager process. This is done by copying
+    it from the *./opt* folder of your installation into the *./lib* folder. When
+    the JAR file is in the classpath, the queryable state threads are automatically
+    started and can serve requests of the queryable state client. When properly configured,
+    you will find the following log message in the TaskManager logs:'
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要在Flink设置中启用可查询状态服务——启动TaskManager内的客户端代理和服务器线程，您需要将*flink-queryable-state-runtime*
+    JAR文件添加到TaskManager进程的类路径中。这可以通过从安装的*./opt*文件夹复制到*./lib*文件夹来完成。当JAR文件位于类路径中时，可查询状态线程会自动启动，并且可以为可查询状态客户端提供服务。正确配置后，您将在TaskManager日志中找到以下日志消息：
+- en: '[PRE14]'
+  id: totrans-178
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: The ports used by the client proxy and server and additional parameters can
+    be configured in the *./conf/flink-conf.yaml* file.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 客户端代理和服务器使用的端口及其他参数可以在*./conf/flink-conf.yaml*文件中配置。
+- en: Exposing Queryable State
+  id: totrans-180
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 暴露可查询状态
+- en: Implementing a streaming application with queryable state is easy. All you have
+    to do is define a function with keyed state and make the state queryable by calling
+    the `setQueryable(String)` method on the `StateDescriptor` before obtaining the
+    state handle. [Example 7-14](#code_enable-queryable-state) shows how to make `lastTempState`
+    queryable to illustrate the usage of the keyed state.
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实现具有可查询状态的流应用程序很简单。您只需定义具有键控状态的函数，并在获取状态句柄之前调用`StateDescriptor`上的`setQueryable(String)`方法使状态可查询。[示例 7-14](#code_enable-queryable-state)展示了如何使`lastTempState`可查询，以说明键控状态的用法。
+- en: Example 7-14\. Configuring keyed state to be queryable
+  id: totrans-182
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-14\. 配置可查询的键控状态
+- en: '[PRE15]'
+  id: totrans-183
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: The external identifier that is passed with the `setQueryable()` method can
+    be freely chosen and is only used to configure the queryable state client.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过`setQueryable()`方法传递的外部标识符可以自由选择，并且仅用于配置可查询状态客户端。
+- en: In addition to the generic way of enabling queries on any type of keyed state,
+    Flink also offers shortcuts to define stream sinks that store the events of a
+    stream in a queryable state. [Example 7-15](#code_queryable_state_sink) shows
+    how to use a queryable state sink.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了启用对任何类型键控状态的查询的通用方式外，Flink还提供了定义流接收器的快捷方式，用于在可查询状态中存储流的事件。[示例 7-15](#code_queryable_state_sink)展示了如何使用可查询状态接收器。
+- en: Example 7-15\. Writing a DataStream into a queryable state sink
+  id: totrans-186
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-15\. 将DataStream写入可查询状态接收器
+- en: '[PRE16]'
+  id: totrans-187
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: The `asQueryableState()` method appends a queryable state sink to the stream.
+    The type of the queryable state is `ValueState`, which holds values of the type
+    of the input stream—our example `(String, Double)`. For each received record,
+    the queryable state sink upserts the record into `ValueState`, so that the latest
+    event per key is always stored.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`asQueryableState()`方法向流添加一个可查询状态的接收端。可查询状态的类型是`ValueState`，它保存输入流的类型的值——我们的示例`(String,
+    Double)`。对于每个接收到的记录，可查询状态接收端将记录插入`ValueState`，以便每个键的最新事件始终被存储。'
+- en: An application with a function that has a queryable state is executed just like
+    any other application. You only have to ensure that the TaskManagers are configured
+    to start their queryable state services as discussed in the previous section.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个具有可查询状态功能的应用程序执行起来就像任何其他应用程序一样。您只需要确保任务管理器配置为启动其可查询状态服务，就像前面的部分讨论的那样。
+- en: Querying State from External Applications
+  id: totrans-190
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 从外部应用程序查询状态
+- en: 'Any JVM-based application can query the queryable state of a running Flink
+    application by using `QueryableStateClient`. This class is provided by the `flink-queryable-state-client-java`
+    dependency, which you can add to your project as follows:'
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何基于 JVM 的应用程序都可以通过使用`QueryableStateClient`查询运行中 Flink 应用程序的可查询状态。这个类由`flink-queryable-state-client-java`依赖提供，您可以按以下方式将其添加到项目中：
+- en: '[PRE17]'
+  id: totrans-192
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: 'The `QueryableStateClient` is initialized with the hostname of any TaskManager
+    and the port on which the queryable state client proxy is listening. By default,
+    the client proxy listens on port 9067, but the port can be configured in the *./conf/flink-conf.yaml*
+    file:'
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`QueryableStateClient`使用任何 TaskManager 的主机名和可查询状态客户端代理侦听的端口进行初始化。默认情况下，客户端代理侦听端口为
+    9067，但端口可以在 *./conf/flink-conf.yaml* 文件中配置：'
+- en: '[PRE18]'
+  id: totrans-194
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: Once you obtain a state client, you can query the state of an application by
+    calling the `getKvState()` method. The method takes several parameters, such as
+    the `JobID` of the running application, the state identifier, the key for which
+    the state should be fetched, the `TypeInformation` for the key, and the `StateDescriptor`
+    of the queried state. The `JobID` can be obtained via the REST API, the Web UI,
+    or the log files. The `getKvState()` method returns a `CompletableFuture[S]` where
+    `S` is the type of the state (e.g., `ValueState[_]` or `MapState[_, _]`). Hence,
+    the client can send out multiple asynchronous queries and wait for their results.
+    [Example 7-16](#code_queryable-state-dashboard) shows a simple console dashboard
+    that queries the queryable state of the application shown in the previous section.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一旦获得状态客户端，您可以通过调用`getKvState()`方法查询应用程序的状态。该方法接受多个参数，如运行应用程序的`JobID`、状态标识符、应该获取状态的键、键的`TypeInformation`和查询状态的`StateDescriptor`。`JobID`可以通过
+    REST API、Web UI 或日志文件获取。`getKvState()`方法返回一个`CompletableFuture[S]`，其中`S`是状态的类型（例如，`ValueState[_]`或`MapState[_,
+    _]`）。因此，客户端可以发送多个异步查询并等待它们的结果。[示例 7-16](#code_queryable-state-dashboard)展示了一个简单的控制台仪表盘，查询在前一节中显示的应用程序的可查询状态。
+- en: Example 7-16\. A simple dashboard application that queries the state of a Flink
+    application
+  id: totrans-196
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 7-16\. 一个简单的仪表盘应用程序，查询一个 Flink 应用程序的状态
+- en: '[PRE19]'
+  id: totrans-197
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: In order to run the example, you have to start the streaming application with
+    the queryable state first. Once it is running, look for the `JobID` in the log
+    file or the web UI; set the `JobID` in the code of the dashboard and run it as
+    well. The dashboard will then start querying the state of the running streaming
+    application.
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要运行该示例，您必须首先启动带有可查询状态的流应用程序。一旦它运行起来，在日志文件或 Web UI 中查找`JobID`；将`JobID`设置在仪表板的代码中并运行它。然后，仪表板将开始查询运行中流应用程序的状态。
+- en: Summary
+  id: totrans-199
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 摘要
+- en: Just about every nontrivial streaming application is stateful. The DataStream
+    API provides powerful yet easy-to-use tools to access and maintain operator state.
+    It offers different types of state primitives and supports pluggable state backends.
+    While developers have lots of flexibility to interact with state, Flink’s runtime
+    manages terabytes of state and ensures exactly-once semantics in case of failure.
+    The combination of time-based computations as discussed in [Chapter 6](ch06.html#chap-6)
+    and scalable state management empowers developers to realize sophisticated streaming
+    applications. Queryable state is an easy-to-use feature and can save you the effort
+    of setting up and maintaining a database or key-value store to expose the results
+    of a streaming application to external applications.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 几乎每个非平凡的流式应用程序都是有状态的。DataStream API 提供了强大而易于使用的工具来访问和维护操作符状态。它提供了不同类型的状态原语，并支持可插拔的状态后端。尽管开发人员在与状态交互时具有很大的灵活性，但
+    Flink 的运行时管理着几个 terabytes 的状态，并在发生故障时确保精确一次性语义。如 [第六章](ch06.html#chap-6) 中讨论的基于时间的计算与可扩展的状态管理的结合，使开发人员能够实现复杂的流式应用程序。可查询的状态是一个易于使用的功能，可以节省设置和维护数据库或键值存储以将流应用程序的结果暴露给外部应用程序的工作。
+- en: ^([1](ch07.html#idm45499000359896-marker)) This differs from batch processing
+    where user-defined functions, such as `GroupReduceFunction`, are called when all
+    data to be processed has been collected.
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch07.html#idm45499000359896-marker)) 这与批处理不同，在批处理中，当收集到要处理的所有数据时，会调用用户定义的函数，如
+    `GroupReduceFunction`。
+- en: ^([2](ch07.html#idm45498999896744-marker)) The serialization format of state
+    is an important aspect when updating an application and is discussed later in
+    this chapter.
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch07.html#idm45498999896744-marker)) 在更新应用程序时，状态的序列化格式是一个重要的方面，并且在本章后面进行了讨论。
+- en: ^([3](ch07.html#idm45498998664872-marker)) See [Chapter 3](ch03.html#chap-3)
+    for details on how operator list union state is distributed.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch07.html#idm45498998664872-marker)) 详细了解操作符列表并集状态的分布，请参阅 [第三章](ch03.html#chap-3)。
+- en: ^([4](ch07.html#idm45498997828744-marker)) Timers can be based on event time
+    or processing time.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch07.html#idm45498997828744-marker)) 定时器可以基于事件时间或处理时间。
+- en: ^([5](ch07.html#idm45498997506728-marker)) [Chapter 10](ch10.html#chap-10) explains
+    how to take savepoints of running applications and how to start a new application
+    from an existing savepoint.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch07.html#idm45498997506728-marker)) [第十章](ch10.html#chap-10) 解释了如何对正在运行的应用程序进行保存点，并如何从现有的保存点启动新的应用程序。
+- en: ^([6](ch07.html#idm45498997447656-marker)) Key groups are discussed in [Chapter 3](ch03.html#chap-3).
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch07.html#idm45498997447656-marker)) 关键组在 [第三章](ch03.html#chap-3) 中有讨论。

@@ -1,0 +1,1391 @@
+- en: Chapter 8\. Exactly-Once Semantics
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第8章。精确一次语义
+- en: In [Chapter 7](ch07.html#reliable_data_delivery) we discussed the configuration
+    parameters and the best practices that allow Kafka users to control Kafka’s reliability
+    guarantees. We focused on at-least-once delivery—the guarantee that Kafka will
+    not lose messages that it acknowledged as committed. This still leaves open the
+    possibility of duplicate messages.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第7章](ch07.html#reliable_data_delivery)中，我们讨论了配置参数和最佳实践，使Kafka用户能够控制Kafka的可靠性保证。我们专注于至少一次交付——Kafka不会丢失已确认提交的消息的保证。这仍然存在重复消息的可能性。
+- en: In simple systems where messages are produced and then consumed by various applications,
+    duplicates are an annoyance that is fairly easy to handle. Most real-world applications
+    contain unique identifiers that consuming applications can use to deduplicate
+    the messages.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在简单的系统中，消息由各种应用程序生成和消费，重复是一个相当容易处理的烦恼。大多数现实世界的应用程序包含消费应用程序可以使用的唯一标识符来对消息进行去重。
+- en: Things become more complicated when we look at stream processing applications
+    that aggregate events. When inspecting an application that consumes events, computes
+    an average, and produces the results, it is often impossible for those who check
+    the results to detect that the average is incorrect because an event was processed
+    twice while computing the average. In these cases, it is important to provide
+    a stronger guarantee—exactly-once processing semantics.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们查看聚合事件的流处理应用程序时，情况变得更加复杂。当检查一个消费事件、计算平均值并产生结果的应用程序时，往往无法检测到结果不正确，因为在计算平均值时事件被处理了两次。在这些情况下，提供更强的保证——精确一次处理语义是很重要的。
+- en: In this chapter, we will discuss how to use Kafka with exactly-once semantics,
+    the recommended use cases, and the limitations. As we did with at-least-once guarantees,
+    we will dive a bit deeper and provide some insight and intuition into how this
+    guarantee is implemented. These details can be skipped when you first read the
+    chapter but will be useful to understand before using the feature—it will help
+    clarify the meaning of the different configurations and APIs and how best to use
+    them.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论如何使用具有精确一次语义的Kafka，推荐的用例以及限制。与至少一次保证一样，我们将深入一点，提供一些洞察力和直觉，以了解此保证是如何实现的。在首次阅读本章时，可以跳过这些细节，但在使用该功能之前理解这些细节将是有用的——它将有助于澄清不同配置和API的含义以及如何最好地使用它们。
+- en: 'Exactly-once semantics in Kafka is a combination of two key features: idempotent
+    producers, which help avoid duplicates caused by producer retries, and transactional
+    semantics, which guarantee exactly-once processing in stream processing applications.
+    We will discuss both, starting with the simpler and more generally useful idempotent
+    producer.'
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka中的精确一次语义是两个关键特性的组合：幂等生产者，它有助于避免由生产者重试引起的重复，以及事务语义，它保证流处理应用程序中的精确一次处理。我们将从更简单和更普遍有用的幂等生产者开始讨论这两个特性。
+- en: Idempotent Producer
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 幂等生产者
+- en: A service is called idempotent if performing the same operation multiple times
+    has the same result as performing it a single time. In databases it is usually
+    demonstrated as the difference between `UPDATE t SET x=x+1 where y=5` and `UPDATE
+    t SET x=18 where y=5`. The first example is not idempotent; if we call it three
+    times, we’ll end up with a very different result than if we were to call it once.
+    The second example is idempotent—no matter how many times we run this statement,
+    `x` will be equal to 18.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果执行相同操作多次的结果与执行一次相同操作的结果相同，则称该服务为幂等。在数据库中，通常可以通过`UPDATE t SET x=x+1 where y=5`和`UPDATE
+    t SET x=18 where y=5`之间的差异来演示。第一个例子不是幂等的；如果我们调用它三次，最终的结果将与我们只调用一次时的结果大不相同。第二个例子是幂等的——无论我们运行这个语句多少次，`x`都将等于18。
+- en: How is this related to a Kafka producer? If we configure a producer to have
+    at-least-once semantics rather than idempotent semantics, it means that in cases
+    of uncertainty, the producer will retry sending the message so it will arrive
+    at least once. These retries could lead to duplicates.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这与Kafka生产者有什么关系？如果我们将生产者配置为具有至少一次语义而不是幂等语义，这意味着在不确定的情况下，生产者将重试发送消息，以便至少到达一次。这些重试可能导致重复。
+- en: The classic case is when a partition leader received a record from the producer,
+    replicated it successfully to the followers, and then the broker on which the
+    leader resides crashed before it could send a response to the producer. The producer,
+    after a certain time without a response, will resend the message. The message
+    will arrive at the new leader, who already has a copy of the message from the
+    previous attempt—resulting in a duplicate.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经典案例是分区领导者从生产者接收记录，成功地将其复制到跟随者，然后领导者所在的代理在发送响应给生产者之前崩溃。生产者在一段时间内没有收到响应后，将重新发送消息。消息将到达新的领导者，他已经从先前的尝试中拥有了消息的副本——导致重复。
+- en: In some applications duplicates don’t matter much, but in others they can lead
+    to inventory miscounts, bad financial statements, or sending someone two umbrellas
+    instead of the one they ordered.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些应用中，重复并不重要，但在其他应用中，它们可能导致库存错误计数、糟糕的财务报表，或者向某人发送两把雨伞而不是他们订购的一把。
+- en: Kafka’s idempotent producer solves this problem by automatically detecting and
+    resolving such duplicates.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka的幂等生产者通过自动检测和解决这些重复来解决这个问题。
+- en: How Does the Idempotent Producer Work?
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 幂等生产者是如何工作的？
+- en: When we enable the idempotent producer, each message will include a unique identified
+    producer ID (PID) and a sequence number. These, together with the target topic
+    and partition, uniquely identify each message. Brokers use these unique identifiers
+    to track the last five messages produced to every partition on the broker. To
+    limit the number of previous sequence numbers that have to be tracked for each
+    partition, we also require that the producers will use `max.inflight.requests=5`
+    or lower (the default is 5).
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们启用幂等生产者时，每条消息将包括一个唯一的生产者ID（PID）和一个序列号。这些，连同目标主题和分区一起，唯一标识每条消息。经纪人使用这些唯一标识来跟踪经纪人上每个分区产生的最后五条消息。为了限制必须跟踪每个分区的先前序列号的数量，我们还要求生产者使用`max.inflight.requests=5`或更低（默认为5）。
+- en: When a broker receives a message that it already accepted before, it will reject
+    the duplicate with an appropriate error. This error is logged by the producer
+    and is reflected in its metrics but does not cause any exception and should not
+    cause any alarm. On the producer client, it will be added to the `record-error-rate`
+    metric. On the broker, it will be part of the `ErrorsPerSec` metric of the `RequestMetrics`
+    type, which includes a separate count for each type of error.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当经纪人接收到它之前已经接受过的消息时，它将拒绝重复的消息并返回适当的错误。这个错误被生产者记录并反映在其指标中，但不会引起任何异常，也不应引起任何警报。在生产者客户端，它将被添加到`record-error-rate`指标中。在经纪人端，它将成为`RequestMetrics`类型的`ErrorsPerSec`指标的一部分，其中包括每种错误类型的单独计数。
+- en: What if a broker receives a sequence number that is unexpectedly high? The broker
+    expects message number 2 to be followed by message number 3; what happens if the
+    broker receives message number 27 instead? In such cases the broker will respond
+    with an “out of order sequence” error, but if we use an idempotent producer without
+    using transactions, this error can be ignored.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果经纪人收到一个意外高的序列号会怎么样？经纪人期望消息编号2后面是消息编号3；如果经纪人收到的是消息编号27呢？在这种情况下，经纪人将以“顺序错误”错误响应，但如果我们使用幂等生产者而不使用事务，这个错误可以被忽略。
+- en: Warning
+  id: totrans-16
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: While the producer will continue normally after encountering an “out of order
+    sequence number” exception, this error typically indicates that messages were
+    lost between the producer and the broker—if the broker received message number
+    2 followed by message number 27, something must have happened to messages 3 to
+    26\. When encountering such an error in the logs, it is worth revisiting the producer
+    and topic configuration and making sure the producer is configured with recommended
+    values for high reliability and to check whether unclean leader election has occurred.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管生产者在遇到“顺序号错误”异常后将继续正常运行，但这种错误通常表明生产者和经纪人之间丢失了消息 - 如果经纪人接收到消息编号2，然后是消息编号27，那么消息3到26之间一定发生了什么。在日志中遇到这样的错误时，值得重新审视生产者和主题配置，并确保生产者配置了高可靠性的推荐值，并检查是否发生了不洁净的领导者选举。
+- en: 'As is always the case with distributed systems, it is interesting to consider
+    the behavior of an idempotent producer under failure conditions. Consider two
+    cases: producer restart and broker failure.'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与分布式系统一样，考虑幂等生产者在失败条件下的行为是很有趣的。考虑两种情况：生产者重新启动和经纪人失败。
+- en: Producer restart
+  id: totrans-19
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 生产者重新启动
+- en: When a producer fails, usually a new producer will be created to replace it—whether
+    manually by a human rebooting a machine, or using a more sophisticated framework
+    like Kubernetes that provides automated failure recovery. The key point is that
+    when the producer starts, if the idempotent producer is enabled, the producer
+    will initialize and reach out to a Kafka broker to generate a producer ID. Each
+    initialization of a producer will result in a completely new ID (assuming that
+    we did not enable transactions). This means that if a producer fails and the producer
+    that replaces it sends a message that was previously sent by the old producer,
+    the broker will not detect the duplicates—the two messages will have different
+    producer IDs and different sequence numbers and will be considered as two different
+    messages. Note that the same is true if the old producer froze and then came back
+    to life after its replacement started—the original producer is not recognized
+    as a zombie, because we have two totally different producers with different IDs.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当生产者失败时，通常会创建一个新的生产者来替代它 - 无论是人工重新启动机器，还是使用更复杂的框架如Kubernetes提供自动故障恢复。关键点在于，当生产者启动时，如果启用了幂等生产者，生产者将初始化并联系Kafka经纪人生成生产者ID。每次初始化生产者都会导致一个全新的ID（假设我们没有启用事务）。这意味着如果一个生产者失败，替换它的生产者发送了之前由旧生产者发送的消息，经纪人将不会检测到重复
+    - 两条消息将具有不同的生产者ID和不同的序列号，并将被视为两条不同的消息。请注意，如果旧生产者冻结然后在其替代品启动后恢复，情况也是如此 - 原始生产者不被识别为僵尸，因为我们有两个完全不同的具有不同ID的生产者。
+- en: Broker failure
+  id: totrans-21
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 经纪人失败
+- en: When a broker fails, the controller elects new leaders for the partitions that
+    had leaders on the failed broker. Say that we have a producer that produced messages
+    to topic A, partition 0, which had its lead replica on broker 5 and a follower
+    replica on broker 3\. After broker 5 fails, broker 3 becomes the new leader. The
+    producer will discover that the new leader is broker 3 via the metadata protocol
+    and start producing to it. But how will broker 3 know which sequences were already
+    produced in order to reject duplicates?
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当经纪人失败时，控制器会为失败的经纪人上原本有领导者的分区选举新的领导者。假设我们有一个生产者向主题A、分区0产生消息，该分区的领导副本在经纪人5上，跟随副本在经纪人3上。在经纪人5失败后，经纪人3成为新的领导者。生产者将通过元数据协议发现新的领导者是经纪人3，并开始向其生产。但经纪人3如何知道哪些序列已经被生产，以拒绝重复的消息呢？
+- en: The leader keeps updating its in-memory producer state with the five last sequence
+    IDs every time a new message is produced. Follower replicas update their own in-memory
+    buffers every time they replicate new messages from the leader. This means that
+    when a follower becomes a leader, it already has the latest sequence numbers in
+    memory, and validation of newly produced messages can continue without any issues
+    or delays.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 领导者每次生产新消息时都会更新其内存中的生产者状态的最后五个序列ID。从属副本在每次从领导者复制新消息时都会更新自己的内存缓冲区。这意味着当从属副本成为领导者时，它已经在内存中具有最新的序列号，并且可以继续验证新生产的消息而不会出现任何问题或延迟。
+- en: But what happens when the old leader comes back? After a restart, the old in-memory
+    producer state will no longer be in memory. To assist in recovery, brokers take
+    a snapshot of the producer state to a file when they shut down or every time a
+    segment is created. When the broker starts, it reads the latest state from a file.
+    The newly restarted broker then keeps updating the producer state as it catches
+    up by replicating from the current leader, and it has the most current sequence
+    IDs in memory when it is ready to become a leader again.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是当旧的leader回来时会发生什么？重新启动后，旧的内存中的生产者状态将不再存在于内存中。为了帮助恢复，当代理关闭或每次创建一个段时，代理将生产者状态的快照保存到文件中。代理启动时，它会从文件中读取最新状态。新重新启动的代理通过从当前leader进行复制来追赶，并在准备再次成为leader时，它在内存中具有最新的序列ID。
+- en: What if a broker crashed and the last snapshot is not updated? Producer ID and
+    sequence ID are also part of the message format that is written to Kafka’s logs.
+    During crash recovery, the producer state will be recovered by reading the older
+    snapshot and also messages from the latest segment of each partition. A new snapshot
+    will be stored as soon as the recovery process completes.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果代理崩溃且最后的快照未更新会发生什么？生产者ID和序列ID也是写入Kafka日志的消息格式的一部分。在崩溃恢复期间，将通过读取旧的快照和每个分区的最新段中的消息来恢复生产者状态。一旦恢复过程完成，将存储一个新的快照。
+- en: An interesting question is what happens if there are no messages? Imagine that
+    a certain topic has two hours of retention time, but no new messages arrived in
+    the last two hours—there will be no messages to use to recover the state if a
+    broker crashed. Luckily, no messages also means no duplicates. We will start accepting
+    messages immediately (while logging a warning about the lack of state), and create
+    the producer state from the new messages that arrive.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个有趣的问题是如果没有消息会发生什么？想象一下某个主题有两个小时的保留时间，但在过去的两个小时内没有新消息到达——如果代理崩溃，将没有消息用于恢复状态。幸运的是，没有消息也意味着没有重复。我们将立即开始接受消息（同时记录有关状态缺失的警告），并从到达的新消息中创建生产者状态。
+- en: Limitations of the Idempotent Producer
+  id: totrans-27
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 幂等生产者的限制
+- en: Kafka’s idempotent producer only prevents duplicates in case of retries that
+    are caused by the producer’s internal logic. Calling `producer.send()` twice with
+    the same message will create a duplicate, and the idempotent producer won’t prevent
+    it. This is because the producer has no way of knowing that the two records that
+    were sent are in fact the same record. It is always a good idea to use the built-in
+    retry mechanism of the producer rather than catching producer exceptions and retrying
+    from the application itself; the idempotent producer makes this pattern even more
+    appealing—it is the easiest way to avoid duplicates when retrying.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka的幂等生产者只能防止由生产者内部逻辑引起的重试情况中的重复。调用`producer.send()`两次发送相同的消息将创建重复消息，而幂等生产者无法阻止这种情况发生。这是因为生产者无法知道发送的两条记录实际上是相同的记录。最好使用生产者的内置重试机制，而不是捕获生产者异常并从应用程序本身重试；幂等生产者使这种模式更加吸引人——这是避免重试时重复的最简单方法。
+- en: It is also rather common to have applications that have multiple instances or
+    even one instance with multiple producers. If two of these producers attempt to
+    send identical messages, the idempotent producer will not detect the duplication.
+    This scenario is fairly common in applications that get data from a source—a directory
+    with files, for instance—and produce it to Kafka. If the application happened
+    to have two instances reading the same file and producing records to Kafka, we
+    will get multiple copies of the records in that file.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还相当常见的是有多个实例或甚至一个实例有多个生产者的应用程序。如果这些生产者中的两个尝试发送相同的消息，幂等生产者将无法检测到重复。这种情况在从源获取数据的应用程序中非常常见——例如一个带有文件的目录，并将其生产到Kafka。如果应用程序恰好有两个实例读取同一个文件并将记录生产到Kafka，那么我们将在该文件中获得记录的多个副本。
+- en: Tip
+  id: totrans-30
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 提示
+- en: The idempotent producer will only prevent duplicates caused by the retry mechanism
+    of the producer itself, whether the retry is caused by producer, network, or broker
+    errors. But nothing else.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幂等生产者只会防止由生产者自身的重试机制引起的重复，无论重试是由生产者、网络还是代理错误引起的。但其他情况不会。
+- en: How Do I Use the Kafka Idempotent Producer?
+  id: totrans-32
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 如何使用Kafka幂等生产者？
+- en: 'This is the easy part. Add `enable.idempotence=true` to the producer configuration.
+    If the producer is already configured with `acks=all`, there will be no difference
+    in performance. By enabling idempotent producer, the following things will change:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是简单的部分。将`enable.idempotence=true`添加到生产者配置中。如果生产者已经配置为`acks=all`，性能不会有任何差异。通过启用幂等生产者，以下事情将发生变化：
+- en: To retrieve a producer ID, the producer will make one extra API call when starting
+    up.
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 为了检索生产者ID，生产者在启动时将进行一次额外的API调用。
+- en: Each record batch sent will include the producer ID and the sequence ID for
+    the first message in the batch (sequence IDs for each message in the batch are
+    derived from the sequence ID of the first message plus a delta). These new fields
+    add 96 bits to each record batch (producer ID is a long, and sequence is an integer),
+    which is barely any overhead for most workloads.
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个发送的记录批次将包括生产者ID和批次中第一条消息的序列ID（批次中每条消息的序列ID是从第一条消息的序列ID加上一个增量得到的）。这些新字段为每个记录批次增加了96位（生产者ID是一个长整型，序列是一个整数），对于大多数工作负载来说，这几乎没有任何开销。
+- en: Brokers will validate the sequence numbers from any single producer instance
+    and guarantee the lack of duplicate messages.
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 代理将验证来自任何单个生产者实例的序列号，并保证没有重复消息。
+- en: The order of messages produced to each partition will be guaranteed, through
+    all failure scenarios, even if `max.in.flight.requests.per.connection` is set
+    to more than 1 (5 is the default and also the highest value supported by the idempotent
+    producer).
+  id: totrans-37
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将保证每个分区产生的消息顺序，即使`max.in.flight.requests.per.connection`设置为大于1（5是默认值，也是幂等生产者支持的最高值）。
+- en: Note
+  id: totrans-38
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Idempotent producer logic and error handling improved significantly in version
+    2.5 (both on the producer side and the broker side) as a result of KIP-360\. Prior
+    to release 2.5, the producer state was not always maintained for long enough,
+    which resulted in fatal UNKNOWN_PRODUCER_ID errors in various scenarios (partition
+    reassignment had a known edge case where the new replica became the leader before
+    any writes happened from a specific producer, meaning that the new leader had
+    no state for that partition). In addition, previous versions attempted to rewrite
+    the sequence IDs in some error scenarios, which could lead to duplicates. In newer
+    versions, if we encounter a fatal error for a record batch, this batch and all
+    the batches that are in flight will be rejected. The user who writes the application
+    can handle the exception and decide whether to skip those records or retry and
+    risk duplicates and reordering.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幂等生产者逻辑和错误处理在2.5版本中得到了显着改进（生产者端和代理端都是如此），这是KIP-360的结果。在2.5版本发布之前，生产者状态并不总是维持足够长的时间，这导致在各种场景中出现致命的UNKNOWN_PRODUCER_ID错误（分区重新分配存在一个已知的边缘情况，即在特定生产者的任何写操作发生之前，新副本就成为了领导者，这意味着新领导者对该分区没有状态）。此外，以前的版本在某些错误场景下尝试重写序列ID，这可能导致重复。在更新版本中，如果我们遇到记录批次的致命错误，这个批次和所有正在传输的批次都将被拒绝。编写应用程序的用户可以处理异常并决定是跳过这些记录还是重试并冒重复和重新排序的风险。
+- en: Transactions
+  id: totrans-40
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 交易
+- en: As we mentioned in the introduction to this chapter, transactions were added
+    to Kafka to guarantee the correctness of applications developed using Kafka Streams.
+    In order for a stream processing application to generate correct results, each
+    input record must be processed exactly one time, and its processing result will
+    be reflected exactly one time, even in case of failure. Transactions in Apache
+    Kafka allow stream processing applications to generate accurate results. This,
+    in turn, enables developers to use stream processing applications in use cases
+    where accuracy is a key requirement.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在本章介绍中提到的，Kafka添加了交易以确保使用Kafka Streams开发的应用程序的正确性。为了使流处理应用程序生成正确的结果，每个输入记录必须被精确处理一次，并且其处理结果将被精确反映一次，即使发生故障也是如此。Apache
+    Kafka中的交易允许流处理应用程序生成准确的结果。这反过来使开发人员能够在准确性是关键要求的用例中使用流处理应用程序。
+- en: It is important to keep in mind that transactions in Kafka were developed specifically
+    for stream processing applications. And therefore they were built to work with
+    the “consume-process-produce” pattern that forms the basis of stream processing
+    applications. Use of transactions can guarantee exactly-once semantics in this
+    context—the processing of each input record will be considered complete after
+    the application’s internal state has been updated and the results were successfully
+    produced to output topics. In [“What Problems Aren’t Solved by Transactions?”](#Limitations),
+    we’ll explore a few scenarios where Kafka’s exactly-once guarantees will not apply.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 重要的是要记住，Kafka中的交易是专门为流处理应用程序开发的。因此，它们被构建为与形成流处理应用程序基础的“消费-处理-生产”模式一起工作。在这种情况下，使用交易可以保证一次性语义——每个输入记录的处理在应用程序的内部状态更新并成功产生到输出主题后被视为完成。在[“交易解决不了哪些问题？”](#Limitations)中，我们将探讨一些Kafka的一次性保证不适用的情况。
+- en: Note
+  id: totrans-43
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Transactions is the name of the underlying mechanism. Exactly-once semantics
+    or exactly-once guarantees is the behavior of a stream processing application.
+    Kafka Streams uses transactions to implement its exactly-once guarantees. Other
+    stream processing frameworks, such as Spark Streaming or Flink, use different
+    mechanisms to provide their users with exactly-once semantics.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 交易是底层机制的名称。一次性语义或一次性保证是流处理应用程序的行为。Kafka Streams使用交易来实现其一次性保证。其他流处理框架，如Spark
+    Streaming或Flink，使用不同的机制来为其用户提供一次性语义。
+- en: Transactions Use Cases
+  id: totrans-45
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 交易使用案例
+- en: Transactions are useful for any stream processing application where accuracy
+    is important, and especially where stream processing includes aggregation and/or
+    joins. If the stream processing application only performs single record transformation
+    and filtering, there is no internal state to update, and even if duplicates were
+    introduced in the process, it is fairly straightforward to filter them out of
+    the output stream. When the stream processing application aggregates several records
+    into one, it is much more difficult to check whether a result record is wrong
+    because some input records were counted more than once; it is impossible to correct
+    the result without reprocessing the input.
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 交易对于任何重视准确性的流处理应用程序都是有用的，特别是当流处理包括聚合和/或连接时。如果流处理应用程序只执行单个记录的转换和过滤，那么没有内部状态需要更新，即使在过程中引入了重复，也很容易将它们从输出流中过滤掉。当流处理应用程序将多个记录聚合为一个记录时，要检查结果记录是否错误要困难得多，因为某些输入记录被计算了多次；在不重新处理输入的情况下无法纠正结果。
+- en: Financial applications are typical examples of complex stream processing applications
+    where exactly-once capabilities are used to guarantee accurate aggregation. However,
+    because it is rather trivial to configure any Kafka Streams application to provide
+    exactly-once guarantees, we’ve seen it enabled in more mundane use cases, including,
+    for instance, chatbots.
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 金融应用程序是复杂流处理应用程序的典型例子，其中使用一次性能力来保证准确的聚合。然而，因为任何Kafka Streams应用程序都可以相当轻松地配置为提供一次性保证，我们已经看到它在更普通的用例中启用，包括例如聊天机器人。
+- en: What Problems Do Transactions Solve?
+  id: totrans-48
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务解决了什么问题？
+- en: 'Consider a simple stream processing application: it reads events from a source
+    topic, maybe processes them, and writes results to another topic. We want to be
+    sure that for each message we process, the results are written exactly once. What
+    can possibly go wrong?'
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑一个简单的流处理应用程序：它从源主题中读取事件，可能对其进行处理，并将结果写入另一个主题。我们希望确保我们处理的每条消息的结果只被写入一次。可能会发生什么问题？
+- en: It turns out that quite a few things could go wrong. Let’s look at two scenarios.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事实证明，有很多事情可能会出错。让我们看看两种情况。
+- en: Reprocessing caused by application crashes
+  id: totrans-51
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 由应用程序崩溃引起的重新处理
+- en: 'After consuming a message from the source cluster and processing it, the application
+    has to do two things: produce the result to the output topic, and commit the offset
+    of the message that we consumed. Suppose that these two separate actions happen
+    in this order. What happens if the application crashes after the output was produced
+    but before the offset of the input was committed?'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从源集群中消费一条消息并处理后，应用程序必须做两件事：将结果生成到输出主题，并提交我们消费的消息的偏移量。假设这两个独立的操作按照这个顺序发生。如果应用程序在生成输出后但在提交输入的偏移量之前崩溃会发生什么？
+- en: In [Chapter 4](ch04.html#reading_data_from_kafka), we discussed what happens
+    when a consumer crashes. After a few seconds, the lack of heartbeat will trigger
+    a rebalance, and the partitions the consumer was consuming from will be reassigned
+    to a different consumer. That consumer will begin consuming records from those
+    partitions, starting at the last committed offset. This means that all the records
+    that were processed by the application between the last committed offset and the
+    crash will be processed again, and the results will be written to the output topic
+    again—resulting in duplicates.
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[第4章](ch04.html#reading_data_from_kafka)中，我们讨论了消费者崩溃时会发生什么。几秒钟后，缺少心跳将触发重新平衡，并且消费者正在消费的分区将重新分配给另一个消费者。该消费者将开始从这些分区中消费记录，从上次提交的偏移量开始。这意味着在上次提交的偏移量和崩溃之间应用程序处理的所有记录将被再次处理，并且结果将再次写入输出主题，导致重复。
+- en: Reprocessing caused by zombie applications
+  id: totrans-54
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 由僵尸应用程序引起的重新处理
+- en: What happens if our application just consumed a batch of records from Kafka
+    and then froze or lost connectivity to Kafka before doing anything else with this
+    batch of records?
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们的应用程序刚刚从Kafka中消费了一批记录，然后在对这批记录进行任何其他操作之前冻结或失去与Kafka的连接，会发生什么？
+- en: Just like in the previous scenario, after several heartbeats are missed, the
+    application will be assumed dead and its partitions reassigned to another consumer
+    in the consumer group. That consumer will reread that batch of records, process
+    it, produce the results to an output topic, and continue on.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 就像在先前的情景中一样，如果错过了几次心跳，应用程序将被认为已经死亡，并且其分区将重新分配给消费者组中的另一个消费者。该消费者将重新读取该批记录，处理它，将结果生成到输出主题，并继续进行。
+- en: 'Meanwhile, the first instance of the application—the one that froze—may resume
+    its activity: process the batch of records it recently consumed, and produce the
+    results to the output topic. It can do all that before it polls Kafka for records
+    or sends a heartbeat and discovers that it is supposed to be dead and another
+    instance now owns those partitions.'
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与此同时，第一个应用程序实例——冻结的那个——可能会恢复其活动：处理它最近消费的一批记录，并将结果生成到输出主题。它可以在轮询Kafka记录或发送心跳并发现自己应该死亡并且另一个实例现在拥有这些分区之前完成所有这些操作。
+- en: A consumer that is dead but doesn’t know it is called a zombie. In this scenario,
+    we can see that without additional guarantees, zombies can produce data to the
+    output topic and cause duplicate results.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个死亡但不知道自己已经死亡的消费者被称为僵尸。在这种情况下，我们可以看到，如果没有额外的保证，僵尸可能会向输出主题生成数据，并导致重复的结果。
+- en: How Do Transactions Guarantee Exactly-Once?
+  id: totrans-59
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务如何保证一次性？
+- en: Take our simple stream processing application. It reads data from one topic,
+    processes it, and writes the result to another topic. Exactly-once processing
+    means that consuming, processing, and producing are done *atomically*. Either
+    the offset of the original message is committed and the result is successfully
+    produced or neither of these things happen. We need to make sure that partial
+    results—where the offset is committed but the result isn’t produced, or vice versa—can’t
+    happen.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以我们的简单流处理应用程序为例。它从一个主题中读取数据，处理它，并将结果写入另一个主题。一次性处理意味着消费、处理和生成都是*原子*的。要么原始消息的偏移量被提交，结果被成功生成，要么这两件事都不会发生。我们需要确保部分结果——偏移量已提交但结果未生成，或者反之亦然——不会发生。
+- en: To support this behavior, Kafka transactions introduce the idea of *atomic multipartition
+    writes*. The idea is that committing offsets and producing results both involve
+    writing messages to partitions. However, the results are written to an output
+    topic, and offsets are written to the `_consumer_offsets` topic. If we can open
+    a transaction, write both messages, and commit if both were written successfully—or
+    abort to retry if they were not—we will get the exactly-once semantics that we
+    are after.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了支持这种行为，Kafka事务引入了*原子多分区写*的概念。这个想法是，提交偏移量和生成结果都涉及将消息写入分区。然而，结果被写入输出主题，偏移量被写入`_consumer_offsets`主题。如果我们可以开启一个事务，写入这两条消息，并且如果两者都成功写入则提交，或者中止以重试，我们将得到我们想要的一次性语义。
+- en: '[Figure 8-1](#atomic-write) illustrates a simple stream processing application,
+    performing an atomic multipartition write to two partitions while also committing
+    offsets for the event it consumed.'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图8-1](#atomic-write)说明了一个简单的流处理应用程序，执行原子多分区写入到两个分区，同时提交了它消费的事件的偏移量。'
+- en: '![kdg2 0801](assets/kdg2_0801.png)'
+  id: totrans-63
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 0801](assets/kdg2_0801.png)'
+- en: Figure 8-1\. Transactional producer with atomic multipartition write
+  id: totrans-64
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-1。具有原子多分区写入的事务性生产者
+- en: To use transactions and perform atomic multipartition writes, we use a *transactional
+    producer*. A transactional producer is simply a Kafka producer that is configured
+    with a `transactional.id` and has been initialized using `initTransactions()`.
+    Unlike `producer.id`, which is generated automatically by Kafka brokers, `transactional.id`
+    is part of the producer configuration and is expected to persist between restarts.
+    In fact, the main role of the `transactional.id` is to identify the same producer
+    across restarts. Kafka brokers maintain `transactional.id` to `producer.id` mapping,
+    so if `initTransactions()` is called again with an existing `transactional.id`,
+    the producer will also be assigned the same `producer.id` instead of a new random
+    number.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用事务并执行原子多分区写入，我们使用*事务性生产者*。事务性生产者只是一个配置了`transactional.id`并使用`initTransactions()`进行初始化的Kafka生产者。与Kafka代理自动生成的`producer.id`不同，`transactional.id`是生产者配置的一部分，并且预期在重新启动之间持久存在。事实上，`transactional.id`的主要作用是在重新启动时标识相同的生产者。Kafka代理维护`transactional.id`到`producer.id`的映射，因此如果使用现有的`transactional.id`再次调用`initTransactions()`，生产者将被分配相同的`producer.id`而不是一个新的随机数。
+- en: Preventing zombie instances of the application from creating duplicates requires
+    a mechanism for *zombie fencing*, or preventing zombie instances of the application
+    from writing results to the output stream. The usual way of fencing zombies—using
+    an epoch—is used here. Kafka increments the epoch number associated with a `transactional.id`
+    when `initTransaction()` is invoked to initialize a transactional producer. Send,
+    commit, and abort requests from producers with the same `transactional.id` but
+    lower epochs will be rejected with the `FencedProducer` error. The older producer
+    will not be able to write to the output stream and will be forced to `close()`,
+    preventing the zombie from introducing duplicate records. In Apache Kafka 2.5
+    and later, there is also an option to add consumer group metadata to the transaction
+    metadata. This metadata will also be used for fencing, which will allow producers
+    with different transactional IDs to write to the same partitions while still fencing
+    against zombie instances.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 防止应用程序的僵尸实例创建重复需要一种*僵尸围栏*机制，或者防止应用程序的僵尸实例将结果写入输出流。这里使用的通常的围栏僵尸的方法是使用一个时代。当调用`initTransaction()`初始化事务性生产者时，Kafka会增加与`transactional.id`关联的时代编号。具有相同`transactional.id`但较低时代的生产者的发送、提交和中止请求将被拒绝，并显示`FencedProducer`错误。旧的生产者将无法写入输出流，并将被强制`close()`，防止僵尸实例引入重复记录。在Apache
+    Kafka 2.5及更高版本中，还有一个选项可以将消费者组元数据添加到事务元数据中。这些元数据也将用于围栏，这将允许具有不同事务ID的生产者写入相同的分区，同时仍然防止僵尸实例。
+- en: Transactions are a producer feature for the most part—we create a transactional
+    producer, begin the transaction, write records to multiple partitions, produce
+    offsets in order to mark records as already processed, and commit or abort the
+    transaction. We do all this from the producer. However, this isn’t quite enough—records
+    written transactionally, even ones that are part of transactions that were eventually
+    aborted, are written to partitions just like any other records. Consumers need
+    to be configured with the right isolation guarantees, otherwise we won’t have
+    the exactly-once guarantees we expected.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事务在很大程度上是生产者的一个特性——我们创建一个事务性生产者，开始事务，将记录写入多个分区，生成偏移量以标记记录已经被处理，并提交或中止事务。我们都是从生产者端完成的。然而，这还不够——即使是最终中止的事务中写入的记录，也会像任何其他记录一样写入分区。消费者需要配置正确的隔离保证，否则我们将无法获得预期的一次性保证。
+- en: We control the consumption of messages that were written transactionally by
+    setting the `isolation.level` configuration. If set to `read_committed`, calling
+    `consumer.poll()` after subscribing to a set of topics will return messages that
+    were either part of a successfully committed transaction or that were written
+    nontransactionally; it will not return messages that were part of an aborted transaction
+    or a transaction that is still open. The default `isolation.level` value, `read_uncommitted`,
+    will return all records, including those that belong to open or aborted transactions.
+    Configuring `read_committed` mode does not guarantee that the application will
+    get all messages that are part of a specific transaction. It is possible to subscribe
+    to only a subset of topics that were part of the transaction and therefore get
+    a subset of the messages. In addition, the application can’t know when transactions
+    begin or end, or which messages are part of which transaction.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过设置`isolation.level`配置来控制事务写入的消息的消费。如果设置为`read_committed`，在订阅一组主题后调用`consumer.poll()`将返回成功提交事务的消息或非事务写入的消息；它不会返回已中止事务或仍处于打开状态的事务的消息。默认的`isolation.level`值`read_uncommitted`将返回所有记录，包括属于打开或中止事务的记录。配置`read_committed`模式并不保证应用程序将获得特定事务的所有消息。可能只订阅了事务的一部分主题，因此只会获得消息的一部分。此外，应用程序无法知道事务何时开始或结束，或者哪些消息属于哪个事务。
+- en: '[Figure 8-2](#read-committed) shows which records are visible to a consumer
+    in `read_committed` mode compared to a consumer with the default `read_uncommitted`
+    mode.'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图8-2](#read-committed)显示了以`read_committed`模式的消费者与默认的`read_uncommitted`模式的消费者相比可见的记录。'
+- en: '![kdg2 0802](assets/kdg2_0802.png)'
+  id: totrans-70
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 0802](assets/kdg2_0802.png)'
+- en: Figure 8-2\. Consumers in `read_committed` mode will lag behind consumers with
+    default configuration
+  id: totrans-71
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-2。以`read_committed`模式的消费者将落后于默认配置的消费者
+- en: To guarantee that messages will be read in order, `read_committed` mode will
+    not return messages that were produced after the point when the first still-open
+    transaction began (known as the Last Stable Offset, or LSO). Those messages will
+    be withheld until that transaction is committed or aborted by the producer, or
+    until they reach `transaction.timeout.ms` (default of 15 minutes) and are aborted
+    by the broker. Holding a transaction open for a long duration will introduce higher
+    end-to-end latency by delaying consumers.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了保证消息按顺序读取，“read_committed”模式不会返回在第一个仍处于打开状态的事务开始之后产生的消息（称为最后稳定偏移量或LSO）。这些消息将被保留，直到该事务由生产者提交或中止，或者直到它们达到“transaction.timeout.ms”（默认为15分钟）并被代理中止。保持事务长时间打开将通过延迟消费者引入更高的端到端延迟。
+- en: Our simple stream processing job will have exactly-once guarantees on its output
+    even if the input was written nontransactionally. The atomic multipartition produce
+    guarantees that if the output records were committed to the output topic, the
+    offset of the input records was also committed for that consumer, and as a result
+    the input records will not be processed again.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使输入是非事务写入的，我们简单的流处理作业的输出也将具有一次性保证。原子多分区生产保证，如果输出记录已提交到输出主题，则输入记录的偏移量也已为该消费者提交，因此输入记录将不会再次被处理。
+- en: What Problems Aren’t Solved by Transactions?
+  id: totrans-74
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务解决不了哪些问题？
+- en: As explained earlier, transactions were added to Kafka to provide multipartition
+    atomic writes (but not reads) and to fence zombie producers in stream processing
+    applications. As a result, they provide exactly-once guarantees when used within
+    chains of consume-process-produce stream processing tasks. In other contexts,
+    transactions will either straight-out not work or will require additional effort
+    in order to achieve the guarantees we want.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如前面解释的那样，Kafka添加了事务以提供多分区原子写入（但不是读取）以及在流处理应用程序中隔离僵尸生产者。因此，当在消费-处理-生产流处理任务链中使用时，它们提供了一次性保证。在其他情况下，事务要么根本无法工作，要么需要额外的努力才能实现我们想要的保证。
+- en: The two main mistakes are assuming that exactly-once guarantees apply on actions
+    other than producing to Kafka, and that consumers always read entire transactions
+    and have information about transaction boundaries.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两个主要错误是假设一次性保证适用于除向Kafka生产之外的其他操作，并且消费者始终读取整个事务并具有有关事务边界的信息。
+- en: The following are a few scenarios in which Kafka transactions won’t help achieve
+    exactly-once guarantees.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是一些Kafka事务无法帮助实现一次性保证的情况。
+- en: Side effects while stream processing
+  id: totrans-78
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 流处理时的副作用
+- en: 'Let’s say that the record processing step in our stream processing app includes
+    sending email to users. Enabling exactly-once semantics in our app will not guarantee
+    that the email will only be sent once. The guarantee only applies to records written
+    to Kafka. Using sequence numbers to deduplicate records or using markers to abort
+    or to cancel a transaction works within Kafka, but it will not un-send an email.
+    The same is true for any action with external effects that is performed within
+    the stream processing app: calling a REST API, writing to a file, etc.'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们流处理应用程序中的记录处理步骤包括向用户发送电子邮件。在我们的应用程序中启用一次性语义将不会保证电子邮件只会发送一次。保证仅适用于写入Kafka的记录。使用序列号去重记录或使用标记来中止或取消事务在Kafka内部有效，但不会取消发送的电子邮件。对于在流处理应用程序中执行的具有外部影响的任何操作都是如此：调用REST
+    API，写入文件等。
+- en: Reading from a Kafka topic and writing to a database
+  id: totrans-80
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从Kafka主题读取并写入数据库
+- en: In this case, the application is writing to an external database rather than
+    to Kafka. In this scenario, there is no producer involved—records are written
+    to the database using a database driver (likely JDBC) and offsets are committed
+    to Kafka within the consumer. There is no mechanism that allows writing results
+    to an external database and committing offsets to Kafka within a single transaction.
+    Instead, we could manage offsets in the database (as explained in [Chapter 4](ch04.html#reading_data_from_kafka))
+    and commit both data and offsets to the database in a single transaction—this
+    would rely on the database’s transactional guarantees rather than Kafka’s.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这种情况下，应用程序将写入外部数据库而不是Kafka。在这种情况下，没有生产者参与——记录是使用数据库驱动程序（可能是JDBC）写入数据库的，并且偏移量在消费者内部提交到Kafka。没有机制允许在单个事务内将结果写入外部数据库并将偏移量提交到Kafka。相反，我们可以在数据库中管理偏移量（如[第4章](ch04.html#reading_data_from_kafka)中所述），并在单个事务中提交数据和偏移量到数据库——这将依赖于数据库的事务保证而不是Kafka的。
+- en: Note
+  id: totrans-82
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Microservices often need to update the database *and* publish a message to Kafka
+    within a single atomic transaction, so either both will happen or neither will.
+    As we’ve just explained in the last two examples, Kafka transactions will not
+    do this.
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 微服务通常需要在单个原子事务中更新数据库*并*发布消息到Kafka，因此要么两者都会发生，要么两者都不会发生。正如我们在最后两个示例中所解释的，Kafka事务无法做到这一点。
+- en: A common solution to this common problem is known as the *outbox pattern*. The
+    microservice only publishes the message to a Kafka topic (the “outbox”), and a
+    separate message relay service reads the event from Kafka and updates the database.
+    Because, as we’ve just seen, Kafka won’t guarantee an exactly-once update to the
+    database, it is important to make sure the update is idempotent.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个常见问题的常见解决方案被称为“outbox模式”。微服务只将消息发布到Kafka主题（“outbox”），而单独的消息中继服务从Kafka读取事件并更新数据库。因为正如我们刚才看到的，Kafka不会保证对数据库的一次性更新，因此重要的是确保更新是幂等的。
+- en: Using this pattern guarantees that the message will eventually make it to Kafka,
+    the topic consumers, and the database—or to none of those.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这种模式可以保证消息最终会到达Kafka、主题消费者和数据库，或者一个都不会到达。
+- en: The inverse pattern—where a database table serves as the outbox and a relay
+    service makes sure updates to the table will also arrive to Kafka as messages—is
+    also used. This pattern is preferred when built-in RDBMS constraints, such as
+    uniqueness and foreign keys, are useful. The Debezium project published an [in-depth
+    blog post on the outbox pattern](https://oreil.ly/PB3Vb) with detailed examples.
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 反向模式——其中数据库表用作发件箱，中继服务确保对表的更新也将作为消息到达Kafka——也被使用。当内置的RDBMS约束，如唯一性和外键，是有用的时，这种模式是首选。Debezium项目发布了一篇[关于发件箱模式的深入博客文章](https://oreil.ly/PB3Vb)，其中包含详细的示例。
+- en: Reading data from a database, writing to Kafka, and from there writing to another
+    database
+  id: totrans-87
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从数据库中读取数据，写入Kafka，然后从那里写入另一个数据库
+- en: It is very tempting to believe that we can build an app that will read data
+    from a database, identify database transactions, write the records to Kafka, and
+    from there write records to another database, still maintaining the original transactions
+    from the source database.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 很容易相信我们可以构建一个应用程序，从数据库中读取数据，识别数据库事务，将记录写入Kafka，然后从那里将记录写入另一个数据库，仍然保持源数据库的原始事务。
+- en: 'Unfortunately, Kafka transactions don’t have the necessary functionality to
+    support these kinds of end-to-end guarantees. In addition to the problem with
+    committing both records and offsets within the same transaction, there is another
+    difficulty: `read_committed` guarantees in Kafka consumers are too weak to preserve
+    database transactions. Yes, a consumer will not see records that were not committed.
+    But it is not guaranteed to have seen all the records that were committed within
+    the transaction because it could be lagging on some topics; it has no information
+    to identify transaction boundaries, so it can’t know when a transaction began
+    and ended, and whether it has seen some, none, or all of its records.'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，Kafka事务没有必要的功能来支持这些端到端的保证。除了在同一事务中提交记录和偏移量的问题外，还存在另一个困难：Kafka消费者中的`read_committed`保证对于保留数据库事务来说太弱。是的，消费者不会看到未提交的记录。但它不能保证已经看到了事务中提交的所有记录，因为它可能在某些主题上滞后；它没有信息来识别事务边界，因此无法知道事务何时开始和结束，以及它是否已经看到了一些、没有或所有的记录。
+- en: Copying data from one Kafka cluster to another
+  id: totrans-90
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 从一个Kafka集群复制数据到另一个集群
+- en: This one is more subtle—it is possible to support exactly-once guarantees when
+    copying data from one Kafka cluster to another. There is a description of how
+    this is done in the Kafka improvement proposal for adding [exactly-once capabilities
+    in MirrorMaker 2.0](https://oreil.ly/EoM6w). At the time of this writing, the
+    proposal is still in draft, but the algorithm is clearly described. This proposal
+    includes the guarantee that each record in the source cluster will be copied to
+    the destination cluster exactly once.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这更加微妙——在从一个Kafka集群复制数据到另一个集群时，可以支持精确一次性保证。在Kafka改进提案中描述了如何在[镜像制造者2.0中添加精确一次性功能](https://oreil.ly/EoM6w)。在撰写本文时，该提案仍处于草案阶段，但算法已经清楚描述。该提案包括保证源集群中的每个记录将被精确地复制到目标集群中一次。
+- en: 'However, this does not guarantee that transactions will be atomic. If an app
+    produces several records and offsets transactionally, and then MirrorMaker 2.0
+    copies them to another Kafka cluster, the transactional properties and guarantees
+    will be lost during the copy process. They are lost for the same reason when copying
+    data from Kafka to a relational database: the consumer reading data from Kafka
+    can’t know or guarantee that it is getting all the events in a transaction. For
+    example, it can replicate part of a transaction if it is only subscribed to a
+    subset of the topics.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，这并不保证事务是原子的。如果一个应用程序以事务方式生成多个记录和偏移量，然后MirrorMaker 2.0将它们复制到另一个Kafka集群，事务属性和保证将在复制过程中丢失。当从Kafka复制数据到关系型数据库时，由于消费者从Kafka读取数据时无法知道或保证它是否获取了事务中的所有事件，同样的原因也会丢失。例如，如果只订阅了一部分主题，它可能会复制事务的一部分。
+- en: Publish/subscribe pattern
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 发布/订阅模式
+- en: 'Here’s a slightly more subtle case. We’ve discussed exactly-once in the context
+    of the consume-process-produce pattern, but the publish/subscribe pattern is a
+    very common use case. Using transactions in a publish/subscribe use case provides
+    some guarantees: consumers configured with `read_committed` mode will not see
+    records that were published as part of a transaction that was aborted. But those
+    guarantees fall short of exactly-once. Consumers may process a message more than
+    once, depending on their own offset commit logic.'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是一个稍微微妙的情况。我们已经讨论了在消费-处理-生产模式的上下文中的精确一次性，但发布/订阅模式是一个非常常见的用例。在发布/订阅用例中使用事务提供了一些保证：配置为`read_committed`模式的消费者不会看到作为中止事务的一部分发布的记录。但这些保证还不足以达到精确一次性。消费者可能会根据自己的偏移提交逻辑多次处理消息。
+- en: The guarantees Kafka provides in this case are similar to those provided by
+    JMS transactions but depend on consumers in `read_committed` mode to guarantee
+    that uncommitted transactions will remain invisible. JMS brokers withhold uncommitted
+    transactions from all consumers.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka在这种情况下提供的保证类似于JMS事务提供的保证，但依赖于`read_committed`模式的消费者来保证未提交的事务将保持不可见。JMS代理会向所有消费者隐藏未提交的事务。
+- en: Warning
+  id: totrans-96
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: An important pattern to avoid is publishing a message and then waiting for another
+    application to respond before committing the transaction. The other application
+    will not receive the message until after the transaction was committed, resulting
+    in a deadlock.
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要避免的一个重要模式是发布消息，然后等待另一个应用程序在提交事务之前做出响应。在事务提交之后，其他应用程序将无法接收到消息，导致死锁。
+- en: How Do I Use Transactions?
+  id: totrans-98
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 我如何使用事务？
+- en: Transactions are a broker feature and part of the Kafka protocol, so there are
+    multiple clients that support transactions.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事务是代理功能和Kafka协议的一部分，因此有多个客户端支持事务。
+- en: The most common and most recommended way to use transactions is to enable exactly-once
+    guarantees in Kafka Streams. This way, we will not use transactions directly at
+    all, but rather Kafka Streams will use them for us behind the scenes to provide
+    the guarantees we need. Transactions were designed with this use case in mind,
+    so using them via Kafka Streams is the easiest and most likely to work as expected.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Kafka Streams中启用事务的最常见和最推荐的方法是实现精准一次的保证。这样，我们将根本不直接使用事务，而是Kafka Streams将在幕后使用它们为我们提供所需的保证。事务是为这种用例而设计的，因此通过Kafka
+    Streams使用它们是最简单且最有可能按预期工作的方法。
+- en: To enable exactly-once guarantees for a Kafka Streams application, we simply
+    set the `processing.guarantee` configuration to either `exactly_once` or `exactly_once_​beta`.
+    That’s it.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要为Kafka Streams应用程序启用精确一次的保证，我们只需将`processing.guarantee`配置设置为`exactly_once`或`exactly_once_beta`。就是这样。
+- en: Note
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: '`exactly_once_beta` is a slightly different method of handling application
+    instances that crash or hang with in-flight transactions. This was introduced
+    in release 2.5 to Kafka brokers, and in release 2.6 to Kafka Streams. The main
+    benefit of this method is the ability to handle many partitions with a single
+    transactional producer and therefore create more scalable Kafka Streams applications.
+    There is more information about the changes in the [Kafka improvement proposal
+    where they were first discussed](https://oreil.ly/O3dSA).'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`exactly_once_beta`是一种稍微不同的处理应用实例崩溃或挂起的方法，它在发布2.5中引入到Kafka代理中，在发布2.6中引入到Kafka
+    Streams中。这种方法的主要优点是能够使用单个事务性生产者处理多个分区，从而创建更可扩展的Kafka Streams应用程序。有关这些更改的更多信息，请参阅[Kafka改进提案](https://oreil.ly/O3dSA)。'
+- en: 'But what if we want exactly-once guarantees without using Kafka Streams? In
+    this case we will use transactional APIs directly. Here’s a snippet showing how
+    this will work. There is a full example in the Apache Kafka GitHub, which includes
+    a [demo driver](https://oreil.ly/45dE4) and a [simple exactly-once processor](https://oreil.ly/CrXHU)
+    that runs in separate threads:'
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，如果我们想要在不使用Kafka Streams的情况下实现精确一次的保证呢？在这种情况下，我们将直接使用事务性API。以下是一个显示这将如何工作的片段。在Apache
+    Kafka GitHub中有一个完整的示例，其中包括一个[演示驱动程序](https://oreil.ly/45dE4)和一个[简单的精确一次处理器](https://oreil.ly/CrXHU)，它们在单独的线程中运行：
+- en: '[PRE0]'
+  id: totrans-105
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '[![1](assets/1.png)](#co_exactly_once_semantics_CO1-1)'
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![1](assets/1.png) (#co_exactly_once_semantics_CO1-1)'
+- en: Configuring a producer with `transactional.id` makes it a transactional producer
+    capable of producing atomic multipartition writes. The transactional ID must be
+    unique and long-lived. Essentially it defines an instance of the application.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`transactional.id`配置生产者使其成为能够生成原子多分区写入的事务性生产者。事务ID必须是唯一且长期存在的。它本质上定义了应用程序的一个实例。
+- en: '[![2](assets/2.png)](#co_exactly_once_semantics_CO1-2)'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![2](assets/2.png) (#co_exactly_once_semantics_CO1-2)'
+- en: Consumers that are part of the transactions don’t commit their own offsets—the
+    producer writes offsets as part of the transaction. So offset commit should be
+    disabled.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为事务的一部分的消费者不提交自己的偏移量——生产者在事务的一部分写入偏移量。因此，偏移提交应该被禁用。
+- en: '[![3](assets/3.png)](#co_exactly_once_semantics_CO1-3)'
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![3](assets/3.png) (#co_exactly_once_semantics_CO1-3)'
+- en: In this example, the consumer reads from an input topic. We will assume that
+    the records in the input topic were also written by a transactional producer (just
+    for fun—there is no such requirement for the input). To read transactions cleanly
+    (i.e., ignore in-flight and aborted transactions), we will set the consumer isolation
+    level to `read_committed`. Note that the consumer will still read nontransactional
+    writes, in addition to reading committed transactions.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个例子中，消费者从一个输入主题中读取。我们将假设输入主题中的记录也是由一个事务性生产者写入的（只是为了好玩——对于输入并没有这样的要求）。为了干净地读取事务（即忽略正在进行中和已中止的事务），我们将把消费者隔离级别设置为`read_committed`。请注意，消费者仍然会读取非事务性写入，除了读取已提交的事务。
+- en: '[![4](assets/4.png)](#co_exactly_once_semantics_CO1-4)'
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![4](assets/4.png) (#co_exactly_once_semantics_CO1-4)'
+- en: The first thing a transactional producer must do is initialize. This registers
+    the transactional ID, bumps up the epoch to guarantee that other producers with
+    the same ID will be considered zombies, and aborts older in-flight transactions
+    from the same transactional ID.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事务性生产者必须做的第一件事是初始化。这会注册事务ID，增加时代以保证具有相同ID的其他生产者将被视为僵尸，并中止来自相同事务ID的旧的正在进行中的事务。
+- en: '[![5](assets/5.png)](#co_exactly_once_semantics_CO1-5)'
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![5](assets/5.png) (#co_exactly_once_semantics_CO1-5)'
+- en: Here we are using the `subscribe` consumer API, which means that partitions
+    assigned to this instance of the application can change at any point as a result
+    of rebalance. Prior to release 2.5, which introduced API changes from KIP-447,
+    this was much more challenging. Transactional producers had to be statically assigned
+    a set of partitions, because the transaction fencing mechanism relied on the same
+    transactional ID being used for the same partitions (there was no zombie fencing
+    protection if the transactional ID changed). KIP-447 added new APIs, used in this
+    example, that attach consumer-group information to the transaction, and this information
+    is used for fencing. When using this method, it also makes sense to commit transactions
+    whenever the related partitions are revoked.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们使用`subscribe`消费者API，这意味着分配给应用程序实例的分区可能会因重新平衡而在任何时候发生变化。在发布2.5之前，这是更具挑战性的。事务性生产者必须静态地分配一组分区，因为事务围栏机制依赖于相同的事务ID用于相同的分区（如果事务ID更改，则没有僵尸围栏保护）。KIP-447添加了新的API，用于此示例中，它将消费者组信息附加到事务中，并且此信息用于围栏。使用此方法时，当相关分区被撤销时，提交事务也是有意义的。
+- en: '[![6](assets/6.png)](#co_exactly_once_semantics_CO1-6)'
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '![6](assets/6.png) (#co_exactly_once_semantics_CO1-6)'
+- en: We consumed records, and now we want to process them and produce results. This
+    method guarantees that everything that is produced from the time it was called,
+    until the transaction is either committed or aborted, is part of a single atomic
+    transaction.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们消费了记录，现在我们想要处理它们并产生结果。这种方法保证了从调用它的时间开始，直到事务被提交或中止，产生的所有内容都是作为单个原子事务的一部分。
+- en: '[![7](assets/7.png)](#co_exactly_once_semantics_CO1-7)'
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![7](assets/7.png)](#co_exactly_once_semantics_CO1-7)'
+- en: This is where we process the records—all our business logic goes here.
+  id: totrans-119
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是我们处理记录的地方——所有的业务逻辑都在这里。
+- en: '[![8](assets/8.png)](#co_exactly_once_semantics_CO1-8)'
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![8](assets/8.png)](#co_exactly_once_semantics_CO1-8)'
+- en: As we explained earlier in the chapter, it is important to commit the offsets
+    as part of the transaction. This guarantees that if we fail to produce results,
+    we won’t commit the offsets for records that were not, in fact, processed. This
+    method commits offsets as part of the transaction. Note that it is important not
+    to commit offsets in any other way—disable offset auto-commit, and don’t call
+    any of the consumer commit APIs. Committing offsets by any other method does not
+    provide transactional guarantees.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在本章前面解释的那样，将偏移量作为事务的一部分进行提交非常重要。这可以确保如果我们未能产生结果，我们不会提交那些实际上未被处理的记录的偏移量。这种方法将偏移量作为事务的一部分进行提交。请注意，重要的是不要以任何其他方式提交偏移量——禁用偏移自动提交，并且不要调用任何消费者提交API。通过任何其他方法提交偏移量都无法提供事务性保证。
+- en: '[![9](assets/9.png)](#co_exactly_once_semantics_CO1-9)'
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![9](assets/9.png)](#co_exactly_once_semantics_CO1-9)'
+- en: We produced everything we needed, we committed offsets as part of the transaction,
+    and it is time to commit the transaction and seal the deal. Once this method returns
+    successfully, the entire transaction has made it through, and we can continue
+    to read and process the next batch of events.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们产生了我们需要的一切，我们将偏移量作为事务的一部分进行了提交，现在是时候提交事务并敲定交易了。一旦这个方法成功返回，整个事务就完成了，我们可以继续读取和处理下一批事件。
+- en: '[![10](assets/10.png)](#co_exactly_once_semantics_CO1-10)'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![10](assets/10.png)](#co_exactly_once_semantics_CO1-10)'
+- en: If we got this exception, it means we are the zombie. Somehow our application
+    froze or disconnected, and there is a newer instance of the app with our transactional
+    ID running. Most likely the transaction we started has already been aborted and
+    someone else is processing those records. Nothing to do but die gracefully.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们遇到了这个异常，这意味着我们是僵尸。不知何故，我们的应用程序冻结或断开连接，而有一个具有我们事务ID的新应用程序实例正在运行。很可能我们启动的事务已经被中止，其他人正在处理这些记录。除了优雅地死去外，没有别的办法。
+- en: '[![11](assets/11.png)](#co_exactly_once_semantics_CO1-11)'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![11](assets/11.png)](#co_exactly_once_semantics_CO1-11)'
+- en: If we got an error while writing a transaction, we can abort the transaction,
+    set the consumer position back, and try again.
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在写入事务时出现错误，我们可以中止事务，将消费者位置设置回去，然后重试。
+- en: Transactional IDs and Fencing
+  id: totrans-128
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务ID和围栏
+- en: Choosing the transactional ID for producers is important and a bit more challenging
+    than it seems. Assigning the transactional ID incorrectly can lead to either application
+    errors or loss of exactly-once guarantees. The key requirements are that the transactional
+    ID will be consistent for the same instance of the application between restarts
+    and is different for different instances of the application, otherwise the brokers
+    will not be able to fence off zombie instances.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为生产者选择事务ID非常重要，比看起来更具挑战性。错误地分配事务ID可能导致应用程序错误或丢失精确一次性保证。关键要求是事务ID在应用程序的相同实例之间重启时保持一致，并且对于应用程序的不同实例是不同的，否则代理将无法将僵尸实例围栏起来。
+- en: Until release 2.5, the only way to guarantee fencing was to statically map the
+    transactional ID to partitions. This guaranteed that each partition will always
+    be consumed with the same transactional ID. If a producer with transactional ID
+    A processed messages from topic T and lost connectivity, and the new producer
+    that replaces it has transactional ID B, and later producer A comes back as a
+    zombie, zombie A will not be fenced because the ID doesn’t match that of the new
+    producer B. We want producer A to always be replaced by producer A, and the new
+    producer A will have a higher epoch number and zombie A will be properly fenced
+    away. In those releases, the previous example would be incorrect—transactional
+    IDs are assigned randomly to threads without making sure the same transactional
+    ID is always used to write to the same partition.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在2.5版本之前，保证围栏的唯一方法是将事务ID静态映射到分区。这可以保证每个分区始终使用相同的事务ID进行消费。如果具有事务ID A的生产者处理了来自主题T的消息并丢失了连接，替换它的新生产者具有事务ID
+    B，稍后生产者A作为僵尸回来，僵尸A将不会被围栏，因为ID与新生产者B不匹配。我们希望生产者A始终被生产者A替换，新的生产者A将具有更高的时代编号，僵尸A将被正确地围栏。在这些版本中，先前的示例将是不正确的——事务ID会随机分配给线程，而不会确保始终使用相同的事务ID写入同一分区。
+- en: In Apache Kafka 2.5, KIP-447 introduced a second method of fencing based on
+    consumer group metadata for fencing in addition to transactional IDs. We use the
+    producer offset commit method and pass as an argument the consumer group metadata
+    rather than just the consumer group ID.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Apache Kafka 2.5中，KIP-447引入了基于消费者组元数据的围栏的第二种方法，用于除了事务ID之外的围栏。我们使用生产者偏移量提交方法，并将消费者组元数据作为参数传递，而不仅仅是消费者组ID。
+- en: Let’s say that we have topic T1 with two partitions, t-0 and t-1\. Each is consumed
+    by a separate consumer in the same group; each consumer passes records to a matching
+    transactional producer—one with transactional ID A and the other with transactional
+    ID B; and they are writing output to topic T2 partitions 0 and 1, respectively.
+    [Figure 8-3](#transaction-processor) illustrates this scenario.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们有一个名为T1的主题，有两个分区t-0和t-1。每个分区都由同一组中的不同消费者消费；每个消费者将记录传递给匹配的事务性生产者——一个具有事务ID
+    A，另一个具有事务ID B；它们分别将输出写入到主题T2的分区0和1。[图8-3](#transaction-processor)说明了这种情况。
+- en: '![kdg2 0803](assets/kdg2_0803.png)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 0803](assets/kdg2_0803.png)'
+- en: Figure 8-3\. Transactional record processor
+  id: totrans-134
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-3。事务记录处理器
+- en: As illustrated in [Figure 8-4](#transaction-processor-2), if the application
+    instance with consumer A and producer A becomes a zombie, consumer B will start
+    processing records from both partitions. If we want to guarantee that no zombies
+    write to partition 0, consumer B can’t just start reading from partition 0 and
+    writing to partition 0 with transactional ID B. Instead the application will need
+    to instantiate a new producer, with transactional ID A, to safely write to partition
+    0 and fence the old transactional ID A. This is wasteful. Instead, we include
+    the consumer group information in the transactions. Transactions from producer
+    B will show that they are from a newer generation of the consumer group, and therefore
+    they will go through, while transactions from the now-zombie producer A will show
+    an old generation of the consumer group and will be fenced.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[图8-4](#transaction-processor-2)所示，如果具有消费者A和生产者A的应用实例变成僵尸，消费者B将开始处理来自两个分区的记录。如果我们想要保证没有僵尸写入分区0，消费者B不能只是开始从分区0读取并使用事务ID
+    B写入分区0。相反，应用程序将需要实例化一个新的生产者，使用事务ID A，以安全地写入分区0并隔离旧的事务ID A。这是浪费的。相反，我们在事务中包括消费者组信息。来自生产者B的事务将显示它们来自消费者组的新一代，因此它们将通过，而来自现在僵尸的生产者A的事务将显示消费者组的旧一代，并将被隔离。
+- en: '![kdg2 0804](assets/kdg2_0804.png)'
+  id: totrans-136
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 0804](assets/kdg2_0804.png)'
+- en: Figure 8-4\. Transactional record processor after a rebalance
+  id: totrans-137
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图8-4。重新平衡后的事务记录处理器
+- en: How Transactions Work
+  id: totrans-138
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 事务如何工作
+- en: We can use transactions by calling the APIs without understanding how they work.
+    But having some mental model of what is going on under the hood will help us troubleshoot
+    applications that do not behave as expected.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以通过调用API来使用事务，而无需了解它们的工作原理。但是，对于不符合预期行为的应用程序，了解底层发生的事情会有助于我们进行故障排除。
+- en: 'The basic algorithm for transactions in Kafka was inspired by Chandy-Lamport
+    snapshots, in which “marker” control messages are sent into communication channels,
+    and consistent state is determined based on the arrival of the marker. Kafka transactions
+    use marker messages to indicate that transactions are committed or aborted across
+    multiple partitions—when the producer decides to commit a transaction, it sends
+    a “commit” message to the transaction coordinator, which then writes commit markers
+    to all partitions involved in a transaction. But what happens if the producer
+    crashes after only writing commit messages to a subset of the partitions? Kafka
+    transactions solve this by using two-phase commit and a transaction log. At a
+    high level, the algorithm will:'
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka中事务的基本算法受到了Chandy-Lamport快照的启发，其中“标记”控制消息被发送到通信通道中，并且基于标记的到达确定一致状态。Kafka事务使用标记消息来指示跨多个分区的事务是已提交还是已中止——当生产者决定提交事务时，它向事务协调者发送一个“提交”消息，然后事务协调者将提交标记写入涉及事务的所有分区。但是，如果生产者在仅向部分分区写入提交消息后崩溃会发生什么？Kafka事务通过使用两阶段提交和事务日志来解决这个问题。在高层次上，该算法将：
+- en: Log the existence of an ongoing transaction, including the partitions involved
+  id: totrans-141
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 记录正在进行的事务的存在，包括涉及的分区
+- en: Log the intent to commit or abort—once this is logged, we are doomed to commit
+    or abort eventually
+  id: totrans-142
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 记录提交或中止的意图——一旦记录了这一点，我们注定要最终提交或中止
+- en: Write all the transaction markers to all the partitions
+  id: totrans-143
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 将所有事务标记写入所有分区
+- en: Log the completion of the transaction
+  id: totrans-144
+  prefs:
+  - PREF_OL
+  type: TYPE_NORMAL
+  zh: 记录事务的完成
+- en: To implement this basic algorithm, Kafka needs a transaction log. We use an
+    internal topic called `__transaction_state`.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了实现这个基本算法，Kafka需要一个事务日志。我们使用一个名为`__transaction_state`的内部主题。
+- en: Let’s see how this algorithm works in practice by going through the inner workings
+    of the transactional API calls we’ve used in the preceding code snippet.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过查看我们在前面的代码片段中使用的事务API调用的内部工作，让我们看看这个算法是如何在实践中工作的。
+- en: Before we begin the first transaction, producers need to register as transactional
+    by calling `initTransaction()`. This request is sent to a broker that will be
+    the *transaction coordinator* for this transactional producer. Each broker is
+    the transactional coordinator for a subset of the producers, just like each broker
+    is the consumer group coordinator for a subset of the consumer groups. The transaction
+    coordinator for each transactional ID is the leader of the partition of the transaction
+    log the transactional ID is mapped to.
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在开始第一个事务之前，生产者需要通过调用`initTransaction()`来注册为事务性。这个请求被发送到一个代理，这个代理将是这个事务性生产者的*事务协调者*。每个代理都是一组生产者的事务协调者的一部分，就像每个代理都是一组消费者的消费者组协调者的一部分一样。每个事务ID的事务协调者是事务日志的分区的领导者。
+- en: The `initTransaction()` API registers a new transactional ID with the coordinator,
+    or increments the epoch of an existing transactional ID in order to fence off
+    previous producers that may have become zombies. When the epoch is incremented,
+    pending transactions will be aborted.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`initTransaction()` API向协调者注册一个新的事务ID，或者增加现有事务ID的时代，以隔离可能已经变成僵尸的先前生产者。当时代增加时，挂起的事务将被中止。'
+- en: The next step for the producer is to call `beginTransaction()`. This API call
+    isn’t part of the protocol—it simply tells the producer that there is now a transaction
+    in progress. The transaction coordinator on the broker side is still unaware that
+    the transaction began. However, once the producer starts sending records, each
+    time the producer detects that it is sending records to a new partition, it will
+    also send `Add​Par⁠titionsToTxnRequest` to the broker informing it that there
+    is a transaction in progress for this producer, and that additional partitions
+    are part of the transaction. This information will be recorded in the transaction
+    log.
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产者的下一步是调用`beginTransaction()`。这个API调用不是协议的一部分——它只是告诉生产者现在有一个正在进行的事务。代理端的事务协调者仍然不知道事务已经开始。然而，一旦生产者开始发送记录，每次生产者检测到自己正在向一个新的分区发送记录时，它还会向代理发送`Add​Par⁠titionsToTxnRequest`，通知它这个生产者正在进行一个事务，并且额外的分区是事务的一部分。这些信息将被记录在事务日志中。
+- en: When we are done producing results and are ready to commit, we start by committing
+    offsets for the records we’ve processed in this transaction. Committing offsets
+    can be done at any time but must be done before the transaction is committed.
+    Calling `sendOffsetsToTransaction()` will send a request to the transaction coordinator
+    that includes the offsets and also the consumer group ID. The transaction coordinator
+    will use the consumer group ID to find the group coordinator and commit the offsets
+    as a consumer group normally would.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们完成生成结果并准备提交时，我们首先要为此事务中已处理的记录提交偏移量。可以在任何时候提交偏移量，但必须在提交事务之前完成。调用`sendOffsetsToTransaction()`将向事务协调器发送一个请求，其中包括偏移量和消费者组ID。事务协调器将使用消费者组ID来查找组协调器，并像消费者组一样提交偏移量。
+- en: Now it is time to commit—or abort. Calling `commitTransaction()` or `abort​Transac⁠tion()`
+    will send an `EndTransactionRequest` to the transaction coordinator. The transaction
+    coordinator will log the commit or abort intention to the transaction log. Once
+    this step is successful, it is the transaction coordinator’s responsibility to
+    complete the commit (or abort) process. It writes a commit marker to all the partitions
+    involved in the transaction, then writes to the transaction log that the commit
+    completed successfully. Note that if the transaction coordinator shuts down or
+    crashes after logging the intention to commit and before completing the process,
+    a new transaction coordinator will be elected, pick up the intent to commit from
+    the transaction log, and complete the process.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在是时候提交或中止了。调用`commitTransaction()`或`abortTransaction()`将向事务协调器发送一个`EndTransactionRequest`。事务协调器将提交或中止意图记录到事务日志中。一旦此步骤成功，事务协调器就有责任完成提交（或中止）过程。它会向涉及事务的所有分区写入提交标记，然后写入事务日志，表明提交已成功完成。请注意，如果事务协调器在记录提交意图后关闭或崩溃，将会选举新的事务协调器，从事务日志中获取提交意图，并完成该过程。
+- en: If a transaction is not committed or aborted within `transaction.timeout.ms`,
+    the transaction coordinator will abort it automatically.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果在`transaction.timeout.ms`内未提交或中止事务，事务协调器将自动中止它。
+- en: Warning
+  id: totrans-153
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: 'Each broker that receives records from transactional or idempotent producers
+    will store the producer/transactional IDs in memory, together with related state
+    for each of the last five batches sent by the producer: sequence numbers, offsets,
+    and such. This state is stored for `transactional.id.expiration.ms` milliseconds
+    after the producer stopped being active (seven days by default). This allows the
+    producer to resume activity without running into `UNKNOWN_PRODUCER_ID` errors.
+    It is possible to cause something similar to a memory leak in the broker by creating
+    new idempotent producers or new transactional IDs at a very high rate but never
+    reusing them. Three new idempotent producers per second, accumulated over the
+    course of a week, will result in 1.8 million producer state entries with a total
+    of 9 million batch metadata stored, using around 5 GB RAM. This can cause out-of-memory
+    or severe garbage collection issues on the broker. We recommend architecting the
+    application to initialize a few long-lived producers when the application starts
+    up, and then reuse them for the lifetime of the application. If this isn’t possible
+    (Function as a Service makes this difficult), we recommend lowering `transactional.id.​expira⁠tion.ms`
+    so the IDs will expire faster, and therefore old state that will never be reused
+    won’t take up a significant part of the broker memory.'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个从事事务性或幂等性生产者接收记录的经纪人都会将生产者/事务性ID与生产者发送的最后五个批次的相关状态一起存储在内存中：序列号、偏移量等。在生产者停止活动后（默认为七天），此状态将存储`transactional.id.expiration.ms`毫秒。这允许生产者在不遇到“UNKNOWN_PRODUCER_ID”错误的情况下恢复活动。通过以非常高的速率创建新的幂等性生产者或新的事务性ID但从不重用它们，可能会导致经纪人出现类似内存泄漏的情况。在一周的时间内累积每秒三个新的幂等性生产者，将导致180万个生产者状态条目，总共存储了900万个批次元数据，占用大约5GB的RAM。这可能会导致经纪人出现内存不足或严重的垃圾回收问题。我们建议在应用程序启动时初始化一些长期存在的生产者，然后在应用程序的整个生命周期内重复使用它们。如果这不可能（作为服务的功能会使这变得困难），我们建议降低`transactional.id.expiration.ms`，以便ID会更快地过期，因此永远不会被重用的旧状态不会占用经纪人内存的重要部分。
+- en: Performance of Transactions
+  id: totrans-155
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 交易的性能
+- en: Transactions add moderate overhead to the producer. The request to register
+    transactional ID occurs once in the producer lifecycle. Additional calls to register
+    partitions as part of a transaction happen at most one per partition for each
+    transaction, then each transaction sends a commit request, which causes an extra
+    commit marker to be written on each partition. The transactional initialization
+    and transaction commit requests are synchronous, so no data will be sent until
+    they complete successfully, fail, or time out, which further increases the overhead.
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 事务会给生产者增加适度的开销。在生产者生命周期中，注册事务ID的请求只会发生一次。作为事务的一部分注册分区的额外调用最多每个分区一次，然后每个事务发送一个提交请求，这会导致在每个分区上写入额外的提交标记。事务初始化和事务提交请求是同步的，因此在它们成功完成、失败或超时之前不会发送任何数据，这会进一步增加开销。
+- en: Note that the overhead of transactions on the producer is independent of the
+    number of messages in a transaction. So a larger number of messages per transaction
+    will both reduce the relative overhead and reduce the number of synchronous stops,
+    resulting in higher throughput overall.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，生产者的事务开销与事务中的消息数量无关。因此，每个事务中的消息数量增加会减少相对开销，并减少同步停止的次数，从而提高整体吞吐量。
+- en: On the consumer side, there is some overhead involved in reading commit markers.
+    The key impact that transactions have on consumer performance is introduced by
+    the fact that consumers in `read_committed` mode will not return records that
+    are part of an open transaction. Long intervals between transaction commits mean
+    that the consumer will need to wait longer before returning messages, and as a
+    result, end-to-end latency will increase.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在消费者方面，阅读提交标记涉及一些开销。事务对消费者性能的主要影响是由于“读取提交”模式下的消费者不会返回属于未提交事务的记录。事务提交之间的长时间间隔意味着消费者需要等待更长时间才能返回消息，结果端到端的延迟会增加。
+- en: Note, however, that the consumer does not need to buffer messages that belong
+    to open transactions. The broker will not return those in response to fetch requests
+    from the consumer. Since there is no extra work for the consumer when reading
+    transactions, there is no decrease in throughput either.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，需要注意的是，消费者不需要缓冲属于未提交事务的消息。代理不会在响应消费者的抓取请求时返回这些消息。由于消费者在读取事务时没有额外的工作，因此吞吐量也不会减少。
+- en: Summary
+  id: totrans-160
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: 'Exactly-once semantics in Kafka is the opposite of chess: it is challenging
+    to understand but easy to use.'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Kafka中的确切一次语义与国际象棋相反：它很难理解，但易于使用。
+- en: 'This chapter covered the two key mechanisms that provide exactly-once guarantees
+    in Kafka: idempotent producer, which avoids duplicates that are caused by the
+    retry mechanism, and transactions, which form the basis of exactly-once semantics
+    in Kafka Streams.'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章涵盖了在Kafka中提供确切一次保证的两个关键机制：幂等生产者，它避免了重试机制引起的重复，以及事务，它构成了Kafka Streams中确切一次语义的基础。
+- en: Both can be enabled in a single configuration and allow us to use Kafka for
+    applications that require fewer duplicates and stronger correctness guarantees.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两者可以在单个配置中启用，并允许我们将Kafka用于需要更少重复和更强正确性保证的应用程序。
+- en: We discussed in depth specific scenarios and use cases to show the expected
+    behavior, and even looked at some of the implementation details. Those details
+    are important when troubleshooting applications or when using transactional APIs
+    directly.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们深入讨论了特定场景和用例，展示了预期的行为，甚至查看了一些实现细节。当故障排除应用程序或直接使用事务API时，这些细节是重要的。
+- en: By understanding what Kafka’s exactly-once semantics guarantee in which use
+    case, we can design applications that will use exactly-once when necessary. Application
+    behavior should not be surprising, and the information in this chapter will help
+    us avoid surprises.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过了解Kafka在哪些用例中确切的一次语义保证，我们可以设计应用程序在必要时使用确切一次。应用程序行为不应该令人惊讶，本章中的信息将帮助我们避免意外。

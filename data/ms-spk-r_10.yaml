@@ -1,0 +1,1802 @@
+- en: Chapter 9\. Tuning
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第9章 调优
+- en: Chaos isn’t a pit. Chaos is a ladder.
+  id: totrans-1
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 混乱不是一个坑。混乱是一把梯子。
+- en: ''
+  id: totrans-2
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+- en: —Petyr Baelish
+  id: totrans-3
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: — 佩蒂尔·贝利希
+- en: In previous chapters, we’ve assumed that computation within a Spark cluster
+    works efficiently. While this is true in some cases, it is often necessary to
+    have some knowledge of the operations Spark runs internally to fine-tune configuration
+    settings that will make computations run efficiently. This chapter explains how
+    Spark computes data over large datasets and provides details on how to optimize
+    its operations.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在之前的章节中，我们假设 Spark 集群内的计算效率高。虽然在某些情况下这是正确的，但通常需要对 Spark 内部运行的操作有所了解，以微调配置设置，使计算能够高效运行。本章解释了
+    Spark 如何处理大数据集的数据计算，并提供了优化操作的详细信息。
+- en: For instance, in this chapter you’ll learn how to request more compute nodes
+    and increase the amount of memory, which, if you remember from [Chapter 2](ch02.html#starting),
+    defaults to only 2 GB in local instances. You will learn how Spark unifies computation
+    through partitioning, shuffling, and caching. As mentioned a few chapters back,
+    this is the last chapter describing the internals of Spark; after you complete
+    this chapter, we believe that you will have the intermediate Spark skills necessary
+    to be productive at using Spark.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在本章中，您将学习如何请求更多的计算节点和增加内存量，这些内容您可以从 [第2章](ch02.html#starting) 中了解，默认情况下在本地实例中仅为
+    2 GB。您将了解到 Spark 如何通过分区、洗牌和缓存统一计算。正如几章前提到的，这是描述 Spark 内部的最后一章；在您完成本章之后，我们相信您将具备使用
+    Spark 所需的中级技能。
+- en: In Chapters [10](ch10.html#extensions)–[12](ch12.html#streaming) we explore
+    exciting techniques to deal with specific modeling, scaling, and computation problems.
+    However, we must first understand how Spark performs internal computations, what
+    pieces we can control, and why.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第 [10](ch10.html#extensions)–[12](ch12.html#streaming) 章中，我们探讨了处理特定建模、扩展和计算问题的激动人心的技术。然而，我们必须首先了解
+    Spark 如何执行内部计算，我们可以控制哪些部分，以及原因。
+- en: Overview
+  id: totrans-7
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 概述
+- en: 'Spark performs distributed computation by configuring, partitioning, executing,
+    shuffling, caching, and serializing data, tasks, and resources across multiple
+    machines:'
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 通过配置、分区、执行、洗牌、缓存和序列化数据、任务和资源在多台机器上执行分布式计算：
+- en: '[*Configuring*](#tuning-configuring) requests the cluster manager for resources:
+    total machines, memory, and so on.'
+  id: totrans-9
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*配置*](#tuning-configuring) 请求集群管理器获取资源：总机器数、内存等。'
+- en: '[*Partitioning*](#tuning-configuring) splits the data among various machines.
+    Partitions can be either implicit or explicit.'
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*分区*](#tuning-configuring) 将数据分割到各种机器中。分区可以是隐式的也可以是显式的。'
+- en: '[*Executing*](#tuning-configuring) means running an arbitrary transformation
+    over each partition.'
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*执行*](#tuning-configuring) 意味着对每个分区运行任意转换。'
+- en: '[*Shuffling*](#tuning-configuring) redistributes data to the correct machine.'
+  id: totrans-12
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*洗牌*](#tuning-configuring) 重新分配数据到正确的机器上。'
+- en: '[*Caching*](#tuning-configuring) preserves data in memory across different
+    computation cycles.'
+  id: totrans-13
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*缓存*](#tuning-configuring) 在不同的计算周期中保留内存中的数据。'
+- en: '[*Serializing*](#tuning-serialization) transforms data to be sent over the
+    network to other workers or back to the driver node.'
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '[*序列化*](#tuning-serialization) 将数据转换为可以发送到其他工作节点或返回到驱动节点的网络数据。'
+- en: 'To illustrate each concept, let’s create three partitions with unordered integers
+    and then sort them using `arrange()`:'
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明每个概念，让我们创建三个包含无序整数的分区，然后使用 `arrange()` 进行排序：
+- en: '[PRE0]'
+  id: totrans-16
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: '[Figure 9-1](#tuning-overview) shows how this sorting *job* would conceptually
+    work across a cluster of machines. First, Spark would *configure* the cluster
+    to use three worker machines. In this example, the numbers `1` through `9` are
+    partitioned across three storage instances. Since the *data* is already partitioned,
+    each worker node loads this implicit *partition*; for instance, `4`, `9`, and
+    `1` are loaded in the first worker node. Afterward, a *task* is distributed to
+    each worker to apply a transformation to each data partition in each worker node;
+    this task is denoted by `f(x)`. In this example, `f(x)` *executes* a sorting operation
+    within a partition. Since Spark is general, execution over a partition can be
+    as simple or complex as needed.'
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 9-1](#tuning-overview) 显示了这个排序 *作业* 在一个机器集群中如何概念上运行。首先，Spark 将 *配置* 集群以使用三台工作机器。在本例中，数字
+    `1` 到 `9` 被分区到三个存储实例中。由于 *数据* 已经被分区，每个工作节点加载这个隐式 *分区*；例如，第一个工作节点加载了 `4`、`9` 和
+    `1`。然后，一个 *任务* 被分发到每个工作节点，以在每个工作节点中的每个数据分区应用一个转换；这个任务用 `f(x)` 表示。在这个例子中，`f(x)`
+    *执行* 了一个排序操作在一个分区内。由于 Spark 是通用的，对分区的执行可以根据需要简单或复杂。'
+- en: The result is then *shuffled* to the correct machine to finish the sorting operation
+    across the entire dataset, which completes a stage. A *stage* is a set of operations
+    that Spark can execute without shuffling data between machines. After the data
+    is sorted across the cluster, the sorted results can be optionally *cached* in
+    memory to avoid rerunning this computation multiple times.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 理解给定操作（例如排序）的 Spark 计算图的最佳方法是在 [Spark 的 Web 界面](ch02.html#starting-spark-web-interface)
+    的 SQL 选项卡上打开最后 *完成的查询*。 [图 9-2](#tuning-graph-sql-render) 显示了此排序操作的结果图，其中包含以下操作：
+- en: Finally, a small subset of the results is *serialized*, through the network
+    connecting the cluster machines, back to the driver node to print a preview of
+    this sorting example.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，一小部分结果通过连接集群机器的网络 *串行化*，返回到驱动节点，以预览此排序示例。
+- en: Notice that while [Figure 9-1](#tuning-overview) describes a sorting operation,
+    a similar approach applies to filtering or joining datasets and analyzing and
+    modeling data at scale. Spark provides support to perform custom partitions, custom
+    shuffling, and so on, but most of these lower-level operations are not exposed
+    in `sparklyr`; instead, `sparklyr` makes those operations available through higher-level
+    commands provided by data [analysis](ch03.html#analysis) tools like `dplyr` or
+    `DBI`, [modeling](ch04.html#modeling), and by using many [extensions](ch10.html#extensions).
+    For those few cases in which you might need to implement low-level operations,
+    you can always use Spark’s Scala API through `sparklyr` extensions or run custom
+    [distributed R](ch11.html#distributed) code.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，虽然 [图 9-1](#tuning-overview) 描述了一个排序操作，但类似的方法也适用于过滤或连接数据集，并在规模上进行数据分析和建模。Spark
+    提供支持来执行自定义分区、自定义洗牌等操作，但这些较低级别的操作大多数不会通过 `sparklyr` 暴露出来；相反，`sparklyr` 通过数据 [分析](ch03.html#analysis)
+    工具如 `dplyr` 或 `DBI`，[建模](ch04.html#modeling)以及使用许多 [扩展](ch10.html#extensions)，使这些操作可通过更高级别的命令使用。
+- en: To effectively tune Spark, we will start by getting familiar with Spark’s computation
+    [*graph*](#tuning-graph-visualization) and Spark’s event [*timeline*](#tuning-event-timeline).
+    Both are accessible through [Spark’s web interface](ch02.html#starting-spark-web-interface).
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要有效地调整 Spark，我们将首先熟悉 Spark 的计算 [*图*](#tuning-graph-visualization) 和 Spark 的事件
+    [*时间线*](#tuning-event-timeline)。这两者都可以通过 [Spark 的 Web 界面](ch02.html#starting-spark-web-interface)
+    访问。
+- en: '![Sorting distributed data with Apache Spark](assets/mswr_0901.png)'
+  id: totrans-22
+  prefs: []
+  type: TYPE_IMG
+  zh: 然后将结果 *洗牌* 到正确的机器上完成整个数据集的排序操作，这完成了一个阶段。一个 *阶段* 是 Spark 可以在不同机器之间传输数据的一组操作。在数据在集群中排序之后，可以选择将排序后的结果
+    *缓存* 在内存中，以避免多次运行此计算。
+- en: Figure 9-1\. Sorting distributed data with Apache Spark
+  id: totrans-23
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-1\. 使用 Apache Spark 对分布式数据进行排序
+- en: Graph
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 图
+- en: Spark describes all computation steps using a Directed Acyclic Graph (DAG),
+    which means that all computations in Spark move computation forward without repeating
+    previous steps, which helps Spark optimize computations effectively.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark 使用有向无环图（DAG）描述所有计算步骤，这意味着 Spark 中的所有计算都向前推进，不会重复之前的步骤，这有助于 Spark 有效优化计算。
+- en: 'The best way to understand Spark’s computation graph for a given operation—sorting
+    for our example—is to open the last *completed query* on the SQL tab in [Spark’s
+    web interface](ch02.html#starting-spark-web-interface). [Figure 9-2](#tuning-graph-sql-render)
+    shows the resulting graph for this sorting operation, which contains the following
+    operations:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于可能需要实现低级别操作的少数情况，最好使用 Spark 的 Scala API 通过 `sparklyr` 扩展或运行自定义 [分布式 R](ch11.html#distributed)
+    代码。
+- en: '`WholeStageCodegen`'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`WholeStageCodegen`'
+- en: This block specifies that the operations it contains were used to generate computer
+    code that was efficiently translated to byte code. There is usually a small cost
+    associated with translating operations into byte code, but this is a worthwhile
+    price to pay since the operations then can be executed much faster from Spark.
+    In general, you can ignore this block and focus on the operations that it contains.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 该块指定它包含的操作用于生成有效转换为字节码的计算机代码。通常，将操作转换为字节码会有一些小成本，但这是值得付出的代价，因为此后可以从 Spark 更快地执行这些操作。一般情况下，您可以忽略此块，并专注于其中包含的操作。
+- en: '`InMemoryTableScan`'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`InMemoryTableScan`'
+- en: This means that the original dataset `data` was stored in memory and traversed
+    row by row once.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这意味着原始数据集 `data` 被存储在内存中，并且逐行遍历了一次。
+- en: '`Exchange`'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Exchange`'
+- en: Partitions were exchanged—that is, shuffled—across executors in your cluster.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分区被交换—也就是在集群中的执行器之间进行了洗牌。
+- en: '`Sort`'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`Sort`'
+- en: After the records arrived at the appropriate executor, they were sorted in this
+    final stage.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在记录到达适当的执行器后，它们在最终阶段进行了排序。
+- en: '![Spark Graph for a sorting query](assets/mswr_0902.png)'
+  id: totrans-35
+  prefs: []
+  type: TYPE_IMG
+  zh: '![用于排序查询的 Spark 图](assets/mswr_0902.png)'
+- en: Figure 9-2\. Spark graph for a sorting query
+  id: totrans-36
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-2\. 用于排序查询的 Spark 图
+- en: From the query details, you then can open the last Spark job to arrive to the
+    job details page, which you can expand by using “DAG Visualization” to create
+    a graph similar to [Figure 9-3](#tuning-graph-render). This graph shows a few
+    additional details and the stages in this job. Notice that there are no arrows
+    pointing back to previous steps, since Spark makes use of acyclic graphs.
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从查询详细信息中，您可以打开最后一个到达作业详情页面的 Spark 作业，使用“DAG 可视化”扩展以创建类似于 [图 9-3](#tuning-graph-render)
+    的图表。此图显示了一些额外的细节和本作业中的阶段。请注意，没有箭头指向前面的步骤，因为 Spark 使用无环图。
+- en: '![Spark Graph for a sorting job](assets/mswr_0903.png)'
+  id: totrans-38
+  prefs: []
+  type: TYPE_IMG
+  zh: '![用于排序作业的 Spark 图](assets/mswr_0903.png)'
+- en: Figure 9-3\. Spark graph for a sorting job
+  id: totrans-39
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-3\. 用于排序作业的 Spark 图
+- en: Next, we dive into a Spark stage and explore its event timeline.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们深入了解 Spark 阶段并探索其事件时间轴。
+- en: Timeline
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 时间轴
+- en: The *event timeline* is a great summary of how Spark is spending computation
+    cycles over each stage. Ideally, you want to see this timeline consisting of mostly
+    CPU usage since other tasks can be considered overhead. You also want to see Spark
+    using all the CPUs across all the cluster nodes available to you.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*事件时间轴* 是 Spark 如何在每个阶段花费计算周期的一个很好的总结。理想情况下，您希望看到这个时间轴主要由 CPU 使用组成，因为其他任务可以被视为开销。您还希望看到
+    Spark 在您可用的所有集群节点上使用所有 CPU。'
+- en: Select the first stage in the current job and expand the event timeline, which
+    should look similar to [Figure 9-4](#tuning-timeline-simple). Notice that we explicitly
+    requested three partitions, which are represented by three lanes in this visualization.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择当前作业中的第一个阶段，并展开事件时间轴，其结果应该类似于 [图 9-4](#tuning-timeline-simple)。请注意，我们明确请求了三个分区，这在可视化中用三条通道表示。
+- en: '![Spark event timeline](assets/mswr_0904.png)'
+  id: totrans-44
+  prefs: []
+  type: TYPE_IMG
+  zh: '![Spark 事件时间轴](assets/mswr_0904.png)'
+- en: Figure 9-4\. Spark event timeline
+  id: totrans-45
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-4\. Spark 事件时间轴
+- en: 'Since our machine is equipped with four CPUs, we can parallelize this computation
+    even further by explicitly repartitioning data using `sdf_repartition()`, with
+    the result shown in [Figure 9-5](#tuning-timeline-repartition):'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于我们的机器配备了四个 CPU，我们可以通过显式重新分区数据使用 `sdf_repartition()` 进一步并行化这个计算，其结果显示在 [图 9-5](#tuning-timeline-repartition)
+    中：
+- en: '[PRE1]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '![Spark event timeline with additional partitions](assets/mswr_0905.png)'
+  id: totrans-48
+  prefs: []
+  type: TYPE_IMG
+  zh: '![具有额外分区的 Spark 事件时间轴](assets/mswr_0905.png)'
+- en: Figure 9-5\. Spark event timeline with additional partitions
+  id: totrans-49
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图 9-5\. 具有额外分区的 Spark 事件时间轴
+- en: '[Figure 9-5](#tuning-timeline-repartition) now shows four execution lanes with
+    most time spent under Executor Computing Time, which shows us that this particular
+    operation is making better use of our compute resources. When you are working
+    with clusters, requesting more compute nodes from your cluster should shorten
+    computation time. In contrast, for timelines that show significant time spent
+    shuffling, requesting more compute nodes might not shorten time and might actually
+    make everything slower. There is no concrete set of rules to follow to optimize
+    a stage; however, as you gain experience understanding this timeline over multiple
+    operations, you will develop insights as to how to properly optimize Spark operations.'
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 9-5](#tuning-timeline-repartition) 现在显示了四条执行通道，大部分时间都在执行器计算时间下，这表明该特定操作更好地利用了我们的计算资源。当您在集群上工作时，从集群请求更多计算节点应该能缩短计算时间。相反，对于显示出大量时间用于洗牌的时间轴，请求更多计算节点可能不会缩短时间，实际上可能会使一切变慢。优化阶段没有具体的规则可供遵循；然而，随着您在多个操作中理解此时间轴的经验增加，您将会对如何正确优化
+    Spark 操作有更深刻的见解。'
+- en: Configuring
+  id: totrans-51
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 配置
+- en: 'When tuning a Spark application, the most common resources to configure are
+    memory and cores, specifically:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '在调优 Spark 应用程序时，最常见的配置资源是内存和核心数，具体包括:'
+- en: Memory in driver
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 驱动节点中的内存
+- en: The amount of memory required in the driver node
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 驱动节点所需的内存量
+- en: Memory per worker
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个工作节点的内存
+- en: The amount of memory required in the worker nodes
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作节点上所需的内存量
+- en: Cores per worker
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个工作节点的核心数
+- en: The number of CPUs required in the worker nodes
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作节点上所需的 CPU 数量
+- en: Number of workers
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 工作节点数
+- en: The number of workers required for this session
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本次会话所需的工作节点数量
+- en: Note
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: It is recommended to request significantly more memory for the driver than the
+    memory available over each worker node. In most cases, you will want to request
+    one core per worker.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 建议请求的驱动程序内存显著多于每个工作节点可用的内存。在大多数情况下，您将希望为每个工作节点请求一个核心。
+- en: 'In local mode there are no workers, but we can still configure memory and cores
+    to use through the following:'
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本地模式下没有工作节点，但我们仍然可以通过以下方式配置内存和核心：
+- en: '[PRE2]'
+  id: totrans-64
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: When using the Spark Standalone and the Mesos cluster managers, all the available
+    memory and cores are assigned by default; therefore, there are no additional configuration
+    changes required, unless you want to restrict resources to allow multiple users
+    to share this cluster. In this case, you can use `total-executor-cores` to restrict
+    the total executors requested. The [*Spark Standalone*](http://bit.ly/307YtM6)
+    and [*Spark on Mesos*](http://bit.ly/31H4LCT) guides provide additional information
+    on sharing clusters.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用Spark Standalone和Mesos集群管理器时，默认情况下会分配所有可用的内存和核心；因此，除非要限制资源以允许多个用户共享此集群，否则不需要进行其他配置更改。在这种情况下，您可以使用`total-executor-cores`来限制请求的总执行者。[*Spark
+    Standalone*](http://bit.ly/307YtM6)和[*Spark on Mesos*](http://bit.ly/31H4LCT)指南提供了有关共享集群的额外信息。
+- en: 'When running under YARN Client, you would configure memory and cores as follows:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行YARN客户端时，您可以按以下方式配置内存和核心：
+- en: '[PRE3]'
+  id: totrans-67
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: When using YARN in cluster mode you can use `sparklyr.shell.driver-cores` to
+    configure total cores requested in the driver node. The [Spark on YARN](http://bit.ly/306WsQx)
+    guide provides additional configuration settings that can benefit you.
+  id: totrans-68
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用YARN集群模式时，您可以使用`sparklyr.shell.driver-cores`来配置驱动程序节点中请求的总核心数。[Spark on YARN](http://bit.ly/306WsQx)指南提供了可以使您受益的额外配置设置。
+- en: 'There are a few types of configuration settings:'
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种类型的配置设置：
+- en: '*Connect*'
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*连接*'
+- en: These settings are set as parameters to `spark_connect()`. They are common settings
+    used while connecting.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些设置是作为参数传递给`spark_connect()`。它们是在连接时使用的常见设置。
+- en: '*Submit*'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*提交*'
+- en: These settings are set while `sparklyr` is being submitted to Spark through
+    `spark-submit`; some are dependent on the cluster manager being used.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些设置是在通过`spark-submit`向Spark提交`sparklyr`时设置的；其中一些取决于正在使用的集群管理器。
+- en: '*Runtime*'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*运行时*'
+- en: These settings configure Spark when the Spark session is created. They are independent
+    of the cluster manager and specific to Spark.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些设置在创建Spark会话时配置Spark。它们与集群管理器无关，特定于Spark。
+- en: '*sparklyr*'
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*sparklyr*'
+- en: Use these to configure `sparklyr` behavior. These settings are independent of
+    the cluster manager and particular to R.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用这些配置`sparklyr`行为。这些设置与集群管理器无关，特定于R语言。
+- en: The following subsections present extensive lists of all the available settings.
+    It is not required that you fully understand them all while tuning Spark, but
+    skimming through them could prove useful in the future for troubleshooting issues.
+    If you prefer, you can skip these subsections and use them instead as reference
+    material as needed.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下小节详细列出了所有可用设置的广泛列表。在调整Spark时，并不需要完全理解它们，但浏览可能在将来解决问题时有用。如果愿意，您可以跳过这些小节，并根据需要将其用作参考材料。
+- en: Connect Settings
+  id: totrans-79
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 连接设置
+- en: You can use the parameters listed in [Table 9-1](#Table0901) with `spark_connect()`.
+    They configure high-level settings that define the connection method, Spark’s
+    installation path, and the version of Spark to use.
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以使用在[表9-1](#Table0901)中列出的参数与`spark_connect()`。它们配置了定义连接方法、Spark安装路径和要使用的Spark版本的高级设置。
+- en: Table 9-1\. Parameters used when connecting to Spark
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表9-1\. 连接到Spark时使用的参数
+- en: '| Name | Value |'
+  id: totrans-82
+  prefs: []
+  type: TYPE_TB
+  zh: '| 名称 | 值 |'
+- en: '| --- | --- |'
+  id: totrans-83
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `master` | Spark cluster URL to connect to. Use `"local"` to connect to a
+    local instance of Spark installed via `spark_install()`. |'
+  id: totrans-84
+  prefs: []
+  type: TYPE_TB
+  zh: '| `master` | Spark集群的URL以连接到。使用`"local"`以连接到通过`spark_install()`安装的本地Spark实例。
+    |'
+- en: '| `SPARK_HOME` | The path to a Spark installation. Defaults to the path provided
+    by the `SPARK_HOME` environment variable. If `SPARK_HOME` is defined, it will
+    always be used unless the version parameter is specified to force the use of a
+    locally installed version. |'
+  id: totrans-85
+  prefs: []
+  type: TYPE_TB
+  zh: '| `SPARK_HOME` | Spark安装路径。默认为由`SPARK_HOME`环境变量提供的路径。如果定义了`SPARK_HOME`，则始终会使用它，除非通过指定版本参数来强制使用本地安装版本。
+    |'
+- en: '| `method` | The method used to connect to Spark. Default connection method
+    is `"shell"` to connect using `spark-submit`. Use `"livy"` to perform remote connections
+    using HTTP, or `"databricks"` when using a Databricks cluster, or `"qubole"` when
+    using a Qubole cluster. |'
+  id: totrans-86
+  prefs: []
+  type: TYPE_TB
+  zh: '| `method` | 用于连接到 Spark 的方法。默认连接方法为 `"shell"`，使用 `spark-submit` 进行连接。使用 `"livy"`
+    进行使用 HTTP 进行远程连接，或者在使用 Databricks 集群时使用 `"databricks"`，或者在使用 Qubole 集群时使用 `"qubole"`。
+    |'
+- en: '| `app_name` | The application name to be used while running in the Spark cluster.
+    |'
+  id: totrans-87
+  prefs: []
+  type: TYPE_TB
+  zh: '| `app_name` | 在 Spark 集群中运行时使用的应用程序名称。 |'
+- en: '| `version` | The version of Spark to use. This is applicable only to `"local"`
+    and `"livy"` connections. |'
+  id: totrans-88
+  prefs: []
+  type: TYPE_TB
+  zh: '| `version` | 要使用的 Spark 版本。这仅适用于 `"local"` 和 `"livy"` 连接。 |'
+- en: '| `config` | Custom configuration for the generated Spark connection. See `spark_config`
+    for details. |'
+  id: totrans-89
+  prefs: []
+  type: TYPE_TB
+  zh: '| `config` | 生成的 Spark 连接的自定义配置。详见 `spark_config`。 |'
+- en: You can configure additional settings by specifying a list in the `config` parameter.
+    Let’s now take a look at what those settings can be.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过在 `config` 参数中指定一个列表来配置额外的设置。现在让我们看看这些设置可以是什么。
+- en: Submit Settings
+  id: totrans-91
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 提交设置
+- en: Some settings must be specified when `spark-submit` (the terminal application
+    that launches Spark) is run. For instance, since `spark-submit` launches a driver
+    node that runs as a Java instance, how much memory is allocated needs to be specified
+    as a parameter to `spark-submit`.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当运行 `spark-submit`（启动 Spark 的终端应用程序）时，必须指定某些设置。例如，由于 `spark-submit` 启动作为 Java
+    实例运行的驱动节点，需要指定分配多少内存作为 `spark-submit` 的参数。
+- en: 'You can list all the available `spark-submit` parameters by running the following:'
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过运行以下命令列出所有可用的 `spark-submit` 参数：
+- en: '[PRE4]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: For readability, we’ve provided the output of this command in [Table 9-2](#Table0902),
+    replacing the `spark-submit` parameter with the appropriate `spark_config()` setting
+    and removing the parameters that are not applicable or already presented in this
+    chapter.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了方便阅读，我们已经在 [表 9-2](#Table0902) 中提供了此命令的输出，将 `spark-submit` 参数替换为适当的 `spark_config()`
+    设置，并删除不适用或已在本章中介绍的参数。
+- en: Table 9-2\. Setting available to configure spark-submit
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 9-2\. 可用于配置 spark-submit 的设置
+- en: '| Name | Value |'
+  id: totrans-97
+  prefs: []
+  type: TYPE_TB
+  zh: '| Name | Value |'
+- en: '| --- | --- |'
+  id: totrans-98
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `sparklyr.shell.jars` | Specified as `jars` parameter in `spark_connect()`.
+    |'
+  id: totrans-99
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.jars` | 在 `spark_connect()` 中指定为 `jars` 参数。 |'
+- en: '| `sparklyr.shell.packages` | Comma-separated list of Maven coordinates of
+    JARs to include on the driver and executor classpaths. Will search the local Maven
+    repo, then Maven Central and any additional remote repositories given by `sparklyr.shell.repositories`.
+    The format for the coordinates should be *`groupId:artifactId:version`*. |'
+  id: totrans-100
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.packages` | 包含在驱动程序和执行程序类路径中的 JAR 文件的 Maven 坐标的逗号分隔列表。将搜索本地
+    Maven 仓库，然后搜索 Maven 中心和 `sparklyr.shell.repositories` 给出的任何附加远程仓库。坐标的格式应为 *`groupId:artifactId:version`*。
+    |'
+- en: '| `sparklyr.shell.exclude-packages` | Comma-separated list of *`groupId:artifactId`*,
+    to exclude while resolving the dependencies provided in `sparklyr.shell.packages`
+    to avoid dependency conflicts. |'
+  id: totrans-101
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.exclude-packages` | 逗号分隔的 *`groupId:artifactId`* 列表，用于解析
+    `sparklyr.shell.packages` 中提供的依赖项时排除依赖冲突。 |'
+- en: '| `sparklyr.shell.repositories` | Comma-separated list of additional remote
+    repositories to search for the Maven coordinates given with `sparklyr.shell.packages`.
+    |'
+  id: totrans-102
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.repositories` | 逗号分隔的附加远程仓库列表，用于搜索 `sparklyr.shell.packages`
+    提供的 Maven 坐标。 |'
+- en: '| `sparklyr.shell.files` | Comma-separated list of files to be placed in the
+    working directory of each executor. Filepaths of these files in executors can
+    be accessed via `SparkFiles.get(fileName)`. |'
+  id: totrans-103
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.files` | 要放置在每个执行器的工作目录中的文件的逗号分隔列表。通过 `SparkFiles.get(fileName)`
+    可以访问这些文件在执行器中的文件路径。 |'
+- en: '| `sparklyr.shell.conf` | Arbitrary Spark configuration property set as `PROP=VALUE`.
+    |'
+  id: totrans-104
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.conf` | 设置为 `PROP=VALUE` 的任意 Spark 配置属性。 |'
+- en: '| `sparklyr.shell.properties-file` | Path to a file from which to load extra
+    properties. If not specified, this will look for *conf/spark-defaults.conf*. |'
+  id: totrans-105
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.properties-file` | 要加载额外属性的文件路径。如果未指定，则将查找 *conf/spark-defaults.conf*。
+    |'
+- en: '| `sparklyr.shell.driver-java-options` | Extra Java options to pass to the
+    driver. |'
+  id: totrans-106
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.driver-java-options` | 传递给驱动程序的额外 Java 选项。 |'
+- en: '| `sparklyr.shell.driver-library-path` | Extra library path entries to pass
+    to the driver. |'
+  id: totrans-107
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.driver-library-path` | 传递给驱动程序的额外库路径条目。 |'
+- en: '| `sparklyr.shell.driver-class-path` | Extra class path entries to pass to
+    the driver. Note that JARs added with `sparklyr.shell.jars` are automatically
+    included in the classpath. |'
+  id: totrans-108
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.driver-class-path` | 传递给驱动程序的额外类路径条目。请注意，使用 `sparklyr.shell.jars`
+    添加的 JAR 包会自动包含在类路径中。 |'
+- en: '| `sparklyr.shell.proxy-user` | User to impersonate when submitting the application.
+    This argument does not work with `sparklyr.shell.principal`/ `sparklyr.shell.keytab`.
+    |'
+  id: totrans-109
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.proxy-user` | 提交应用程序时要模拟的用户。此参数不适用于 `sparklyr.shell.principal`/
+    `sparklyr.shell.keytab`。 |'
+- en: '| `sparklyr.shell.verbose` | Print additional debug output. |'
+  id: totrans-110
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.verbose` | 打印额外的调试输出。 |'
+- en: The remaining settings, shown in [Table 9-3](#Table0903), are specific to YARN.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 剩余的设置如 [Table 9-3](#Table0903) 所示，专门针对 YARN。
+- en: Table 9-3\. Settings avalable to configure spark-submit when using YARN
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 9-3\. 在使用 YARN 时配置 spark-submit 的设置
+- en: '| Name | Value |'
+  id: totrans-113
+  prefs: []
+  type: TYPE_TB
+  zh: '| Name | Value |'
+- en: '| --- | --- |'
+  id: totrans-114
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `sparklyr.shell.queue` | The YARN queue to submit to (Default: “default”).
+    |'
+  id: totrans-115
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.queue` | 提交到的 YARN 队列（默认：“default”）。 |'
+- en: '| --- | --- |'
+  id: totrans-116
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `sparklyr.shell.archives` | Comma-separated list of archives to be extracted
+    into the working directory of each executor. |'
+  id: totrans-117
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.archives` | 要提取到每个执行者工作目录的归档文件的逗号分隔列表。 |'
+- en: '| --- | --- |'
+  id: totrans-118
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `sparklyr.shell.principal` | Principal to be used to log in to KDC while
+    running on secure HDFS. |'
+  id: totrans-119
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.principal` | 在运行安全 HDFS 时用于登录 KDC 的主体。 |'
+- en: '| --- | --- |'
+  id: totrans-120
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `sparklyr.shell.keytab` | The full path to the file that contains the keytab
+    for the principal just specified. This keytab will be copied to the node running
+    the Application Master via the Secure Distributed Cache, for renewing the login
+    tickets and the delegation tokens periodically. |'
+  id: totrans-121
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.shell.keytab` | 包含刚才指定的主体的 keytab 文件的完整路径。此 keytab 将通过安全分布式缓存（Secure
+    Distributed Cache）复制到运行应用程序主节点的节点，以定期更新登录票据和委托令牌。 |'
+- en: '| --- | --- |'
+  id: totrans-122
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: In general, any `spark-submit` setting is configured through `sparklyr.shell.X`,
+    where X is the name of the `spark-submit` parameter without the `--` prefix.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，任何 `spark-submit` 设置都是通过 `sparklyr.shell.X` 配置的，其中 X 是 `spark-submit`
+    参数的名称，不包含 `--` 前缀。
+- en: Runtime Settings
+  id: totrans-124
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 运行时设置
+- en: As mentioned, some Spark settings configure the session runtime. The runtime
+    settings are a superset of the [submit settings](#submit-settings) given that
+    it is usually helpful to retrieve the current configuration even if a setting
+    can’t be changed.
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如前所述，某些 Spark 设置配置会话运行时。运行时设置是给定的 [submit settings](#submit-settings) 的超集，即使不能更改设置，通常也有助于检索当前配置。
+- en: 'To list the Spark settings set in your current Spark session, you can run the
+    following:'
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要列出当前 Spark 会话中设置的 Spark 设置，可以运行以下命令：
+- en: '[PRE5]'
+  id: totrans-127
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '[Table 9-4](#Table0904) describes the runtime settings.'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[Table 9-4](#Table0904) 描述了运行时设置。'
+- en: Table 9-4\. Setting available to configure the Spark session
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Table 9-4\. 配置 Spark 会话的可用设置
+- en: '| Name | Value |'
+  id: totrans-130
+  prefs: []
+  type: TYPE_TB
+  zh: '| Name | Value |'
+- en: '| --- | --- |'
+  id: totrans-131
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `spark.master` | `local[4]` |'
+  id: totrans-132
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.master` | `local[4]` |'
+- en: '| `spark.sql.shuffle.partitions` | `4` |'
+  id: totrans-133
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.sql.shuffle.partitions` | `4` |'
+- en: '| `spark.driver.port` | `62314` |'
+  id: totrans-134
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.driver.port` | `62314` |'
+- en: '| `spark.submit.deployMode` | `client` |'
+  id: totrans-135
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.submit.deployMode` | `client` |'
+- en: '| `spark.executor.id` | `driver` |'
+  id: totrans-136
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.executor.id` | `driver` |'
+- en: '| `spark.jars` | */Library/…/sparklyr/java/sparklyr-2.3-2.11.jar* |'
+  id: totrans-137
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.jars` | */Library/…/sparklyr/java/sparklyr-2.3-2.11.jar* |'
+- en: '| `spark.app.id` | `local-1545518234395` |'
+  id: totrans-138
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.app.id` | `local-1545518234395` |'
+- en: '| `spark.env.SPARK_LOCAL_IP` | `127.0.0.1` |'
+  id: totrans-139
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.env.SPARK_LOCAL_IP` | `127.0.0.1` |'
+- en: '| `spark.sql.catalogImplementation` | `hive` |'
+  id: totrans-140
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.sql.catalogImplementation` | `hive` |'
+- en: '| `spark.spark.port.maxRetries` | `128` |'
+  id: totrans-141
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.spark.port.maxRetries` | `128` |'
+- en: '| `spark.app.name` | `sparklyr` |'
+  id: totrans-142
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.app.name` | `sparklyr` |'
+- en: '| `spark.home` | */Users/…/spark/spark-2.3.2-bin-hadoop2.7* |'
+  id: totrans-143
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.home` | */Users/…/spark/spark-2.3.2-bin-hadoop2.7* |'
+- en: '| `spark.driver.host` | `localhost` |'
+  id: totrans-144
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.driver.host` | `localhost` |'
+- en: However, there are many more configuration settings available in Spark, as described
+    in the [*Spark Configuration*](http://bit.ly/2P0Yalf) guide. It’s beyond the scope
+    of this book to describe them all, so, if possible, take some time to identify
+    the ones that might be of interest to your particular use cases.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在 [*Spark Configuration*](http://bit.ly/2P0Yalf) 指南中描述的 Spark 中还有许多其他配置设置。本书无法详细描述所有设置，因此，如果可能的话，请花些时间找出那些可能与您特定用例相关的设置。
+- en: sparklyr Settings
+  id: totrans-146
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: sparklyr 设置
+- en: 'Apart from Spark settings, there are a few settings particular to `sparklyr`.
+    You usually don’t use these settings while tuning Spark; instead, they are helpful
+    while troubleshooting Spark from R. For instance, you can use `sparklyr.log.console
+    = TRUE` to output the Spark logs into the R console; this is ideal while troubleshooting
+    but too noisy otherwise. Here’s how to list the settings (results are presented
+    in [Table 9-5](#Table0905)):'
+  id: totrans-147
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了Spark设置外，还有一些特定于`sparklyr`的设置。在调整Spark时，通常不使用这些设置；相反，在从R中解决Spark问题时会很有帮助。例如，您可以使用`sparklyr.log.console
+    = TRUE`将Spark日志输出到R控制台；这在故障排除时是理想的，但在其他情况下会太吵。以下是如何列出这些设置（结果在[表9-5](#Table0905)中呈现）：
+- en: '[PRE6]'
+  id: totrans-148
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Table 9-5\. Settings available to configure the sparklyr package
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表9-5。可用于配置sparklyr包的设置
+- en: '| Name | Description |'
+  id: totrans-150
+  prefs: []
+  type: TYPE_TB
+  zh: '| 名称 | 描述 |'
+- en: '| --- | --- |'
+  id: totrans-151
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- |'
+- en: '| `sparklyr.apply.packages` | Configures default value for packages parameter
+    in `spark_apply()`. |'
+  id: totrans-152
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.apply.packages` | 配置`spark_apply()`中packages参数的默认值。 |'
+- en: '| `sparklyr.apply.rlang` | Experimental feature. Turns on improved serialization
+    for `spark_apply()`. |'
+  id: totrans-153
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.apply.rlang` | 实验性特性。打开`spark_apply()`的改进序列化。 |'
+- en: '| `sparklyr.apply.serializer` | Configures the version `spark_apply()` uses
+    to serialize the closure. |'
+  id: totrans-154
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.apply.serializer` | 配置`spark_apply()`用于序列化闭包的版本。 |'
+- en: '| `sparklyr.apply.schema.infer` | Number of rows collected to infer schema
+    when column types specified in `spark_apply()`. |'
+  id: totrans-155
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.apply.schema.infer` | 在`spark_apply()`中指定列类型时，用于推断模式的收集行数。 |'
+- en: '| `sparklyr.arrow` | Use Apache Arrow to serialize data? |'
+  id: totrans-156
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.arrow` | 使用Apache Arrow序列化数据？ |'
+- en: '| `sparklyr.backend.interval` | Total seconds `sparklyr` will check on a backend
+    operation. |'
+  id: totrans-157
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.backend.interval` | `sparklyr`检查后端操作的总秒数。 |'
+- en: '| `sparklyr.backend.timeout` | Total seconds before `sparklyr` will give up
+    waiting for a backend operation to complete. |'
+  id: totrans-158
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.backend.timeout` | 在`sparklyr`放弃等待后端操作完成之前的总秒数。 |'
+- en: '| `sparklyr.collect.batch` | Total rows to collect when using batch collection;
+    defaults to 100,000. |'
+  id: totrans-159
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.collect.batch` | 使用批量收集时要收集的总行数；默认为100,000。 |'
+- en: '| `sparklyr.cancellable` | Cancel Spark jobs when the R session is interrupted?
+    |'
+  id: totrans-160
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.cancellable` | R会话中断时取消Spark作业？ |'
+- en: '| `sparklyr.connect.aftersubmit` | R function to call after `spark-submit`
+    executes. |'
+  id: totrans-161
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.aftersubmit` | 在`spark-submit`执行后调用的R函数。 |'
+- en: '| `sparklyr.connect.app.jar` | The path to the `sparklyr` JAR used in `spark_connect()`.
+    |'
+  id: totrans-162
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.app.jar` | 在`spark_connect()`中使用的`sparklyr` JAR的路径。 |'
+- en: '| `sparklyr.connect.cores.local` | Number of cores to use in `spark_connect(master
+    = "local")`, defaults to `parallel::detectCores()`. |'
+  id: totrans-163
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.cores.local` | 在`spark_connect(master = "local")`中使用的核心数，默认为`parallel::detectCores()`。
+    |'
+- en: '| `sparklyr.connect.csv.embedded` | Regular expression to match against versions
+    of Spark that require package extension to support CSVs. |'
+  id: totrans-164
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.csv.embedded` | 与需要包扩展支持CSV的Spark版本匹配的常规表达式。 |'
+- en: '| `sparklyr.connect.csv.scala11` | Use Scala 2.11 JARs when using embedded
+    CSV JARS in Spark 1.6.X. |'
+  id: totrans-165
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.csv.scala11` | 在使用嵌入式CSV JARS时，使用Scala 2.11 JARs在Spark
+    1.6.X中。 |'
+- en: '| `sparklyr.connect.jars` | Additional JARs to include while submitting application
+    to Spark. |'
+  id: totrans-166
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.jars` | 提交应用程序到Spark时要包含的附加JARs。 |'
+- en: '| `sparklyr.connect.master` | The cluster master as `spark_connect() master`
+    parameter; note that the `spark.master` setting is usually preferred. |'
+  id: totrans-167
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.master` | 作为`spark_connect()`主参数的集群主机；通常首选`spark.master`设置。
+    |'
+- en: '| `sparklyr.connect.packages` | Spark packages to include when connecting to
+    Spark. |'
+  id: totrans-168
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.packages` | 连接到Spark时要包含的Spark包。 |'
+- en: '| `sparklyr.connect.ondisconnect` | R function to call after `spark_disconnect()`.
+    |'
+  id: totrans-169
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.ondisconnect` | `spark_disconnect()`后调用的R函数。 |'
+- en: '| `sparklyr.connect.sparksubmit` | Command executed instead of `spark-submit`
+    when connecting. |'
+  id: totrans-170
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.sparksubmit` | 在连接时执行的命令，而不是`spark-submit`。 |'
+- en: '| `sparklyr.connect.timeout` | Total seconds before giving up connecting to
+    the `sparklyr` gateway while initializing. |'
+  id: totrans-171
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.connect.timeout` | 在初始化时连接到`sparklyr`网关之前的总秒数。 |'
+- en: '| `sparklyr.dplyr.period.splits` | Should `dplyr` split column names into database
+    and table? |'
+  id: totrans-172
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.dplyr.period.splits` | `dplyr`是否应将列名拆分为数据库和表？ |'
+- en: '| `sparklyr.extensions.catalog` | Catalog PATH where extension JARs are located.
+    Defaults to `TRUE`; `FALSE` to disable. |'
+  id: totrans-173
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.extensions.catalog` | 扩展JAR所在的目录路径。默认为`TRUE`；`FALSE`为禁用。 |'
+- en: '| `sparklyr.gateway.address` | The address of the driver machine. |'
+  id: totrans-174
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.address` | 驱动机器的地址。 |'
+- en: '| `sparklyr.gateway.config.retries` | Number of retries to retrieve port and
+    address from config; useful when using functions to query port or address in Kubernetes.
+    |'
+  id: totrans-175
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.config.retries` | 从配置中检索端口和地址的重试次数；在Kubernetes中使用函数查询端口或地址时很有用。
+    |'
+- en: '| `sparklyr.gateway.interval` | Total of seconds `sparkyr` will check on a
+    gateway connection. |'
+  id: totrans-176
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.interval` | `sparkyr`将检查网关连接的总秒数。 |'
+- en: '| `sparklyr.gateway.port` | The port the `sparklyr` gateway uses in the driver
+    machine. |'
+  id: totrans-177
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.port` | `sparklyr`网关在驱动程序机器上使用的端口。 |'
+- en: '| `sparklyr.gateway.remote` | Should the `sparklyr` gateway allow remote connections?
+    This is required in YARN cluster, for example. |'
+  id: totrans-178
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.remote` | `sparklyr`网关是否允许远程连接？在YARN集群模式下是必需的。 |'
+- en: '| `sparklyr.gateway.routing` | Should the `sparklyr` gateway service route
+    to other sessions? Consider disabling in Kubernetes. |'
+  id: totrans-179
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.routing` | `sparklyr`网关服务是否应路由到其他会话？在Kubernetes中考虑禁用。 |'
+- en: '| `sparklyr.gateway.service` | Should the `sparklyr` gateway be run as a service
+    without shutting down when the last connection disconnects? |'
+  id: totrans-180
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.service` | `sparklyr`网关是否应作为服务运行，而不在最后一个连接断开时关闭？ |'
+- en: '| `sparklyr.gateway.timeout` | Total seconds before giving up connecting to
+    the `sparklyr` gateway after initialization. |'
+  id: totrans-181
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.timeout` | 在初始化后连接到`sparklyr`网关之前等待的总秒数。 |'
+- en: '| `sparklyr.gateway.wait` | Total seconds to wait before retrying to contact
+    the `sparklyr` gateway. |'
+  id: totrans-182
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.gateway.wait` | 在重新尝试联系`sparklyr`网关之前等待的总秒数。 |'
+- en: '| `sparklyr.livy.auth` | Authentication method for Livy connections. |'
+  id: totrans-183
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.livy.auth` | Livy连接的身份验证方法。 |'
+- en: '| `sparklyr.livy.headers` | Additional HTTP headers for Livy connections. |'
+  id: totrans-184
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.livy.headers` | Livy连接的额外HTTP头部。 |'
+- en: '| `sparklyr.livy.sources` | Should `sparklyr` sources be sourced when connecting?
+    If false, manually register `sparklyr` JARs. |'
+  id: totrans-185
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.livy.sources` | 连接时是否应加载`sparklyr`源？如果为false，则需要手动注册`sparklyr`
+    JAR包。 |'
+- en: '| `sparklyr.log.invoke` | Should every call to `invoke()` be printed in the
+    console? Can be set to `callstack` to log call stack. |'
+  id: totrans-186
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.log.invoke` | 是否应该将每次调用`invoke()`打印到控制台？可以设置为`callstack`以记录调用堆栈。
+    |'
+- en: '| `sparklyr.log.console` | Should driver logs be printed in the console? |'
+  id: totrans-187
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.log.console` | 是否应将驱动程序日志打印到控制台？ |'
+- en: '| `sparklyr.progress` | Should job progress be reported to RStudio? |'
+  id: totrans-188
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.progress` | 是否应向RStudio报告作业进度？ |'
+- en: '| `sparklyr.progress.interval` | Total of seconds to wait before attempting
+    to retrieve job progress in Spark. |'
+  id: totrans-189
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.progress.interval` | 在尝试检索Spark作业进度之前等待的总秒数。 |'
+- en: '| `sparklyr.sanitize.column.names` | Should partially unsupported column names
+    be cleaned up? |'
+  id: totrans-190
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.sanitize.column.names` | 是否应清理部分不受支持的列名？ |'
+- en: '| `sparklyr.stream.collect.timeout` | Total seconds before stopping collecting
+    a stream sample in `sdf_collect_stream()`. |'
+  id: totrans-191
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.stream.collect.timeout` | 在`sdf_collect_stream()`中停止收集流样本之前的总秒数。
+    |'
+- en: '| `sparklyr.stream.validate.timeout` | Total seconds before stopping to check
+    if stream has errors while being created. |'
+  id: totrans-192
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.stream.validate.timeout` | 在创建过程中检查流是否有错误之前等待的总秒数。 |'
+- en: '| `sparklyr.verbose` | Use verbose logging across all `sparklyr` operations?
+    |'
+  id: totrans-193
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.verbose` | 是否在所有`sparklyr`操作中使用详细日志记录？ |'
+- en: '| `sparklyr.verbose.na` | Use verbose logging when dealing with NAs? |'
+  id: totrans-194
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.verbose.na` | 在处理NA时是否使用详细日志记录？ |'
+- en: '| `sparklyr.verbose.sanitize` | Use verbose logging while sanitizing columns
+    and other objects? |'
+  id: totrans-195
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.verbose.sanitize` | 在清理列和其他对象时是否使用详细日志记录？ |'
+- en: '| `sparklyr.web.spark` | The URL to Spark’s web interface. |'
+  id: totrans-196
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.web.spark` | Spark的Web界面URL。 |'
+- en: '| `sparklyr.web.yarn` | The URL to YARN’s web interface. |'
+  id: totrans-197
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.web.yarn` | YARN的Web界面URL。 |'
+- en: '| `sparklyr.worker.gateway.address` | The address of the worker machine, most
+    likely `localhost`. |'
+  id: totrans-198
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.worker.gateway.address` | 工作机器的地址，很可能是`localhost`。 |'
+- en: '| `sparklyr.worker.gateway.port` | The port the `sparklyr` gateway uses in
+    the driver machine. |'
+  id: totrans-199
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.worker.gateway.port` | `sparklyr`网关在驱动程序机器上使用的端口。 |'
+- en: '| `sparklyr.yarn.cluster.accepted.timeout` | Total seconds before giving up
+    waiting for cluster resources in YARN cluster mode. |'
+  id: totrans-200
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.yarn.cluster.accepted.timeout` | 在YARN集群模式下等待集群资源被接受之前的总秒数。 |'
+- en: '| `sparklyr.yarn.cluster.hostaddress.timeout` | Total seconds before giving
+    up waiting for the cluster to assign a host address in YARN cluster mode. |'
+  id: totrans-201
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.yarn.cluster.hostaddress.timeout` | 在YARN集群模式下等待集群分配主机地址之前的总秒数。
+    |'
+- en: '| `sparklyr.yarn.cluster.lookup.byname` | Should the current username be used
+    to filter YARN cluster jobs while searching for submitted one? |'
+  id: totrans-202
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.yarn.cluster.lookup.byname` | 在搜索已提交作业时是否应使用当前用户名来过滤YARN集群作业？ |'
+- en: '| `sparklyr.yarn.cluster.lookup.prefix` | Application name prefix used to filter
+    YARN cluster jobs while searching for submitted one. |'
+  id: totrans-203
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.yarn.cluster.lookup.prefix` | 用于在搜索已提交的 YARN 集群作业时过滤应用程序名称前缀。 |'
+- en: '| `sparklyr.yarn.cluster.lookup.username` | The username used to filter YARN
+    cluster jobs while searching for submitted one. |'
+  id: totrans-204
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.yarn.cluster.lookup.username` | 在搜索已提交的 YARN 集群作业时用于过滤 YARN 集群作业的用户名。
+    |'
+- en: '| `sparklyr.yarn.cluster.start.timeout` | Total seconds before giving up waiting
+    for YARN cluster application to get registered. |'
+  id: totrans-205
+  prefs: []
+  type: TYPE_TB
+  zh: '| `sparklyr.yarn.cluster.start.timeout` | 在放弃等待 YARN 集群应用程序注册之前的总秒数。 |'
+- en: Partitioning
+  id: totrans-206
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 分区
+- en: As mentioned in [Chapter 1](ch01.html#intro), MapReduce and Spark were designed
+    with the purpose of performing computations against data stored across many machines.
+    The subset of the data available for computation over each compute instance is
+    known as a *partition*.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [第一章](ch01.html#intro) 所述，MapReduce 和 Spark 的设计目的是对存储在多台机器上的数据执行计算。每个计算实例可用于计算的数据子集称为
+    *分区*。
+- en: By default, Spark computes over each existing *implicit* partition since it’s
+    more effective to run computations where the data is already located. However,
+    there are cases for which you will want to set an *explicit* partition to help
+    Spark make more efficient use of your cluster resources.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，Spark 在每个现有 *隐式* 分区上进行计算，因为在数据已经位于的位置运行计算更有效。然而，有些情况下，您需要设置 *显式* 分区以帮助
+    Spark 更有效地利用您的集群资源。
+- en: Implicit Partitions
+  id: totrans-209
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 隐式分区
+- en: As [Chapter 8](ch08.html#data) explained, Spark can read data stored in many
+    formats and different storage systems; however, since shuffling data is an expensive
+    operation, Spark executes tasks reusing the partitions in the storage system.
+    Therefore, these partitions are implicit to Spark since they are already well
+    defined and expensive to rearrange.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如 [第八章](ch08.html#data) 所述，Spark 可以读取存储在许多格式和不同存储系统中的数据；然而，由于数据洗牌是一项昂贵的操作，Spark
+    在执行任务时重用存储系统中的分区。因此，这些分区对于 Spark 来说是隐式的，因为它们已经被定义并且重排是昂贵的。
+- en: There is always an implicit partition for every computation in Spark defined
+    by the distributed storage system, even for operations which you wouldn’t expect
+    that create partitions, like `copy_to()`.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于 Spark 的每个计算，总是有一个由分布式存储系统定义的隐式分区，即使对于您不希望创建分区的操作，比如 `copy_to()`。
+- en: 'You can explore the number of partitions a computation will require by using
+    `sdf_num_partitions()`:'
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你可以通过使用 `sdf_num_partitions()` 来探索计算所需的分区数量：
+- en: '[PRE7]'
+  id: totrans-213
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: '[PRE8]'
+  id: totrans-214
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: While in most cases the default partitions work just fine, there are cases for
+    which you will need to be explicit about the partitions you choose.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管在大多数情况下，默认分区工作正常，但有些情况下，您需要明确选择分区。
+- en: Explicit Partitions
+  id: totrans-216
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 显式分区
+- en: There will be times when you have many more or far fewer compute instances than
+    data partitions. In both cases, it can help to *repartition* data to match your
+    cluster resources.
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时您的计算实例数量比数据分区多得多或少得多。在这两种情况下，通过重新分区数据来匹配您的集群资源可能会有所帮助。
+- en: 'Various [data](ch08.html#data) functions, like `spark_read_csv()`, already
+    support a `repartition` parameter to request that Spark repartition data appropriately.
+    For instance, we can create a sequence of 10 numbers partitioned by 10 as follows:'
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 各种 [数据](ch08.html#data) 函数，如 `spark_read_csv()`，已支持 `repartition` 参数，以请求 Spark
+    适当地重新分区数据。例如，我们可以按照以下方式创建一个由 10 个数字分区为 10 的序列：
+- en: '[PRE9]'
+  id: totrans-219
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: '[PRE10]'
+  id: totrans-220
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: 'For datasets that are already partitioned, we can also use `sdf_repartition()`:'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于已分区的数据集，我们还可以使用 `sdf_repartition()`：
+- en: '[PRE11]'
+  id: totrans-222
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: '[PRE12]'
+  id: totrans-223
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'The number of partitions usually significantly changes the speed and resources
+    being used; for instance, the following example calculates the mean over 10 million
+    rows with different partition sizes:'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分区数量通常显著改变速度和使用的资源；例如，以下示例计算了在不同分区大小下的 1000 万行的均值：
+- en: '[PRE13]'
+  id: totrans-225
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: '[Figure 9-6](#tuning-partitioning-explicit-results) shows that sorting data
+    with two partitions is almost twice as fast. This is because two CPUs can be used
+    to execute this operation. However, it is not necessarily the case that higher
+    partitions produce faster computation; instead, partitioning data is particular
+    to your computing cluster and the data analysis operations being performed.'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[图 9-6](#tuning-partitioning-explicit-results) 显示，使用两个分区对数据进行排序几乎快了一倍。这是因为两个
+    CPU 可以用于执行此操作。然而，并不一定高分区产生更快的计算结果；相反，数据分区是特定于您的计算集群和正在执行的数据分析操作的。'
+- en: '![Computation speed with additional explicit partitions](assets/mswr_0906.png)'
+  id: totrans-227
+  prefs: []
+  type: TYPE_IMG
+  zh: '![使用额外显式分区的计算速度](assets/mswr_0906.png)'
+- en: Figure 9-6\. Computation speed with additional explicit partitions
+  id: totrans-228
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-6\. 使用额外显式分区的计算速度
+- en: Caching
+  id: totrans-229
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 缓存
+- en: Recall from [Chapter 1](ch01.html#intro) that Spark was designed to be faster
+    than its predecessors by using memory instead of disk to store data. This is formally
+    known as a Spark *resilient distributed dataset* (RDD). An RDD distributes copies
+    of the same data across many machines, such that if one machine fails, others
+    can complete the task—hence, the term “resilient.” Resiliency is important in
+    distributed systems since, while things will usually work in one machine, when
+    running over thousands of machines the likelihood of something failing is much
+    higher. When a failure happens, it is preferable to be fault tolerant to avoid
+    losing the work of all the other machines. RDDs accomplish this by tracking data
+    lineage information to rebuild lost data automatically on failure.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从[第1章](ch01.html#intro)中回忆起，Spark的设计目的是通过使用内存而不是磁盘来存储数据来比其前身更快。这在正式上被称为Spark
+    *弹性分布式数据集*（RDD）。RDD在许多机器上分发相同数据的副本，因此如果一台机器失败，其他机器可以完成任务，因此称为“弹性”。在分布式系统中，弹性是很重要的，因为尽管一台机器通常会正常工作，但在数千台机器上运行时，发生故障的可能性要高得多。发生故障时，最好是具有容错性，以避免丢失所有其他机器的工作。RDD通过跟踪数据血统信息，在故障时自动重建丢失的数据来实现这一点。
+- en: In `sparklyr`, you can control when an RDD is loaded or unloaded from memory
+    using `tbl_cache()` and `tbl_uncache()`.
+  id: totrans-231
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`sparklyr`中，您可以使用`tbl_cache()`和`tbl_uncache()`控制RDD何时从内存中加载或卸载。
+- en: 'Most `sparklyr` operations that retrieve a Spark DataFrame cache the results
+    in memory. For instance, running `spark_read_parquet()` or `copy_to()` will provide
+    a Spark DataFrame that is already cached in memory. As a Spark DataFrame, this
+    object can be used in most `sparklyr` functions, including data analysis with
+    `dplyr` or machine learning:'
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 大多数`sparklyr`操作检索Spark DataFrame并将结果缓存在内存中。例如，运行`spark_read_parquet()`或`copy_to()`将提供一个已经缓存在内存中的Spark
+    DataFrame。作为Spark DataFrame，该对象可以在大多数`sparklyr`函数中使用，包括使用`dplyr`进行数据分析或机器学习：
+- en: '[PRE14]'
+  id: totrans-233
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: '[PRE15]'
+  id: totrans-234
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE15]'
+- en: You can inspect which tables are cached by navigating to the Spark UI using
+    `spark_web(sc)`, clicking the Storage tab, and then clicking on a specific RDD,
+    as illustrated in [Figure 9-7](#tuning-caching-rdd-shot).
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过导航到Spark UI使用`spark_web(sc)`，点击存储选项卡，然后点击特定的RDD来检查哪些表被缓存，如图[9-7](#tuning-caching-rdd-shot)所示。
+- en: '![Cached RDD in the Spark web interface](assets/mswr_0907.png)'
+  id: totrans-236
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在Spark Web界面中缓存的RDD](assets/mswr_0907.png)'
+- en: Figure 9-7\. Cached RDD in the Spark web interface
+  id: totrans-237
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-7\. 在Spark Web界面中缓存的RDD
+- en: 'Data loaded in memory will be released when the R session terminates, either
+    explicitly or implicitly, with a restart or disconnection; however, to free up
+    resources, you can use `tbl_uncache()`:'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当R会话终止时，加载到内存中的数据将被释放，无论是显式还是隐式的，通过重启或断开连接；但是，为了释放资源，您可以使用`tbl_uncache()`：
+- en: '[PRE16]'
+  id: totrans-239
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE16]'
+- en: Checkpointing
+  id: totrans-240
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 检查点
+- en: Checkpointing is a slightly different type of caching; while it also saves data,
+    it will additionally break the graph computation lineage. For example, if a cached
+    partition is lost, it can be computed from the computation graph, which is not
+    possible with checkpointing since the source of computation is lost.
+  id: totrans-241
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查点是一种稍有不同的缓存类型；虽然它也保存数据，但它还会打破计算图血统。例如，如果缓存的分区丢失，则可以从计算图中计算，这在检查点中是不可能的，因为计算来源已丢失。
+- en: When performing operations which create expensive computation graphs, it can
+    make sense to checkpoint to save and break the computation lineage in order to
+    help Spark reduce graph computation resources; otherwise, Spark might try to optimize
+    a computation graph that is really not useful to optimize.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在执行创建昂贵计算图的操作时，通过检查点来保存和打破计算血统可能是有意义的，以帮助Spark减少图计算资源的使用；否则，Spark可能会尝试优化一个实际上并不需要优化的计算图。
+- en: 'You can checkpoint explicitly by saving to CSV, Parquet, and other file formats.
+    Or, let Spark checkpoint this for you by using `sdf_checkpoint()` in `sparklyr`,
+    as follows:'
+  id: totrans-243
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过保存为CSV、Parquet和其他文件格式显式进行检查点，或者使用`sparklyr`中的`sdf_checkpoint()`让Spark为您检查点，如下所示：
+- en: '[PRE17]'
+  id: totrans-244
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE17]'
+- en: Notice that checkpointing truncates the computation lineage graph, which can
+    speed up performance if the same intermediate result is used multiple times.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 注意，检查点会截断计算血统图，如果多次使用相同的中间结果，可以加快性能。
+- en: Memory
+  id: totrans-246
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 内存
+- en: 'Memory in Spark is categorized into *reserved*, *user*, *execution*, or *storage*:'
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Spark中的内存分为*保留*、*用户*、*执行*或*存储*：
+- en: Reserved
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保留
+- en: Reserved memory is the memory Spark needs to function and therefore is overhead
+    that is required and should not be configured. This value defaults to 300 MB.
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保留内存是 Spark 运行所需的内存，因此是必需的开销，不应该进行配置。此值默认为 300 MB。
+- en: User
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户
+- en: User memory is the memory used to execute custom code. `sparklyr` makes use
+    of this memory only indirectly when executing `dplyr` expressions or modeling
+    a dataset.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 用户内存是用于执行自定义代码的内存。 `sparklyr` 在执行 `dplyr` 表达式或对数据集建模时间接使用这些内存。
+- en: Execution
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行
+- en: Execution memory is used to execute code by Spark, mostly to process the results
+    from the partition and perform shuffling.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 执行内存主要用于由 Spark 执行代码，大多用于处理来自分区的结果和执行洗牌。
+- en: Storage
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储
+- en: Storage memory is used to cache RDDs—for instance, when using `compute()` in
+    `sparklyr`.
+  id: totrans-255
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 存储内存用于缓存 RDD，例如在使用 `sparklyr` 的 `compute()` 时。
+- en: 'As part of tuning execution, you can consider tweaking the amount of memory
+    allocated for user, execution, and storage by creating a Spark connection with
+    different values than the defaults provided in Spark:'
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为执行调优的一部分，您可以考虑通过创建具有与Spark提供的默认值不同的值的Spark连接来调整为用户、执行和存储分配的内存量：
+- en: '[PRE18]'
+  id: totrans-257
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE18]'
+- en: 'For instance, if you want to use Spark to store large amounts of data in memory
+    with the purpose of quickly filtering and retrieving subsets, you can expect Spark
+    to use little execution or user memory. Therefore, to maximize storage memory,
+    you can tune Spark as follows:'
+  id: totrans-258
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，如果希望使用 Spark 在内存中存储大量数据，以便快速过滤和检索子集，您可以预期 Spark 使用的执行或用户内存很少。因此，为了最大化存储内存，可以调整
+    Spark 如下：
+- en: '[PRE19]'
+  id: totrans-259
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE19]'
+- en: However, note that Spark will borrow execution memory from storage and vice
+    versa if needed and if possible; therefore, in practice, there should be little
+    need to tune the memory settings.
+  id: totrans-260
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，请注意，如果需要且可能的话，Spark 将从存储中借用执行内存，反之亦然；因此，实际上应该很少需要调整内存设置。
+- en: Shuffling
+  id: totrans-261
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 洗牌
+- en: Shuffling is the operation that redistributes data across machines; it is usually
+    expensive and therefore something you should try to minimize. You can easily identify
+    whether significant time is being spent shuffling by looking at the [event timeline](#tuning-event-timeline).
+    It is possible to reduce shuffling by reframing data analysis questions or hinting
+    Spark appropriately.
+  id: totrans-262
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 洗牌是将数据重新分布到各台机器的操作；通常昂贵，因此应尽量减少。您可以通过查看 [事件时间线](#tuning-event-timeline) 来轻松识别是否花费了大量时间在洗牌上。通过重新构架数据分析问题或适当提示
+    Spark，可以减少洗牌。
+- en: 'This would be relevant, for instance, when joining DataFrames that differ in
+    size significantly; that is, one set is orders of magnitude smaller than the other
+    one. You can consider using `sdf_broadcast()` to mark a DataFrame as small enough
+    for use in broadcast joins, meaning it pushes one of the smaller DataFrames to
+    each of the worker nodes to reduce shuffling the bigger DataFrame. Here’s one
+    example for `sdf_broadcast()`:'
+  id: totrans-263
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，在连接大小显著不同的 DataFrame（即一个数据集比另一个小几个数量级）时会变得相关；您可以考虑使用 `sdf_broadcast()` 将一个
+    DataFrame 标记为足够小，以便在广播连接中将一个较小的 DataFrame 推送到每个工作节点，从而减少大 DataFrame 的洗牌。以下是 `sdf_broadcast()`
+    的一个示例：
+- en: '[PRE20]'
+  id: totrans-264
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE20]'
+- en: Serialization
+  id: totrans-265
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 序列化
+- en: Serialization is the process of translating data and tasks into a format that
+    can be transmitted between machines and reconstructed on the receiving end.
+  id: totrans-266
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 序列化是将数据和任务转换为可以在机器之间传输并在接收端重建的格式的过程。
+- en: It is not that common to need to adjust serialization when tuning Spark; however,
+    it is worth mentioning that there are alternative serialization modules like the
+    [Kryo Serializer](https://oreil.ly/TRbNh) that can provide performance improvements
+    over the default [Java Serializer](https://oreil.ly/0DMsd).
+  id: totrans-267
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在调优 Spark 时，通常不需要调整序列化；然而，值得一提的是，存在替代序列化模块，如 [Kryo Serializer](https://oreil.ly/TRbNh)，它可以比默认的
+    [Java Serializer](https://oreil.ly/0DMsd) 提供性能改进。
+- en: 'You can turn on the Kryo Serializer in `sparklyr` through the following:'
+  id: totrans-268
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过以下方法在 `sparklyr` 中启用 Kryo Serializer：
+- en: '[PRE21]'
+  id: totrans-269
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE21]'
+- en: Configuration Files
+  id: totrans-270
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 配置文件
+- en: Configuring the `spark_config()` settings before connecting is the most common
+    approach while tuning Spark. However, after you identify the parameters in your
+    connection, you should consider switching to use a configuration file since it
+    will remove the clutter in your connection code and also allow you to share the
+    configuration settings across projects and coworkers.
+  id: totrans-271
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在连接之前配置 `spark_config()` 设置是调优 Spark 最常见的方法。然而，在识别连接中的参数后，您应考虑切换到使用配置文件，因为它会消除连接代码中的混乱，并允许您在项目和同事之间共享配置设置。
+- en: 'For instance, instead of connecting to Spark like this:'
+  id: totrans-272
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，而不是像这样连接到Spark：
+- en: '[PRE22]'
+  id: totrans-273
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE22]'
+- en: 'you can define a *config.yml* file with the desired settings. This file should
+    be located in the current working directory or in parent directories. For example,
+    you can create the following *config.yml* file to modify the default driver memory:'
+  id: totrans-274
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以定义一个名为*config.yml*的文件，其中包含所需的设置。该文件应位于当前工作目录或父目录中。例如，您可以创建以下*config.yml*文件以修改默认驱动程序内存：
+- en: '[PRE23]'
+  id: totrans-275
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE23]'
+- en: 'Then, connecting with the same configuration settings becomes much cleaner
+    by using instead:'
+  id: totrans-276
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，通过使用如下更清晰的相同配置设置进行连接：
+- en: '[PRE24]'
+  id: totrans-277
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE24]'
+- en: You can also specify an alternate configuration filename or location by setting
+    the `file` parameter in `spark_config()`. One additional benefit from using configuration
+    files is that a system administrator can change the default configuration by changing
+    the value of the `R_CONFIG_ACTIVE` environment variable. See the GitHub [rstudio/config](https://oreil.ly/74jIL)
+    repo for additional information.
+  id: totrans-278
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以通过在`spark_config()`中设置`file`参数来指定替代配置文件名或位置。使用配置文件的另一个好处是系统管理员可以通过更改`R_CONFIG_ACTIVE`环境变量的值来更改默认配置。有关更多信息，请参阅GitHub的[rstudio/config](https://oreil.ly/74jIL)存储库。
+- en: Recap
+  id: totrans-279
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: This chapter provided a broad overview of Spark internals and detailed configuration
+    settings to help you speed up computation and enable high computation loads. It
+    provided the foundations to understand bottlenecks and guidance on common configuration
+    considerations. However, fine-tuning Spark is a broad topic that would require
+    many more chapters to cover extensively. Therefore, while troubleshooting Spark’s
+    performance and scalability, searching the web, and consulting online communities,
+    it is often necessary to fine-tune your particular environment as well.
+  id: totrans-280
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章提供了关于Spark内部结构的广泛概述和详细的配置设置，帮助您加快计算速度并支持高计算负载。它为理解瓶颈提供了基础，并提供了常见配置考虑的指导。然而，精细调整Spark是一个广泛的主题，需要更多章节来全面覆盖。因此，在调试Spark的性能和可伸缩性时，经常需要在网上搜索并咨询在线社区，还需要根据您特定的环境进行精细调整。
+- en: '[Chapter 10](ch10.html#extensions) introduces the ecosystem of Spark extensions
+    that are available in R. Most extensions are highly specialized, but they will
+    prove to be extremely useful in specific cases and for readers with particular
+    needs. For instance, they can process nested data, perform graph analysis, and
+    use different modeling libraries like `rsparkling` from H20\. In addition, the
+    next few chapters introduce many advanced data analysis and modeling topics that
+    are required to master large-scale computing in R.'
+  id: totrans-281
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第10章](ch10.html#extensions)介绍了在R中可用的Spark扩展生态系统。大多数扩展都非常专业化，但在特定情况下和特定需求的读者中，它们将证明极其有用。例如，它们可以处理嵌套数据，执行图分析，并使用来自H20的不同建模库，如`rsparkling`。此外，接下来的几章介绍了许多高级数据分析和建模主题，这些主题对于掌握R中的大规模计算是必要的。'

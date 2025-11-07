@@ -1,0 +1,1751 @@
+- en: Chapter 3\. Watermarks
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第三章 水印
+- en: So far, we have been looking at stream processing from the perspective of the
+    pipeline author or data scientist. Chapter 2 introduced watermarks as part of
+    the answer to the fundamental questions of *where* in event-time processing is
+    taking place and *when* in processing time results are materialized. In this chapter,
+    we approach the same questions, but instead from the perspective of the underlying
+    mechanics of the stream processing system. Looking at these mechanics will help
+    us motivate, understand, and apply the concepts around watermarks. We discuss
+    how watermarks are created at the point of data ingress, how they propagate through
+    a data processing pipeline, and how they affect output timestamps. We also demonstrate
+    how watermarks preserve the guarantees that are necessary for answering the questions
+    of *where* in event-time data are processed and *when* it is materialized, while
+    dealing with unbounded data.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直从管道作者或数据科学家的角度来看待流处理。第2章介绍了水印作为解决*事件时间处理发生在何处*和*处理时间结果何时实现*这些基本问题的一部分。在本章中，我们从流处理系统的基本机制的角度来看待相同的问题。观察这些机制将帮助我们激发、理解和应用水印的概念。我们讨论了水印是如何在数据进入点创建的，它们如何通过数据处理管道传播，以及它们如何影响输出时间戳。我们还演示了水印如何保留必要的保证，以回答*事件时间数据在何处处理*和*何时实现*这些问题，同时处理无界数据。
+- en: Definition
+  id: totrans-2
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 定义
+- en: Consider any pipeline that ingests data and outputs results continuously. We
+    wish to solve the general problem of when it is safe to call an event-time window
+    closed, meaning that the window does not expect any more data. To do so we would
+    like to characterize the progress that the pipeline is making relative to its
+    unbounded input.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑任何摄取数据并持续输出结果的管道。我们希望解决一个一般性问题，即何时可以安全地认为事件时间窗口已关闭，即窗口不再期望任何更多数据。为此，我们希望描述管道相对于其无界输入所做的进展。
+- en: One naive approach for solving the event-time windowing problem would be to
+    simply base our event-time windows on the current processing time. As we saw in
+    Chapter 1, we quickly run into trouble—data processing and transport is not instantaneous,
+    so processing and event times are almost never equal. Any hiccup or spike in our
+    pipeline might cause us to incorrectly assign messages to windows. Ultimately,
+    this strategy fails because we have no robust way to make any guarantees about
+    such windows.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 解决事件时间窗口问题的一个天真的方法是简单地基于当前处理时间来确定我们的事件时间窗口。正如我们在第1章中看到的，我们很快就会遇到麻烦——数据处理和传输并不是瞬时的，因此处理和事件时间几乎永远不会相等。我们的管道中的任何故障或突发事件都可能导致我们错误地将消息分配给窗口。最终，这种策略失败了，因为我们没有一种健壮的方法来对这样的窗口做出任何保证。
+- en: Another intuitive, but ultimately incorrect, approach would be to consider the
+    rate of messages processed by the pipeline. Although this is an interesting metric,
+    the rate may vary arbitrarily with changes in input, variability of expected results,
+    resources available for processing, and so on. Even more important, rate does
+    not help answer the fundamental questions of completeness. Specifically, rate
+    does not tell us when we have seen all of the messages for a particular time interval.
+    In a real-world system, there will be situations in which messages are not making
+    progress through the system. This could be the result of transient errors (such
+    as crashes, network failures, machine downtime), or the result of persistent errors
+    such as application-level failures that require changes to the application logic
+    or other manual intervention to resolve. Of course, if lots of failures are occurring,
+    a rate-of-processing metric might be a good proxy for detecting this. However
+    a rate metric could never tell us that a single message is failing to make progress
+    through our pipeline. Even a single such message, however, can arbitrarily affect
+    the correctness of the output results.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一种直观但最终是错误的方法是考虑管道处理的消息速率。虽然这是一个有趣的度量标准，但速率可能会随着输入的变化、预期结果的可变性、可用于处理的资源等任意变化。更重要的是，速率无法帮助回答完整性的基本问题。具体来说，速率无法告诉我们何时已经看到了特定时间间隔内的所有消息。在现实世界的系统中，会出现消息在系统中无法取得进展的情况。这可能是由于瞬态错误（如崩溃、网络故障、机器停机）的结果，也可能是由于需要更改应用逻辑或其他手动干预来解决的持久性错误，例如应用级故障。当然，如果发生了大量故障，处理速率指标可能是检测这一情况的良好代理。但是速率指标永远无法告诉我们单个消息未能在我们的管道中取得进展。然而，即使是单个这样的消息，也可能会任意影响输出结果的正确性。
+- en: 'We require a more robust measure of progress. To arrive there, we make one
+    fundamental assumption about our streaming data: *each message has an associated
+    logical event timestamp*. This assumption is reasonable in the context of continuously
+    arriving unbounded data because this implies the continuous generation of input
+    data. In most cases, we can take the time of the original event’s occurrence as
+    its logical event timestamp. With all input messages containing an event timestamp,
+    we can then examine the distribution of such timestamps in any pipeline. Such
+    a pipeline might be distributed to process in parallel over many agents and consuming
+    input messages with no guarantee of ordering between individual shards. Thus,
+    the set of event timestamps for active in-flight messages in this pipeline will
+    form a distribution, as illustrated in Figure 3-1.'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要一个更健壮的进展度量。为了达到这个目标，我们对我们的流数据做出一个基本假设：*每条消息都有一个关联的逻辑事件时间戳*。在不断到达的无界数据的情况下，这个假设是合理的，因为这意味着输入数据的持续生成。在大多数情况下，我们可以将原始事件发生的时间作为其逻辑事件时间戳。有了包含事件时间戳的所有输入消息，我们可以检查任何管道中这些时间戳的分布。这样的管道可能分布在许多代理上并行处理，并且在单个分片之间没有排序的保证。因此，在这个管道中处于活动状态的正在传输的消息的事件时间戳集合将形成一个分布，如图3-1所示。
+- en: Messages are ingested by the pipeline, processed, and eventually marked completed.
+    Each message is either “in-flight,” meaning that it has been received but not
+    yet completed, or “completed,” meaning that no more processing on behalf of this
+    message is required. If we examine the distribution of messages by event time,
+    it will look something like Figure 3-1. As time advances, more messages will be
+    added to the “in-flight” distribution on the right, and more of those messages
+    from the “in-flight” part of the distribution will be completed and moved into
+    the “completed” distribution.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消息被管道摄取，处理，最终标记为已完成。每条消息要么是“在途”，意味着已接收但尚未完成，要么是“已完成”，意味着不需要为此消息再进行处理。如果我们按事件时间检查消息的分布，它看起来会像图3-1。随着时间的推移，更多的消息将被添加到右侧的“在途”分布中，来自“在途”部分的更多消息将被完成并移动到“已完成”分布中。
+- en: <assets/stsy_0301.mp4>
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <assets/stsy_0301.mp4>
+- en: '![Distribution of in-flight and completed message event times within a streaming
+    pipeline. New messages arrive as input and remain “in-flight” until processing
+    for them completes. The leftmost edge of the “in-flight” distribution corresponds
+    to the oldest unprocessed element at any given moment.](img/stsy_0301.png)'
+  id: totrans-9
+  prefs: []
+  type: TYPE_IMG
+  zh: '![流水线中在途和已完成消息事件时间的分布。新消息作为输入到达，并保持“在途”，直到处理完成。在任何给定时刻，“在途”分布的最左边缘对应于最老的未处理元素。](img/stsy_0301.png)'
+- en: Figure 3-1\. Distribution of in-flight and completed message event times within
+    a streaming pipeline. New messages arrive as input and remain “in-flight” until
+    processing for them completes. The leftmost edge of the “in-flight” distribution
+    corresponds to the oldest unprocessed element at any given moment.
+  id: totrans-10
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-1。流水线中在途和已完成消息事件时间的分布。新消息作为输入到达，并保持“在途”，直到完成处理。在任何给定时刻，“在途”分布的最左边缘对应于最老的未处理元素。
+- en: 'There is a key point on this distribution, located at the leftmost edge of
+    the “in-flight” distribution, corresponding to the oldest event timestamp of any
+    unprocessed message of our pipeline. We use this value to define the watermark:'
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个分布上有一个关键点，位于“在途”分布的最左边缘，对应于我们管道中任何未处理消息的最老事件时间戳。我们使用这个值来定义水印：
+- en: The watermark is a monotonically¹ increasing timestamp of the oldest work not
+    yet completed.
+  id: totrans-12
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 水印是最老的尚未完成工作的单调¹递增时间戳。
+- en: 'There are two fundamental properties that are provided by this definition that
+    make it useful:'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个定义提供了两个基本属性，使其有用：
+- en: Completeness
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完整性
+- en: If the watermark has advanced past some timestamp *T*, we are guaranteed by
+    its monotonic property that no more processing will occur for on-time (nonlate
+    data) events at or before *T*. Therefore, we can correctly emit any aggregations
+    at or before *T*. In other words, the watermark allows us to know when it is correct
+    to close a window.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果水印已经超过某个时间戳*T*，我们可以通过其单调性质保证，不会再对*T*时刻或之前的准时（非延迟数据）事件进行处理。因此，我们可以正确地发出*T*时刻或之前的任何聚合。换句话说，水印允许我们知道何时正确关闭一个窗口。
+- en: Visibility
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可见性
+- en: If a message is stuck in our pipeline for any reason, the watermark cannot advance.
+    Furthermore, we will be able to find the source of the problem by examining the
+    message that is preventing the watermark from advancing.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果由于任何原因消息在我们的管道中卡住，水印就无法前进。此外，我们将能够通过检查阻止水印前进的消息来找到问题的源头。
+- en: Source Watermark Creation
+  id: totrans-18
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 源水印创建
+- en: 'Where do these watermarks come from? To establish a watermark for a data source,
+    we must assign a logical event timestamp to every message entering the pipeline
+    from that source. As Chapter 2 informs us, all watermark creation falls into one
+    of two broad categories: *perfect* or *heuristic*. To remind ourselves about the
+    difference between perfect and heuristic watermarks, let’s look at Figure 3-2,
+    which presents the windowed summation example from Chapter 2.'
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些水印是从哪里来的？要为数据源建立水印，我们必须为从该源进入管道的每条消息分配一个逻辑事件时间戳。正如第二章所告诉我们的那样，所有水印创建都属于两种广泛的类别之一：*完美*或*启发式*。为了提醒自己完美水印和启发式水印之间的区别，让我们看一下第2章中的窗口求和示例的图3-2。
+- en: <assets/stsy_0302.mp4>
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <assets/stsy_0302.mp4>
+- en: '![Windowed summation with perfect (left) and heuristic (right) watermarks](img/stsy_0302.png)'
+  id: totrans-21
+  prefs: []
+  type: TYPE_IMG
+  zh: '![完美（左）和启发式（右）水印的窗口求和](img/stsy_0302.png)'
+- en: Figure 3-2\. Windowed summation with perfect (left) and heuristic (right) watermarks
+  id: totrans-22
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-2。完美（左）和启发式（右）水印的窗口求和
+- en: Notice that the distinguishing feature is that perfect watermarks ensure that
+    the watermark accounts for *all* data, whereas heuristic watermarks admit some
+    late-data elements.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，完美水印的区别特征在于，完美水印确保水印占据了*所有*数据，而启发式水印则允许一些延迟数据元素。
+- en: After the watermark is created as either perfect or heuristic, watermarks remain
+    so throughout the rest of the pipeline. As to what makes watermark creation perfect
+    or heuristic, it depends a great deal on the nature of the source that’s being
+    consumed. To see why, let’s look at a few examples of each type of watermark creation.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水印一旦被创建为完美或启发式，就会在管道的其余部分保持不变。至于是什么使水印创建完美或启发式，这在很大程度上取决于被消耗的源的性质。为了了解原因，让我们看一些每种类型水印创建的例子。
+- en: Perfect Watermark Creation
+  id: totrans-25
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 完美水印创建
+- en: 'Perfect watermark creation assigns timestamps to incoming messages in such
+    a way that the resulting watermark is a *strict guarantee* that no data with event
+    times less than the watermark will ever be seen again from this source. Pipelines
+    using perfect watermark creation never have to deal with late data; that is, data
+    that arrive after the watermark has advanced past the event times of newly arriving
+    messages. However, perfect watermark creation requires perfect knowledge of the
+    input, and thus is impractical for many real-world distributed input sources.
+    Here are a couple of examples of use cases that can create perfect watermarks:'
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 完美的水印创建为传入消息分配时间戳，以便生成的水印是一个*严格的保证*，即在水印之前的事件时间内不会再次看到来自该源的任何数据。使用完美水印创建的管道永远不必处理延迟数据；也就是说，在水印已经超过新到达消息的事件时间之后到达的数据。然而，完美水印创建需要对输入有完美的了解，因此对于许多真实世界的分布式输入源来说是不切实际的。以下是一些可以创建完美水印的用例示例：
+- en: Ingress timestamping
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 入口时间戳
+- en: A source that assigns ingress times as the event times for data entering the
+    system can create a perfect watermark. In this case, the source watermark simply
+    tracks the current processing time as observed by the pipeline. This is essentially
+    the method that nearly all streaming systems supporting windowing prior to 2016
+    used.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将入口时间分配为进入系统的数据的事件时间的源可以创建一个完美的水印。在这种情况下，源水印简单地跟踪管道观察到的当前处理时间。这实际上是几乎所有在2016年之前支持窗口化的流系统使用的方法。
+- en: Because event times are assigned from a single, monotonically increasing source
+    (actual processing time), the system thus has perfect knowledge about which timestamps
+    will come next in the stream of data. As a result, event-time progress and windowing
+    semantics become vastly easier to reason about. The downside, of course, is that
+    the watermark has no correlation to the event times of the data themselves; those
+    event times were effectively discarded, and the watermark instead merely tracks
+    the progress of data relative to its arrival in the system.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为事件时间是从单一的、单调递增的源（实际处理时间）分配的，因此系统对于数据流中下一个时间戳有着完美的了解。因此，事件时间的进展和窗口语义变得更容易推理。当然，缺点是水印与数据本身的事件时间没有关联；这些事件时间实际上被丢弃了，水印只是跟踪数据相对于其在系统中到达的进展。
+- en: Static sets of time-ordered logs
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 静态的时间顺序日志集
+- en: A statically sized² input source of time-ordered logs (e.g., an Apache Kafka
+    topic with a static set of partitions, where each partition of the source contains
+    monotonically increasing event times) would be relatively straightforward source
+    atop which to create a perfect watermark. To do so, the source would simply track
+    the minimum event time of unprocessed data across the known and static set of
+    source partitions (i.e., the minimum of the event times of the most recently read
+    record in each of the partitions).
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 静态大小的²输入源时间顺序日志（例如，具有静态分区集合的Apache Kafka主题，其中源的每个分区包含单调递增的事件时间）将是一个相对简单的源，可以在其上创建一个完美的水印。为此，源将简单地跟踪已知和静态源分区中未处理数据的最小事件时间（即，每个分区中最近读取记录的事件时间的最小值）。
+- en: Similar to the aforementioned ingress timestamps, the system has perfect knowledge
+    about which timestamps will come next, thanks to the fact that event times across
+    the static set of partitions are known to increase monotonically. This is effectively
+    a form of bounded out-of-order processing; the amount of disorder across the known
+    set of partitions is bounded by the minimum observed event time among those partitions.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 类似于前述的入口时间戳，系统对于下一个时间戳有着完美的了解，这要归功于静态分区集合中的事件时间是单调递增的事实。这实际上是一种有界的乱序处理形式；在已知分区集合中的乱序量由这些分区中观察到的最小事件时间所限制。
+- en: Typically, the only way you can guarantee monotonically increasing timestamps
+    within partitions is if the timestamps within those partitions are assigned as
+    data are written to it; for example, by web frontends logging events directly
+    into Kafka. Though still a limited use case, this is definitely a much more useful
+    one than ingress timestamping upon arrival at the data processing system because
+    the watermark tracks meaningful event times of the underlying data.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常情况下，你可以保证分区内的时间戳单调递增的唯一方法是在数据写入时为分区内的时间戳分配；例如，通过网络前端直接将事件记录到Kafka中。尽管仍然是一个有限的用例，但这绝对比在数据处理系统到达时进行入口时间戳更有用，因为水印跟踪了基础数据的有意义的事件时间。
+- en: Heuristic Watermark Creation
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 启发式水印创建
+- en: Heuristic watermark creation, on the other hand, creates a watermark that is
+    merely an *estimate* that no data with event times less than the watermark will
+    ever be seen again. Pipelines using heuristic watermark creation might need to
+    deal with some amount of *late data*. Late data is any data that arrives after
+    the watermark has advanced past the event time of this data. Late data is only
+    possible with heuristic watermark creation. If the heuristic is a reasonably good
+    one, the amount of late data might be very small, and the watermark remains useful
+    as a completion estimate. The system still needs to provide a way for the user
+    to cope with late data if it’s to support use cases requiring correctness (e.g.,
+    things like billing).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 启发式水印创建，另一方面，创建的水印仅仅是一个*估计*，即在水印之前的事件时间内不会再次看到任何数据。使用启发式水印创建的管道可能需要处理一定量的*延迟数据*。延迟数据是指在水印已经超过该数据的事件时间之后到达的任何数据。只有启发式水印创建才可能出现延迟数据。如果启发式水印是一个相当好的方法，延迟数据的数量可能会非常小，水印仍然可以作为一个完成估计。系统仍然需要提供一种方式让用户处理延迟数据，如果要支持需要正确性的用例（例如计费等）。
+- en: 'For many real-world, distributed input sources, it’s computationally or operationally
+    impractical to construct a perfect watermark, but still possible to build a highly
+    accurate heuristic watermark by taking advantage of structural features of the
+    input data source. Following are two example for which heuristic watermarks (of
+    varying quality) are possible:'
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于许多现实世界的分布式输入源来说，构建完美的水印在计算上或操作上是不切实际的，但通过利用输入数据源的结构特征，仍然可以构建一个非常准确的启发式水印。以下是两个例子，其中可以构建启发式水印（质量不同）：
+- en: Dynamic sets of time-ordered logs
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 动态的时间排序日志集
+- en: Consider a dynamic set of structured log files (each individual file containing
+    records with monotonically increasing event times relative to other records in
+    the same file but with no fixed relationship of event times between files), where
+    the full set of expected log files (i.e., partitions, in Kafka parlance) is not
+    known at runtime. Such inputs are often found in global-scale services constructed
+    and managed by a number of independent teams. In such a use case, creating a perfect
+    watermark over the input is intractable, but creating an accurate heuristic watermark
+    is quite possible.
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑一个动态的结构化日志文件集（每个单独的文件包含记录，其事件时间相对于同一文件中的其他记录是单调递增的，但文件之间的事件时间没有固定的关系），在运行时并不知道预期日志文件的完整集（即Kafka术语中的分区）。这种输入通常出现在由多个独立团队构建和管理的全球规模服务中。在这种情况下，创建完美的输入水印是棘手的，但创建准确的启发式水印是完全可能的。
+- en: By tracking the minimum event times of unprocessed data in the existing set
+    of log files, monitoring growth rates, and utilizing external information like
+    network topology and bandwidth availability, you can create a remarkably accurate
+    watermark, even given the lack of perfect knowledge of all the inputs. This type
+    of input source is one of the most common types of unbounded datasets found at
+    Google, so we have extensive experience with creating and analyzing watermark
+    quality for such scenarios and have seen them used to good effect across a number
+    of use cases.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过跟踪现有日志文件集中未处理数据的最小事件时间、监控增长速率，并利用网络拓扑和带宽可用性等外部信息，即使缺乏对所有输入的完美了解，也可以创建一个非常准确的水印。这种类型的输入源是Google发现的最常见的无界数据集之一，因此我们在为这种情况创建和分析水印质量方面有丰富的经验，并已看到它们在许多用例中发挥了良好的效果。
+- en: Google Cloud Pub/Sub
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google Cloud Pub/Sub
+- en: Cloud Pub/Sub is an interesting use case. Pub/Sub currently makes no guarantees
+    on in-order delivery; even if a single publisher publishes two messages in order,
+    there’s a chance (usually small) that they might be delivered out of order (this
+    is due to the dynamic nature of the underlying architecture, which allows for
+    transparent scaling up to very high levels of throughput with zero user intervention).
+    As a result, there’s no way to guarantee a perfect watermark for Cloud Pub/Sub.
+    The Cloud Dataflow team has, however, built a reasonably accurate heuristic watermark
+    by taking advantage of what knowledge *is* available about the data in Cloud Pub/Sub.
+    The implementation of this heuristic is discussed at length as a case study later
+    in this chapter.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Cloud Pub/Sub是一个有趣的用例。Pub/Sub目前不保证按顺序传递；即使单个发布者按顺序发布两条消息，也有可能（通常很小的概率）会以无序的方式传递（这是由于底层架构的动态特性，允许在无需用户干预的情况下实现透明的扩展，以实现非常高的吞吐量）。因此，无法保证Cloud
+    Pub/Sub的完美水印。然而，Cloud Dataflow团队利用了有关Cloud Pub/Sub数据的可用知识，构建了一个相当准确的启发式水印。本章后面将详细讨论这种启发式的实现作为一个案例研究。
+- en: 'Consider an example where users play a mobile game, and their scores are sent
+    to our pipeline for processing: you can generally assume that for any source utilizing
+    mobile devices for input it will be generally impossible to provide a perfect
+    watermark. Due to the problem of devices that go offline for extended periods
+    of time, there’s just no way to provide any sort of reasonable estimate of absolute
+    completeness for such a data source. You can, however, imagine building a watermark
+    that accurately tracks input completeness for devices that are currently online,
+    similar to the Google Pub/Sub watermark described a moment ago. Users who are
+    actively online are likely the most relevant subset of users from the perspective
+    of providing low-latency results anyway, so this often isn’t as much of a shortcoming
+    as you might initially think.'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑一个例子，用户玩一个手机游戏，他们的分数被发送到我们的流水线进行处理：通常可以假设对于任何利用移动设备进行输入的源，提供完美水印基本上是不可能的。由于设备可能长时间离线，无法提供对这种数据源的绝对完整性的任何合理估计。然而，可以想象构建一个水印，准确跟踪当前在线设备的输入完整性，类似于刚才描述的Google
+    Pub/Sub水印。从提供低延迟结果的角度来看，活跃在线的用户很可能是最相关的用户子集，因此这通常并不像你最初想的那样是一个缺点。
+- en: 'With heuristic watermark creation, broadly speaking, the more that is known
+    about the source, the better the heuristic, and the fewer late data items will
+    be seen. There is no one-size-fits-all solution, given that the types of sources,
+    distributions of events, and usage patterns will vary greatly. But in either case
+    (perfect or heuristic), after a watermark is created at the input source, the
+    system can propagate the watermark through the pipeline perfectly. This means
+    perfect watermarks will remain perfect downstream, and heuristic watermarks will
+    remain strictly as heuristic as they were when established. This is the benefit
+    of the watermark approach: you can reduce the complexity of tracking completeness
+    in a pipeline entirely to the problem of creating a watermark at the source.'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过启发式水印创建，大体上来说，对于源的了解越多，启发式就越好，晚期数据项就会越少。鉴于不同类型的来源、事件分布和使用模式会有很大差异，因此并不存在一种适合所有情况的解决方案。但无论是完美的还是启发式的，一旦在输入源创建了水印，系统就可以完美地将水印传播到整个流水线。这意味着完美水印在下游仍然完美，而启发式水印将保持与建立时一样的启发式。这就是水印方法的好处：您可以将在流水线中跟踪完整性的复杂性完全减少到在源头创建水印的问题上。
+- en: Watermark Propagation
+  id: totrans-44
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 水印传播
+- en: So far, we have considered only the watermark for the inputs within the context
+    of a single operation or stage. However, most real-world pipelines consist of
+    multiple stages. Understanding how watermarks propagate across independent stages
+    is important in understanding how they affect the pipeline as a whole and the
+    observed latency of its results.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以在管道中的任何单个操作或阶段的边界上定义水印。这不仅有助于理解管道中每个阶段的相对进展，还有助于独立地尽快为每个单独的阶段分发及时结果。我们为阶段边界的水印给出以下定义：
+- en: Watermarks are created at input sources, as discussed in the preceding section.
+    They then conceptually flow through the system as data progress through it.³ You
+    can track watermarks at varying levels of granularity. For pipelines comprising
+    multiple distinct stages, each stage likely tracks its own watermark, whose value
+    is a function of all the inputs and stages that come before it. Therefore, stages
+    that come later in the pipeline will have watermarks that are further in the past
+    (because they’ve seen less of the overall input).
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水印是在输入源处创建的，如前一节所讨论的。然后，它们在系统中概念上随着数据的进展而流动。您可以以不同粒度跟踪水印。对于包含多个不同阶段的管道，每个阶段可能会跟踪其自己的水印，其值是所有输入和之前阶段的函数。因此，管道中后面的阶段将具有过去更久的水印（因为它们看到的整体输入更少）。
+- en: 'We can define watermarks at the boundaries of any single operation, or stage,
+    in the pipeline. This is useful not only in understanding the relative progress
+    that each stage in the pipeline is making, but for dispatching timely results
+    independently and as soon as possible for each individual stage. We give the following
+    definitions for the watermarks at the boundaries of stages:'
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 每个阶段内的处理也不是单一的。我们可以将一个阶段内的处理分成几个概念组件的流，每个组件都有助于输出水印。正如前面提到的，这些组件的确切性质取决于阶段执行的操作和系统的实现。在概念上，每个这样的组件都充当一个缓冲区，其中活动消息可以驻留，直到某些操作完成。例如，数据到达时，它会被缓冲以进行处理。处理可能会将数据写入状态以进行延迟聚合。延迟聚合在触发时可能会将结果写入输出缓冲区，等待下游阶段消费，如图3-3所示。
+- en: An *input watermark*, which captures the progress of everything upstream of
+    that stage (i.e., how complete the input is for that stage). For sources, the
+    input watermark is a source-specific function creating the watermark for the input
+    data. For nonsource stages, the input watermark is defined as the minimum of the
+    output watermarks of all shards/partitions/instances of all of its upstream sources
+    and stages.
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '*输入水印*捕获了该阶段之前所有内容的进展（即该阶段的输入对于该阶段而言有多完整）。对于源，输入水印是一个特定于源的函数，用于创建输入数据的水印。对于非源阶段，输入水印被定义为其所有上游源和阶段的所有分片/分区/实例的输出水印的最小值。'
+- en: An *output watermark*, which captures the progress of the stage itself, and
+    is essentially defined as the minimum of the stage’s input watermark and the event
+    times of all nonlate data active messages within the stage. Exactly what “active”
+    encompasses is somewhat dependent upon the operations a given stage actually performs,
+    and the implementation of the stream processing system. It typically includes
+    data buffered for aggregation but not yet materialized downstream, pending output
+    data in flight to downstream stages, and so on.
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输入和输出水印的定义提供了整个管道中水印的递归关系。管道中的每个后续阶段根据阶段的事件时间滞后来延迟水印。
+- en: One nice feature of defining an input and output watermark for a specific stage
+    is that we can use these to calculate the amount of event-time latency introduced
+    by a stage. Subtracting the value of a stage’s output watermark from the value
+    of its input watermark gives the amount of event-time latency or *lag* introduced
+    by the stage. This lag is the notion of how far delayed behind real time the output
+    of each stage will be. As an example, a stage performing 10-second windowed aggregations
+    will have a lag of 10 seconds or more, meaning that the output of the stage will
+    be at least that much delayed behind the input and real time. Definitions of input
+    and output watermarks provide a recursive relationship of watermarks throughout
+    a pipeline. Each subsequent stage in a pipeline delays the watermark as necessary,
+    based on event-time lag of the stage.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为特定阶段定义输入和输出水印的一个好处是，我们可以使用这些来计算阶段引入的事件时间延迟量。将阶段的输出水印值减去其输入水印值，得到阶段引入的事件时间延迟或*滞后*量。这种滞后是每个阶段输出相对于实时的延迟程度的概念。例如，执行10秒窗口聚合的阶段将具有至少10秒的滞后，这意味着阶段的输出至少会比输入和实时延迟这么多。
+- en: Processing within each stage is also not monolithic. We can segment the processing
+    within one stage into a flow with several conceptual components, each of which
+    contributes to the output watermark. As mentioned previously, the exact nature
+    of these components depends on the operations the stage performs and the implementation
+    of the system. Conceptually, each such component serves as a buffer where active
+    messages can reside until some operation has completed. For example, as data arrives,
+    it is buffered for processing. Processing might then write the data to state for
+    later delayed aggregation. Delayed aggregation, when triggered, might write the
+    results to an output buffer awaiting consumption from a downstream stage, as shown
+    in Figure 3-3.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*输出水印*捕获了阶段本身的进展，基本上定义为阶段的输入水印和阶段内所有非延迟数据活动消息的事件时间的最小值。 “活动”包括的确切内容在某种程度上取决于给定阶段实际执行的操作和流处理系统的实现。它通常包括为聚合而缓冲但尚未在下游实现的数据，正在传输到下游阶段的待处理输出数据等。'
+- en: '![](img/stsy_0303.png)'
+  id: totrans-52
+  prefs: []
+  type: TYPE_IMG
+  zh: 到目前为止，我们只考虑了单个操作或阶段上下文中输入的水印。然而，大多数现实世界的管道由多个阶段组成。了解水印如何在独立阶段之间传播对于理解它们如何影响整个管道以及其结果的观察延迟是重要的。
+- en: Figure 3-3\. Example system components of a streaming system stage, containing
+    buffers of in-flight data. Each will have associated watermark tracking, and the
+    overall output watermark of the stage will be the minimum of the watermarks across
+    all such buffers.
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-3。流系统阶段的示例系统组件，包含正在传输的数据的缓冲区。每个缓冲区都将有相关的水印跟踪，阶段的整体输出水印将是所有这些缓冲区的水印的最小值。
+- en: 'We can track each such buffer with its own watermark. The minimum of the watermarks
+    across the buffers of each stage forms the output watermark of the stage. Thus
+    the output watermark could be the minimum of the following:'
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以跟踪每个缓冲区及其自己的水印。每个阶段的缓冲区中的水印的最小值形成了该阶段的输出水印。因此，输出水印可以是以下内容的最小值：
+- en: '*Per-source* watermark—for each sending stage.'
+  id: totrans-55
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个发送阶段都有一个水印。
+- en: '*Per-external input* watermark—for sources external to the pipeline'
+  id: totrans-56
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个外部输入都有一个水印，用于管道外部的来源
+- en: '*Per-state component* watermark—for each type of state that can be written'
+  id: totrans-57
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每种类型的状态组件都有一个水印，可以写入
+- en: '*Per-output buffer* watermark—for each receiving stage'
+  id: totrans-58
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个接收阶段都有一个输出缓冲区的水印
+- en: Making watermarks available at this level of granularity also provides better
+    visibility into the behavior of the system. The watermarks track locations of
+    messages across various buffers in the system, allowing for easier diagnosis of
+    stuckness.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个粒度级别提供水印还可以更好地了解系统的行为。水印跟踪系统中各种缓冲区中消息的位置，从而更容易诊断卡住的情况。
+- en: Understanding Watermark Propagation
+  id: totrans-60
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 理解水印传播
+- en: To get a better sense for the relationship between input and output watermarks
+    and how they affect watermark propagation, let’s look at an example. Let’s consider
+    gaming scores, but instead of computing sums of team scores, we’re going to take
+    a stab at measuring user engagement levels. We’ll do this by first calculating
+    per-user session lengths, under the assumption that the amount of time a user
+    stays engaged with the game is a reasonable proxy for how much they’re enjoying
+    it. After answering our four questions once to calculate sessions lengths, we’ll
+    then answer them a second time to calculate average session lengths within fixed
+    periods of time.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了更好地了解输入和输出水印之间的关系以及它们如何影响水印传播，让我们来看一个例子。让我们考虑游戏得分，但我们不是计算团队得分的总和，而是试图衡量用户参与水平。我们将首先根据每个用户的会话长度来计算，假设用户与游戏保持参与的时间是他们享受游戏程度的合理代理。在回答我们的四个问题一次以计算会话长度后，我们将再次回答这些问题，以计算固定时间段内的平均会话长度。
+- en: To make our example even more interesting, lets say that we are working with
+    two datasets, one for Mobile Scores and one for Console Scores. We would like
+    to perform identical score calculations via integer summation in parallel over
+    these two independant datasets. One pipeline is calculating scores for users playing
+    on mobile devices, whereas the other is for users playing on home gaming consoles,
+    perhaps due to different data collection strategies employed for the different
+    platforms. The important point is that these two stages are performing the same
+    operation but over different data, and thus with very different output watermarks.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了使我们的例子更有趣，假设我们正在使用两个数据集，一个用于移动得分，一个用于主机得分。我们希望通过整数求和并行计算这两个独立数据集的相同得分。一个管道正在计算使用移动设备玩游戏的用户的得分，而另一个管道是为在家庭游戏主机上玩游戏的用户计算得分，可能是因为为不同平台采用了不同的数据收集策略。重要的是，这两个阶段执行相同的操作，但是针对不同的数据，因此输出水印也会有很大的不同。
+- en: To begin, let’s take a look at Example 3-1 to see what the abbreviated code
+    for what the first section of this pipeline might be like.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，让我们看一下示例3-1，看看这个管道的第一部分的缩写代码可能是什么样子。
+- en: Example 3-1\. Calculating session lengths
+  id: totrans-64
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例3-1。计算会话长度
+- en: '[PRE0]'
+  id: totrans-65
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Here, we read in each of our inputs independently, and whereas previously we
+    were keying our collections by team, in this example we key by user. After that,
+    for the first stage of each pipeline, we window into sessions and then call a
+    custom `PTransform` named `CalculateWindowLength`. This `PTransform` simply groups
+    by key (i.e., `User`) and then computes the per-user session length by treating
+    the size of the current window as the value for that window. In this case, we’re
+    fine with the default trigger (`AtWatermark`) and accumulation mode (`discardingFiredPanes`)
+    settings, but I’ve listed them explicitly for completeness. The output for each
+    pipeline for two particular users might look something like Figure 3-4.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里，我们独立读取每个输入，而以前我们是按团队对我们的集合进行分组，但在这个例子中，我们按用户进行分组。之后，对于每个管道的第一个阶段，我们将窗口划分为会话，然后调用一个名为`CalculateWindowLength`的自定义`PTransform`。这个`PTransform`简单地按键（即`User`）进行分组，然后通过将当前窗口的大小视为该窗口的值来计算每个用户的会话长度。在这种情况下，我们对默认触发器（`AtWatermark`）和累积模式（`discardingFiredPanes`）设置没有问题，但出于完整性考虑，我已经明确列出了它们。两个特定用户的每个管道的输出可能看起来像图3-4。
+- en: <assets/stsy_0304.mp4>
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <assets/stsy_0304.mp4>
+- en: '![Per-user session lengths across two different input pipelines](img/stsy_0304.png)'
+  id: totrans-68
+  prefs: []
+  type: TYPE_IMG
+  zh: '![两个不同输入管道中的每个用户会话长度](img/stsy_0304.png)'
+- en: Figure 3-4\. Per-user session lengths across two different input pipelines
+  id: totrans-69
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-4。两个不同输入管道中的每个用户会话长度
+- en: Because we need to track data across multiple stages, we track everything related
+    to Mobile Scores in red, everything related to Console Scores in blue, while the
+    watermark and output for Average Session Lengths in Figure 3-5 are yellow.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为我们需要跟踪跨多个阶段的数据，我们在图中用红色跟踪与移动得分相关的所有内容，用蓝色跟踪与主机得分相关的所有内容，而图3-5中的水印和输出是黄色的。
+- en: We have answered the four questions of *what*, *where*, *when*, and *how* to
+    compute individual session lengths. Next we’ll answer them a second time to transform
+    those session lengths into global session-length averages within fixed windows
+    of time. This requires us to first flatten our two data sources into one, and
+    then re-window into fixed windows; we’ve already captured the important essence
+    of the session in the session-length value we computed, and we now want to compute
+    a global average of those sessions within consistent windows of time over the
+    course of the day. Example 3-2 shows the code for this.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经回答了计算个人会话长度的“什么”、“哪里”、“何时”和“如何”的四个问题。接下来我们将再次回答这些问题，将这些会话长度转换为一天内固定时间窗口内的全局会话长度平均值。这要求我们首先将两个数据源展平为一个，然后重新分配到固定窗口；我们已经捕捉到了我们计算的会话长度值的重要本质，现在我们想要在一天内的一致时间窗口内计算这些会话的全局平均值。示例3-2展示了这个代码。
+- en: Example 3-2\. Calculating session lengths
+  id: totrans-72
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例3-2。计算会话长度
+- en: '[PRE1]'
+  id: totrans-73
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: If we were to see this pipeline in action, it would look something like Figure 3-5.
+    As before, the two input pipelines are computing individual session lengths for
+    mobile and console players. Those session lengths then feed into the second stage
+    of the pipeline, where global session-length averages are computed in fixed windows.
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们看到这个管道在运行，它会看起来像图3-5。与以前一样，两个输入管道正在计算移动和控制台玩家的个人会话长度。然后这些会话长度进入管道的第二阶段，在那里在固定窗口中计算全局会话长度平均值。
+- en: <assets/stsy_0305.mp4>
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <assets/stsy_0305.mp4>
+- en: '![Average session lengths of mobile and console gaming sessions](img/stsy_0305.png)'
+  id: totrans-76
+  prefs: []
+  type: TYPE_IMG
+  zh: '![移动和控制台游戏会话的平均会话长度](img/stsy_0305.png)'
+- en: Figure 3-5\. Average session lengths of mobile and console gaming sessions
+  id: totrans-77
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-5。移动和控制台游戏会话的平均会话长度
+- en: 'Let’s walk through some of this example, given that there’s a lot going on.
+    The two important points here are:'
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们仔细研究一些例子，因为这里有很多事情要做。这里的两个重要点是：
+- en: The *output watermark* for each of the Mobile Sessions and Console Sessions
+    stages is at least as old as the corresponding input watermark of each, and in
+    reality a little bit older. This is because in a real system computing answers
+    takes time, and we don’t allow the output watermark to advance until processing
+    for a given input has completed.
+  id: totrans-79
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 移动会话和控制台会话阶段的输出水印至少与每个对应的输入水印一样旧，实际上可能稍微更旧一些。这是因为在真实系统中，计算答案需要时间，我们不允许输出水印在给定输入的处理完成之前提前。
+- en: The *input watermark* for the Average Session Lengths stage is the minimum of
+    the output watermarks for the two stages directly upstream.
+  id: totrans-80
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 平均会话长度阶段的输入水印是直接上游两个阶段的输出水印的最小值。
+- en: The result is that the downstream input watermark is an alias for the minimum
+    composition of the upstream output watermarks. Note that this matches the definitions
+    for those two types of watermarks earlier in the chapter. Also notice how watermarks
+    further downstream are further in the past, capturing the intuitive notion that
+    upstream stages are going to be further ahead in time than the stages that follow
+    them.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结果是下游输入水印是上游输出水印的最小组合的别名。请注意，这与本章前面对这两种水印类型的定义相匹配。还要注意，下游的水印会更早一些，捕捉到上游阶段在时间上领先于其后续阶段的直观概念。
+- en: One observation worth making here is just how cleanly we were able to ask the
+    questions again in Example 3-1 to substantially alter the results of the pipeline.
+    Whereas before we simply computed per-user session lengths, we now compute two-minute
+    global session-length averages. This provides a much more insightful look into
+    the overall behaviors of the users playing our games and gives you a tiny glimpse
+    of the difference between simple data transformations and real data science.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这里值得注意的一点是，我们在示例3-1中再次提出问题，从而大幅改变了管道的结果。以前我们只是计算每个用户的会话长度，现在我们计算两分钟的全局会话长度平均值。这提供了对玩家行为的更深入了解，并让你略微窥见简单数据转换和真正数据科学之间的差异。
+- en: 'Even better, now that we understand the basics of how this pipeline operates,
+    we can look more closely at one of the more subtle issues related to asking the
+    four questions over again: *output timestamps*.'
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的是，现在我们了解了这个管道运作的基本原理，我们可以更仔细地看待与再次提出四个问题相关的一个更微妙的问题：输出时间戳。
+- en: Watermark Propagation and Output Timestamps
+  id: totrans-84
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 水印传播和输出时间戳
+- en: 'In Figure 3-5, I glossed over some of the details of output timestamps. But
+    if you look closely at the second stage in the diagram, you can see that each
+    of the outputs from the first stage was assigned a timestamp that matched the
+    end of its window. Although that’s a fairly natural choice for output timestamps,
+    it’s not the only valid choice. As you know from earlier in this chapter, watermarks
+    are never allowed to move backward. Given that restriction, you can infer that
+    the range of valid timestamps for a given window begins with the timestamp of
+    the earliest nonlate record in the window (because only nonlate records are guaranteed
+    to hold a watermark up) and extends all the way to positive infinity. That’s quite
+    a lot of options. In practice, however, there tend to be only a few choices that
+    make sense in most circumstances:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在图3-5中，我忽略了一些输出时间戳的细节。但是如果你仔细看图中的第二阶段，你会发现第一阶段的每个输出都被分配了一个与其窗口结束时间相匹配的时间戳。尽管这是一个相当自然的输出时间戳选择，但并不是唯一有效的选择。然而，在实践中，大多数情况下只有几种选择是有意义的：
+- en: End of the window⁴
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 窗口结束⁴
+- en: Using the end of the window is the only safe choice if you want the output timestamp
+    to be representative of the window bounds. As we’ll see in a moment, it also allows
+    the smoothest watermark progression out of all of the options.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您希望输出时间戳代表窗口边界，那么使用窗口的结束是唯一安全的选择。正如我们将在一会儿看到的，这也是所有选项中水印进展最顺畅的选择。
+- en: Timestamp of first nonlate element
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第一个非延迟元素的时间戳
+- en: Using the timestamp of the first nonlate element is a good choice when you want
+    to keep your watermarks as conservative as possible. The trade-off, however, is
+    that watermark progress will likely be more hindered, as we’ll also see shortly.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您希望尽可能保守地保持水印时，使用第一个非延迟元素的时间戳是一个不错的选择。然而，折衷之处在于水印的进展可能会受到更大的阻碍，我们很快也会看到。
+- en: Timestamp of a specific element
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 特定元素的时间戳
+- en: For certain use cases, the timestamp of some other arbitrary (from the system’s
+    perspective) element is the right choice. Imagine a use case in which you’re joining
+    a stream of queries to a stream of clicks on results for that query. After performing
+    the join, some systems will find the timestamp of the query to be more useful;
+    others will prefer the timestamp of the click. Any such timestamp is valid from
+    a watermark correctness perspective, as long as it corresponded to an element
+    that did not arrive late.
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于某些用例，某些其他任意（从系统角度看）元素的时间戳是正确的选择。想象一种情况，您正在将查询流与该查询结果的点击流进行连接。在执行连接后，某些系统会发现查询的时间戳更有用；其他人会更喜欢点击的时间戳。只要它对应于未延迟到达的元素，任何这样的时间戳都是从水印正确性的角度来看是有效的。
+- en: 'Having thought a bit about some alternate options for output timestamps, let’s
+    look at what effects the choice of output timestamp can have on the overall pipeline.
+    To make the changes as dramatic as possible, in Example 3-3 and Figure 3-6, we’ll
+    switch to using the earliest timestamp possible for the window: the timestamp
+    of the first nonlate element as the timestamp for the window.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在考虑一些替代的输出时间戳选项后，让我们看看输出时间戳选择对整个流水线的影响。为了使变化尽可能显著，在示例3-3和图3-6中，我们将切换到使用窗口的最早时间戳：第一个非延迟元素的时间戳作为窗口的时间戳。
+- en: Example 3-3\. Average session lengths pipeline, that output timestamps for session
+    windows set at earliest element
+  id: totrans-93
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例3-3。会话窗口输出时间戳设置为最早元素的平均会话长度流水线
+- en: '[PRE2]'
+  id: totrans-94
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: <assets/stsy_0306.mp4>
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <assets/stsy_0306.mp4>
+- en: '![Average session lengths for sessions that are output at the timestamp of
+    the earliest element](img/stsy_0306.png)'
+  id: totrans-96
+  prefs: []
+  type: TYPE_IMG
+  zh: '![在最早元素的时间戳输出的会话长度的平均值](img/stsy_0306.png)'
+- en: Figure 3-6\. Average session lengths for sessions that are output at the timestamp
+    of the earliest element
+  id: totrans-97
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-6。在最早元素的时间戳输出的会话长度的平均值
+- en: To help call out the effect of the output timestamp choice, look at the dashed
+    lines in the first stages showing what the output watermark for each stage is
+    being held to. The output watermark is delayed by our choice of timestamp, as
+    compared to Figures 3-7 and 3-8, in which the output timestamp was chosen to be
+    the end of the window. You can see from this diagram that the input watermark
+    of the second stage is thus subsequently also delayed.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了突出输出时间戳选择的影响，请看第一阶段虚线显示的每个阶段输出水印被保持的情况。与图3-7和3-8相比，输出水印由于我们选择的时间戳而延迟，而在图3-7和3-8中，输出时间戳被选择为窗口的结束。从这个图表中可以看出，第二阶段的输入水印也因此被延迟。
+- en: '![](img/stsy_0307a.png)'
+  id: totrans-99
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0307a.png)'
+- en: Figure 3-7\. Comparison of watermarks and results with different choice of window
+    outout timestamps. The watermarks in this figure correspond to output timestamps
+    at the end of the session windows (i.e., Figure 3-5).
+  id: totrans-100
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-7。不同窗口输出时间戳选择的水印和结果的比较。此图中的水印对应于会话窗口的结束时间戳（即图3-5）。
+- en: '![](img/stsy_0307b.png)'
+  id: totrans-101
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0307b.png)'
+- en: Figure 3-8\. In this figure, the watermarks are at the beginning of the session
+    windows (i.e., Figure 3-6). We can see that the watermark line in this figure
+    is more delayed, and the resulting average session lengths are different.
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-8。在这个图中，水印位于会话窗口的开始位置（即图3-6）。我们可以看到这个图中的水印线更加延迟，导致平均会话长度也不同。
+- en: 'As far as differences in this version compared to Figure 3-7, two are worth
+    noting:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与图3-7相比，这个版本的差异有两点值得注意：
+- en: Watermark delay
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水印延迟
+- en: Compared to Figure 3-5, the watermark proceeds much more slowly in Figure 3-6.
+    This is because the output watermark for the first stage is held back to the timestamp
+    of the first element in every window until the input for that window becomes complete.
+    Only after a given window has been materialized is the output watermark (and thus
+    the downstream input watermark) allowed to advance.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与图3-5相比，图3-6中的水印进展要慢得多。这是因为第一阶段的输出水印被保持到每个窗口的第一个元素的时间戳，直到该窗口的输入变得完整为止。只有在给定窗口被实现后，输出水印（因此下游输入水印）才被允许前进。
+- en: Semantic differences
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 语义差异
+- en: Because the session timestamps are now assigned to match the earliest nonlate
+    element in the session, the individual sessions often end up in different fixed
+    window buckets when we then calculate the session-length averages in the next
+    stage. There’s nothing inherently right or wrong about either of the two options
+    we’ve seen so far; they’re just different. But it’s important to understand that
+    they *will* be different as well as have an intuition for the way in which they’ll
+    be different so that you can make the correct choice for your specific use case
+    when the time comes.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为会话时间戳现在被分配为与会话中最早的非延迟元素相匹配，所以当我们在下一个阶段计算会话长度平均值时，个别会话通常会落入不同的固定窗口桶中。迄今为止，我们所看到的两种选择都没有固有的对错之分；它们只是不同而已。但重要的是要理解它们将是不同的，以及它们将以何种方式不同，这样当时机到来时，您就可以为您的特定用例做出正确的选择。
+- en: The Tricky Case of Overlapping Windows
+  id: totrans-108
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 重叠窗口的棘手情况
+- en: 'One additional subtle but important issue regarding output timestamps is how
+    to handle sliding windows. The naive approach of setting the output timestamp
+    to the earliest element can very easily lead to delays downstream due to watermarks
+    being (correctly) held back. To see why, consider an example pipeline with two
+    stages, each using the same type of sliding windows. Suppose that each element
+    ends up in three successive windows. As the input watermark advances, the desired
+    semantics for sliding windows in this case would be as follows:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关于输出时间戳的另一个微妙但重要的问题是如何处理滑动窗口。将输出时间戳设置为最早元素的朴素方法很容易导致下游由于水印被（正确地）阻止而出现延迟。为了理解原因，考虑一个具有两个阶段的示例管道，每个阶段都使用相同类型的滑动窗口。假设每个元素最终出现在三个连续的窗口中。随着输入水印的推进，这种情况下滑动窗口的期望语义如下：
+- en: The first window completes in the first stage and is emitted downstream.
+  id: totrans-110
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第一个窗口在第一个阶段完成并向下游发出。
+- en: The first window then completes in the second stage and can also be emitted
+    downstream.
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 然后第一个窗口在第二阶段完成并且也可以向下游发出。
+- en: Some time later, the second window completes in the first stage… and so on.
+  id: totrans-112
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一段时间后，第二个窗口在第一个阶段完成...等等。
+- en: 'However, if output timestamps are chosen to be the timestamp of the first nonlate
+    element in the pane, what actually happens is the following:'
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，如果选择输出时间戳为窗格中第一个非延迟元素的时间戳，实际发生的是：
+- en: The first window completes in the first stage and is emitted downstream.
+  id: totrans-114
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第一个窗口在第一个阶段完成并向下游发出。
+- en: The first window in the second stage remains unable to complete because its
+    input watermark is being held up by the output watermark of the second and third
+    windows upstream. Those watermarks are rightly being held back because the earliest
+    element timestamp is being used as the output timestamp for those windows.
+  id: totrans-115
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第二阶段的第一个窗口仍然无法完成，因为其输入水印被上游第二和第三个窗口的输出水印阻止。这些水印被正确地阻止，因为最早的元素时间戳被用作这些窗口的输出时间戳。
+- en: The second window completes in the first stage and is emitted downstream.
+  id: totrans-116
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第二个窗口在第一个阶段完成并向下游发出。
+- en: The first and second windows in the second stage remain unable to complete,
+    held up by the third window upstream.
+  id: totrans-117
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第二阶段的第一个和第二个窗口仍然无法完成，被上游的第三个窗口阻塞。
+- en: The third window completes in the first stage and is emitted downstream.
+  id: totrans-118
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第三个窗口在第一个阶段完成并向下游发出。
+- en: The first, second, and third windows in the second stage are now all able to
+    complete, finally emitting all three in one swoop.
+  id: totrans-119
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 第二阶段的第一个、第二个和第三个窗口现在都能够完成，最终一次性发出所有三个窗口。
+- en: Although the results of this windowing are correct, this leads to the results
+    being materialized in an unnecessarily delayed way. Because of this, Beam has
+    special logic for overlapping windows that ensures the output timestamp for window
+    *N*+1 is always greater than the end of window *N*.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这种窗口的结果是正确的，但这导致结果以不必要的延迟方式实现。因此，Beam对重叠窗口有特殊逻辑，确保窗口*N*+1的输出时间戳始终大于窗口*N*的结束时间。
+- en: Percentile Watermarks
+  id: totrans-121
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 百分位水印
+- en: So far, we have concerned ourselves with watermarks as measured by the minimum
+    event time of active messages in a stage. Tracking the minimum allows the system
+    to know when all earlier timestamps have been accounted for. On the other hand,
+    we could consider the entire distribution of event timestamps for active messages
+    and make use of it to create finer-grained triggering conditions.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们关注的是水印，即在一个阶段中活动消息的最小事件时间所测量的。跟踪最小值允许系统知道何时已经考虑了所有更早的时间戳。另一方面，我们可以考虑活动消息的事件时间的整个分布，并利用它来创建更精细的触发条件。
+- en: Instead of considering the minimum point of the distribution, we could take
+    any percentile of the distribution and say that we are guaranteed to have processed
+    this percentage of all events with earlier timestamps.⁵
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与其考虑分布的最小点，我们可以取分布的任何百分位，并说我们保证已处理了这个百分比的所有具有更早时间戳的事件。⁵
+- en: What is the advantage of this scheme? If for the business logic “mostly” correct
+    is sufficient, percentile watermarks provide a mechanism by which the watermark
+    can advance more quickly and more smoothly than if we were tracking the minimum
+    event time by discarding outliers in the long tail of the distribution from the
+    watermark. Figure 3-9 shows a compact distribution of event times where the 90^(th)
+    percentile watermark is close to the 100^(th) percentile. Figure 3-10 demonstrates
+    a case where the outlier is further behind, so the 90^(th) percentile watermark
+    is significantly ahead of the 100^(th) percentile. By discarding the outlier data
+    from the watermark, the percentile watermark can still keep track of the bulk
+    of the distribution without being delayed by the outliers.
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方案的优势是什么？如果对于业务逻辑来说，“大多数情况下”正确就足够了，百分位水印提供了一种机制，使水印可以比跟踪最小事件时间更快、更平滑地前进，通过从水印中丢弃分布长尾中的异常值。图3-9显示了一个紧凑的事件时间分布，其中90%百分位水印接近于100%百分位。图3-10展示了一个异常值落后的情况，因此90%百分位水印明显领先于100%百分位。通过从水印中丢弃异常值数据，百分位水印仍然可以跟踪分布的大部分，而不会被异常值延迟。
+- en: '![](img/stsy_0308.png)'
+  id: totrans-125
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0308.png)'
+- en: Figure 3-9\. Normal-looking watermark histogram
+  id: totrans-126
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-9。看起来正常的水印直方图
+- en: '![](img/stsy_0309.png)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0309.png)'
+- en: Figure 3-10\. Watermark histogram with outliers
+  id: totrans-128
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-10。带有异常值的水印直方图
+- en: Figure 3-11 shows an example of percentile watermarks used to draw window boundaries
+    for two-minute fixed windows. We can draw early boundaries based on the percentile
+    of timestamps of arrived data as tracked by the percentile watermark.
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3-11显示了使用百分位水印来绘制两分钟固定窗口的窗口边界的示例。我们可以根据已到达数据的时间戳的百分位来绘制早期边界，由百分位水印跟踪。
+- en: <assets/stsy_0310.mp4>
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <assets/stsy_0310.mp4>
+- en: '![Effects of varying watermark percentiles. As the percentile increases, more
+    events are included in the window: however, the processing time delay to materialize
+    the window also increases.](img/stsy_0310.png)'
+  id: totrans-131
+  prefs: []
+  type: TYPE_IMG
+  zh: 水印百分位数变化的影响。随着百分位数的增加，窗口中包含的事件也会增加：然而，实现窗口的处理时间延迟也会增加。
+- en: 'Figure 3-11\. Effects of varying watermark percentiles. As the percentile increases,
+    more events are included in the window: however, the processing time delay to
+    materialize the window also increases.'
+  id: totrans-132
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-11。水印百分位数变化的影响。随着百分位数的增加，窗口中包含的事件也会增加：然而，实现窗口的处理时间延迟也会增加。
+- en: Figure 3-11 shows the 33^(rd) percentile, 66^(th) percentile, and 100^(th) percentile
+    (full) watermark, tracking the respective timestamp percentiles in the data distribution.
+    As expected, these allow boundaries to be drawn earlier than tracking the full
+    100^(th) percentile watermark. Notice that the 33^(rd) and 66^(th) percentile
+    watermarks each allow earlier triggering of windows but with the trade-off of
+    marking more data as late. For example, for the first window, 12:00, 12:02), a
+    window closed based on the 33^(rd) percentile watermark would include only four
+    events and materialize the result at 12:06 processing time. If we use the 66^(th)
+    percentile watermark, the same event-time window would include seven events, and
+    materialize at 12:07 processing time. Using the 100^(th) percentile watermark
+    includes all ten events and delays materializing the results until 12:08 processing
+    time. Thus, percentile watermarks provide a way to tune the trade-off between
+    latency of materializing results and precision of the results.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3-11显示了33%百分位数、66%百分位数和100%百分位数（完整）水印，跟踪数据分布中相应的时间戳百分位数。如预期的那样，这些允许边界比跟踪完整的100%百分位数水印更早地绘制。请注意，33%和66%百分位数水印分别允许更早地触发窗口，但以标记更多数据为延迟为代价。例如，对于第一个窗口，12:00,
+    12:02)，基于33%百分位数水印关闭的窗口将只包括四个事件，并在12:06处理时间时实现结果。如果使用66%百分位数水印，相同的事件时间窗口将包括七个事件，并在12:07处理时间时实现。使用100%百分位数水印将包括所有十个事件，并延迟到12:08处理时间时才实现结果。因此，百分位数水印提供了一种调整结果实现的延迟和精度之间的权衡的方法。
+- en: Processing-Time Watermarks
+  id: totrans-134
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 处理时间水印
+- en: Until now, we have been looking at watermarks as they relate to the data flowing
+    through our system. We have seen how looking at the watermark can help us identify
+    the overall delay between our oldest data and real time. However, this is not
+    enough to distinguish between old data and a delayed system. In other words, by
+    only examining the event-time watermark as we have defined it up until now, we
+    cannot distinguish between a system that is processing data from an hour ago quickly
+    and without delay, and a system that is attempting to process real-time data and
+    has been delayed for an hour while doing so.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们一直在研究水印与流经我们系统的数据的关系。我们已经看到，观察水印如何帮助我们识别最旧数据和实时之间的总延迟。然而，这还不足以区分旧数据和延迟系统。换句话说，仅仅通过检查我们到目前为止定义的事件时间水印，我们无法区分一个快速处理一小时前数据而没有延迟的系统，和一个试图处理实时数据并在这样做时延迟了一个小时的系统。
+- en: 'To make this distinction, we need something more: processing-time watermarks.
+    We have already seen that there are two time domains in a streaming system: processing
+    time and event time. Until now, we have defined the watermark entirely in the
+    event-time domain, as a function of timestamps of the data flowing through the
+    system. This is an event-time watermark. We will now apply the same model to the
+    processing-time domain to define a processing-time watermark.'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了做出这种区别，我们需要更多的东西：处理时间水印。我们已经看到流处理系统中有两个时间域：处理时间和事件时间。到目前为止，我们已经完全在事件时间域中定义了水印，作为系统中流动数据的时间戳的函数。这是一个事件时间水印。现在我们将应用相同的模型到处理时间域，以定义一个处理时间水印。
+- en: Our stream processing system is constantly performing operations such as shuffling
+    messages between stages, reading or writing messages to persistent state, or triggering
+    delayed aggregations based on watermark progress. All of these operations are
+    performed in response to previous operations done at the current or upstream stage
+    of the pipeline. Thus, just as data elements “flow” through the system, a cascade
+    of operations involved in processing these elements also “flows” through the system.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的流处理系统不断执行操作，例如在阶段之间传递消息、读取或写入持久状态的消息，或者根据水印进度触发延迟聚合。所有这些操作都是响应于当前或上游阶段的先前操作而执行的。因此，就像数据元素“流”经系统一样，处理这些元素所涉及的一系列操作也“流”经系统。
+- en: We define the processing-time watermark in the exact same way as we have defined
+    the event-time watermark, except instead of using the event-time timestamp of
+    oldest work not yet completed, we use the processing-time timestamp of the oldest
+    operation not yet completed. An example of delay to the processing-time watermark
+    could be a stuck message delivery from one stage to another, a stuck I/O call
+    to read state or external data, or an exception while processing that prevents
+    processing from completing.
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们以与我们定义事件时间水印完全相同的方式定义处理时间水印，只是不是使用最早未完成的工作的事件时间戳，而是使用最早未完成的操作的处理时间戳。处理时间水印的延迟示例可能是从一个阶段到另一个阶段的消息传递卡住，读取状态或外部数据的I/O调用卡住，或者在处理过程中发生异常导致处理无法完成。
+- en: The processing-time watermark, therefore, provides a notion of processing delay
+    separate from the data delay. To understand the value of this distinction, consider
+    the graph in Figure 3-12 where we look at the event-time watermark delay.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，处理时间水印提供了一个与数据延迟分开的处理延迟概念。为了理解这种区别的价值，考虑图3-12中的图表，我们看一下事件时间水印延迟。
+- en: We see that the data delay is monotonically increasing, but there is not enough
+    information to distinguish between the cases of a stuck system and stuck data.
+    Only by looking at the processing-time watermark, shown in Figure 3-13, can we
+    distinguish the cases.
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们看到数据延迟是单调递增的，但没有足够的信息来区分系统卡住和数据卡住的情况。只有通过查看图3-13中显示的处理时间水印，我们才能区分这些情况。
+- en: '![###### Figure 3-12\. Event-time watermark increasing. It is not possible
+    to know from this information whether this is due to data buffering or system
+    processing delay.![](img/stsy_0312.png)'
+  id: totrans-141
+  prefs: []
+  type: TYPE_IMG
+  zh: '![###### 图3-12。事件时间水印增加。从这些信息中无法知道这是由于数据缓冲还是系统处理延迟造成的。![](img/stsy_0312.png)'
+- en: Figure 3-13\. Processing-time watermark also increasing. This indicates that
+    the system processing is delayed.
+  id: totrans-142
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-13。处理时间水印也在增加。这表明系统处理被延迟了。
+- en: In the first case (Figure 3-12), when we examine the processing-time watermark
+    delay we see that it too is increasing. This tells us that an operation in our
+    system is stuck, and the stuckness is also causing the data delay to fall behind.
+    Some real-world examples of situations in which this might occur are when there
+    is a network issue preventing message delivery between stages of a pipeline or
+    if a failure has occurred and is being retried. In general, a growing processing-time
+    watermark indicates a problem that is preventing operations from completing that
+    are necessary to the system’s function, and often involves user or administrator
+    intervention to resolve.
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第一种情况（图3-12）中，当我们检查处理时间水印延迟时，我们看到它也在增加。这告诉我们系统中的一个操作卡住了，并且这种卡住也导致数据延迟落后。在现实世界中，可能发生这种情况的一些例子是网络问题阻止了管道各阶段之间的消息传递，或者发生了故障并且正在重试。通常，增长的处理时间水印表明存在一个问题，阻止了对系统功能必要的操作的完成，并且通常需要用户或管理员干预来解决。
+- en: In this second case, as seen in Figure 3-14, the processing-time watermark delay
+    is small. This tells us that there are no stuck operations. The event-time watermark
+    delay is still increasing, which indicates that we have some buffered state that
+    we are waiting to drain. This is possible, for example, if we are buffering some
+    state while waiting for a window boundary to emit an aggregation, and corresponds
+    to a normal operation of the pipeline, as in Figure 3-15.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在第二种情况中，如图3-14所示，处理时间水印延迟很小。这告诉我们没有卡住的操作。事件时间水印延迟仍在增加，这表明我们有一些缓冲状态正在等待排放。例如，如果我们在等待窗口边界发出聚合时缓冲了一些状态，这是可能的，并且对应于管道的正常操作，如图3-15所示。
+- en: '![](img/stsy_0313.png)'
+  id: totrans-145
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0313.png)'
+- en: Figure 3-14\. Event-time watermark delay increasing, processing-time watermark
+    stable. This is an indication that data are buffered in the system and waiting
+    to be processed, rather than an indication that a system operation is preventing
+    data processing from completing.
+  id: totrans-146
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-14。事件时间水印延迟增加，处理时间水印稳定。这表明数据在系统中被缓冲并等待处理，而不是系统操作阻止数据处理完成的迹象。
+- en: '![](img/stsy_0314.png)'
+  id: totrans-147
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0314.png)'
+- en: Figure 3-15\. Watermark delay for fixed windows. The event-time watermark delay
+    increases as elements are buffered for each window, and decreases as each window’s
+    aggregate is emitted via an on-time trigger, whereas the processing-time watermark
+    simply tracks system-level delays (which remain relatively steady in a healthy
+    pipeline).
+  id: totrans-148
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-15。固定窗口的水印延迟。随着每个窗口的元素被缓冲，事件时间水印延迟增加，并且随着每个窗口的聚合通过及时触发器发出，而处理时间水印只是跟踪系统级别的延迟（在健康的管道中保持相对稳定）。
+- en: Therefore, the processing-time watermark is a useful tool in distinguishing
+    system latency from data latency. In addition to visibility, we can use the processing-time
+    watermark at the system-implementation level for tasks such as garbage collection
+    of temporary state (Reuven talks more about an example of this in Chapter 5).
+  id: totrans-149
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，处理时间水印是一个有用的工具，可以区分系统延迟和数据延迟。除了可见性之外，我们还可以在系统实现级别使用处理时间水印，用于诸如临时状态的垃圾收集等任务（Reuven在第5章中更多地讨论了一个例子）。
+- en: Case Studies
+  id: totrans-150
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 案例研究
+- en: Now that we’ve laid the groundwork for how watermarks ought to behave, it’s
+    time to take a look at some real systems to understand how different mechanisms
+    of the watermark are implemented. We hope that these shed some light on the trade-offs
+    that are possible between latency and correctness as well as scalability and availability
+    for watermarks in real-world systems.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们已经为水印应该如何行为奠定了基础，是时候看一看一些真实系统，了解水印的不同机制是如何实现的了。我们希望这些能够揭示在现实世界系统中延迟和正确性以及可扩展性和可用性之间可能存在的权衡。
+- en: 'Case Study: Watermarks in Google Cloud Dataflow'
+  id: totrans-152
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 案例研究：Google Cloud Dataflow中的水印
+- en: There are many possible approaches to implementing watermarks in a stream processing
+    system. Here, we present a quick survey of the implementation in Google Cloud
+    Dataflow, a fully managed service for executing Apache Beam pipelines. Dataflow
+    includes SDKs for defining data processing workflows, and a Cloud Platform managed
+    service to run those workflows on Google Cloud Platform resources.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在流处理系统中，有许多可能的实现水印的方法。在这里，我们简要介绍了Google Cloud Dataflow中的实现，这是一个用于执行Apache Beam管道的完全托管的服务。Dataflow包括用于定义数据处理工作流程的SDK，以及在Google
+    Cloud Platform资源上运行这些工作流程的Cloud Platform托管服务。
+- en: Dataflow stripes (shards) each of the data processing steps in its data processing
+    graph across multiple physical workers by splitting the available keyspace of
+    each worker into key ranges and assigning each range to a worker. Whenever a `GroupByKey`
+    operation with distinct keys is encountered, data must be shuffled to corresponding
+    keys.
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Dataflow通过将每个数据处理步骤的数据处理图分布到多个物理工作器上，通过将每个工作器的可用键空间分割成键范围，并将每个范围分配给一个工作器来进行条纹化（分片）。每当遇到具有不同键的`GroupByKey`操作时，数据必须被洗牌到相应的键上。
+- en: Figure 3-16 depicts a logical representation of the processing graph with a
+    `GroupByKey`.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3-16描述了带有`GroupByKey`的处理图的逻辑表示。
+- en: '![](img/stsy_0315.png)'
+  id: totrans-156
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0315.png)'
+- en: Figure 3-16\. A GroupByKey step consumes data from another DoFn. This means
+    that there is a data shuffle between the keys of the first step and the keys of
+    the second step.
+  id: totrans-157
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-16。GroupByKey步骤从另一个DoFn中消耗数据。这意味着第一步的键和第二步的键之间存在数据洗牌。
+- en: Whereas the physical assignment of key ranges to workers might look Figure 3-17.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 图3-17显示了将键范围分配给工作节点的物理分配。
+- en: '![](img/stsy_0316.png)'
+  id: totrans-159
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0316.png)'
+- en: Figure 3-17\. Key ranges of both steps are assigned (striped) across the available
+    workers.
+  id: totrans-160
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-17。两个步骤的键范围（条纹）分配给可用的工作节点。
+- en: 'In the watermark propagation section, we discussed that the watermark is maintained
+    for multiple subcomponents of each step. Dataflow keeps track of the per-range
+    watermarks of each of these components. Watermark aggregation then involves computing
+    the minimum of each watermark across all ranges, ensuring that the following guarantees
+    are met:'
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在水印传播部分，我们讨论了水印是如何为每个步骤的多个子组件维护的。Dataflow跟踪每个组件的每个范围水印。然后，水印聚合涉及计算所有范围的每个水印的最小值，确保满足以下保证：
+- en: All ranges must be reporting a watermark. If a watermark is not present for
+    a range, we cannot advance the watermark, because a range not reporting must be
+    treated as unknown.
+  id: totrans-162
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 所有范围都必须报告水印。如果某个范围没有水印，则我们无法提前水印，因为未报告的范围必须被视为未知。
+- en: Ensure that the watermark is monotonically increasing. Because late data is
+    possible, we must not update the watermark if it would cause the watermark to
+    move backward.
+  id: totrans-163
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 确保水印单调递增。由于可能存在延迟数据，如果更新水印会导致水印后退，我们就不能更新水印。
+- en: Google Cloud Dataflow performs aggregation via a centralized aggregator agent.
+    We can shard this agent for efficiency. From a correctness standpoint, the watermark
+    aggregator serves as a “single source of truth” about the watermark.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google Cloud Dataflow通过集中式聚合代理执行聚合。我们可以对此代理进行分片以提高效率。从正确性的角度来看，水印聚合器充当了水印的“唯一真相来源”。
+- en: Ensuring correctness in distributed watermark aggregation poses certain challenges.
+    It is paramount that watermarks are not advanced prematurely because advancing
+    the watermark prematurely will turn on-time data into late data. Specifically,
+    as physical assignments are actuated to workers, the workers maintain leases on
+    the persistent state attached to the key ranges, ensuring that only a single worker
+    may mutate the persistent state for a key. To guarantee watermark correctness,
+    we must ensure that each watermark update from a worker process is admitted into
+    the aggregate only if the worker process still maintains a lease on its persistent
+    state; therefore, the watermark update protocol must take state ownership lease
+    validation into account.
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在分布式水印聚合中确保正确性会带来一定的挑战。至关重要的是，水印不会过早提前，因为过早提前水印会将准时数据变成延迟数据。具体来说，当物理分配被激活到工作节点时，工作节点会对与键范围相关的持久状态维护租约，确保只有一个工作节点可以对键的持久状态进行变更。为了保证水印的正确性，我们必须确保来自工作进程的每个水印更新只有在工作进程仍然维护其持久状态的租约时才被纳入聚合；因此，水印更新协议必须考虑状态所有权租约验证。
+- en: 'Case Study: Watermarks in Apache Flink'
+  id: totrans-166
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 案例研究：Apache Flink中的水印
+- en: Apache Flink is an open source stream processing framework for distributed,
+    high-performing, always-available, and accurate data streaming applications. It
+    is possible to run Beam programs using a Flink runner. In doing so, Beam relies
+    on the implementation of stream processing concepts such as watermarks within
+    Flink. Unlike Google Cloud Dataflow, which implements watermark aggregation via
+    a centralized watermark aggregator agent, Flink performs watermark tracking and
+    aggregation in-band.⁶
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Flink是一个开源的流处理框架，用于分布式、高性能、始终可用和准确的数据流应用程序。可以使用Flink运行Beam程序。在这样做时，Beam依赖于Flink内部的水印等流处理概念的实现。与Google
+    Cloud Dataflow不同，后者通过集中式水印聚合器代理执行水印聚合，Flink在内部执行水印跟踪和聚合。
+- en: To understand how this works, let’s look at a Flink pipeline, as shown in Figure 3-18.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要了解这是如何工作的，让我们看一下Flink管道，如图3-18所示。
+- en: '![](img/stsy_0317.png)'
+  id: totrans-169
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0317.png)'
+- en: Figure 3-18\. A Flink pipeline with two sources and event-time watermarks propagating
+    in-band
+  id: totrans-170
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-18。一个Flink管道，其中有两个源和内部传播的事件时间水印
+- en: In this pipeline data is generated at two sources. These sources also both generate
+    watermark “checkpoints” that are sent synchronously in-band with the data stream.
+    This means that when a watermark checkpoint from source A for timestamp “53” is
+    emitted, it guarantees that no nonlate data messages will be emitted from source
+    A with timestamp behind “53”. The downstream “keyBy” operators consume the input
+    data and the watermark checkpoints. As new watermark checkpoints are consumed,
+    the downstream operators’ view of the watermark is advanced, and a new watermark
+    checkpoint for downstream operators can be emitted.
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这个管道中，数据在两个源处生成。这些源也都生成与数据流同步发送的水印“检查点”。这意味着当源A发出时间戳“53”的水印检查点时，它保证不会从源A发出时间戳在“53”之前的非延迟数据消息。下游的“keyBy”操作符消耗输入数据和水印检查点。随着新的水印检查点被消耗，下游操作符对水印的视图会被提前，并且可以为下游操作符发出新的水印检查点。
+- en: This choice to send watermark checkpoints in-band with the data stream differs
+    from the Cloud Dataflow approach that relies on central aggregation and leads
+    to a few interesting trade-offs.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将水印检查点与数据流一起发送的选择与Cloud Dataflow方法不同，后者依赖于中央聚合，并导致一些有趣的权衡。
+- en: 'Following are some advantages of in-band watermarks:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是内部水印的一些优势：
+- en: Reduced watermark propagation latency, and very low-latency watermarks
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 减少水印传播延迟，非常低延迟的水印
+- en: Because it is not necessary to have watermark data traverse multiple hops and
+    await central aggregation, it is possible to achieve very low latency more easily
+    with the in-band approach.
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于不需要水印数据在多个跳跃中传播并等待中央聚合，因此使用内部方法更容易实现非常低延迟。
+- en: No single point of failure for watermark aggregation
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 水印聚合没有单点故障
+- en: Unavailability in the central watermark aggregation agent will lead to a delay
+    in watermarks across the entire pipeline. With the in-band approach, unavailability
+    of part of the pipeline cannot cause watermark delay to the entire pipeline.
+  id: totrans-177
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 中央水印聚合代理的不可用将导致整个管道中的水印延迟。采用带内方法，管道的部分不可用不能导致整个管道的水印延迟。
+- en: Inherent scalability
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 固有的可扩展性
+- en: Although Cloud Dataflow scales well in practice, more complexity is needed to
+    achieve scalability with a centralized watermark aggregation service versus implicit
+    scalability with in-band watermarks.
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管Cloud Dataflow在实践中具有良好的扩展性，但与带内水印的隐式可扩展性相比，实现具有集中式水印聚合服务的可扩展性需要更多的复杂性。
+- en: 'Here are some advantages of out-of-band watermark aggregation:'
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是带外水印聚合的一些优势：
+- en: Single source of “truth”
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: “真相”的单一来源
+- en: For debuggability, monitoring, and other applications such as throttling inputs
+    based on pipeline progress, it is advantageous to have a service that can vend
+    the values of watermarks rather than having watermarks implicit in the streams,
+    with each component of the system having its own partial view.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于调试、监控和其他应用（例如基于管道进度对输入进行限流），有一个可以提供水印值的服务是有利的，而不是在流中隐含水印，系统的每个组件都有自己的部分视图。
+- en: Source watermark creation
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 源水印创建
+- en: Some source watermarks require global information. For example, sources might
+    be temprarily idle, have low data rates, or require out-of-band information about
+    the source or other system components to generate the watermarks. This is easier
+    to achieve in a central service. For an example see the case study that follows
+    on source watermarks for Google Cloud Pub/Sub.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些源水印需要全局信息。例如，源可能暂时空闲，数据速率低，或需要有关源或其他系统组件的带外信息来生成水印。这在中央服务中更容易实现。例如，查看接下来关于Google
+    Cloud Pub/Sub源水印的案例研究。
+- en: 'Case Study: Source Watermarks for Google Cloud Pub/Sub'
+  id: totrans-185
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 案例研究：Google Cloud Pub/Sub的源水印
+- en: Google Cloud Pub/Sub is a fully managed real-time messaging service that allows
+    you to send and receive messages between independent applications. Here, we discuss
+    how to create a reasonable heuristic watermark for data sent into a pipeline via
+    Cloud Pub/Sub.
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Google Cloud Pub/Sub是一个完全托管的实时消息传递服务，允许您在独立应用程序之间发送和接收消息。在这里，我们讨论如何为通过Cloud
+    Pub/Sub发送到管道的数据创建一个合理的启发式水印。
+- en: First, we need to describe a little about how Pub/Sub works. Messages are published
+    on Pub/Sub *topics*. A particular topic can be subscribed to by any number of
+    Pub/Sub *subscriptions*. The same messages are delivered on all subscriptions
+    subscribed to a given topic. The method of delivery is for clients to *pull* messages
+    off the subscription, and to ack the receipt of particular messages via provided
+    IDs. Clients do not get to choose which messages are pulled, although Pub/Sub
+    does attempt to provide oldest messages first, with no hard guarantees around
+    this.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，我们需要描述一下Pub/Sub的工作原理。消息发布在Pub/Sub的*主题*上。任何数量的Pub/Sub *订阅*都可以订阅特定主题。相同的消息会传递到订阅给定主题的所有订阅。客户端通过*拉取*订阅中的消息，并通过提供的ID确认接收特定消息。客户端无法选择拉取哪些消息，尽管Pub/Sub会尝试首先提供最旧的消息，但没有硬性保证。
+- en: To build a heuristic, we make some assumptions about the source that is sending
+    data into Pub/Sub. Specifically, we assume that the timestamps of the original
+    data are “well behaved”; in other words, we expect a bounded amount of out-of-order
+    timestamps on the source data, before it is sent to Pub/Sub. Any data that are
+    sent with timestamps outside the allowed out-of-order bounds will be considered
+    late data. In our current implementation, this bound is at least 10 seconds, meaning
+    reordering of timestamps up to 10 seconds before sending to Pub/Sub will not create
+    late data. We call this value the *estimation band*. Another way to look at this
+    is that when the pipepline is perfectly caught up with the input, the watermark
+    will be 10 seconds behind real time to allow for possible reorderings from the
+    source. If the pipeline is backlogged, all of the backlog (not just the 10-second
+    band) is used for estimating the watermark.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了建立一个启发式方法，我们对将数据发送到Pub/Sub的源进行了一些假设。具体来说，我们假设原始数据的时间戳是“良好的”；换句话说，我们期望在将数据发送到Pub/Sub之前，源数据的时间戳存在有限的无序量。任何发送的数据，其时间戳超出允许的无序范围，将被视为延迟数据。在我们当前的实现中，这个范围至少为10秒，这意味着在发送到Pub/Sub之前，时间戳最多可以重新排序10秒，不会产生延迟数据。我们称这个值为*估计带宽*。另一种看待这个问题的方式是，当管道完全赶上输入时，水印将比实时晚10秒，以便允许源可能的重新排序。如果管道积压，所有积压（不仅仅是10秒的范围）都用于估计水印。
+- en: What are the challenges we face with Pub/Sub? Because Pub/Sub does not guarantee
+    ordering, we must have some kind of additional metadata to know enough about the
+    backlog. Luckily, Pub/Sub provides a measurement of backlog in terms of the “oldest
+    unacknowledged publish timestamp.” This is not the same as the event timestamp
+    of our message, because Pub/Sub is agnostic to the application-level metadata
+    being sent through it; instead, this is the timestamp of when the message was
+    ingested by Pub/Sub.
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们在使用Pub/Sub时面临哪些挑战？因为Pub/Sub不能保证排序，我们必须有某种额外的元数据来了解积压情况。幸运的是，Pub/Sub提供了“最旧的未确认发布时间戳”的积压度量。这与我们消息的事件时间戳不同，因为Pub/Sub对通过它发送的应用级元数据是不可知的；相反，这是消息被Pub/Sub摄取的时间戳。
+- en: This measurement is not the same as an event-time watermark. It is in fact the
+    processing-time watermark for Pub/Sub message delivery. The Pub/Sub publish timestamps
+    are not equal to the event timestamps, and in the case that historical (past)
+    data are being sent, it might be arbitrarily far away. The ordering on these timestamps
+    might also be different because, as mentioned earlier, we allow a limited amount
+    of reordering.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个度量不同于事件时间水印。实际上，这是Pub/Sub消息传递的处理时间水印。Pub/Sub发布时间戳不等于事件时间戳，如果发送了历史（过去）数据，可能会相差很远。这些时间戳的排序也可能不同，因为正如前面提到的，我们允许有限的重排序。
+- en: However, we can use this as a measure of backlog to learn enough information
+    about the event timestamps present in the backlog so that we can create a reasonable
+    watermark as follows.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，我们可以将其用作积压的度量，以了解有关积压中存在的事件时间戳的足够信息，以便我们可以创建一个合理的水印，如下所示。
+- en: 'We create two subscriptions to the topic containing the input messages: a *base
+    subscription* that the pipeline will actually use to read the data to be processed,
+    and a *tracking subscription*, which is used for metadata only, to perform the
+    watermark estimation.'
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们创建了两个订阅来订阅包含输入消息的主题：一个*基本订阅*，管道实际上将用它来读取要处理的数据，以及一个*跟踪订阅*，仅用于元数据，用于执行水印估计。
+- en: Taking a look at our base subscription in Figure 3-19, we see that messages
+    might arrive out of order. We label each message with its Pub/Sub publish timestamp
+    “pt” and its event-time timestamp “et.” Note that the two time domains can be
+    unrelated.
+  id: totrans-193
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 看一下我们在图3-19中的基本订阅，我们可以看到消息可能是无序到达的。我们用Pub/Sub发布时间戳“pt”和事件时间时间戳“et”标记每条消息。请注意，这两个时间域可能是无关的。
+- en: '![](img/stsy_0318.png)'
+  id: totrans-194
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0318.png)'
+- en: Figure 3-19\. Processing-time and event-time timestamps of messages arriving
+    on a Pub/Sub subscription
+  id: totrans-195
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-19。Pub/Sub订阅上到达的消息的处理时间和事件时间时间戳
+- en: Some messages on the base subscription are unacknowledged forming a backlog.
+    This might be due to them not yet being delivered or they might have been delivered
+    but not yet processed. Remember also that pulls from this subscription are distributed
+    across multiple shards. Thus, it is not possible to say just by looking at the
+    base subscription what our watermark should be.
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基本订阅上的一些消息是未确认的，形成了积压。这可能是因为它们尚未被传递，或者它们可能已经被传递但尚未被处理。还要记住，从此订阅中拉取的操作是分布在多个分片上的。因此，仅仅通过查看基本订阅，我们无法确定我们的水印应该是什么。
+- en: The tracking subscription, seen in Figure 3-20, is used to effectively inspect
+    the backlog of the base subscription and take the minimum of the event timestamps
+    in the backlog. By maintaining little or no backlog on the tracking subscription,
+    we can inspect the messages ahead of the base subsciption’s oldest unacknowledged
+    message.
+  id: totrans-197
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 跟踪订阅，如图3-20所示，用于有效地检查基本订阅的积压，并获取积压中事件时间戳的最小值。通过在跟踪订阅上保持很少或没有积压，我们可以检查基本订阅最旧的未确认消息之前的消息。
+- en: '![](img/stsy_0319.png)'
+  id: totrans-198
+  prefs: []
+  type: TYPE_IMG
+  zh: '![](img/stsy_0319.png)'
+- en: Figure 3-20\. An additional “tracking” subscription receiving the same messages
+    as the “base” subscription
+  id: totrans-199
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图3-20。一个额外的“跟踪”订阅接收与“基本”订阅相同的消息
+- en: 'We stay caught up on the tracking subscription by ensuring that pulling from
+    this subscription is computationally inexpensive. Conversely, if we fall sufficiently
+    behind on the tracking subscription, we will stop advancing the watermark. To
+    do so, we ensure that at least one of the following conditions is met:'
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们通过确保从此订阅中拉取是计算上廉价的来保持跟踪订阅。相反，如果我们在跟踪订阅上落后得足够多，我们将停止推进水印。为此，我们确保满足以下条件之一：
+- en: The tracking subscription is sufficiently ahead of the base subscription. Sufficiently
+    ahead means that the tracking subscription is ahead by at least the estimation
+    band. This ensures that any bounded reorder within the estimation band is taken
+    into account.
+  id: totrans-201
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 跟踪订阅足够超前于基本订阅。足够超前意味着跟踪订阅至少超前于估计带宽。这确保了估计带宽内的任何有界重排序都会被考虑在内。
+- en: The tracking subscription is sufficiently close to real time. In other words,
+    there is no backlog on the tracking subscription.
+  id: totrans-202
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 跟踪订阅与实时足够接近。换句话说，跟踪订阅上没有积压。
+- en: We acknowledge the messages on the tracking subscription as soon as possible,
+    after we have durably saved metadata about the publish and event timestamps of
+    the messages. We store this metadata in a sparse histogram format to minimize
+    the amount of space used and the size of the durable writes.
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们尽快在跟踪订阅上确认消息，在我们已经持久保存了消息的发布和事件时间戳的元数据之后。我们以稀疏直方图格式存储这些元数据，以最小化使用的空间和持久写入的大小。
+- en: Finally, we ensure that we have enough data to make a reasonable watermark estimate.
+    We take a band of event timestamps we’ve read from our tracking subscription with
+    publish timestamps newer than the oldest unacknowledged of the base subscription,
+    or the width of the estimation band. This ensures that we consider all event timestamps
+    in the backlog, or if the backlog is small, the most recent estimation band, to
+    make a watermark estimate.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们确保有足够的数据来进行合理的水印估计。我们从我们的跟踪订阅中读取的事件时间戳中取一个带宽，其发布时间戳比基本订阅的最旧未确认消息要新，或者等于估计带宽的宽度。这确保我们考虑了积压中的所有事件时间戳，或者如果积压很小，那么就是最近的估计带宽，以进行水印估计。
+- en: Finally, the watermark value is computed to be the minimum event time in the
+    band.
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，水印值被计算为带宽中的最小事件时间。
+- en: This method is correct in the sense that all timestamps within the reordering
+    limit of 10 seconds at the input will be accounted for by the watermark and not
+    appear as late data. However, it produces possibly an overly conservative watermark,
+    one that advances “too slowly” in the sense described in Chapter 2. Because we
+    consider all messages ahead of the base subscription’s oldest unacknowledged message
+    on the tracking subscription, we can include event timestamps in the watermark
+    estimate for messages that have already been acknowledged.
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种方法在某种意义上是正确的，即在输入的重新排序限制内的所有时间戳都将被水印考虑在内，并且不会出现作为延迟数据。然而，它可能会产生一个过于保守的水印，即在第2章中描述的“进展过慢”。因为我们考虑了跟踪订阅上基本订阅最旧的未确认消息之前的所有消息的事件时间戳，所以我们可以将已经被确认的消息的事件时间戳包括在水印估计中。
+- en: Additionally, there are a few heuristics to ensure progress. This method works
+    well in the case of dense, frequently arriving data. In the case of sparse or
+    infrequent data, there might not be enough recent messages to build a reasonable
+    estimate. In the case that we have not seen data on the subscription in more than
+    two minutes (and there’s no backlog), we advance the watermark to near real time.
+    This ensures that the watermark and the pipeline continue to make progress even
+    if no more messages are forthcoming.
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，还有一些启发式方法来确保进展。这种方法在密集、频繁到达的数据情况下效果很好。在稀疏或不经常到达的数据情况下，可能没有足够的最近消息来建立合理的估计。如果我们在订阅中超过两分钟没有看到数据（而且没有积压），我们将将水印提前到接近实时。这确保了水印和管道即使没有更多消息也能继续取得进展。
+- en: All of the above ensures that as long as source data-event timestamp reordering
+    is within the estimation band, there will be no additional late data.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以上所有内容确保只要源数据事件时间戳重新排序在估计范围内，就不会有额外的延迟数据。
+- en: Summary
+  id: totrans-209
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: At this point, we have explored how we can use the event times of messages to
+    give a robust definition of progress in a stream processing system. We saw how
+    this notion of progress can subsequently help us answer the question of *where*
+    in event time processing is taking place and *when* in processing time results
+    are materialized. Specifically, we looked at how watermarks are created at the
+    sources, the points of data ingestion into a pipeline, and then propagated throughout
+    the pipeline to preserve the essential guarantees that allow the questions of
+    *where* and *when* to be answered. We also looked at the implications of changing
+    the output window timestamps on watermarks. Finally, we explored some real-world
+    system considerations when building watermarks at scale.
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这一点上，我们已经探讨了如何利用消息的事件时间来给出流处理系统中进展的稳健定义。我们看到这种进展的概念随后如何帮助我们回答在事件时间处理中发生的位置和在处理时间中结果何时实现的问题。具体来说，我们看了水印是如何在源头创建的，即数据进入管道的地方，然后在整个管道中传播，以保留允许回答“在哪里”和“何时”的基本保证。我们还研究了更改输出窗口时间戳对水印的影响。最后，我们探讨了在构建大规模水印时的一些现实系统考虑因素。
+- en: Now that we have a firm footing in how watermarks work under the covers, we
+    can take a dive into what they can do for us as we use windowing and triggering
+    to answer more complex queries in Chapter 4.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在我们对水印在幕后的工作有了牢固的基础，我们可以深入探讨它们在我们使用窗口和触发器来回答第四章中更复杂的查询时可以为我们做些什么。
+- en: ¹ Note the additional mention of monotonicity; we have not yet discussed how
+    to achieve this. Indeed the discussion thus far makes no mention of monotonicity.
+    If we considered exclusively the oldest in-flight event time, the watermark would
+    not always be monotonic, as we have made no assumptions about our input. We return
+    to this discussion later on.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ¹ 请注意单调性的额外提及；我们还没有讨论如何实现这一点。事实上，到目前为止的讨论并未提及单调性。如果我们只考虑最旧的在途事件时间，水印不会总是单调的，因为我们对输入没有做任何假设。我们稍后会回到这个讨论。
+- en: ² To be precise, it’s not so much that the number of logs need be static as
+    it is that the number of logs at any given time be known a priori by the system.
+    A more sophisticated input source composed of a dynamically chosen number of inputs
+    logs, such as [Pravega](http://pravega.io), could just as well be used for constructing
+    a perfect watermark. It’s only when the number of logs that exist in the dynamic
+    set at any given time is unknown (as in the example in the next section) that
+    one must fall back on a heuristic watermark.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ² 要准确，不是日志的数量需要是静态的，而是系统需要事先知道任何给定时间点的日志数量。一个更复杂的输入源，由动态选择的输入日志组成，比如[Pravega](http://pravega.io)，同样可以用于构建完美的水印。只有当动态集合中存在的日志数量在任何给定时间点是未知的（就像下一节中的示例一样），才必须依赖启发式水印。
+- en: ³ Note that by saying “flow through the system,” I don’t necessarily imply they
+    flow along the same path as normal data. They might (as in Apache Flink), but
+    they might also be transmitted out-of-band (as in MillWheel/Cloud Dataflow).
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ³ 请注意，通过说“流经系统”，我并不一定意味着它们沿着与正常数据相同的路径流动。它们可能会（就像Apache Flink一样），但它们也可能会以带外的方式传输（就像MillWheel/Cloud
+    Dataflow一样）。
+- en: ⁴ The *start* of the window is not a safe choice from a watermark correctness
+    perspective because the first element in the window often comes *after* the beginning
+    of the window itself, which means that the watermark is not guaranteed to have
+    been held back as far as the start of the window.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁴ 窗口的“开始”并不是从水印正确性的角度来看一个安全的选择，因为窗口中的第一个元素通常在窗口开始之后出现，这意味着水印不能保证被拖延到窗口的开始。
+- en: ⁵ The percentile watermark triggering scheme described here is not currently
+    implemented by Beam; however, other systems such as MillWheel implement this.
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁵ 这里描述的百分位水印触发方案目前尚未由Beam实现；然而，其他系统如MillWheel实现了这一点。
+- en: ⁶ For more information on Flink watermarks, see the [Flink documentation on
+    the subject.](https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/event_time.html)
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ⁶ 有关Flink水印的更多信息，请参阅[有关此主题的Flink文档。](https://ci.apache.org/projects/flink/flink-docs-release-1.3/dev/event_time.html)

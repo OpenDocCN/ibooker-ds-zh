@@ -1,0 +1,707 @@
+- en: Chapter 13\. Advanced Stateful Operations
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第13章. 高级有状态操作
+- en: '[Chapter 8](ch08.xhtml#ss-prog-model) demonstrated how easy it is to express
+    an aggregation in Structured Streaming using the existing aggregation functions
+    in the *structured* Spark APIs. [Chapter 12](ch12.xhtml#ss-event-time) showed
+    the effectiveness of Spark’s built-in support for using the embedded time information
+    in the event stream, the so-called *event-time processing*.'
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[第8章](ch08.xhtml#ss-prog-model)展示了如何使用结构化流的现有聚合函数轻松表达聚合操作，使用*结构化* Spark API。[第12章](ch12.xhtml#ss-event-time)展示了Spark内置支持使用事件流中的嵌入时间信息（所谓的*事件时间处理*）的有效性。'
+- en: However, there are cases when we need to meet custom aggregation criteria that
+    are not directly supported by the built-in models. In this chapter, we explore
+    how to conduct advanced stateful operations to address these situations.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，在需要满足不被内置模型直接支持的自定义聚合条件时，我们需要研究如何进行高级有状态操作以解决这些情况。
+- en: 'Structured Streaming offers an API to implement arbitrary stateful processing.
+    This API is represented by two operations: `mapGroupsWithState` and `flatMapGroupsWithState`.
+    Both operations allow us to create a custom definition of a state, set up the
+    rules of how this state evolves as new data comes in over time, determine when
+    it expires, and provide us with a method to combine this state definition with
+    the incoming data to produce results.'
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 结构化流提供了一个API来实现任意有状态处理。这个API由两个操作表示：`mapGroupsWithState`和`flatMapGroupsWithState`。这两个操作允许我们创建状态的自定义定义，设置该状态随时间推移如何演变的规则，确定其何时过期，并提供一种方法将此状态定义与传入数据结合以生成结果。
+- en: The main difference between `mapGroupsWithState` and `flatMapGroupsWithState`
+    is that the former must produce a single result for each processed group, whereas
+    the latter might produce zero or more results. Semantically, this means that `mapGroupsWithState`
+    should be used when new data always results in a new state, whereas `flatMapGroupsWithState`
+    should be used in all other cases.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`mapGroupsWithState`和`flatMapGroupsWithState`之间的主要区别在于前者必须为每个处理过的组生成单个结果，而后者可能生成零个或多个结果。从语义上讲，这意味着当新数据始终导致新状态时应使用`mapGroupsWithState`，而在所有其他情况下应使用`flatMapGroupsWithState`。'
+- en: Internally, Structured Streaming takes care of managing state between operations
+    and ensures its availability and fault-tolerant preservation during and across
+    executions of the streaming process over time.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内部，结构化流负责在操作之间管理状态，并确保其在整个流处理过程中的可用性和容错保存。
+- en: 'Example: Car Fleet Management'
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 例如：车队管理
+- en: Let’s imagine a car fleet management solution in which the vehicles of the fleet
+    are enabled with wireless network capabilities. Each vehicle regularly reports
+    its geographical location and many operational parameters like fuel level, speed,
+    acceleration, bearing, engine temperature, and so on. The stakeholders would like
+    to exploit this stream of telemetry data to implement a range of applications
+    to help them manage the operational and financial aspects of the business.
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设有一个车队管理解决方案，车队中的车辆具备无线网络功能。每辆车定期报告其地理位置以及诸如燃油水平、速度、加速度、方位、引擎温度等多个操作参数。利益相关者希望利用这些遥测数据流来实现一系列应用程序，帮助他们管理业务的运营和财务方面。
+- en: Using the Structured Streaming features we know so far, we could already implement
+    many use cases, like monitoring kilometers driven per day using event-time windows
+    or finding vehicles with a low-fuel warning by applying filters.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 利用目前了解到的结构化流特性，我们已经能够实现许多用例，比如使用事件时间窗口监控每天行驶的公里数或通过应用过滤器查找低燃油警告的车辆。
+- en: 'Now, we would like to have the notion of a trip: the driven road segment from
+    a start to a stop. Individually, the notion of a trip is useful to compute fuel
+    efficiency or monitor compliance to geo-fencing agreements. When analyzed in groups,
+    trip information might reveal transportation patterns, traffic hotspots, and,
+    when combined with other sensor information, they can even report road conditions.
+    From our stream-processing perspective, we could see trips as an arbitrary window
+    that opens when the vehicle starts moving and closes when it finally stops. The
+    event-time window aggregations we saw in [Chapter 12](ch12.xhtml#ss-event-time)
+    use fixed time intervals as windowing criteria, so they are of no help to implement
+    our trip analysis.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们希望有一个行程的概念：从起点到终点的驾驶路段。单独来看，行程的概念有助于计算燃油效率或监控地理围栏协议的遵守情况。当分析成组时，行程信息可能揭示出运输模式、交通热点，以及与其他传感器信息结合时，甚至可以报告道路条件。从我们流处理的角度来看，我们可以将行程视为一个任意的时间窗口，当车辆开始移动时打开，当最终停止时关闭。我们在
+    [第12章](ch12.xhtml#ss-event-time) 中看到的事件时间窗口聚合使用固定的时间间隔作为窗口条件，因此对于实现我们的行程分析没有帮助。
+- en: We can appreciate that we need a more powerful definition of state that is not
+    purely based on time, but also on arbitrary conditions. In our example, this condition
+    is that the vehicle is driving.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们可以意识到，我们需要一个更强大的状态定义，不仅仅基于时间，还基于任意条件。在我们的例子中，这个条件是车辆正在行驶。
+- en: Understanding Group with State Operations
+  id: totrans-11
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 理解带状态操作
+- en: The arbitrary state operations, `mapGroupsWithState` and `flatMapGroupWithState`,
+    work exclusively on the typed `Dataset` API using either the Scala or the Java
+    bindings.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任意状态操作 `mapGroupsWithState` 和 `flatMapGroupWithState` 专门使用类型化的 `Dataset` API，可以使用
+    Scala 或 Java 绑定。
+- en: 'Based on the data that we are processing and the requirements of our stateful
+    transformation, we need to provide three type definitions, typically encoded as
+    a `case class` (Scala) or a `Java Bean` (Java):'
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 根据我们正在处理的数据和我们状态转换的要求，我们需要提供三种类型定义，通常编码为 `case class`（Scala）或 `Java Bean`（Java）：
+- en: The input event (`I`)
+  id: totrans-14
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输入事件 (`I`)
+- en: The arbitrary state to keep (`S`)
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 要保持的任意状态 (`S`)
+- en: The output (`O`) (this type might be the same as the state representation, if
+    suitable)
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 输出 (`O`)（如果适用，则此类型可能与状态表示相同）
+- en: All of these types must be encodable into Spark SQL types. This means that there
+    should be an `Encoder` available. The usual import statement
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有这些类型都必须可以编码为 Spark SQL 类型。这意味着应该有一个可用的 `Encoder`。通常的导入语句
+- en: '[PRE0]'
+  id: totrans-18
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: is sufficient for all basic types, tuples, and `case class`es.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于所有基本类型、元组和 `case class`，都足够。
+- en: With these types in place, we can formulate the state transformation function
+    that implements our custom state handling logic.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这些类型，我们可以制定状态转换函数，实现我们的自定义状态处理逻辑。
+- en: '`mapGroupsWithState` requires that this function returns a single mandatory
+    value:'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`mapGroupsWithState` 要求此函数返回一个必需的单一值：'
+- en: '[PRE1]'
+  id: totrans-22
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: '`flatMapGroupsWithState` requires that this function returns an `Iterator`,
+    which might contain zero or more elements:'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`flatMapGroupsWithState` 要求此函数返回一个 `Iterator`，可能包含零个或多个元素：'
+- en: '[PRE2]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: '`GroupState[S]` is a wrapper provided by Structured Streaming and used internally
+    to manage the state `S` across executions. Within the function, `GroupState` provides
+    mutation access to the state and the ability to check and set timeouts.'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`GroupState[S]` 是由结构化流提供的包装器，在执行过程中用于管理状态 `S`。在函数内部，`GroupState` 提供对状态的变异访问以及检查和设置超时的能力。'
+- en: Warning
+  id: totrans-26
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: The implementation of the `mappingFunction`/`flatMappingFunction` *must be*
+    `Serializable`.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`mappingFunction`/`flatMappingFunction` 的实现*必须*是可序列化的。'
+- en: At runtime, this function is distributed to the executors of the cluster using
+    Java Serialization. This requirement also has the consequence that we *must not*
+    include any local state like counters or other mutable variables in the body of
+    the function. All managed state *must be* encapsulated in the `State` representation
+    class.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在运行时，此函数通过 Java 序列化分发到集群的执行器上。这个要求也导致我们*绝不能*在函数体中包含任何本地状态，比如计数器或其他可变变量。所有管理的状态*必须*封装在
+    `State` 表示类中。
+- en: Internal State Flow
+  id: totrans-29
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 内部状态流
+- en: In [Figure 13-1](#map-groups-with-state), we illustrate the process that combines
+    the incoming data, in the form of events, with the state maintained internally,
+    to produce a result. In this chart, the `mappingFunction` (denoted with a `Σ`)
+    uses the custom logic to process this group of elements, that when combined with
+    the state managed by `GroupState[S]`, leads to a result. In this illustration,
+    we used the stop symbol to indicate a timeout. In the case of `MapGroupsWithState`,
+    a timeout also triggers the production of an event and *should* evict the state.
+    Given that the eviction logic is under the control of the programmed logic, the
+    complete state management is under the responsibility of the developer. Structured
+    Streaming provides only the building blocks.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图13-1](#map-groups-with-state)中，我们展示了将输入数据（事件形式）与内部维护的状态结合起来生成结果的过程。在这个图表中，`mappingFunction`（用`Σ`表示）使用自定义逻辑处理这组元素，当与`GroupState[S]`管理的状态结合时，会产生一个结果。在这个示例中，我们使用了停止符号来表示超时。在`MapGroupsWithState`的情况下，超时也会触发事件的生成，并且*应该*清除状态。考虑到清除逻辑由编程逻辑控制，完全的状态管理责任在开发者手中。结构化流只提供基础构件。
+- en: '![spas 1301](Images/spas_1301.png)'
+  id: totrans-31
+  prefs: []
+  type: TYPE_IMG
+  zh: '![spas 1301](Images/spas_1301.png)'
+- en: Figure 13-1\. Map groups with state dynamics
+  id: totrans-32
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图13-1\. 带状态动态的映射组
+- en: Using MapGroupsWithState
+  id: totrans-33
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用`MapGroupsWithState`
+- en: In [“Sliding windows”](ch12.xhtml#ss_sliding_windows), we saw how we can compute
+    a moving average based on a time window. This time-based window would produce
+    a result independently of the number of elements found in the window.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[“滑动窗口”](ch12.xhtml#ss_sliding_windows)中，我们看到如何基于时间窗口计算移动平均值。这种基于时间的窗口会独立于窗口中找到的元素数量产生结果。
+- en: Now, suppose that our requirement is to compute a moving average of the last
+    10 elements received per key. We cannot use a time window, because we don’t know
+    how long it will take us to have the number of elements we need. Instead, we can
+    define our own count-based window using a custom state with `MapGroupsWithState`.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，假设我们的需求是计算每个键接收的最后10个元素的移动平均值。我们不能使用时间窗口，因为我们不知道我们需要多长时间来获取所需数量的元素。相反，我们可以使用具有自定义状态的计数窗口来定义我们自己的基于计数的窗口。
+- en: Online Resources
+  id: totrans-36
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在线资源
+- en: For this example, we will use the `map_groups_with_state` notebook in the online
+    resources for the book, located on [*http://github.com/stream-processing-with-spark*](http://github.com/stream-processing-with-spark).
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们将使用在线资源中的`map_groups_with_state`笔记本，位于[*http://github.com/stream-processing-with-spark*](http://github.com/stream-processing-with-spark)。
+- en: 'Let’s begin with the same streaming `Dataset` that we used in [“Sliding windows”](ch12.xhtml#ss_sliding_windows).
+    The `WeatherEvent` `case class` becomes our input type (I):'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们从在[“滑动窗口”](ch12.xhtml#ss_sliding_windows)中使用的相同流式数据集开始。`WeatherEvent` `case
+    class`成为我们的输入类型（I）：
+- en: '[PRE3]'
+  id: totrans-39
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: Next, we define the state (S). What we want is to keep the latest *n* elements
+    in our state and drop anything older. This seems a natural application of a FIFO
+    (First In, First Out) collection, such as a `Queue`. Newer elements are added
+    to the front of the queue, we keep the most recent *n*, and drop any older element.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们定义状态（S）。我们想要的是在我们的状态中保留最新的*n*个元素并丢弃任何更旧的元素。这似乎是使用FIFO（先进先出）集合（如`Queue`）的自然应用。新元素添加到队列的前面，我们保留最近的*n*个元素，并丢弃任何更旧的元素。
+- en: 'Our state definition becomes a `FIFOBuffer` backed by a `Queue` with few helper
+    methods to facilitate its usage:'
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们的状态定义变成了由`Queue`支持的`FIFOBuffer`，并带有几个辅助方法以便于其使用：
+- en: '[PRE4]'
+  id: totrans-42
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'Then, we need to define the output type (O) that results from the stateful
+    computation. The desired result of our stateful computation is the moving average
+    of the sensor values present in the input `WeatherEvent`. We also would like to
+    know the time span of the values used for the computation. With this knowledge,
+    we design our output type, `WeatherEventAverage`:'
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 接下来，我们需要定义输出类型（O），该类型是状态计算的结果。我们状态计算的期望结果是输入`WeatherEvent`中传感器值的移动平均值。我们还想知道用于计算的值的时间跨度。有了这些知识，我们设计我们的输出类型，`WeatherEventAverage`：
+- en: '[PRE5]'
+  id: totrans-44
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: With these types defined, we can proceed to create the `mappingFunction` that
+    combines the existing state and the new elements into a result. We can see the
+    implementation of the mapping function in [Example 13-1](#mapgroups-example).
+    Remember that this function is also responsible for updating the internal state
+    through the functions provided by the `GroupState` wrapper. It’s important to
+    note that the state cannot be updated with a `null` value. An attempt to do so
+    will throw an `IllegalArgumentException`. To remove a state, use the method `state.remove()`.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这些定义，我们可以继续创建`mappingFunction`，它将现有状态和新元素组合成一个结果。我们可以在[示例 13-1](#mapgroups-example)中看到映射函数的实现。请记住，这个函数还负责通过`GroupState`包装器提供的函数更新内部状态。重要的是要注意，状态不能被更新为`null`值。试图这样做将抛出`IllegalArgumentException`。要删除状态，请使用`state.remove()`方法。
+- en: Example 13-1\. Using `mapGroupsWithState` for a count-based moving average
+  id: totrans-46
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 13-1\. 使用`mapGroupsWithState`进行基于计数的移动平均值
+- en: '[PRE6]'
+  id: totrans-47
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: 'Now, we use the `mappingFunction` to declare the stateful transformation of
+    the streaming `Dataset`:'
+  id: totrans-48
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们使用`mappingFunction`来声明流式`Dataset`的有状态转换：
+- en: '[PRE7]'
+  id: totrans-49
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: Note that we first create *groups* out of the key identifiers in our domain.
+    In this example, this is the `stationId`. The `groupByKey` operation creates an
+    intermediate structure, a `KeyValueGroupedDataset` that becomes the entry point
+    for the `[map|flatMap]GroupWithState` operations.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，我们首先在我们的领域中的键标识符中创建*组*。在这个例子中，这是`stationId`。`groupByKey`操作创建了一个中间结构，一个`KeyValueGroupedDataset`，它成为了`[map|flatMap]GroupWithState`操作的入口点。
+- en: Besides the mapping function, we also need to provide a timeout type. A timeout
+    type can be either a `ProcessingTimeTimeout` or an `EventTimeTimeout`. Because
+    we are not relying on the timestamp of the events for our state management, we
+    chose the `ProcessingTimeTimeout`. We discuss timeout management in detail later
+    in this chapter.
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了映射函数之外，我们还需要提供一个超时类型。超时类型可以是`ProcessingTimeTimeout`或`EventTimeTimeout`。因为我们不依赖事件的时间戳来进行状态管理，所以我们选择了`ProcessingTimeTimeout`。我们稍后在本章中详细讨论超时管理。
+- en: 'Finally, we can easily observe the results of the query by using the Console
+    sink:'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，我们可以通过使用控制台接收器轻松观察查询结果：
+- en: '[PRE8]'
+  id: totrans-53
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: Using FlatMapGroupsWithState
+  id: totrans-54
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 使用FlatMapGroupsWithState
+- en: Our previous implementation has a flaw. Can you spot it?
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前的实现有一个缺陷。你能发现吗？
+- en: 'When we start processing the stream, and before we have collected all the elements
+    that we deem required to compute the moving average, the operation of `mapGroupsWithState`
+    produces zeroed-out values:'
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当我们开始处理流，并且在我们收集到我们认为需要计算移动平均值的所有元素之前，`mapGroupsWithState`操作会产生零值：
+- en: '[PRE9]'
+  id: totrans-57
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: As we mentioned earlier, `mapGroupsWithState` requires the state handling function
+    to produce a single record for each group processed at every trigger interval.
+    This is fine when the arrival of new data corresponding to each key naturally
+    updates its state.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前提到的，`mapGroupsWithState`要求状态处理函数在每个触发间隔处理的每个组产生单个记录。当新数据的到来与每个键相对应自然地更新其状态时，这是很好的。
+- en: But there are cases for which our state logic requires a series of events to
+    occur before we can produce a result. In our current example, we need *n* elements
+    before we can start producing an average over them. In other scenarios, it might
+    be that a single incoming event might complete several temporary states and therefore
+    produce more than one result. For example, the arrival of a single mass transport
+    to its destination might update the traveling state of all of its passengers,
+    potentially producing a record for each of them.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是在某些情况下，我们的状态逻辑要求一系列事件发生后才能生成结果。在我们当前的示例中，我们需要*n*个元素才能开始计算它们的平均值。在其他情况下，一个单独的传入事件可能会完成多个临时状态，从而产生多个结果。例如，单个质量运输到达目的地可能会更新所有乘客的旅行状态，可能会为每个乘客产生一条记录。
+- en: '`flatMapGroupsWithState` is a generalization of `mapGroupsWithState` in which
+    the state handling function produces an `Iterator` of results, which might contain
+    zero or more elements.'
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`flatMapGroupsWithState`是`mapGroupsWithState`的泛化，其中状态处理函数生成一个结果的`Iterator`，该结果可能包含零个或多个元素。'
+- en: Let’s see how we can use this function to improve our moving average computation
+    over *n*-elements.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看如何使用此函数来改进我们对*n*个元素的移动平均计算。
+- en: Online Resources
+  id: totrans-62
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 在线资源
+- en: For this example, we will use the `mapgroupswithstate-n-moving-average` notebook
+    in the online resources for the book, located at [*https://github.com/stream-processing-with-spark*](https://github.com/stream-processing-with-spark).
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于此示例，我们将使用书籍在线资源中的`mapgroupswithstate-n-moving-average`笔记本，位于[*https://github.com/stream-processing-with-spark*](https://github.com/stream-processing-with-spark)。
+- en: We need to update the mapping function to return an `Iterator` of results. In
+    our case, this `Iterator` will contain zero elements when we don’t have enough
+    values to compute the average, and a value otherwise. Our changed function looks
+    like [Example 13-2](#flatmapgroups-example).
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们需要更新映射函数以返回一个结果的`Iterator`。在我们的情况下，当我们没有足够的值来计算平均值时，这个`Iterator`将包含零个元素，否则包含一个值。我们修改后的函数看起来像[示例13-2](#flatmapgroups-example)。
+- en: Example 13-2\. Using FlatMapGroupsWithState for a count-based moving average
+  id: totrans-65
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 13-2。使用基于计数的移动平均数的`flatMapGroupsWithState`
+- en: '[PRE10]'
+  id: totrans-66
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE10]'
+- en: Using `flatMapGroupsWithState`, we no longer need to produce artificial zeroed
+    records. In addition to that, our state management definition is now strict in
+    having *n* elements to produce a result.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用`flatMapGroupsWithState`，我们不再需要生成人为的零记录。除此之外，我们的状态管理定义现在严格地要求有*n*个元素来生成结果。
+- en: Output Modes
+  id: totrans-68
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 输出模式
+- en: Although the cardinality difference in the results between the `map` and the
+    `flatMapGroupsWithState` operations might seem like a small practical API difference,
+    it has deeper consequences beyond the obvious variable production of results.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管`map`和`flatMapGroupsWithState`操作之间结果的基数差异可能看起来像一个小的实际API差异，但它在显而易见的变量产生结果之外具有更深远的影响。
+- en: As we can appreciate in the example, `flatMapGroupsWithState` requires the additional
+    specification of an output mode. This is needed to provide information about the
+    record production semantics of the stateful operation to the downstream process.
+    In turn, this helps Structured Streaming to compute the allowed output operation
+    for the downstream sink.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们在示例中所看到的，`flatMapGroupsWithState`需要额外指定输出模式。这是为了向下游过程提供有关状态操作的记录生成语义的信息。反过来，这有助于Structured
+    Streaming计算下游接收器的允许输出操作。
+- en: 'The output mode specified in `flatMapGroupsWithState` can be either of the
+    following:'
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在`flatMapGroupsWithState`中指定的输出模式可以是以下之一：
+- en: '`update`'
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`update`'
+- en: This indicates that the records produced are nonfinal. They are intermediate
+    results that might be updated with new information later on. In the previous example,
+    the arrival of new data for a key will produce a new data point. The downstream
+    sink must use `update` and no aggregations can follow the `flatMapGroupsWithState`
+    operation.
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这表明生成的记录是非最终的。它们是中间结果，可能随后通过新信息进行更新。在前面的示例中，键的新数据到达时会生成一个新的数据点。下游接收器必须使用`update`，并且不能跟随`flatMapGroupsWithState`操作的任何聚合。
+- en: '`append`'
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`append`'
+- en: This designates that we have collected all of the information we need to produce
+    a result for a group, and no further incoming events will change that outcome.
+    The downstream sink must use `append` mode to write. Given that the application
+    of `flatMapGroupsWithState` produces a final record, it’s possible to apply further
+    aggregations to that result.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这表示我们已经收集到了所有需要为一个组生成结果的信息，没有进一步的传入事件会改变该结果。下游接收器必须使用`append`模式来写入。鉴于`flatMapGroupsWithState`应用了一个最终记录，可以对该结果应用进一步的聚合。
+- en: Managing State Over Time
+  id: totrans-76
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 随时间管理状态
+- en: A critical requirement of managing state over time is to ensure that we have
+    a stable working set.^([1](ch13.xhtml#idm46385830573992)) That is, the memory
+    required by our process is bounded over time and remains at a safe distance under
+    the available memory to allow for fluctuations.
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 管理随时间推移的状态的一个关键要求是确保我们有一个稳定的工作集。^([1](ch13.xhtml#idm46385830573992))也就是说，我们的进程所需的内存随时间有界，并且保持在安全距离内，以允许波动。
+- en: In the managed stateful aggregations, such as the time-based windows that we
+    saw in [Chapter 12](ch12.xhtml#ss-event-time), Structured Streaming internally
+    manages mechanisms to evict state and events that are deemed expired in order
+    to limit the amount of memory used. When we use the custom state management capabilities
+    offered by `[map|flatMap]GroupsWithState`, we must also assume the responsibility
+    of removing old state.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们在[第12章](ch12.xhtml#ss-event-time)中看到的基于时间窗口等托管有状态聚合中，Structured Streaming
+    内部管理机制以清除被认为过期的状态和事件，以限制内存使用量。当我们使用`[map|flatMap]GroupsWithState`提供的自定义状态管理能力时，我们还必须承担清除旧状态的责任。
+- en: Luckily, Structured Streaming exposes time and timeout information that we can
+    use to decide when to expire certain state. The first step is to decide the time
+    reference to use. Timeouts can be based on event time or processing time and the
+    choice is global to the state handled by the particular `[map|flatMap]GroupsWithState`
+    being configured.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 幸运的是，Structured Streaming 暴露了时间和超时信息，我们可以用它来决定何时过期某些状态。第一步是决定要使用的时间参考。超时可以基于事件时间或处理时间，选择是针对特定
+    `[map|flatMap]GroupsWithState` 处理的状态全局设置的。
+- en: 'The timeout type is specified when we call `[map|flatMap]GroupsWithState`.
+    Recalling the moving average example, we configured the `mapGroupsWithState` function
+    to use processing time like this:'
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在调用 `[map|flatMap]GroupsWithState` 时指定超时类型。回顾移动平均数示例，我们配置了 `mapGroupsWithState`
+    函数以如下方式使用处理时间：
+- en: '[PRE11]'
+  id: totrans-81
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE11]'
+- en: 'To use event time, we also need to declare a watermark definition. This definition
+    consists of the timestamp field from the event and the configured lag of the watermark.
+    If we wanted to use event time with the previous example, we would declare it
+    like so:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要使用事件时间，我们还需要声明水印定义。此定义由事件的时间戳字段和水印的配置滞后组成。如果我们想要在上一个示例中使用事件时间，我们会这样声明：
+- en: '[PRE12]'
+  id: totrans-83
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE12]'
+- en: 'The timeout type declares the global source of the time reference. There is
+    also the option `GroupStateTimeout.NoTimeout` for the cases in which we don’t
+    need timeouts. The actual value of the timeout is managed per individual group,
+    using the methods available in `GroupState` to manage timeout: `state.setTimeoutDuration`
+    or `state.setTimeoutTimestamp`.'
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超时类型声明了全局的时间参考源。还有选项 `GroupStateTimeout.NoTimeout`，适用于不需要超时的情况。超时的实际值由每个个体组管理，使用
+    `GroupState` 中可用的方法来管理超时：`state.setTimeoutDuration` 或 `state.setTimeoutTimestamp`。
+- en: To determine whether a state has expired, we check `state.hasTimedOut`. When
+    a state has timed out, the call to the `(flat)MapFunction` will be issued with
+    an empty iterator of values for the group that has timed out.
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要确定状态是否已过期，我们检查 `state.hasTimedOut`。当状态超时时，对于已超时组的值，将发出对 `(flat)MapFunction`
+    的调用，空迭代器。
+- en: 'Let’s put the timeout feature to use. Continuing with our running example,
+    the first thing we want to do is extract the transformation of state into event:'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们利用超时功能。继续我们的运行示例，我们首先要做的是提取状态转换为事件：
+- en: '[PRE13]'
+  id: totrans-87
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE13]'
+- en: Now, we can use that new abstraction to transform our state in the case of a
+    timeout as well as in the usual scenario where data is coming in. Note in [Example 13-3](#flatmapgroups-timeout-example)
+    how we use the timeout information to evict the expiring state.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，我们可以利用这个新的抽象来转换我们的状态，无论是在超时的情况下，还是在通常数据进入的场景中。请注意在 [Example 13-3](#flatmapgroups-timeout-example)
+    中如何使用超时信息来清除即将过期的状态。
+- en: Example 13-3\. Using timeouts in `flatMapGroupsWithState`
+  id: totrans-89
+  prefs:
+  - PREF_H5
+  type: TYPE_NORMAL
+  zh: 示例 13-3\. 在 `flatMapGroupsWithState` 中使用超时
+- en: '[PRE14]'
+  id: totrans-90
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE14]'
+- en: When a timeout actually times out
+  id: totrans-91
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 当超时实际上超时时
+- en: 'The semantics of the timeouts in Structured Streaming gives the guarantee that
+    no event will be timed out before the clock advances past the watermark. This
+    follows our intuition of a timeout: our state does not timeout before the set
+    expiration time.'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在结构化流处理中超时的语义确保在时钟超过水印之后才会超时。这符合我们对超时的直觉：我们的状态在设定的过期时间之前不会超时。
+- en: Where the timeout semantics depart from the common intuition is *when* the timeout
+    event actually happens after the expiration time has passed.
+  id: totrans-93
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 超时语义与常规直觉有所不同的地方在于超时事件实际发生的*时间*是在过期时间过去之后。
+- en: 'Currently, the timeout processing is bound to the receiving of new data. So,
+    a stream that goes silent for a while and does not generate new triggers to process
+    will not generate timeouts either. The current timeout semantics are defined in
+    terms of an eventuality: The timeout event will be eventually triggered after
+    the state has expired, without any guarantees about how long the timeout event
+    will fire after the actual timeout has happened. Stated formally: there is a no
+    strict upper bound on when the timeout would occur.'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前，超时处理绑定到接收新数据上。因此，一段时间内沉默的流并且不生成新触发器进行处理，也不会生成超时。当前的超时语义是根据事件性质定义的：超时事件将在状态过期后最终触发，没有任何关于超时事件何时触发的严格上界的保证。正式地说：超时事件触发的时间没有严格的上限。
+- en: Warning
+  id: totrans-95
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 警告
+- en: There is work in progress to make timeouts fire even when no new data is available.
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 目前正在进行工作，使超时在没有新数据可用时也能触发。
+- en: Summary
+  id: totrans-97
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: In this chapter, we learned about the arbitrary stateful processing API in Structured
+    Streaming. We explored the details of and differences between the `mapGroupsWithState`
+    and `flatMapGroupsWithState` with relation to the events produced and the output
+    modes supported. At the end, we also learned about the timeout settings and became
+    aware of its semantics.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们了解了结构化流处理中的任意状态处理 API。我们探讨了`mapGroupsWithState`和`flatMapGroupsWithState`之间的细节和差异，包括它们产生的事件及其支持的输出模式。最后，我们还学习了超时设置，并了解了其语义。
+- en: Although this API is more complex to use than the regular SQL-like constructs
+    of the structured APIs, it provides us with a powerful toolset to implement arbitrary
+    state management to address the development of the most demanding streaming use
+    cases.
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管这个 API 的使用比常规的类 SQL 构造更复杂，但它为我们提供了一个强大的工具集，用于实现任意状态管理，以解决最苛刻的流式使用场景的开发需求。
+- en: ^([1](ch13.xhtml#idm46385830573992-marker)) *Working set* is a concept that
+    refers to the amount of memory used by a process to function over a period of
+    time.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch13.xhtml#idm46385830573992-marker)) *工作集* 是指进程在一段时间内用于运行的内存量。

@@ -1,0 +1,251 @@
+- en: 'Networking, Part 7: Nonblocking I O, select(), and epoll'
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 网络，第7部分：非阻塞I/O，select()和epoll
+- en: Don't waste time waiting
+  id: totrans-1
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 不要浪费时间等待
+- en: Normally, when you call `read()`, if the data is not available yet it will wait
+    until the data is ready before the function returns. When you're reading data
+    from a disk, that delay may not be long, but when you're reading from a slow network
+    connection it may take a long time for that data to arrive, if it ever arrives.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，当你调用`read()`时，如果数据尚不可用，它将等待数据准备就绪后再返回。当你从磁盘读取数据时，这种延迟可能不会很长，但当你从一个慢速网络连接中读取数据时，如果数据到达的话，可能需要很长时间。
+- en: POSIX lets you set a flag on a file descriptor such that any call to `read()`
+    on that file descriptor will return immediately, whether it has finished or not.
+    With your file descriptor in this mode, your call to `read()` will start the read
+    operation, and while it's working you can do other useful work. This is called
+    "nonblocking" mode, since the call to `read()` doesn't block.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: POSIX允许你在文件描述符上设置一个标志，以便对该文件描述符的任何`read()`调用都会立即返回，无论它是否已经完成。在这种模式下，你的`read()`调用将启动读取操作，而在它工作时，你可以做其他有用的工作。这被称为“非阻塞”模式，因为`read()`的调用不会阻塞。
+- en: 'To set a file descriptor to be nonblocking:'
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要将文件描述符设置为非阻塞：
+- en: '[PRE0]'
+  id: totrans-5
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'For a socket, you can create it in nonblocking mode by adding `SOCK_NONBLOCK`
+    to the second argument to `socket()`:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于套接字，你可以通过将`SOCK_NONBLOCK`添加到`socket()`的第二个参数来以非阻塞模式创建它。
+- en: '[PRE1]'
+  id: totrans-7
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: When a file is in nonblocking mode and you call `read()`, it will return immediately
+    with whatever bytes are available. Say 100 bytes have arrived from the server
+    at the other end of your socket and you call `read(fd, buf, 150)`. Read will return
+    immediately with a value of 100, meaning it read 100 of the 150 bytes you asked
+    for. Say you tried to read the remaining data with a call to `read(fd, buf+100,
+    50)`, but the last 50 bytes still hadn't arrived yet. `read()` would return -1
+    and set the global error variable **errno** to either EAGAIN or EWOULDBLOCK. That's
+    the system's way of telling you the data isn't ready yet.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当文件处于非阻塞模式时，你调用`read()`，它将立即返回可用的字节。假设从套接字的另一端的服务器已经到达了100个字节，你调用`read(fd, buf,
+    150)`。`read`将立即返回值100，表示它读取了你要求的150个字节中的100个。假设你尝试通过调用`read(fd, buf+100, 50)`来读取剩余的数据，但是最后的50个字节还没有到达。`read()`将返回-1，并将全局错误变量**errno**设置为EAGAIN或EWOULDBLOCK。这是系统告诉你数据还没有准备好的方式。
+- en: '`write()` also works in nonblocking mode. Say you want to send 40,000 bytes
+    to a remote server using a socket. The system can only send so many bytes at a
+    time. Common systems can send about 23,000 bytes at a time. In nonblocking mode,
+    `write(fd, buf, 40000)` would return the number of bytes it was able to send immediately,
+    or about 23,000\. If you called `write()` right away again, it would return -1
+    and set errno to EAGAIN or EWOULDBLOCK. That''s the system''s way of telling you
+    it''s still busy sending the last chunk of data, and isn''t ready to send more
+    yet.'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`write()`也可以在非阻塞模式下工作。假设你想使用套接字向远程服务器发送40,000字节。系统一次只能发送这么多字节。通常系统一次可以发送大约23,000字节。在非阻塞模式下，`write(fd,
+    buf, 40000)`将返回它立即能够发送的字节数，大约为23,000。如果你立即再次调用`write()`，它将返回-1，并将errno设置为EAGAIN或EWOULDBLOCK。这是系统告诉你它仍在忙于发送最后一块数据，并且还没有准备好发送更多数据。'
+- en: How do I check when the I/O has finished?
+  id: totrans-10
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 如何检查I/O何时完成？
+- en: There are a few ways. Let's see how to do it using *select* and *epoll*.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有几种方法。让我们看看如何使用*select*和*epoll*来做。
+- en: select
+  id: totrans-12
+  prefs:
+  - PREF_H4
+  type: TYPE_NORMAL
+  zh: select
+- en: '[PRE2]'
+  id: totrans-13
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Given three sets of file descriptors, `select()` will wait for any of those
+    file descriptors to become 'ready'.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 给定三组文件描述符，`select()`将等待其中任何一个文件描述符变为“准备就绪”。
+- en: '`readfds` - a file descriptor in `readfds` is ready when there is data that
+    can be read or EOF has been reached.'
+  id: totrans-15
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`readfds` - 在`readfds`中的文件描述符在有可读数据或已达到EOF时准备就绪。'
+- en: '`writefds` - a file descriptor in `writefds` is ready when a call to write()
+    will succeed.'
+  id: totrans-16
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`writefds` - 在`writefds`中的文件描述符在调用write()时将会成功。'
+- en: '`exceptfds` - system-specific, not well-defined. Just pass NULL for this.'
+  id: totrans-17
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '`exceptfds` - 系统特定，定义不清晰。只需将其传递为NULL。'
+- en: '`select()` returns the total number of file descriptors that are ready. If
+    none of them become ready during the time defined by *timeout*, it will return
+    0\. After `select()` returns, the caller will need to loop through the file descriptors
+    in readfds and/or writefds to see which ones are ready. As readfds and writefds
+    act as both input and output parameters, when `select()` indicates that there
+    are file descriptors which are ready, it would have overwritten them to reflect
+    only the file descriptors which are ready. Unless it is the caller''s intention
+    to call `select()` only once, it would be a good idea to save a copy of readfds
+    and writefds before calling it.'
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`select()`返回准备就绪的文件描述符的总数。如果它们在*timeout*定义的时间内没有准备好，它将返回0。在`select()`返回后，调用者需要循环遍历readfds和/或writefds中的文件描述符，以查看哪些是准备好的。由于readfds和writefds充当输入和输出参数，当`select()`指示有准备好的文件描述符时，它会覆盖它们以反映只有准备好的文件描述符。除非调用者的意图是只调用一次`select()`，否则在调用它之前保存readfds和writefds的副本是个好主意。'
+- en: '[PRE3]'
+  id: totrans-19
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: '[For more information on select()](http://pubs.opengroup.org/onlinepubs/9699919799/functions/select.html)'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[有关select()的更多信息](http://pubs.opengroup.org/onlinepubs/9699919799/functions/select.html)'
+- en: epoll
+  id: totrans-21
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: epoll
+- en: '*epoll* is not part of POSIX, but it is supported by Linux. It is a more efficient
+    way to wait for many file descriptors. It will tell you exactly which descriptors
+    are ready. It even gives you a way to store a small amount of data with each descriptor,
+    like an array index or a pointer, making it easier to access your data associated
+    with that descriptor.'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*epoll*不是POSIX的一部分，但它受Linux支持。这是一种更有效的等待多个文件描述符的方式。它会告诉你哪些描述符准备好了。它甚至可以为每个描述符存储少量数据，比如数组索引或指针，使得更容易访问与该描述符相关的数据。'
+- en: To use epoll, first you must create a special file descriptor with [epoll_create()](http://linux.die.net/man/2/epoll_create).
+    You won't read or write to this file descriptor; you'll just pass it to the other
+    epoll_xxx functions and call close() on it at the end.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用epoll，首先您必须使用[epoll_create()](http://linux.die.net/man/2/epoll_create)创建一个特殊的文件描述符。您不会读取或写入此文件描述符；您只需将其传递给其他epoll_xxx函数，并在最后调用close()。
+- en: '[PRE4]'
+  id: totrans-24
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: For each file descriptor you want to monitor with epoll, you'll need to add
+    it to the epoll data structures using [epoll_ctl()](http://linux.die.net/man/2/epoll_ctl)
+    with the `EPOLL_CTL_ADD` option. You can add any number of file descriptors to
+    it.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于要使用epoll监视的每个文件描述符，您需要使用[epoll_ctl()](http://linux.die.net/man/2/epoll_ctl)和`EPOLL_CTL_ADD`选项将其添加到epoll数据结构中。您可以向其中添加任意数量的文件描述符。
+- en: '[PRE5]'
+  id: totrans-26
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: To wait for some of the file descriptors to become ready, use [epoll_wait()](http://linux.die.net/man/2/epoll_wait).
+    The epoll_event struct that it fills out will contain the data you provided in
+    event.data when you added this file descriptor. This makes it easy for you to
+    look up your own data associated with this file descriptor.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要等待某些文件描述符准备就绪，请使用[epoll_wait()](http://linux.die.net/man/2/epoll_wait)。它填充的epoll_event结构将包含您在添加此文件描述符时提供的event.data中的数据。这使您可以轻松查找与此文件描述符关联的自己的数据。
+- en: '[PRE6]'
+  id: totrans-28
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE6]'
+- en: Say you were waiting to write data to a file descriptor, but now you want to
+    wait to read data from it. Just use `epoll_ctl()` with the `EPOLL_CTL_MOD` option
+    to change the type of operation you're monitoring.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设您正在等待向文件描述符写入数据，但现在您想要等待从中读取数据。只需使用`epoll_ctl()`和`EPOLL_CTL_MOD`选项来更改您正在监视的操作类型。
+- en: '[PRE7]'
+  id: totrans-30
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE7]'
+- en: To unsubscribe one file descriptor from epoll while leaving others active, use
+    `epoll_ctl()` with the `EPOLL_CTL_DEL` option.
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要取消订阅一个文件描述符，同时保持其他文件描述符处于活动状态，请使用`epoll_ctl()`和`EPOLL_CTL_DEL`选项。
+- en: '[PRE8]'
+  id: totrans-32
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE8]'
+- en: To shut down an epoll instance, close its file descriptor.
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要关闭epoll实例，请关闭其文件描述符。
+- en: '[PRE9]'
+  id: totrans-34
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE9]'
+- en: In addition to nonblocking `read()` and `write()`, any calls to `connect()`
+    on a nonblocking socket will also be nonblocking. To wait for the connection to
+    complete, use `select()` or epoll to wait for the socket to be writable.
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了非阻塞的`read()`和`write()`之外，对非阻塞套接字上的任何`connect()`调用也将是非阻塞的。要等待连接完成，请使用`select()`或epoll等待套接字可写。
+- en: Interesting Blogpost about edge cases with select
+  id: totrans-36
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 有关select的边缘情况的有趣博文
+- en: '[https://idea.popcount.org/2017-01-06-select-is-fundamentally-broken/](https://idea.popcount.org/2017-01-06-select-is-fundamentally-broken/)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[https://idea.popcount.org/2017-01-06-select-is-fundamentally-broken/](https://idea.popcount.org/2017-01-06-select-is-fundamentally-broken/)'

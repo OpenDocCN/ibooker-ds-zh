@@ -1,0 +1,2098 @@
+- en: Chapter 9\. Design for Recovery
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第9章。设计以便恢复
+- en: By Aaron Joyner, Jon McCune, and Vitaliy Shipitsyn
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由Aaron Joyner，Jon McCune和Vitaliy Shipitsyn
+- en: with Constantinos Neophytou, Jessie Yang, and Kristina Bennett
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与Constantinos Neophytou，Jessie Yang和Kristina Bennett
+- en: Modern distributed systems are subject to many types of failures—failures that
+    result from both unintentional errors and deliberately malicious actions. When
+    exposed to accumulating errors, rare failure modes, or malicious actions by attackers,
+    humans must intervene to recover even the most secure and resilient systems.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现代分布式系统面临许多类型的故障，这些故障是由无意错误和蓄意恶意行为造成的。当暴露于不断累积的错误、罕见的故障模式或攻击者的恶意行为时，人类必须介入，以恢复甚至最安全和最有弹性的系统。
+- en: The act of recovering a failed or compromised system into a stable and secure
+    state can be complex in unanticipated ways. For example, rolling back an unstable
+    release may reintroduce security vulnerabilities. Rolling out a new release to
+    patch a security vulnerability may introduce reliability issues. Risky mitigations
+    like these are full of more subtle tradeoffs. For example, when deciding how quickly
+    to deploy changes, a quick rollout is more likely to win the race against attackers,
+    but also limits the amount of testing you’re able to do on it. You might end up
+    widely deploying new code with critical stability bugs.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将失败或受损的系统恢复到稳定和安全状态可能会以意想不到的方式变得复杂。例如，回滚一个不稳定的发布版本可能会重新引入安全漏洞。推出新版本以修补安全漏洞可能会引入可靠性问题。这些风险性的缓解措施充满了更微妙的权衡。例如，在决定多快部署更改时，快速推出更有可能赢得与攻击者的竞赛，但也限制了您能够对其进行的测试量。您可能最终会广泛部署具有关键稳定性错误的新代码。
+- en: It’s far from ideal to begin considering these subtleties—and your system’s
+    lack of preparedness to handle them—during a stressful security or reliability
+    incident. Only conscious design decisions can prepare your system to have the
+    reliability and the flexibility it needs to natively support varying recovery
+    needs. This chapter covers some design principles that we’ve found effective in
+    preparing our systems to facilitate recovery efforts. Many of these principles
+    apply across a range of scales, from planet-scale systems to firmware environments
+    within individual machines.
+  id: totrans-5
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在紧张的安全或可靠性事件中开始考虑这些微妙之处以及您的系统缺乏处理它们的准备是远非理想的。只有有意识的设计决策才能使您的系统具备所需的可靠性和灵活性，以本能地支持各种恢复需求。本章涵盖了一些我们发现在准备我们的系统以促进恢复工作方面非常有效的设计原则。这些原则中的许多原则适用于各种规模，从全球范围的系统到单个机器内的固件环境。
+- en: What Are We Recovering From?
+  id: totrans-6
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 我们正在从什么中恢复？
+- en: 'Before we dive into design strategies to facilitate recovery, we’ll cover some
+    scenarios that lead a system to require recovery. These scenarios fall into several
+    basic categories: random errors, accidental errors, malicious actions, and software
+    errors.'
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在我们深入探讨促进恢复的设计策略之前，我们将介绍一些导致系统需要恢复的情景。这些情景可以分为几个基本类别：随机错误、意外错误、恶意行为和软件错误。
+- en: Random Errors
+  id: totrans-8
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 随机错误
+- en: All distributed systems are built from physical hardware, and all physical hardware
+    fails. The unreliable nature of physical devices and the unpredictable physical
+    environment in which they operate lead to random errors. As the amount of physical
+    hardware supporting the system grows, the likelihood that a distributed system
+    will experience random errors increases. Aging hardware also leads to more errors.
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有分布式系统都是由物理硬件构建的，所有物理硬件都会出现故障。物理设备的不可靠性以及它们运行的不可预测的物理环境导致了随机错误。随着支持系统的物理硬件数量的增加，分布式系统遭遇随机错误的可能性也增加。老化的硬件也会导致更多的错误。
+- en: Some random errors are easier to recover from than others. Total failure or
+    isolation of some part of the system, such as a power supply or a critical network
+    router, is one of the simplest failures to handle.^([1](ch09.html#ch09fn1)) It’s
+    more complicated to address short-lived corruption caused by unexpected bit flips,^([2](ch09.html#ch09fn2))
+    or long-lived corruption caused by a failing instruction on one core in a multicore
+    CPU. These errors are especially insidious when they occur silently.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些随机错误比其他错误更容易恢复。系统的某个部分的完全故障或隔离，例如电源供应或关键网络路由器，是最简单的故障处理之一。[1]解决由意外位翻转引起的短暂损坏，或者由多核CPU中一个核上的故障指令引起的长期损坏则更为复杂。当这些错误悄无声息地发生时，它们尤其阴险。
+- en: Fundamentally unpredictable events outside a system can also introduce random
+    errors into modern digital systems. A tornado or earthquake may cause you to suddenly
+    and permanently lose a particular part of the system. A power station or substation
+    failure or an anomaly in a UPS or battery may compromise the delivery of electrical
+    power to one or many machines. This can introduce a voltage sag or swell that
+    can lead to memory corruption or other transient errors.
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统外的基本不可预测事件也可能在现代数字系统中引入随机错误。龙卷风或地震可能会导致您突然永久地失去系统的特定部分。发电站或变电站故障或UPS或电池异常可能会影响向一个或多个机器提供电力。这可能会引入电压下降或波动，导致内存损坏或其他瞬态错误。
+- en: Accidental Errors
+  id: totrans-12
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 意外错误
+- en: All distributed systems are operated by humans, either directly or indirectly,
+    and all humans make mistakes. We define *accidental errors* as errors caused by
+    humans with good intent. The human error rate varies according to the type of
+    task. Roughly speaking, as the complexity of a task increases, the error rate
+    increases.^([3](ch09.html#ch09fn3)) An internal analysis of Google outages from
+    2015 through 2018 indicated that a meaningful fraction of outages (though not
+    most outages) were caused by a unilateral human action that wasn’t subject to
+    an engineering or procedural safety check.
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 所有分布式系统都是由人类直接或间接操作的，而所有人类都会犯错误。我们将*意外错误*定义为由怀着良好意图的人类造成的错误。人为错误率根据任务类型而异。粗略地说，任务复杂度增加，错误率也会增加。[3]
+- en: Humans can make errors in relation to any portion of your system, so you need
+    to consider how human error can occur throughout the entire stack of tools, systems,
+    and job processes in the system lifecycle. Accidental errors may also impact your
+    system in a random way that’s external to the system—for example, if a backhoe
+    used for unrelated construction cuts through a fiber-optic cable.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人类可能在系统的任何部分出现错误，因此你需要考虑人为错误如何在系统工具、系统和作业流程的整个堆栈中发生。意外错误也可能以系统外的随机方式影响你的系统，例如，如果用于无关施工的挖掘机切断了光纤电缆。
+- en: Software Errors
+  id: totrans-15
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 软件错误
+- en: 'You can address the error types we’ve discussed so far with design changes
+    and/or software. To paraphrase a classic quote^([4](ch09.html#ch09fn4)) and its
+    corollary,^([5](ch09.html#ch09fn5)) all errors can be solved with software…except
+    bugs in software. Software errors are really just a special, delayed case of accidental
+    errors: errors made during software development. Your code will have bugs, and
+    you’ll need to fix these bugs. Some basic and well-discussed design principles—for
+    example, modular software design, testing, code review, and validating the inputs
+    and outputs of dependent APIs—help you address bugs. Chapters [6](ch06.html#design_for_understandability)
+    and [12](ch12.html#writing_code) cover these topics in more depth.'
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 迄今为止，我们已经讨论过的错误类型可以通过设计更改和/或软件来解决。用一个经典的引用和其推论来解释，所有的错误都可以通过软件来解决……除了软件中的错误。软件错误实际上只是意外错误的一个特殊延迟案例：在软件开发过程中发生的错误。你的代码会有bug，你需要修复这些bug。一些基本且广泛讨论的设计原则，例如模块化软件设计、测试、代码审查以及验证依赖API的输入和输出，可以帮助你解决bug。第6章和第12章更深入地讨论了这些主题。
+- en: In some cases, software bugs mimic other types of errors. For example, automation
+    lacking a safety check may make sudden and dramatic changes to production, mimicking
+    a malicious actor. Software errors also magnify other types of errors—for example,
+    sensor errors that return unexpected values that the software can’t handle properly,
+    or unexpected behavior that looks like a malicious attack when users circumvent
+    a faulty mechanism during the normal course of their work.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，软件bug会模仿其他类型的错误。例如，缺乏安全检查的自动化可能会对生产进行突然而剧烈的更改，模仿恶意行为者。软件错误也会放大其他类型的错误，例如，传感器错误返回意外值，软件无法正确处理，或者在用户正常工作过程中绕过故障机制时出现的意外行为，看起来像是恶意攻击。
+- en: Malicious Actions
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 恶意行为
+- en: Humans can also work against your systems deliberately. These people may be
+    privileged and highly knowledgeable insiders with the intent to do harm. Malicious
+    actors refer to an entire category of humans actively working to subvert the security
+    controls and reliability of your system(s), or possibly working to imitate random,
+    accidental, or other kinds of errors. Automation can reduce, but not eliminate,
+    the need for human involvement. As the size and complexity of your distributed
+    system scales, the size of the organization maintaining it has to scale alongside
+    the system (ideally, in a sublinear way). At the same time, the likelihood of
+    one of the humans in that organization violating the trust you place in them also
+    grows.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 人类也可能故意对抗你的系统。这些人可能是有特权和高度了解的内部人员，有意为之。恶意行为者指的是一整类人积极地试图颠覆你的系统安全控制和可靠性，或者可能试图模仿随机、意外或其他类型的错误。自动化可以减少但无法消除对人类参与的需求。随着你的分布式系统规模和复杂性的增加，维护它的组织规模也必须与系统规模相适应（理想情况下，以次线性方式）。与此同时，组织中的人员违反你对他们的信任的可能性也在增加。
+- en: These violations of trust may come from an insider who abuses their legitimate
+    authority over the system by reading user data not pertinent to their job, leaking
+    or exposing company secrets, or even actively working to cause a prolonged outage.
+    The person may have a brief lapse of good decision making, have a genuine desire
+    to cause harm, fall victim to a social engineering attack, or even be [coerced
+    by an external actor](https://xkcd.com/538).
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些信任的违反可能来自滥用其对系统的合法权威，读取与其工作无关的用户数据，泄露或暴露公司机密，甚至积极致使系统长时间宕机的内部人员。这个人可能会短暂地做出错误的决定，有真正的恶意，成为社会工程攻击的受害者，甚至被外部行为者胁迫。
+- en: A third-party compromise of a system can also introduce malicious errors. [Chapter 2](ch02.html#understanding_adversaries)
+    covers the range of malicious actors in depth. When it comes to system design,
+    mitigation strategies are the same regardless of whether the malicious actor is
+    an insider or a third-party attacker who compromises system credentials.
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 系统的第三方妥协也可能引入恶意错误。第2章深入介绍了恶意行为者的范围。在系统设计方面，无论恶意行为者是内部人员还是第三方攻击者，都采取相同的缓解策略。
+- en: Design Principles for Recovery
+  id: totrans-22
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 恢复的设计原则
+- en: The following sections provide some design principles for recovery based upon
+    our years of experience with distributed systems. This list isn’t meant to be
+    exhaustive—we’ll provide recommendations for further reading. These principles
+    also apply across a range of organizations, not just to Google-scale organizations.
+    Overall, when designing for recovery, it’s important to be open-minded about the
+    breadth and variety of problems that might arise. In other words, don’t spend
+    time worrying about how to classify nuanced edge cases of errors; focus on being
+    ready to recover from them.
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下部分提供了一些基于我们多年分布式系统经验的恢复设计原则。这个列表并不是详尽无遗的，我们将提供进一步阅读的建议。这些原则也适用于各种组织，不仅仅是谷歌规模的组织。总的来说，在设计恢复时，重要的是要对可能出现的问题的广度和多样性持开放态度。换句话说，不要花时间担心如何对错误的微妙边缘情况进行分类；专注于准备从中恢复。
+- en: Design to Go as Quickly as Possible (Guarded by Policy)
+  id: totrans-24
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 尽快进行设计（受策略保护）
+- en: During a compromise or a system outage, there’s a lot of pressure to recover
+    your system to its intended working state as soon as possible. However, the mechanisms
+    you use to make rapid changes to systems can themselves risk making the wrong
+    changes too quickly, exacerbating the issue. Likewise, if your systems are maliciously
+    compromised, premature recovery or cleanup actions can cause other problems—for
+    example, your actions might tip off an adversary that they’ve been discovered.^([6](ch09.html#ch09fn6))
+    We’ve found a few approaches effective in balancing the tradeoffs involved in
+    designing systems to support variable rates of recovery.
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在妥协或系统故障期间，有很大的压力要尽快恢复系统到预期的工作状态。然而，你用来快速更改系统的机制本身可能会冒着太快做出错误更改的风险，加剧问题。同样，如果你的系统被恶意入侵，过早的恢复或清理行动可能会引发其他问题，例如，你的行动可能会让对手知道他们已经被发现。我们发现在设计支持可变恢复速率的系统时，平衡涉及的权衡的一些方法是有效的。
+- en: To recover your system from any of our four classes of errors—or better yet,
+    to avoid the need for recovery—you must be able to change the state of the system.
+    When building an update mechanism (for example, a software/firmware rollout process,
+    configuration change management procedure, or batch scheduling service), we recommend
+    designing the update system to operate as fast as you can imagine it might ever
+    need to operate (or faster, to the limits of practicality). Then, add controls
+    to constrain the rate of change to match your current policy for risk and disruption.
+    There are several advantages to decoupling your ability to perform rollouts from
+    your rate and frequency policies for rollouts.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 要从我们的四类错误中恢复你的系统，或者更好的是，避免需要恢复，你必须能够改变系统的状态。在构建更新机制（例如软件/固件推出过程、配置更改管理程序或批处理调度服务）时，我们建议设计更新系统以尽可能快地运行（或更快，以符合实际限制）。然后，添加控件来限制变更速率，以匹配你当前的风险和干扰政策。将执行推出的能力与推出的速率和频率政策分离有几个优点。
+- en: The rollout needs and policies of any organization change over time. For example,
+    in its early days, a company might perform rollouts monthly, and never on nights
+    or weekends. If the rollout system is designed around policy changes, a change
+    in policy might entail difficult refactoring and intrusive code changes. If the
+    design of a rollout system instead clearly separates the timing and rate of change
+    from the action and content of that change, it’s much easier to adjust to inevitable
+    policy changes that govern timing and rates of change.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 任何组织的推出需求和政策随着时间而改变。例如，在早期，一家公司可能每月进行推出，而且从不在夜间或周末进行。如果推出系统是围绕政策变化设计的，政策的变化可能需要进行困难的重构和侵入性的代码更改。如果推出系统的设计清楚地将变更的时间和速率与变更的行为和内容分开，那么就更容易调整不可避免的管理时间和变更速率的政策变化。
+- en: 'Sometimes, new information you receive halfway through a rollout affects how
+    you respond. Imagine that in response to an internally discovered security vulnerability,
+    you’re deploying an internally developed patch. Typically, you wouldn’t need to
+    deploy this change rapidly enough to risk destabilizing your service. However,
+    your risk calculation may change in response to a landscape change (see [Chapter 7](ch07.html#design_for_a_changing_landscape)):
+    if you discover halfway through the rollout that the vulnerability is now public
+    knowledge and being actively exploited in the wild, you may want to accelerate
+    the procedure.'
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，你在推出过程中收到的新信息会影响你的应对方式。想象一下，作为对内部发现的安全漏洞的响应，你正在部署一个内部开发的补丁。通常情况下，你不需要以足够快的速度部署这个变更，以至于冒着破坏你的服务的风险。然而，你的风险计算可能会因为景观的变化而改变（参见[第7章](ch07.html#design_for_a_changing_landscape)）：如果你在推出过程中发现漏洞现在已经是公开的信息，并且正在野外积极利用，你可能希望加快程序。
+- en: Inevitably, there will come a time when a sudden or unexpected event changes
+    the risk you’re willing to accept. As a result, you want to push out a change
+    very, very quickly. Examples can range from security bugs (ShellShock,^([7](ch09.html#ch09fn7))
+    Heartbleed,^([8](ch09.html#ch09fn8)) etc.) to discovering an active compromise.
+    *We recommend designing your emergency push system to simply be your regular push
+    system turned up to maximum.* This also means that your normal rollout system
+    and emergency rollback system are one and the same. We often say that untested
+    emergency practices won’t work when you need them. Enabling your regular system
+    to handle emergencies means that you don’t have to maintain two separate push
+    systems, and that you exercise your emergency release system often.^([9](ch09.html#ch09fn9))
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 必然会有一个时刻，突然或意外的事件会改变你愿意接受的风险。因此，你希望非常非常快地推出变更。例子可以从安全漏洞（ShellShock，Heartbleed等）到发现活跃的妥协。*我们建议设计你的紧急推送系统只是将你的常规推送系统调到最大。*这也意味着你的正常推出系统和紧急回滚系统是一样的。我们经常说，未经测试的紧急实践在你需要它们时不起作用。使你的常规系统能够处理紧急情况意味着你不必维护两个单独的推送系统，并且你经常练习你的紧急发布系统。
+- en: If responding to a stressful situation only requires you to modify rate limits
+    in order to quickly push a change, you’ll have much more confidence that your
+    rollout tooling works as expected. You can then focus your energy on other unavoidable
+    risks, such as potential bugs in quickly deployed changes, or making sure you
+    close the vulnerabilities attackers may have used to access your systems.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果应对紧张局势只需要你修改速率限制以便快速推出变更，你就会更有信心你的推出工具能够按预期工作。然后你可以把精力集中在其他不可避免的风险上，比如快速部署变更中的潜在错误，或者确保关闭攻击者可能用来访问你的系统的漏洞。
+- en: 'We learned these lessons as the rollout of our internal Linux distribution
+    evolved. Until recently, Google installed all the machines in our datacenters
+    with a “base” or “golden” image, which contained a known set of static files.
+    There were a few specific customizations, such as hostname, network configuration,
+    and credentials, per machine. Our policy was to roll out a new “base” image across
+    the fleet every month. Over several years, we built a set of tools and a software
+    update system around that policy and workflow: bundle all of the files into a
+    compressed archive, have the set of changes reviewed by a senior SRE, and then
+    gradually update the fleet of machines to the new image.'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们从我们内部Linux发行版的部署演变中学到了这些教训。直到最近，Google在数据中心安装所有机器时都使用“基础”或“黄金”镜像，其中包含已知的静态文件集。每台机器有一些特定的定制，如主机名、网络配置和凭据。我们的政策是每个月在整个机群中部署新的“基础”镜像。多年来，我们围绕这一政策和工作流程构建了一套工具和软件更新系统：将所有文件捆绑成压缩存档，由高级SRE审查一组更改，然后逐渐更新机群中的机器到新镜像。
+- en: 'We built our rollout tooling around this policy, and designed the tooling to
+    map a particular base image to a collection of machines. We designed the configuration
+    language to express how to change that mapping over the course of several weeks,
+    and then used a few mechanisms to layer exceptions on top of the base image. One
+    exception included security patches for a growing number of individual software
+    packages: as the list of exceptions grew more complicated, it made less sense
+    for our tooling to follow a monthly pattern.'
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们围绕这一政策构建了我们的部署工具，并设计了工具来将特定基础镜像映射到一组机器。我们设计了配置语言来表达如何在几周的时间内改变该映射，然后使用一些机制在基础镜像之上添加异常。一个异常包括越来越多的单个软件包的安全补丁：随着异常列表变得更加复杂，我们的工具遵循每月模式就变得不那么合理了。
+- en: 'In response, we decided to abandon the assumption of a monthly update to the
+    base image. We designed more granular release units that corresponded to each
+    software package. We also built a clean new API that specified the exact set of
+    packages to install, one machine at a time, on top of the existing rollout mechanism.
+    As shown in [Figure 9-1](#the_evolution_of_our_workflow_for_deplo), this API decoupled
+    the software that defined a few different aspects:'
+  id: totrans-33
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为回应，我们决定放弃每月更新基础镜像的假设。我们设计了更精细的发布单元，对应于每个软件包。我们还构建了一个干净的新API，指定了要安装的精确软件包集，一次一个机器，放在现有的部署机制之上。如[图9-1](#the_evolution_of_our_workflow_for_deplo)所示，这个API解耦了定义几个不同方面的软件：
+- en: The rollout and the rate at which each package was supposed to change
+  id: totrans-34
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 部署和每个软件包应该更改的速率
+- en: The configuration store that defined the current config of all machines
+  id: totrans-35
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 定义所有机器当前配置的配置存储
+- en: The rollout actuator that manages applying updates to each machine
+  id: totrans-36
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 管理将更新应用到每台机器的部署执行器
+- en: '![The evolution of our workflow for deploying packages to machines](assets/bsrs_0901.png)'
+  id: totrans-37
+  prefs: []
+  type: TYPE_IMG
+  zh: '![将软件包部署到机器的工作流程的演变](assets/bsrs_0901.png)'
+- en: Figure 9-1\. The evolution of our workflow for deploying packages to machines
+  id: totrans-38
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-1。将软件包部署到机器的工作流程的演变
+- en: As a result, we could develop each aspect independently. We then repurposed
+    an existing config store to specify the configuration of all the packages applied
+    to each machine, and built a rollout system to track and update the independent
+    rollouts of each package.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，我们可以独立开发每个方面。然后，我们重新利用现有的配置存储来指定应用于每台机器的所有软件包的配置，并构建了一个部署系统来跟踪和更新每个软件包的独立部署。
+- en: By decoupling the image build from the monthly rollout policy, we could enable
+    a much wider range of release velocities for different packages. At the same time,
+    while still preserving a stable and consistent rollout to most machines in the
+    fleet, some test machines could follow the latest builds of all the software.
+    Better still, decoupling the policy unlocked new uses of the whole system. We
+    now use it to distribute a subset of carefully vetted files to the whole fleet
+    regularly. We can also use our normal tooling for emergency releases simply by
+    adjusting some rate limits and approving the release of one type of package to
+    proceed faster than normal. The end result was simpler, more useful, and safer.
+  id: totrans-40
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将镜像构建与每月部署策略解耦，我们可以为不同软件包启用更广泛的发布速度范围。同时，虽然仍然保持对机群中大多数机器的稳定和一致的部署，一些测试机器可以跟随所有软件的最新构建。更好的是，解耦策略解锁了整个系统的新用途。我们现在使用它定期向整个机群分发一部分经过仔细审核的文件。我们还可以通过调整一些速率限制并批准某种类型的软件包的发布比正常情况下更快地进行，简单地使用我们的正常工具进行紧急发布。最终结果更简单，更有用，更安全。
+- en: Limit Your Dependencies on External Notions of Time
+  id: totrans-41
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 限制对外部时间概念的依赖
+- en: Time—that is, ordinary time of day as reported by devices like wristwatches
+    and wall clocks—is a form of state. Because you’re generally unable to alter how
+    your system experiences the passage of time, any location where your system incorporates
+    wall-clock time can potentially threaten your ability to complete a recovery.
+    Mismatches between the time when you undertake your recovery effort and the time
+    when the system was last operating normally can lead to unexpected system behaviors.
+    For example, a recovery that involves replaying digitally signed transactions
+    may fail if some transactions are signed by expired certificates, unless you design
+    the recovery process to consider the original transaction date when validating
+    certificates.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 时间——即由手表和挂钟等设备报告的普通时间——是一种状态。因为通常无法改变系统体验时间流逝的方式，您的系统融入挂钟时间的任何位置都可能威胁到您完成恢复的能力。在您进行恢复工作的时间和系统上次正常运行的时间之间的不匹配可能导致意想不到的系统行为。例如，涉及重放数字签名交易的恢复可能会失败，如果一些交易是由过期证书签名的，除非您在验证证书时考虑原始交易日期。
+- en: Your system’s time dependence may be even more likely to introduce security
+    or reliability issues if it depends on an external notion of time that you don’t
+    control. This pattern arises in the form of multiple types of errors—for example,
+    software errors like [Y2K](https://oreil.ly/zV9E0), the [Unix epoch rollover](https://oreil.ly/heY_0),
+    or accidental errors where developers choose certificate expiration times so far
+    in the future that it’s “not their problem anymore.” Clear-text or unauthenticated
+    [NTP](https://oreil.ly/9IG8s) connections also introduce risk if an attacker is
+    able to control the network. A fixed date or time offset in code exhibits a [code
+    smell](https://oreil.ly/zxfz2) indicating that you may be creating a time bomb.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的系统时间依赖性更有可能引入安全或可靠性问题，如果它依赖于您无法控制的外部时间概念。这种模式以多种类型的错误形式出现，例如软件错误，如[Y2K](https://oreil.ly/zV9E0)，[Unix时代翻转](https://oreil.ly/heY_0)，或者开发人员选择将证书到期时间设置得太远，以至于“这不再是他们的问题”。明文或未经身份验证的[NTP](https://oreil.ly/9IG8s)连接也会引入风险，如果攻击者能够控制网络。代码中的固定日期或时间偏移展现出一种[代码异味](https://oreil.ly/zxfz2)，表明您可能正在制造一个定时炸弹。
+- en: Note
+  id: totrans-44
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: 'Tying events to wall-clock time is often an anti-pattern. Instead of wall-clock
+    time, we recommend using one of the following:'
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 将事件与挂钟时间绑定通常是一种反模式。我们建议使用以下之一，而不是挂钟时间：
+- en: Rates
+  id: totrans-46
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 费率
+- en: Manually advanced notions of forward progress like epoch numbers or version
+    numbers
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 手动推进前进的概念，如时代编号或版本编号
+- en: Validity lists
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 有效性列表
+- en: As mentioned in [Chapter 8](ch08.html#design_for_resilience), Google’s ALTS
+    transport security system does not use expiration time in its digital certificates,
+    and instead relies on a revocation system. The active revocation list is made
+    up of vectors that define valid versus revoked ranges of certificate serial numbers,
+    and works without depending on wall-clock time. You can achieve isolation goals
+    through healthy, periodic pushes of updated revocation lists to create time compartments.
+    You can perform an emergency push of a new revocation list to revoke certificates
+    if you suspect an adversary may have gained access to underlying keys, and you
+    can stop the periodic pushes during unusual circumstances to enable debugging
+    or forensics. See [“Use an Explicit Revocation Mechanism”](#use_an_explicit_revocation_mechanism)
+    for more discussion of that particular topic.
+  id: totrans-49
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[第8章](ch08.html#design_for_resilience)中所述，谷歌的ALTS传输安全系统在数字证书中不使用到期时间，而是依赖于撤销系统。活动撤销列表由定义证书序列号有效与撤销范围的向量组成，并且不依赖于挂钟时间。您可以通过定期健康地推送更新的撤销列表来实现隔离目标，以创建时间区段。如果您怀疑对手可能已经获得了基础密钥的访问权限，您可以紧急推送新的撤销列表来撤销证书，并且您可以在异常情况下停止定期推送以进行调试或取证。有关该特定主题的更多讨论，请参见[“使用显式撤销机制”](#use_an_explicit_revocation_mechanism)。
+- en: Design choices that depend on wall-clock time may also lead to security weaknesses.
+    Because of reliability constraints, you may be tempted to disable certificate
+    validity checking in order to perform a recovery. However, in this case, the cure
+    is worse than the disease—it would be better to omit the certificate expiration
+    (from the SSH key pair that allows login access to a cluster of servers) than
+    to skip validity checking. To provide one notable exception, wall-clock time *is*
+    useful for deliberately time-bounded access. For example, you might want to require
+    that most employees reauthenticate daily. In cases like this, it’s important to
+    have a path for repairing the system that doesn’t rely on wall-clock time.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 依赖挂钟时间的设计选择也可能导致安全弱点。由于可靠性约束，您可能会有诱惑力禁用证书有效性检查以执行恢复。然而，在这种情况下，治疗比疾病更糟糕——最好是省略证书到期时间（从允许登录到一组服务器的SSH密钥对）而不是跳过有效性检查。要提供一个显着的例外，挂钟时间*是*用于有意限时访问。例如，您可能希望要求大多数员工每天重新进行身份验证。在这种情况下，重要的是要有一条修复系统的路径，而不依赖于挂钟时间。
+- en: 'Relying on absolute time can also lead to problems when you attempt to recover
+    from crashes, or when databases that expect monotonically increasing time attempt
+    to recover from corruption. Recovery may require an exhaustive transaction replay
+    (which rapidly becomes infeasible as data sets grow) or an attempt to roll back
+    time in a coordinated way across multiple systems. To provide a simpler example:
+    correlating logs across systems that have inaccurate notions of time burdens your
+    engineers with an unnecessary layer of indirection, which makes accidental errors
+    more common.'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 依赖绝对时间也可能导致问题，当您尝试从崩溃中恢复，或者期望单调递增时间的数据库尝试从损坏中恢复时。恢复可能需要详尽的事务重放（随着数据集的增长，这很快变得不可行），或者尝试在多个系统之间协调地回滚时间。举个简单的例子：在具有不准确时间概念的系统之间进行日志相关会给您的工程师增加不必要的间接层，使意外错误更加普遍。
+- en: 'You can also eliminate wall-clock time dependencies by using epoch or version
+    advancement, which requires all parts of a system to coordinate around an integer
+    value that represents a forward progression of “valid” versus “expired.” An epoch
+    might be an integer stored in a distributed systems component like a lock service,
+    or machine-local state that is ratcheted forward (allowed to move in only a forward
+    direction) according to policy. To enable your systems to perform releases as
+    quickly as possible, you might design them to allow rapid epoch advancement. A
+    single service may be responsible for announcing the current epoch or initiating
+    an epoch advancement. In the face of trouble, you can halt epoch advancement until
+    you understand and remediate the issue. To return to our earlier public-key example:
+    although certificates may age, you won’t be tempted to entirely disable certificate
+    verification because you can stop epoch advancement. Epochs have some similarities
+    with the MASVN scheme discussed in [“Minimum Acceptable Security Version Numbers”](#minimum_acceptable_security_version_num).'
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您还可以通过使用时代或版本的推进来消除对挂钟时间的依赖，这需要系统的所有部分围绕一个整数值进行协调，该值表示“有效”与“过期”的前进。时代可以是存储在分布式系统组件中的整数，例如锁定服务，或者是根据策略向前（只能向前移动）推进的机器本地状态。为了使您的系统能够尽快进行发布，您可能会设计它们以允许快速的时代推进。单个服务可能负责宣布当前时代或启动时代推进。在遇到问题时，您可以暂停时代的推进，直到您理解并纠正问题。回到我们先前的公钥示例：尽管证书可能会过期，但您不会因为可以停止时代的推进而被诱使完全禁用证书验证。时代与“最低可接受安全版本号”中讨论的MASVN方案有一些相似之处。
+- en: Note
+  id: totrans-53
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Aggressively incremented epoch values could roll over or overflow. Be wary of
+    how fast your system deploys changes, and how many intermediate epoch or version
+    values you can tolerably skip.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 过于激进地增加时代值可能会导致翻转或溢出。要谨慎对待系统部署更改的速度，以及您可以容忍地跳过多少中间时代或版本值。
+- en: An adversary with temporary control of your system might inflict lasting damage
+    to the system by dramatically accelerating epoch advancement or causing an epoch
+    rollover. A common solution to this problem is to choose an epoch value with a
+    sufficiently large range and build in an underlying backstop rate limit—for example,
+    a 64-bit integer rate limited to increment no more than once per second. Hardcoding
+    a backstop rate limit is an exception to our earlier design recommendation to
+    roll out changes as quickly as possible and to add policy to designate the rate
+    of change. However, in this case, it’s difficult to imagine a reason to change
+    the system state more than once per second, since you’re going to be dealing with
+    billions of years. This strategy is also reasonable because a 64-bit integer is
+    generally inexpensive on modern hardware.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 暂时控制您系统的对手可能通过大幅加速时代的推进或导致时代翻转来对系统造成持久性的损害。解决这个问题的常见方法是选择具有足够大范围的时代值，并建立一个基础的后备速率限制，例如，将64位整数速率限制为每秒增加一次。硬编码后备速率限制是我们先前设计建议的一个例外，即尽快推出更改并添加策略以指定更改的速率。然而，在这种情况下，很难想象有理由改变系统状态超过一秒一次，因为您将要处理数十亿年的时间。这种策略也是合理的，因为64位整数在现代硬件上通常是廉价的。
+- en: Even in scenarios where waiting for elapsed wall-clock time is desirable, consider
+    simply measuring elapsed time without requiring the actual time of day. A backstop
+    rate limit will work even when the system isn’t aware of wall-clock time.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使在等待经过的挂钟时间是可取的情况下，也要考虑仅仅测量经过的时间，而不需要实际的日期时间。即使系统不知道挂钟时间，后备速率限制也能起作用。
+- en: 'DEEP DIVE: Rollbacks Represent a Tradeoff Between Security'
+  id: totrans-57
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深入探讨：回滚代表了安全之间的权衡
+- en: The first step to recovery during incident response is to mitigate the incident,
+    typically by safely rolling back any suspect changes. A large fraction of production
+    issues that require human attention are self-inflicted (see [“Accidental Errors”](#accidental_errors)
+    and [“Software Errors”](#software_errors)), meaning that an intended change to
+    the system contains a bug or other misconfiguration that causes an incident. When
+    this happens, basic tenets of reliability call for a system rollback to the last
+    known good state as quickly and safely as possible.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在事件响应期间恢复的第一步是通过安全地回滚任何可疑更改来减轻事件。需要人工注意的生产问题的大部分是自我造成的（参见“意外错误”和“软件错误”），这意味着对系统的预期更改包含错误或其他错误配置，导致了事件。当这种情况发生时，可靠性的基本原则要求系统尽快而安全地回滚到上一个已知的良好状态。
+- en: In other cases, you need to *prevent* rollbacks. When patching security vulnerabilities,
+    you are often racing against attackers, trying to deploy a patch before an attacker
+    exploits the vulnerability. Once the patch is successfully deployed and shown
+    to be stable, you need to prevent attackers from applying a rollback that reintroduces
+    the vulnerability, while still leaving yourself the option to voluntarily roll
+    back—because security patches themselves are code changes, they may contain their
+    own bugs or vulnerabilities.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在其他情况下，您需要*防止*回滚。在修补安全漏洞时，您经常在与攻击者竞赛，试图在攻击者利用漏洞之前部署补丁。一旦成功部署补丁并显示稳定，您需要防止攻击者应用可能重新引入漏洞的回滚，同时仍然保留自己自愿回滚的选项——因为安全补丁本身是代码更改，它们可能包含自己的错误或漏洞。
+- en: In light of these considerations, determining the appropriate conditions for
+    a rollback can be complicated. Application-layer software is a more straightforward
+    case. System software, like an operating system or privileged package management
+    daemon, can easily kill and restart tasks or processes. You can collect the names
+    of undesirable versions (usually unique label strings, numbers, or hashes^([10](ch09.html#ch09fn11)))
+    into a deny list, which you can then incorporate into your deployment system’s
+    release policies. Alternatively, you can manage an allow list and build your automation
+    to include deployed application software on that list.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到这些因素，确定回滚的适当条件可能会很复杂。应用层软件是一个更为直接的情况。系统软件，如操作系统或特权包管理守护程序，可以轻松终止和重新启动任务或进程。您可以将不良版本的名称（通常是唯一的标签字符串、数字或哈希^([10](ch09.html#ch09fn11))）收集到一个拒绝列表中，然后将其纳入部署系统的发布策略中。或者，您可以管理一个允许列表，并构建您的自动化以包括部署的应用软件在该列表中。
+- en: 'Privileged or low-level system components that are responsible for processing
+    their own updates are more challenging. We call these components *self-updating*.
+    Examples include a package management daemon that updates itself by overwriting
+    its own executable file and then reexecuting itself, or a firmware image such
+    as a BIOS that reflashes a replacement image on top of itself and then forces
+    a reboot. These components may actively prevent themselves from being updated
+    if they are maliciously modified. Hardware-specific implementation requirements
+    add to the challenge. You need rollback control mechanisms that work even for
+    these components, but the intended behavior itself may be challenging to define.
+    Let’s consider two example policies and their flaws to better appreciate the problem:'
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 负责处理自己更新的特权或低级系统组件更具挑战性。我们称这些组件为*自更新*。例如，包管理守护程序通过覆盖自己的可执行文件并重新执行自己来更新自己，或者固件图像（如BIOS）会在自身上重新刷写一个替换图像，然后强制重新启动。如果这些组件被恶意修改，它们可能会主动阻止自己被更新。硬件特定的实现要求增加了挑战。您需要回滚控制机制，即使对于这些组件，但是所需的行为本身可能很难定义。让我们考虑两个示例策略及其缺陷，以更好地理解问题：
+- en: Allow arbitrary rollbacks
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 允许任意回滚
+- en: This solution is not secure, because any factor that prompts you to perform
+    a rollback may reintroduce a known security vulnerability. The older or more visible
+    the vulnerability, the more likely it is that stable, weaponized exploitations
+    of that vulnerability are readily available.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种解决方案并不安全，因为导致您执行回滚的任何因素都可能重新引入已知的安全漏洞。漏洞越老或越明显，稳定的、武器化的利用这些漏洞的可能性就越大。
+- en: Never allow rollbacks
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 永远不要允许回滚
+- en: This solution eliminates the path to return to a known stable state, and only
+    allows you to move forward to newer states. It’s unreliable because if an update
+    introduces a bug, you can no longer roll back to the last known good version.
+    This approach implicitly requires the build system to generate new versions to
+    which you can roll forward, adding time and avoidable dependencies to the build
+    and release engineering infrastructure.
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种解决方案消除了返回到已知稳定状态的路径，只允许您向前移动到更新的状态。这是不可靠的，因为如果更新引入了错误，您将无法回滚到上一个已知的良好版本。这种方法隐含地要求构建系统生成新版本，以便您可以向前滚动，这会给构建和发布工程基础设施增加时间和可避免的依赖关系。
+- en: 'Many alternatives to these two extreme approaches offer practical tradeoffs.
+    These include the following:'
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了这两种极端方法之外，还有许多其他实用的权衡方案。这些包括：
+- en: Using deny lists
+  id: totrans-67
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用拒绝列表
+- en: Using Security Version Numbers (SVNs) and Minimum Acceptable Security Version
+    Numbers (MASVNs)
+  id: totrans-68
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用安全版本号（SVNs）和最低可接受安全版本号（MASVNs）
+- en: Rotating signing keys
+  id: totrans-69
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 轮换签名密钥
+- en: In the following discussion, we assume in all cases that updates are cryptographically
+    signed and that the signature covers the component image and its version metadata.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在接下来的讨论中，我们假设在所有情况下，更新都经过了加密签名，并且签名覆盖了组件图像及其版本元数据。
+- en: A combination of all three techniques discussed here may best manage the security/reliability
+    tradeoffs for self-updating components. However, the complexity of this combination,
+    and its reliance on `ComponentState`, makes this approach a huge undertaking.
+    We recommend introducing one functionality at a time, and allowing sufficient
+    time to identify any bugs or corner cases for each component you introduce. Ultimately,
+    all healthy organizations should use key rotation, but deny list and MASVN capabilities
+    are useful for high-velocity responses.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里讨论的三种技术的组合可能最好地管理自更新组件的安全性/可靠性权衡。然而，这种组合的复杂性，以及它对`ComponentState`的依赖，使这种方法成为一项巨大的工作。我们建议逐步引入一个功能，并允许足够的时间来识别您引入的每个组件的任何错误或特殊情况。最终，所有健康的组织都应该使用密钥轮换，但拒绝列表和MASVN功能对于高速响应是有用的。
+- en: Deny lists
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 拒绝列表
+- en: 'As you discover bugs or vulnerabilities in release versions, you may want to
+    build a deny list to prevent known bad versions from being (re)activated, perhaps
+    by hardcoding the deny list in the component itself. In the following example,
+    we write this as `Release[DenyList]`. After the component is updated to a newly
+    released version, it refuses an update to a deny-listed version:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当您在发布版本中发现错误或漏洞时，您可能希望构建一个拒绝列表，以防止已知的不良版本被（重新）激活，也许可以通过在组件本身中硬编码拒绝列表来实现。在下面的示例中，我们将其写为`Release[DenyList]`。在组件更新到新发布的版本后，它会拒绝更新到拒绝列表中的版本。
+- en: '[PRE0]'
+  id: totrans-74
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: Unfortunately, this solution addresses only accidental errors, because hardcoded
+    deny lists present an unresolvable security/reliability tradeoff. If the deny
+    list always leaves room for rollback to at least one older, known good image,
+    the scheme is vulnerable to *unzipping*—an attacker can incrementally roll back
+    versions until they arrive at an older version that contains a known vulnerability
+    that they can exploit. This scenario essentially collapses to the “allow arbitrary
+    rollbacks” extreme described earlier, with intermediate hops along the way. Alternatively,
+    configuring the deny list to altogether prevent rollbacks for critical security
+    updates leads to the “never allow rollbacks” extreme, with its accompanying reliability
+    pitfalls.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 不幸的是，这个解决方案只解决了意外错误，因为硬编码的拒绝列表呈现了一个无法解决的安全/可靠性权衡。如果拒绝列表总是留有至少一个较旧的已知良好的镜像的回滚空间，该方案就容易受到*解压*的攻击——攻击者可以逐步回滚版本，直到他们到达包含已知漏洞的较旧版本，然后利用这些漏洞。这种情况基本上就是之前描述的“允许任意回滚”的极端情况，中间还有一些跳跃。或者，将拒绝列表配置为完全阻止关键安全更新的回滚会导致“永远不允许回滚”的极端情况，伴随着可靠性的缺陷。
+- en: If you’re recovering from a security or reliability incident when multiple updates
+    may be in progress across your fleet, hardcoded deny lists are a good choice for
+    setting up your system to avoid accidental errors. It’s quick and relatively easy
+    to append a single version to a list, since doing so has little or no impact on
+    the validity of any other versions. However, you need a more robust strategy to
+    resist malicious attacks.
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您正在从安全或可靠性事件中恢复，当您的系统可能在整个系统中进行多个更新时，硬编码的拒绝列表是一个很好的选择，可以避免意外错误。向列表中追加一个版本是快速且相对容易的，因为这样做对任何其他版本的有效性几乎没有影响。然而，您需要一个更强大的策略来抵抗恶意攻击。
+- en: 'A better deny-listing solution encodes the deny list outside of the self-updating
+    component itself. In the following example, we write this as `ComponentState[DenyList]`.
+    This deny list survives across component upgrades and downgrades because it’s
+    independent of any single release—but the component still needs logic in order
+    to maintain the deny list. Each release may reasonably encode the most comprehensive
+    deny list known at the time of its release: `Release[DenyList]`. The maintenance
+    logic then unites these lists and stores them locally (note that we write `self[DenyList]`
+    instead of `Release[DenyList]` to indicate that “self” is installed and actively
+    running):'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更好的拒绝列表解决方案将拒绝列表编码在自更新组件之外。在下面的示例中，我们将其写为`ComponentState[DenyList]`。这个拒绝列表在组件升级和降级时都会保留下来，因为它独立于任何单个发布，但组件仍然需要逻辑来维护拒绝列表。每个发布可能合理地编码在其发布时已知的最全面的拒绝列表：`Release[DenyList]`。然后，维护逻辑将这些列表合并并在本地存储（请注意，我们写`self[DenyList]`而不是`Release[DenyList]`，以表明“self”已安装并且正在运行）：
+- en: '[PRE1]'
+  id: totrans-78
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Check tentative updates for validity against the list, and refuse deny-listed
+    updates (don’t explicitly reference “self” because its contribution to the deny
+    list is already reflected in `ComponentState`, where it remains even after future
+    versions are installed):'
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 检查临时更新的有效性，拒绝拒绝列表中的更新（不要明确引用“self”，因为它对拒绝列表的贡献已经反映在`ComponentState`中，即使未来版本被安装后仍然存在）：
+- en: '[PRE2]'
+  id: totrans-80
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: Now you can make the security/reliability tradeoff deliberately as a matter
+    of policy. When you’re deciding what to include in `Release[DenyList]`, you can
+    weigh the risk of unzipping attacks against the risk of an unstable release.
+  id: totrans-81
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，您可以有意地进行安全/可靠性权衡，作为一种政策。当您决定在`Release[DenyList]`中包含什么时，您可以权衡解压攻击的风险与不稳定发布的风险。
+- en: 'This approach also has drawbacks, even when you encode deny lists in a `ComponentState`
+    data structure that’s maintained outside of the self-updating component itself:'
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 即使您将拒绝列表编码在一个`ComponentState`数据结构中，该数据结构在自更新组件之外维护，这种方法也有缺点：
+- en: Even though the deny list exists outside the configured intent of your centralized
+    deployment system, you still have to monitor and consider it.
+  id: totrans-83
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 即使拒绝列表存在于集中式部署系统的配置意图之外，您仍然需要监视和考虑它。
+- en: If an entry is ever accidentally added to the deny list, you may want to remove
+    that entry from the list. However, introducing a removal capability may open the
+    door to unzipping attacks.
+  id: totrans-84
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果一个条目被意外添加到拒绝列表中，您可能希望将该条目从列表中删除。然而，引入删除功能可能会打开解压攻击的大门。
+- en: The deny list may grow without bound, eventually hitting the size limits of
+    storage. How do you manage [garbage collection](https://oreil.ly/_TsjS) of a deny
+    list?
+  id: totrans-85
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 拒绝列表可能会无限增长，最终达到存储的大小限制。您如何管理拒绝列表的[垃圾收集](https://oreil.ly/_TsjS)？
+- en: Minimum Acceptable Security Version Numbers
+  id: totrans-86
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 最低可接受的安全版本号
+- en: Over time, deny lists become large and unwieldy as entries are appended. You
+    can use a separate Security Version Number, written as `Release[SVN]`, to drop
+    older entries from the deny list, while still preventing them from being installed.
+    As a result, you reduce the cognitive load on the humans responsible for the system.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 随着时间的推移，拒绝列表会变得庞大而难以控制，因为条目被追加。您可以使用一个单独的安全版本号，写成`Release[SVN]`，从拒绝列表中删除较旧的条目，同时防止它们被安装。因此，您减少了对系统负责的人的认知负担。
+- en: Keeping `Release[SVN]` independent of other version notions allows a compact
+    and mathematically comparable way to logically follow large numbers of releases
+    without requiring the overhead space a deny list needs. Whenever you apply a critical
+    security fix and demonstrate its stability, you increment `Release[SVN]`, marking
+    a security milestone that you use to regulate rollback decisions. Because you
+    have a straightforward indicator of each version’s security status, you have the
+    flexibility to conduct ordinary release testing and qualification, and the confidence
+    that you can quickly and safely make rollback decisions when you discover bugs
+    or stability issues.
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 保持`Release[SVN]`独立于其他版本概念，可以以一种紧凑且在数学上可比较的方式逻辑地跟踪大量发布，而无需像拒绝列表那样需要额外的空间。每当您应用关键安全修复并证明其稳定性时，您都会增加`Release[SVN]`，标记一个安全里程碑，用于调整回滚决策。因为您对每个版本的安全状态都有一个简单的指示器，所以您可以灵活地进行普通的发布测试和资格认证，并且有信心在发现错误或稳定性问题时迅速而安全地做出回滚决策。
+- en: 'Remember that you also want to prevent malicious actors from somehow rolling
+    your systems back to known bad or vulnerable versions.^([11](ch09.html#ch09fn12))
+    To prevent these actors from getting a foothold in your infrastructure and using
+    that foothold to prevent recovery, you can use a MASVN to define a low-water mark
+    below which your systems should never operate.^([12](ch09.html#ch09fn13)) This
+    must be an ordered value (not a cryptographic hash), preferably a simple integer.
+    You can manage the MASVN similarly to how you manage the deny list:'
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请记住，您还希望防止恶意行为者以某种方式将系统回滚到已知的不良或易受攻击的版本。为了防止这些行为者在您的基础设施中立足并利用该立足点阻止恢复，您可以使用MASVN来定义一个低水位标记，低于该标记，您的系统不应该运行。这必须是一个有序值（而不是加密哈希），最好是一个简单的整数。您可以像管理拒绝列表一样管理MASVN：
+- en: Each release version includes a MASVN value that reflects the acceptable versions
+    at its time of release.
+  id: totrans-90
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个发布版本都包括一个MASVN值，反映了其发布时的可接受版本。
+- en: You maintain a global value outside of the deployment system, written as `ComponentState[MASVN]`.
+  id: totrans-91
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 您在部署系统之外维护一个全局值，写为`ComponentState[MASVN]`。
+- en: 'As a precondition for applying the update, all releases include logic verifying
+    that a tentative update’s `Release[SVN]` is at least as high as the `ComponentState[MASVN]`.
+    It is expressed as pseudocode as follows:'
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 作为应用更新的先决条件，所有发布都包括逻辑验证试探性更新的`Release[SVN]`至少与`ComponentState[MASVN]`一样高。它被表达为伪代码如下：
+- en: '[PRE3]'
+  id: totrans-93
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: The maintenance operation for the global `ComponentState[MASVN]` is not part
+    of the deployment process. Instead, maintenance takes place as the new release
+    initializes for the first time. You hardcode a target MASVN into each release—the
+    MASVN that you want to enforce for that component at the time when that release
+    is created, written as `Release[MASVN]`.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 全球`ComponentState[MASVN]`的维护操作不是部署过程的一部分。相反，维护是在新版本初始化时进行的。您需要在每个发布中硬编码一个目标MASVN
+    - 您希望在创建该发布时强制执行该组件的MASVN，写为`Release[MASVN]`。
+- en: 'When a new release is deployed and executed for the first time, it compares
+    its `Release[MASVN]` (written as `self[MASVN]`, to reference the release that
+    is installed and running) with `ComponentState[MASVN]`. If `Release[MASVN]` is
+    higher than the existing `ComponentState[MASVN]`, then `ComponentState[MASVN]`
+    updates to the new larger value. In fact, this logic runs every time the component
+    initializes, but `ComponentState[MASVN]` only changes following a successful update
+    with a higher `Release[MASVN]`. It is expressed as pseudocode as follows:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当部署和执行新版本时，它会将其`Release[MASVN]`（写为`self[MASVN]`，以引用已安装和运行的版本）与`ComponentState[MASVN]`进行比较。如果`Release[MASVN]`高于现有的`ComponentState[MASVN]`，那么`ComponentState[MASVN]`将更新为新的更大值。实际上，这个逻辑每次组件初始化时都会运行，但`ComponentState[MASVN]`只有在成功更新为更高的`Release[MASVN]`后才会更改。它被表达为伪代码如下：
+- en: '[PRE4]'
+  id: totrans-96
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: 'This scheme can emulate either of the extreme policies mentioned earlier:'
+  id: totrans-97
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个方案可以模拟前面提到的两种极端政策中的任何一种：
+- en: Allowing arbitrary rollback, by never modifying `Release[MASVN]`
+  id: totrans-98
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过永远不修改`Release[MASVN]`来允许任意回滚
+- en: Never allowing rollback, by modifying `Release[MASVN]` in lockstep with `Release[SVN]`
+  id: totrans-99
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 通过将`Release[MASVN]`与`Release[SVN]`同步修改，永远不允许回滚
+- en: In practice, `Release[MASVN]` is often raised in release *i*+1, following a
+    release that mitigates a security issue. This ensures that *i*–1 or older versions
+    are never executed again. Since `ComponentState[MASVN]` is external to the release
+    itself, version *i* no longer allows downgrade to *i*–1 after *i*+1 has been installed,
+    even though it did allow such downgrades when it was initially deployed. [Figure 9-2](#a_sequence_of_three_releases_and_their)
+    illustrates sample values for a sequence of three releases and their impact on
+    `ComponentState[MASVN]`.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 实际上，`Release[MASVN]`通常在第*i*+1个版本中提高，之前的版本解决了安全问题。这确保了*i*–1或更旧的版本永远不会再次执行。由于`ComponentState[MASVN]`是外部的，版本*i*在安装*i*+1后不再允许降级，即使它最初允许这样的降级。[图9-2](#a_sequence_of_three_releases_and_their)说明了三个发布及其对`ComponentState[MASVN]`的影响的示例值。
+- en: '![A sequence of three releases and their impact on ComponentState[MASVN]](assets/bsrs_0902.png)'
+  id: totrans-101
+  prefs: []
+  type: TYPE_IMG
+  zh: '![三个发布及其对ComponentState[MASVN]的影响的序列](assets/bsrs_0902.png)'
+- en: Figure 9-2\. A sequence of three releases and their impact on ComponentState[MASVN]
+  id: totrans-102
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图9-2。三个发布及其对ComponentState[MASVN]的影响的序列
+- en: To mitigate a security vulnerability in release *i*–1, release *i* includes
+    the security patch and an incremented `Release[SVN]`. `Release[MASVN]` doesn’t
+    change in release *i*, because even security patches can have bugs. Once release
+    *i* is proven to be stable in production, the next release, *i*+1, increments
+    the MASVN. This indicates that the security patch is now mandatory, and releases
+    without it are disallowed.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了减轻第*i*–1个版本中的安全漏洞，第*i*个版本包括安全补丁和递增的`Release[SVN]`。`Release[MASVN]`在第*i*个版本中不会改变，因为即使安全补丁也可能存在错误。一旦第*i*个版本在生产中被证明是稳定的，下一个版本，*i*+1，会递增MASVN。这表示安全补丁现在是强制性的，没有它的版本是不允许的。
+- en: In keeping with the “go as quickly as possible” design tenet, the MASVN scheme
+    separates the policy for reasonable rollback targets from the infrastructure that
+    performs the rollbacks. It’s technically feasible to introduce a specific API
+    in the self-updating component and receive a command from the centralized deployment
+    management system to increment `ComponentState[MASVN]`. With that command, you
+    might raise `ComponentState[MASVN]` on components that receive an update late
+    in the deployment pipeline, after qualifying the release on enough devices that
+    you have high confidence that it will work as planned. An API like this may be
+    useful when you’re responding to an active compromise or a particularly severe
+    vulnerability, where velocity is critical and risk tolerance is higher than normal
+    for availability issues.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与“尽快进行”设计原则保持一致，MASVN方案将合理的回滚目标策略与执行回滚的基础设施分开。在自更新组件中引入特定的API并从集中式部署管理系统接收命令来增加`ComponentState[MASVN]`是技术上可行的。通过该命令，您可以在部署管道的后期对接收更新的组件提高`ComponentState[MASVN]`，在足够多的设备上验证了发布版本后，您对其能够按计划工作有很高的信心。在响应活动妥协或特别严重的漏洞时，这样的API可能非常有用，其中速度至关重要，风险容忍度比正常情况下更高。
+- en: So far, this example has avoided introducing a dedicated API to mutate `ComponentState`.
+    `ComponentState` is a delicate collection of values that impacts your ability
+    to recover systems through updates or rollbacks. It is component-local, and external
+    to the configured intent that a centralized piece of automation directly controls.
+    The actual sequence of software/firmware versions experienced by each individual
+    component may vary across a fleet of similar or identical devices, in the face
+    of concurrent development, testing, canary analysis, and rollout. Some components
+    or devices may walk the full set of releases, while others may experience many
+    rollbacks. Still others may experience minimal change, and hop directly from a
+    buggy or vulnerable version to the next stable, qualified release.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，这个例子避免了引入专门的API来改变`ComponentState`。`ComponentState`是一组影响您通过更新或回滚来恢复系统能力的敏感值。它是组件本地的，并且与配置的意图外部的一个集中式自动化直接控制。在面对并行开发、测试、金丝雀分析和部署的情况下，每个个体组件经历的软件/固件版本序列可能会在类似或相同设备的群集中有所不同。一些组件或设备可能会经历完整的发布版本集合，而其他可能会经历许多回滚。还有一些可能经历最小的变化，并直接从有缺陷或有漏洞的版本跳转到下一个稳定的、合格的发布版本。
+- en: Using MASVNs is therefore a useful technique to combine with deny listing for
+    self-updating components. In this scenario, you may perform deny listing very
+    rapidly—potentially under incident response conditions. You then perform MASVN
+    maintenance under calmer circumstances, to garbage-collect the deny list and permanently
+    exclude (on a per-component-instance basis) any releases that are vulnerable or
+    sufficiently old, and are never intended to execute again on a given component
+    instance.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，使用MASVN是一种与拒绝列表结合使用的有用技术，用于自更新组件。在这种情况下，您可能会非常迅速地执行拒绝列表操作，可能是在事件响应条件下。然后在更平静的情况下执行MASVN维护，以清除拒绝列表并永久排除（基于每个组件实例）任何容易受到攻击或足够旧的发布版本，并且永远不打算在给定的组件实例上再次执行。
+- en: Rotating signing keys
+  id: totrans-107
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 旋转签名密钥
+- en: 'Many self-updating components include support to cryptographically authenticate
+    tentative updates—in other words, part of the release cycle for a component includes
+    cryptographically signing that release. These components often include a hardcoded
+    list of known public keys, or support for an independent key database, as part
+    of `ComponentState`. For example:'
+  id: totrans-108
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多自更新组件包括支持对临时更新进行加密认证的功能，换句话说，组件的发布周期的一部分包括对该发布进行加密签名。这些组件通常包括已知公钥的硬编码列表，或作为`ComponentState`的一部分支持独立密钥数据库。例如：
+- en: '[PRE5]'
+  id: totrans-109
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: You can prevent rollback by modifying the set of public keys trusted by a component,
+    typically to remove an old or compromised key or to introduce a new key for signing
+    future releases. Older releases are invalidated because newer releases no longer
+    trust the public signature verification key needed to verify the signatures on
+    the older releases. You must manage key rotation carefully, however, because a
+    sudden change from one signing key to another can leave systems perilously exposed
+    to reliability issues.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可以通过修改组件信任的一组公钥来防止回滚，通常是为了删除旧的或受损的密钥，或者引入一个新的密钥来签署未来的发布版本。较旧的发布版本将失效，因为较新的发布版本不再信任用于验证较旧发布版本上的签名的公共签名验证密钥。然而，您必须小心地管理密钥轮换，因为突然从一个签名密钥更改到另一个可能会使系统面临可靠性问题。
+- en: Alternatively, you can rotate keys more gradually by introducing a new update
+    signature verification key, *k*+1, alongside an older verification key, *k*, and
+    allowing updates that authenticate with either key to proceed. Once stability
+    is demonstrated, you drop trust in key *k*. This scheme requires support for multiple
+    signatures over a release artifact, and for multiple verification keys when authenticating
+    candidate updates. It also has the advantage that signing key rotation—a best
+    practice for cryptographic key management—is exercised regularly and therefore
+    likely to work when needed in the wake of an incident.
+  id: totrans-111
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 或者，您可以通过引入一个新的更新签名验证密钥*k*+1，同时与旧的验证密钥*k*一起允许使用任一密钥进行认证的更新。一旦稳定性得到证明，您就可以放弃对密钥*k*的信任。这种方案需要对发布版本的多个签名进行支持，并在验证候选更新时需要多个验证密钥。它还具有签名密钥轮换的优势——这是加密密钥管理的最佳实践——并且因此在事件发生后可能会起作用。
+- en: Key rotation can help you recover from a very serious compromise whereby an
+    attacker manages to temporarily control release management and sign and deploy
+    a release with `Release[MASVN]` set to the maximum value. In this type of attack,
+    by setting `ComponentState[MASVN]` to its maximum value, the attacker forces you
+    to set `Release[SVN]` to its maximum in order for future releases to be viable,
+    thereby rendering the whole MASVN scheme useless. In response, you can revoke
+    the compromised public key in new releases signed by a new key, and add dedicated
+    logic to recognize the unusually high `ComponentState[MASVN]` and reset it. Since
+    this logic is itself subtle and potentially dangerous, you should use it with
+    care, and aggressively revoke any releases that include it as soon as they’ve
+    served their purpose.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 密钥轮换可以帮助您从非常严重的妥协中恢复，攻击者设法暂时控制了发布管理并签署并部署了`Release[MASVN]`设置为最大值的发布。在这种类型的攻击中，通过将`ComponentState[MASVN]`设置为其最大值，攻击者迫使您将`Release[SVN]`设置为其最大值，以便未来的发布能够可行，从而使整个MASVN方案无效。作为回应，您可以在由新密钥签署的新发布中撤销受损的公钥，并添加专用逻辑来识别异常高的`ComponentState[MASVN]`并将其重置。由于这种逻辑本身是微妙且潜在危险的，您应该谨慎使用，并在它们达到目的后立即积极撤销任何包含它的发布。
+- en: This chapter does not cover the full complexity of incident response for a serious
+    and targeted compromise. See [Chapter 18](ch18.html#oneeight_recovery_and_aftermath)
+    for more information.
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章不涵盖严重和有针对性的妥协事件的全部复杂性。有关更多信息，请参阅[第18章](ch18.html#oneeight_recovery_and_aftermath)。
+- en: Rolling back firmware and other hardware-centric constraints
+  id: totrans-114
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 回滚固件和其他硬件中心的约束
+- en: Hardware devices with their own corresponding firmware—such as a machine and
+    its BIOS, or a network interface card (NIC) and its firmware—are common manifestations
+    of self-updating components. These devices present additional challenges for robust
+    MASVN or key rotation schemes, which we touch on briefly here. These details play
+    an important role in recovery because they help to enable scalable or automated
+    recovery from potentially malicious actions.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 具有相应固件的硬件设备——如机器及其BIOS，或网络接口卡（NIC）及其固件——是自更新组件的常见表现形式。这些设备在健壮的MASVN或密钥轮换方案方面提出了额外的挑战，我们在这里简要涉及。这些细节在恢复中发挥着重要作用，因为它们有助于实现可扩展或自动化的从潜在恶意行为中恢复。
+- en: Sometimes, one-time-programmable (OTP) devices like fuses are used by ROM or
+    firmware to implement a forward-only MASVN scheme by storing `ComponentState[MASVN]`.
+    These schemes have significant reliability risks because rollback is infeasible.
+    Additional software layers help address the constraints of physical hardware.
+    For example, the OTP-backed `ComponentState[MASVN]` covers a small, single-purpose
+    bootloader that contains its own MASVN logic and has exclusive access to a separate
+    mutable MASVN storage region. This bootloader then exposes the more robust MASVN
+    semantics to the higher-level software stack.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有时，只可编程一次（OTP）设备如保险丝被ROM或固件用于通过存储`ComponentState[MASVN]`来实现一种仅向前的MASVN方案。这些方案存在重大的可靠性风险，因为回滚是不可行的。额外的软件层有助于解决物理硬件的约束。例如，OTP支持的`ComponentState[MASVN]`覆盖了一个小型、单一用途的引导加载程序，其中包含其自己的MASVN逻辑，并且具有对单独的可变MASVN存储区的独占访问。然后，该引导加载程序将更健壮的MASVN语义暴露给更高级别的软件堆栈。
+- en: For authenticating signed updates, hardware devices sometimes use OTP memory
+    to store public keys (or their hashes) and revocation information related to those
+    keys. The number of key rotations or revocations supported is typically heavily
+    limited. In these cases, a common pattern is again to use the OTP-encoded public
+    key and revocation information to validate a small bootloader. This bootloader
+    then contains its own layer of verification and key management logic, analogous
+    to the MASVN example.
+  id: totrans-117
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于验证签名的硬件设备，有时使用OTP存储器来存储与这些密钥相关的公钥（或其哈希）和吊销信息。支持的密钥轮换或吊销次数通常受到严重限制。在这些情况下，一个常见的模式再次是使用OTP编码的公钥和吊销信息来验证一个小型引导加载程序。该引导加载程序然后包含其自己的验证和密钥管理逻辑层，类似于MASVN的示例。
+- en: When dealing with a large fleet of hardware devices that actively leverage these
+    mechanisms, managing spare parts can be a challenge. Spare parts that sit in inventory
+    for years before they’re deployed will necessarily have very old firmware when
+    they’re put to use. This old firmware must be updated. If older keys are completely
+    disused, and newer releases are signed only by newer keys that didn’t exist when
+    the spare part was originally manufactured, then the new update won’t verify.
+  id: totrans-118
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当处理大量积极利用这些机制的硬件设备时，管理备件可能是一个挑战。备件在库存中停留多年，然后被部署时将必然具有非常旧的固件。这些旧的固件必须进行更新。如果旧的密钥完全不再使用，并且更新的发布仅由在备件最初制造时不存在的新密钥签署，那么新的更新将无法验证。
+- en: Note
+  id: totrans-119
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: One solution is to walk devices through a sequence of upgrades, making sure
+    that they make a stop at all releases that trust both an old and a new key during
+    a key rotation event. Another solution is to support multiple signatures per release.
+    Even though newer images (and devices that have been updated to run these newer
+    images) don’t trust an older verification key, these newer images can still carry
+    a signature by that older key. Only older firmware versions can validate that
+    signature—a desired action that allows them to recover after being starved of
+    updates.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种解决方案是通过一系列升级来引导设备，确保它们在密钥轮换事件期间停留在所有信任旧密钥和新密钥的发布上。另一种解决方案是支持每个发布的多个签名。即使更新的映像（和已更新以运行这些更新映像的设备）不信任旧的验证密钥，这些更新的映像仍然可以携带由该旧密钥签名的签名。只有旧的固件版本才能验证该签名——这是一种期望的操作，允许它们在被剥夺更新后恢复。
+- en: Consider how many keys are likely to be used across the lifetime of a device,
+    and make sure that the device has sufficient space for keys and signatures. For
+    example, some FPGA products support multiple keys for authenticating or encrypting
+    their bitstreams.^([13](ch09.html#ch09fn14))
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑设备在其生命周期内可能使用多少密钥，并确保设备具有足够的空间来存储密钥和签名。例如，一些FPGA产品支持多个密钥用于验证或加密它们的比特流。^([13](ch09.html#ch09fn14))
+- en: 'DEEP DIVE: Use an Explicit Revocation Mechanism'
+  id: totrans-122
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深入探讨：使用显式吊销机制
+- en: A revocation system’s primary role is to stop some kind of access or function.
+    In the face of an active compromise, a revocation system can be a lifesaver, allowing
+    you to quickly revoke attacker-controlled credentials and recover control of your
+    systems. However, once a revocation system is in place, accidental or malicious
+    behavior may lead to reliability and security consequences. If possible, consider
+    these issues during the design phase. Ideally, the revocation system should serve
+    its purpose at all times without introducing too many security and reliability
+    risks of its own.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 吊销系统的主要作用是阻止某种访问或功能。面对主动妥协，吊销系统可以成为救命稻草，让您快速吊销受攻击者控制的凭证，并恢复对系统的控制。然而，一旦建立了吊销系统，意外或恶意行为可能会导致可靠性和安全性后果。如果可能的话，在设计阶段考虑这些问题。理想情况下，吊销系统应该在任何时候都能够履行其职责，而不会引入太多自身的安全和可靠性风险。
+- en: 'To illustrate general concepts about revocation, we’ll consider the following
+    unfortunate but common scenario: you discover that an attacker has somehow gained
+    control of valid credentials (such as a client SSH key pair that allows login
+    access to a cluster of servers), and you want to revoke these credentials.^([14](ch09.html#ch09fn15))'
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了说明有关吊销的一般概念，我们将考虑以下不幸但常见的情景：您发现攻击者以某种方式控制了有效凭证（例如允许登录到一组服务器的客户端SSH密钥对），并且您希望吊销这些凭证。
+- en: Note
+  id: totrans-125
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: Revocation is a complex topic that touches on many aspects of resilience, security,
+    and recovery. This section discusses only some aspects of revocation that are
+    relevant for recovery. Additional topics to explore include when to use an allow
+    list versus a deny list, how to hygienically rotate certificates in a crash-resilient
+    manner, and how to safely canary new changes during rollout. Other chapters in
+    this book offer guidance on many of these topics, but bear in mind that no single
+    book is an adequate reference in and of itself.
+  id: totrans-126
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 吊销是一个涉及到恢复、安全性和可靠性许多方面的复杂话题。本节仅讨论了与恢复相关的吊销的一些方面。其他要探讨的主题包括何时使用允许列表与拒绝列表，如何以崩溃恢复的方式卫生地旋转证书，以及如何在部署过程中安全地进行新更改的试点。本书的其他章节提供了许多这些主题的指导，但请记住，没有一本单独的书是足够的参考。
+- en: A centralized service to revoke certificates
+  id: totrans-127
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 吊销证书的集中式服务
+- en: 'You might choose to use a centralized service to revoke certificates. This
+    mechanism prioritizes security by requiring your systems to communicate with a
+    centralized certificate validity database that stores certificate validity information.
+    You must carefully monitor and maintain this database in the interest of keeping
+    your systems secure, as it becomes the authoritative store of record for which
+    certificates are valid. This approach is similar to building a separate rate-limiting
+    service independent from the service designed to enact changes, as discussed earlier
+    in the chapter. Requiring communication with a certificate validity database does
+    have a shortcoming, however: if the database is ever down, all the other dependent
+    systems also go down. There’s a strong temptation to fail open if the certificate
+    validity database is unavailable, so that other systems won’t also become unavailable.
+    Proceed with great caution!'
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您可能选择使用集中式服务来吊销证书。这种机制通过要求您的系统与存储证书有效性信息的集中式证书有效性数据库进行通信，从而优先考虑安全性。您必须仔细监控和维护这个数据库，以保持系统的安全性，因为它成为了哪些证书是有效的的权威记录存储。这种方法类似于构建一个独立于用于实施更改的服务的独立速率限制服务，如本章前面讨论的那样。然而，要求与证书有效性数据库通信确实有一个缺点：如果数据库宕机，所有其他依赖系统也会宕机。如果证书有效性数据库不可用，很容易产生失败开放的强烈诱惑，以便其他系统也不会变得不可用。请谨慎处理！
+- en: Failing open
+  id: totrans-129
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 失败开放
+- en: 'Failing open avoids lockout and simplifies recovery, but also poses a dangerous
+    tradeoff: this strategy circumvents an important access protection against misuse
+    or attack. Even partial fail-open scenarios may cause problems. For example, imagine
+    that a system the certificate validity database depends on goes down. Let’s suppose
+    the database depends on a time or epoch service, but accepts all properly signed
+    credentials. If the certificate validity database cannot reach the time/epoch
+    service, then an attacker who performs a relatively simple denial-of-service attack—such
+    as overwhelming network links to the time/epoch service—may be able to reuse even
+    extremely old revoked credentials. This attack works because revoked certificates
+    are once again valid while the DoS attack persists. An attacker may breach your
+    network or find new ways to propagate through the network while you’re trying
+    to recover.'
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 失败开放避免了锁定和简化了恢复，但也带来了一个危险的权衡：这种策略规避了对滥用或攻击的重要访问保护。即使部分失败开放的情况也可能会引起问题。例如，想象一下，证书有效性数据库依赖的系统宕机了。假设数据库依赖于时间或时代服务，但接受所有正确签名的凭证。如果证书有效性数据库无法访问时间/时代服务，那么进行相对简单的拒绝服务攻击的攻击者，例如通过压倒时间/时代服务的网络链接，可能会重新使用甚至非常旧的吊销凭证。这种攻击之所以有效，是因为在拒绝服务攻击持续期间，吊销的证书再次有效。在您尝试恢复时，攻击者可能会侵入您的网络或找到新的传播方式。
+- en: Instead of failing open, you may want to distribute known good data from the
+    revocation service to individual servers in the form of a revocation list, which
+    nodes can cache locally. Nodes then proceed with their best understanding of the
+    state of the world until they obtain better data. This choice is far more secure
+    than a time-out-and-fail-open policy.
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与其失败开放，您可能希望将已知的良好数据从吊销服务分发到个别服务器，以吊销列表的形式，节点可以在本地缓存。然后，节点根据他们对世界状态的最佳理解继续进行，直到他们获得更好的数据。这种选择比超时和失败开放政策安全得多。
+- en: Handling emergencies directly
+  id: totrans-132
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 直接处理紧急情况
+- en: In order to revoke keys and certificates quickly, you may want to design infrastructure
+    to handle emergencies directly by deploying changes to a server’s *authorized_users*
+    or Key Revocation List (KRL) files.^([15](ch09.html#ch09fn16)) This solution is
+    troublesome for recovery in several ways.
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了快速吊销密钥和证书，您可能希望设计基础设施直接处理紧急情况，通过部署更改到服务器的*authorized_users*或Key Revocation
+    List (KRL)文件。^([15](ch09.html#ch09fn16))这种解决方案在多个方面都很麻烦。
+- en: Note
+  id: totrans-134
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: It’s especially tempting to manage *authorized_keys* or *known_hosts* files
+    directly when dealing with small numbers of nodes, but doing so scales poorly
+    and smears ground truth across your entire fleet. It is very difficult to ensure
+    that a given set of keys has been removed from the files on all servers, particularly
+    if those files are the sole source of truth.
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在处理少量节点时，直接管理*authorized_keys*或*known_hosts*文件尤其诱人，但这种做法扩展性差，会在整个服务器群中模糊真相。很难确保一组给定的密钥已从所有服务器的文件中删除，特别是如果这些文件是唯一的真相来源。
+- en: 'Instead of managing *authorized_keys* or *known_hosts* files directly, you
+    can ensure update processes are consistent by centrally managing keys and certificates,
+    and distributing state to servers through a revocation list. In fact, deploying
+    explicit revocation lists is an opportunity to minimize uncertainty during risky
+    situations when you’re moving at maximum speed: you can use your usual mechanisms
+    for updating and monitoring files—including your rate-limiting mechanisms—on individual
+    nodes.'
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与直接管理*authorized_keys*或*known_hosts*文件不同，您可以通过集中管理密钥和证书，并通过吊销列表将状态分发到服务器，以确保更新过程是一致的。实际上，部署显式吊销列表是在您以最大速度移动时最小化不确定性的机会：您可以使用通常的机制来更新和监控文件，包括您在各个节点上使用的速率限制机制。
+- en: Removing dependency on accurate notions of time
+  id: totrans-137
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 消除对准确时间概念的依赖
+- en: 'Using explicit revocation has another advantage: for certificate validation,
+    this approach removes the dependency on accurate notions of time. Whether it’s
+    caused by accident or malice, incorrect time wreaks havoc on certificate validation.
+    For example, old certificates may suddenly become valid again, letting in attackers,
+    and correct certificates may suddenly fail validation, causing a service outage.
+    These are complications you don’t want to experience during a stressful compromise
+    or service outage.'
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用显式吊销具有另一个优点：对于证书验证，这种方法消除了对准确时间概念的依赖。无论是意外还是恶意造成的，不正确的时间都会对证书验证造成严重破坏。例如，旧证书可能会突然再次变为有效，从而让攻击者进入，而正确的证书可能会突然无法通过验证，导致服务中断。这些都是您不希望在紧张的妥协或服务中断期间经历的复杂情况。
+- en: It’s better for your system’s certificate validation to depend on aspects you
+    directly control, such as pushing out files containing root authority public keys
+    or files containing revocation lists. The systems that push the files, the files
+    themselves, and the central source of truth are likely to be much better secured,
+    maintained, and monitored than the distribution of time. Recovery then becomes
+    a matter of simply pushing out files, and monitoring only needs to check whether
+    these are the intended files—standard processes that your systems already use.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最好让系统的证书验证依赖于您直接控制的方面，例如推送包含根授权公钥或包含吊销列表的文件。推送文件的系统、文件本身以及真相的中央来源可能比时间的分发更安全、更有维护性和更受监控。然后，恢复只需简单地推送文件，监控只需检查这些是否是预期的文件——这些是您的系统已经使用的标准流程。
+- en: Revoking credentials at scale
+  id: totrans-140
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 规模化吊销凭据
+- en: When using explicit revocation, it’s important to consider the implications
+    of scalability. Scalable revocation requires care, because an attacker who has
+    partially compromised your systems can use this partial compromise as a powerful
+    tool to deny further service—maybe even revoking every valid credential in your
+    entire infrastructure. Continuing the SSH example mentioned earlier, an attacker
+    may try to revoke all SSH host certificates, but your machines need to support
+    operations like updating a KRL file in order to apply new revocation information.
+    How do you safeguard those operations against abuse?
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在使用显式吊销时，重要的是要考虑可扩展性的影响。可扩展的吊销需要谨慎，因为部分攻破您系统的攻击者可以利用这种部分妥协作为拒绝进一步服务的强大工具，甚至可能吊销整个基础设施中的每个有效凭据。继续之前提到的SSH示例，攻击者可能会尝试吊销所有SSH主机证书，但您的机器需要支持操作，如更新KRL文件以应用新的吊销信息。您如何保护这些操作免受滥用？
+- en: When updating a KRL file, blindly replacing the old file with a new one is a
+    recipe for trouble^([16](ch09.html#ch09fn17))—a single push can revoke every valid
+    credential in your entire infrastructure. One safeguard is to have the target
+    server evaluate the new KRL before applying it, and refuse any update that revokes
+    its own credentials. A KRL that revokes the credentials of all hosts is ignored
+    by all hosts. Because an attacker’s best strategy is to revoke half your machines,
+    you have a worst-case guarantee that at the very least, half of your machines
+    will still function after each KRL push. It’s much easier to recover and restore
+    half of your infrastructure than all of it.^([17](ch09.html#ch09fn18))
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在更新KRL文件时，盲目地用新文件替换旧文件是麻烦的根源^([16](ch09.html#ch09fn17))——单次推送可能会吊销整个基础设施中的每个有效凭据。一个保护措施是让目标服务器在应用新KRL之前评估新KRL，并拒绝吊销自己凭据的任何更新。忽略吊销所有主机凭据的KRL将被所有主机忽略。因为攻击者的最佳策略是吊销一半的机器，所以您至少可以保证在每次KRL推送后，至少一半的机器仍将正常运行。恢复和恢复一半的基础设施要容易得多，比恢复全部要容易得多。^([17](ch09.html#ch09fn18))
+- en: Avoiding risky exceptions
+  id: totrans-143
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 避免风险异常
+- en: Because of their size, large distributed systems may encounter issues distributing
+    revocation lists. These issues may limit how quickly you can deploy a new revocation
+    list, and slow your response time when removing compromised credentials.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于规模，大型分布式系统可能会遇到分发吊销列表的问题。这些问题可能会限制您部署新的吊销列表的速度，并在删除受损凭据时减慢您的响应时间。
+- en: To address this shortcoming, you might be tempted to build a dedicated “emergency”
+    revocation list. However, this solution may be less than ideal. Since you will
+    rarely use that emergency list, the mechanism is less likely to work when you
+    need it the most. A better solution is to shard your revocation list so that you
+    update it incrementally. That way, revoking credentials during an emergency requires
+    updating only a subset of the data. Consistently using sharding means that your
+    system always uses a multipart revocation list, and you use the same mechanisms
+    under both normal and emergency circumstances.
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了解决这个缺点，您可能会想要构建一个专门的“紧急”吊销列表。然而，这种解决方案可能不太理想。由于您很少使用紧急列表，当您最需要它时，这种机制可能不太可能起作用。更好的解决方案是对吊销列表进行分片，以便您可以逐步更新它。这样，在紧急情况下吊销凭据只需要更新部分数据。始终使用分片意味着您的系统始终使用多部分吊销列表，并且在正常和紧急情况下使用相同的机制。
+- en: Similarly, beware of adding “special” accounts (such as accounts offering direct
+    access to senior employees) that circumvent revocation mechanisms. These accounts
+    are very attractive targets for attackers—a successful attack on such an account
+    might render all of your revocation mechanisms ineffective.
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同样，要注意添加“特殊”帐户（例如提供对高级员工的直接访问权限的帐户），这些帐户可以绕过吊销机制。这些帐户对攻击者非常有吸引力 - 对这种帐户的成功攻击可能使您所有的吊销机制失效。
+- en: Know Your Intended State, Down to the Bytes
+  id: totrans-147
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 了解您的预期状态，直到字节。
+- en: Recovery from any category of errors—whether they’re random, accidental, malicious,
+    or software errors—requires returning the system to a known good state. Doing
+    so is much easier if you actually know the intended state of the system and have
+    a means to read the deployed state. This point may seem obvious, but not knowing
+    the intended state is a common source of problems. The more thoroughly you encode
+    the intended state and reduce the mutable state at every layer—per service, per
+    host, per device, and so on—the easier it is to recognize when you return to a
+    good working state. Ultimately, thoroughly encoding the intended state is the
+    foundation of excellent automation, security, intrusion detection, and recovery
+    to a known state.
+  id: totrans-148
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从任何类别的错误中恢复 - 无论是随机的、意外的、恶意的还是软件错误 - 都需要将系统恢复到已知的良好状态。如果您确实知道系统的预期状态并且有一种方法来读取部署状态，那么这样做就会更容易。这一点可能显而易见，但不知道预期状态是问题的常见根源。在每一层（每个服务、每个主机、每个设备等）彻底编码预期状态并减少可变状态，使得在返回到良好工作状态时更容易识别。最终，彻底编码预期状态是卓越自动化、安全、入侵检测和恢复到已知状态的基础。
+- en: Host management
+  id: totrans-149
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 主机管理
+- en: Let’s say you manage an individual host, such as a physical machine, a virtual
+    machine, or even a simple Docker container. You’ve set up the infrastructure to
+    perform automated recovery, and this brings a lot of value because it efficiently
+    handles many of the issues that may occur, such as those discussed in detail in
+    [Chapter 7 of the SRE book](https://landing.google.com/sre/sre-book/chapters/automation-at-google/).
+    In order to enable automation, you need to encode the state of that individual
+    machine, including the workloads running on it. You encode enough of this information
+    to let automation safely return the machine to a good state. At Google, we apply
+    this paradigm at every layer of abstraction, up and down the hardware and software
+    stack.
+  id: totrans-150
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设您管理一个单独的主机，比如物理机、虚拟机，甚至一个简单的Docker容器。您已经建立了基础设施来执行自动恢复，这带来了很多价值，因为它可以高效地处理可能发生的许多问题，比如在[SRE书的第7章](https://landing.google.com/sre/sre-book/chapters/automation-at-google/)中详细讨论的问题。为了实现自动化，您需要对该单独机器的状态进行编码，包括运行在上面的工作负载。您需要编码足够的信息，以便自动化安全地将机器恢复到良好状态。在谷歌，我们在每个抽象层次上都应用这种范例，上下硬件和软件堆栈。
+- en: Google’s system that distributes our host’s software packages to the fleet of
+    machines, as described in [“Design to Go as Quickly as Possible (Guarded by Policy)”](#design_to_go_as_quickly_as_possible_lef),
+    continually monitors the entire state of the system in an unconventional way.
+    Each machine continually watches its local filesystem, maintaining a map that
+    includes the name and a cryptographic checksum of each file in the filesystem.
+    We gather those maps with a central service and compare them with the assigned
+    set of packages—that is, the intended state—for each machine. When we find a deviation
+    between the intended state and the current state, we append that information to
+    a list of deviations.
+  id: totrans-151
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谷歌的系统将我们主机的软件包分发到机器群中，如[“尽快设计（受策略保护）”](#design_to_go_as_quickly_as_possible_lef)中所述，以非常规的方式持续监视系统的整个状态。每台机器不断监视其本地文件系统，维护一个包括文件系统中每个文件的名称和加密校验和的映射。我们使用一个中央服务收集这些映射，并将它们与每台机器的分配软件包的预期状态进行比较。当我们发现预期状态与当前状态之间存在偏差时，我们将该信息附加到偏差列表中。
+- en: Because it unifies various means of recovery into one process, the strategy
+    of capturing the state of the machine gives powerful advantages for recovery.
+    If a cosmic ray randomly corrupts a bit on disk, we discover the checksum mismatch
+    and repair the deviation. If the intended state of the machine changes because
+    a software rollout for one component inadvertently changes a file for a different
+    component, altering the contents of that file, we repair the deviation. If someone
+    attempts to modify the local configuration of a machine outside of the normal
+    management tooling and review process (either accidentally or maliciously), we
+    repair that deviation too. You might instead choose to repair deviations by reimaging
+    the entire system—an approach that’s less sophisticated and easier to implement,
+    but more disruptive at scale.
+  id: totrans-152
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于将各种恢复手段统一为一个过程，捕获机器状态的策略为恢复提供了强大的优势。如果宇宙射线随机损坏了磁盘上的一个位，我们会发现校验和不匹配并修复偏差。如果机器的预期状态发生了变化，因为一个组件的软件部署无意中改变了另一个组件的文件，改变了该文件的内容，我们会修复偏差。如果有人试图在正常管理工具和审查流程之外修改机器的本地配置（无论是意外还是恶意），我们也会修复该偏差。您可能选择通过重新映像整个系统来修复偏差，这种方法不太复杂，更容易实施，但在规模上更具破坏性。
+- en: In addition to capturing the state of files on disk, many applications also
+    have a corresponding in-memory state. An automated recovery must repair both states.
+    For example, when an SSH daemon starts, it reads its configuration from disk and
+    does not reload the configuration unless instructed to do so. To ensure that in-memory
+    state is updated as needed, each package is required to have an idempotent `post_install`
+    command,^([18](ch09.html#ch09fn19)) which runs whenever a deviation in its files
+    is being repaired. The `OpenSSH` package’s `post_install` restarts the SSH daemon.
+    A similar `pre_rm` command cleans up any in-memory state before the files are
+    removed. These simple mechanisms can maintain all of the in-memory state of the
+    machine, and report and repair deviations.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了捕获磁盘上文件的状态之外，许多应用程序还具有相应的内存状态。自动化恢复必须修复这两种状态。例如，当SSH守护程序启动时，它会从磁盘读取配置，并且除非受到指示，否则不会重新加载配置。为了确保内存状态根据需要进行更新，每个软件包都需要具有幂等的`post_install`命令，每当其文件出现偏差时都会运行。`OpenSSH`软件包的`post_install`会重新启动SSH守护程序。类似的`pre_rm`命令会在删除文件之前清理任何内存状态。这些简单的机制可以维护机器的所有内存状态，并报告和修复偏差。
+- en: Encoding this state lets automation inspect every deviation for any malicious
+    discrepancies. The rich information on the state of your machines is also extremely
+    valuable during the forensic analysis that follows a security incident, helping
+    you better understand the attacker’s actions and intent. For example, perhaps
+    the attacker found a way to deposit malicious shellcode on some of your machines,
+    but wasn’t able to reverse-engineer the monitoring and repair system, which reverted
+    the unexpected changes on one or more machines. It will be much harder for the
+    attacker to cover their tracks because the central service will have noticed and
+    logged the deviations reported by the host.^([19](ch09.html#ch09fn20))
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对这种状态进行编码，让自动化检查每个偏差是否存在任何恶意差异。关于机器状态的丰富信息在安全事件后的取证分析中也非常有价值，帮助您更好地理解攻击者的行动和意图。例如，也许攻击者找到了一种方法在一些机器上存放恶意shellcode，但无法逆向监控和修复系统，后者恢复了一个或多个机器上的意外变化。攻击者很难掩盖自己的行踪，因为中央服务会注意到并记录主机报告的偏差。
+- en: In summary, all state changes are equal at this level of abstraction. You can
+    automate, secure, and validate all state changes in a similar way, treating both
+    a rollback of a binary that failed canary analysis and an emergency rollout of
+    an updated bash binary as routine changes. Using the same infrastructure enables
+    you to make consistent policy decisions about how quickly to apply each change.
+    Rate limits at this level protect against unintended collisions between the types
+    of changes and establish a maximum acceptable rate of change.
+  id: totrans-155
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总之，在这个抽象级别上，所有状态变化都是相等的。您可以以类似的方式自动化、保护和验证所有状态变化，将失败的金丝雀分析回滚和更新的bash二进制文件的紧急部署视为常规变化。使用相同的基础设施使您能够就如何快速应用每个变化做出一致的政策决策。在这个级别上的速率限制可防止不同类型的变化之间意外碰撞，并建立最大可接受的变化速率。
+- en: Device firmware
+  id: totrans-156
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 设备固件
+- en: For firmware updates, you may also capture state further down the stack. The
+    individual pieces of hardware in a modern computer have their own software and
+    configuration parameters. In the interest of safety and reliability, you should
+    at least track the version of each device’s firmware. Ideally, you should capture
+    all the settings available to that firmware, and ensure they’re set to their expected
+    values.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于固件更新，您还可以在更低的层次上捕获状态。现代计算机中的各个硬件部件都有自己的软件和配置参数。出于安全和可靠性的考虑，您至少应该跟踪每个设备固件的版本。理想情况下，您应该捕获该固件可用的所有设置，并确保它们设置为预期值。
+- en: When managing the firmware and its configuration on Google’s machines, we leverage
+    the same systems and processes that we use to manage updates to our host software
+    and for deviation analysis (see [“Host management”](#host_management)). Automation
+    securely distributes the intended state for all the firmware as a package, reports
+    back any deviations, and repairs the deviations according to our rate-limiting
+    policies and other policies on handling disruption.
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在管理谷歌机器的固件及其配置时，我们利用了与我们用于管理主机软件更新和偏差分析的相同系统和流程（参见“主机管理”）。自动化安全地分发所有固件的预期状态作为一个软件包，报告任何偏差，并根据我们的速率限制政策和其他处理中断的政策来修复偏差。
+- en: The intended state is often not directly exposed to the local daemon monitoring
+    the filesystem, which has no special knowledge of device firmware. We decouple
+    the complexity of interacting with the hardware from this daemon by allowing each
+    package to reference an activation check—a script or binary in the package that
+    runs periodically to determine if the package is correctly installed. The script
+    or binary does whatever is necessary to talk to the hardware and compare the firmware
+    version and configuration parameters, and then reports any unexpected deviations.
+    This functionality is especially useful for recovery, because it empowers subject
+    matter experts (i.e., subsystem owners) to take appropriate steps to remedy problems
+    in their area of expertise. For example, automation keeps track of target state,
+    current state, and deviations. If a machine is targeted to run BIOS version 3
+    but is currently running BIOS version 1, the automation has no opinion about BIOS
+    version 2\. The package management scripts determine if they can upgrade the BIOS
+    to version 3, or if unique constraints require walking a subsystem through multiple
+    installed versions.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通常，预期状态并不直接暴露给监视文件系统的本地守护程序，它对设备固件没有特殊知识。我们通过允许每个软件包引用激活检查来解耦与硬件交互的复杂性，即软件包中定期运行的脚本或二进制文件，以确定软件包是否正确安装。脚本或二进制文件会执行与硬件通信和比较固件版本和配置参数的操作，然后报告任何意外的偏差。这种功能对于恢复特别有用，因为它赋予主题专家（即子系统所有者）采取适当措施来解决他们的专业领域中的问题。例如，自动化跟踪目标状态、当前状态和偏差。如果一台机器的目标是运行BIOS版本3，但当前正在运行BIOS版本1，自动化对BIOS版本2没有意见。软件包管理脚本确定是否可以将BIOS升级到版本3，或者是否唯一的约束要求通过多个安装版本来引导子系统。
+- en: A few specific examples illustrate why managing the intended state is critical
+    for both security and reliability. Google uses special vendor-supplied hardware
+    to interface with external time sources (for example, GNSS/GPS systems and atomic
+    clocks) to facilitate accurate timekeeping in production—a precondition for Spanner.^([20](ch09.html#ch09fn21))
+    Our hardware stores two different firmware versions, on two different chips on
+    the device. In order to correctly operate these time sources, we need to carefully
+    configure these firmware versions. As an added complication, some versions of
+    the firmware have known bugs that affect how they handle leap seconds and other
+    edge cases. If we don’t carefully maintain the firmware and settings on these
+    devices, we can’t provide accurate time in production. It’s important that state
+    management also covers fallback, secondary, or otherwise inactive code or configuration
+    that may suddenly become live during recovery—recovery is a bad time to start
+    figuring out what bugs reside in an inactive image. In this case, if the machines
+    boot but the clock hardware doesn’t provide an accurate enough time to run our
+    services, then our system hasn’t sufficiently recovered.
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一些具体的例子说明了管理预期状态对安全性和可靠性都至关重要。谷歌使用特殊供应商提供的硬件与外部时间源（例如GNSS/GPS系统和原子钟）进行接口，以在生产中实现准确的时间保持，这是Spanner的前提条件。我们的硬件在设备上存储了两个不同的固件版本，分别存储在两个不同的芯片上。为了正确操作这些时间源，我们需要仔细配置这些固件版本。作为额外的复杂性，一些固件版本存在已知的错误，影响它们如何处理闰秒和其他边缘情况。如果我们不仔细维护这些设备上的固件和设置，我们就无法在生产中提供准确的时间。状态管理还需要覆盖备用、次要或其他非活动代码或配置，这些在恢复期间可能突然变为活动状态。在这种情况下，如果机器启动但时钟硬件无法提供足够准确的时间来运行我们的服务，那么我们的系统就没有充分恢复。
+- en: To provide another example, a modern BIOS has numerous parameters critical to
+    the security of a booting (and a booted) system. For instance, you may want the
+    boot order to prefer SATA over USB boot devices in order to prevent a malicious
+    actor in a datacenter from easily booting the system from a USB drive. More advanced
+    deployments track and maintain the database of keys allowed to sign BIOS updates,
+    both to manage rotations and to guard against tampering. If your primary boot
+    device experiences a hardware failure during recovery, you don’t want to discover
+    that your BIOS is stuck waiting for keyboard input because you forgot to monitor
+    and specify the settings for the secondary boot device.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 举个例子，现代BIOS具有对引导（和引导后）系统安全至关重要的许多参数。例如，您可能希望引导顺序优先选择SATA而不是USB引导设备，以防止数据中心中的恶意行为者轻松地从USB驱动器引导系统。更高级的部署跟踪和维护允许签署BIOS更新的密钥数据库，既用于管理轮换，又用于防范篡改。如果在恢复过程中主引导设备发生硬件故障，您不希望发现BIOS因为您忘记监视和指定次要引导设备的设置而卡在等待键盘输入的状态。
+- en: Global services
+  id: totrans-162
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 全球服务
+- en: The highest layer of abstraction in your service, and the most persistent parts
+    of your infrastructure—for example, storage, naming, and identity—may be the hardest
+    areas for your system to recover. The paradigm of capturing state also applies
+    to these high levels of the stack. When building or deploying new global singleton
+    systems like Spanner or [Hadoop](https://hadoop.apache.org), make sure you support
+    multiple instances—even if you never plan to use more than one instance, and even
+    for the very first deployment. Beyond backups and restores, you might need to
+    rebuild a new instance of the entire system to restore the data on that system.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 服务中的最高抽象层和基础设施中最持久的部分，例如存储、命名和身份，可能是系统恢复最困难的领域。捕获状态的范式也适用于堆栈的这些高层。在构建或部署像Spanner或Hadoop这样的新全局单例系统时，确保支持多个实例，即使您永远不打算使用多个实例，甚至在第一次部署时也是如此。除了备份和恢复之外，您可能需要重建整个系统的新实例，以恢复该系统上的数据。
+- en: Instead of setting up your services by hand, you might set them up by writing
+    imperative turnup automation or using a declarative high-level configuration language
+    (e.g., a container orchestration configuration tool like Terraform). In these
+    scenarios, you should capture the state of how the service is created. Doing so
+    is analogous to the way test-driven development captures the intended behavior
+    of your code, which then guides your implementation and helps clarify the public
+    API. Both practices lead to more maintainable systems.
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与手动设置服务不同，你可以通过编写命令式的自动化或使用声明性的高级配置语言（例如，容器编排配置工具如Terraform）来设置服务。在这些情况下，你应该捕获服务创建的状态。这类似于测试驱动开发捕获代码的预期行为的方式，然后指导你的实现并帮助澄清公共API。这两种做法都会导致更易维护的系统。
+- en: 'The popularity of containers, which are often hermetically built and deployed
+    from source, means that the state of many building blocks of global services is
+    captured by default. While automatically capturing “most” of a service’s state
+    is great, don’t be lulled into a false sense of security. Restoring your infrastructure
+    from scratch requires exercising a complex chain of dependencies. This may lead
+    you to uncover unexpected capacity problems or circular dependencies. If you run
+    on physical infrastructure, ask yourself: do you have enough spare machines, disk
+    space, and network capacity to bring up a second copy of your infrastructure?
+    If you run on a large cloud platform like GCP or AWS, you may be able to purchase
+    as many physical resources as you need, but do you have enough quota to use these
+    resources on short notice? Have your systems organically grown any interdependencies
+    that prevent a clean startup from scratch? It can be useful to conduct disaster
+    testing under controlled circumstances to make sure you’re prepared for the unexpected.^([21](ch09.html#ch09fn22))'
+  id: totrans-165
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 容器的流行意味着许多全球服务的构建模块的状态通常会被默认捕获。虽然自动捕获“大部分”服务状态是很好的，但不要被误导以为安全感是虚假的。从头开始恢复基础设施需要执行一系列复杂的依赖关系。这可能会导致发现意外的容量问题或循环依赖。如果你在物理基础设施上运行，问问自己：你是否有足够的备用机器、磁盘空间和网络容量来启动基础设施的第二份副本？如果你在像GCP或AWS这样的大型云平台上运行，你可能可以购买所需的物理资源，但你是否有足够的配额来在短时间内使用这些资源？你的系统是否自然地产生了任何相互依赖，以阻止从头开始进行干净的启动？在受控情况下进行灾难测试可能是有用的，以确保你对意外情况有所准备。
+- en: Persistent data
+  id: totrans-166
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 持久数据
+- en: No one cares about backups; they only care about restores.^([22](ch09.html#ch09fn23))
+  id: totrans-167
+  prefs:
+  - PREF_BQ
+  type: TYPE_NORMAL
+  zh: 没有人关心备份；他们只关心恢复。
+- en: So far, we’ve focused on securely restoring the infrastructure necessary to
+    run your service. This is sufficient for some stateless services, but many services
+    also store persistent data, which adds a special set of challenges. There’s a
+    lot of excellent information out there on the challenges of backing up and restoring
+    persistent data.^([23](ch09.html#ch09fn24)) Here, we discuss some key aspects
+    in relation to security and reliability.
+  id: totrans-168
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 到目前为止，我们已经专注于安全地恢复运行服务所需的基础设施。这对于一些无状态服务是足够的，但许多服务还存储持久数据，这增加了一系列特殊的挑战。关于备份和恢复持久数据的挑战有很多优秀的信息。在这里，我们讨论与安全性和可靠性相关的一些关键方面。
+- en: To defend against the types of errors mentioned earlier—especially malicious
+    errors—your backups need the same level of integrity protection as your primary
+    storage. A malicious insider may change the contents of your backups, and then
+    force a restore from a corrupted backup. Even if you have strong cryptographic
+    signatures that cover your backups, those signatures are useless if your restore
+    tooling doesn’t validate them as part of the restore process, or if your internal
+    access controls don’t properly restrict the set of humans who can manually make
+    signatures.
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了防御前面提到的错误类型，尤其是恶意错误，你的备份需要与主要存储具有相同级别的完整性保护。恶意内部人员可能会更改备份的内容，然后强制从损坏的备份中进行恢复。即使你有强大的加密签名来覆盖你的备份，如果你的恢复工具在恢复过程中不验证这些签名，或者如果你的内部访问控制没有正确限制可以手动进行签名的人员，那么这些签名就是无用的。
+- en: It’s important to compartmentalize the security protection of persistent data
+    where possible. If you detect corruption in your serving copy of the data, you
+    should isolate the corruption to the smallest subset of data that’s practical.
+    Restoring 0.01% of your persistent data is much faster if you can identify that
+    subset of the backup data and validate its integrity without reading and validating
+    the other 99.99% of the data. This ability becomes especially important as the
+    size of the persistent data grows, although if you’re following best practices
+    for large distributed system design, compartmentalization generally occurs naturally.
+    Calculating the chunk size for compartmentalization often requires a tradeoff
+    between storage and compute overhead, but you should also consider the effect
+    of chunk size on MTTR.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在可能的情况下，对持久数据的安全保护进行分隔是很重要的。如果你在数据的服务副本中检测到损坏，你应该将损坏隔离到实际上最小的数据子集中。如果你能够识别备份数据的这个子集并验证其完整性，那么恢复0.01%的持久数据将会快得多，而不需要读取和验证其他99.99%的数据。这种能力在持久数据的大小增长时变得尤为重要，尽管如果你遵循大型分布式系统设计的最佳实践，分隔通常会自然发生。计算分隔的块大小通常需要在存储和计算开销之间进行权衡，但你还应该考虑块大小对MTTR的影响。
+- en: 'You should account for how frequently your system requires partial restores,
+    too. Consider how much common infrastructure is shared between your systems that
+    are involved in restores and data migrations: a data migration is usually very
+    similar to a low-priority partial restore. If every data migration—whether to
+    another machine, rack, cluster, or datacenter—exercises and builds confidence
+    in the critical parts of your recovery system, you’ll know that the infrastructure
+    involved is more likely to work and be understood when you need it the most.'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还应该考虑系统需要部分恢复的频率。还要考虑在恢复和数据迁移中涉及的系统之间共享多少常见基础设施：数据迁移通常与低优先级的部分恢复非常相似。如果每次数据迁移——无论是到另一台机器、机架、集群还是数据中心——都能够对恢复系统的关键部分进行练习并建立信心，那么当你最需要时，你就会知道所涉及的基础设施更有可能正常工作并且被理解。
+- en: Data restores may also introduce their own security and privacy issues. Deleting
+    data is a necessary and often legally required function for many systems.^([24](ch09.html#ch09fn25))
+    Make sure that your data recovery systems don’t inadvertently allow you to restore
+    data that’s assumed to be destroyed. Be conscious of the distinction between deleting
+    encryption keys and deleting encrypted data. It may be efficient to render data
+    inaccessible by destroying the relevant encryption keys, but this approach requires
+    compartmentalizing the keys used for various types of data in a way that’s compatible
+    with the requirements of granular data deletion.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 数据恢复也可能引入其自己的安全和隐私问题。删除数据对于许多系统来说是必要的，而且通常也是法律要求的功能。确保你的数据恢复系统不会无意中允许你恢复被假定已销毁的数据。要意识到删除加密密钥和删除加密数据之间的区别。通过销毁相关的加密密钥使数据无法访问可能是有效的，但这种方法要求以符合细粒度数据删除要求的方式对用于各种类型数据的密钥进行分隔。
+- en: Design for Testing and Continuous Validation
+  id: totrans-173
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 设计测试和持续验证
+- en: As discussed in [Chapter 8](ch08.html#design_for_resilience), continuous validation
+    can help maintain a robust system. To be prepared for recovery, your testing strategy
+    needs to include tests of recovery processes. By their nature, recovery processes
+    perform unusual tasks under unfamiliar conditions, and without testing they will
+    encounter unforeseen challenges. For example, if you are automating the creation
+    of a clean system instance, a good test design may uncover an assumption that
+    a particular service will have only one global instance, and so help identify
+    situations where it’s difficult to create a second instance for the restoration
+    of that service. Consider testing conceivable recovery scenarios so that you strike
+    the right balance between test efficiency and production realism.
+  id: totrans-174
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如[第8章](ch08.html#design_for_resilience)所讨论的，持续验证可以帮助维护一个强大的系统。为了做好恢复的准备，你的测试策略需要包括对恢复过程的测试。由于其性质，恢复过程在不熟悉的条件下执行不寻常的任务，如果没有测试，它们将遇到意想不到的挑战。例如，如果你正在自动创建一个干净的系统实例，一个良好的测试设计可能会揭示一个特定服务只有一个全局实例的假设，并帮助识别难以为该服务恢复创建第二个实例的情况。考虑测试可想象的恢复场景，以便在测试效率和生产实际性之间取得正确的平衡。
+- en: 'You may also consider testing niche situations where recovery is especially
+    difficult. For example, at Google we implement a cryptographic key management
+    protocol in a diverse set of environments: Arm and x86 CPUs, UEFI and bare-metal
+    firmware, Microsoft Visual C++ (MSVC), Clang, GCC compilers, and so on. We knew
+    that exercising all the failure modes for this logic would be challenging—even
+    with substantial investment in end-to-end testing, it’s difficult to realistically
+    emulate hardware failures or interrupted communication. Instead, we opted to implement
+    the core logic once, in a portable, compiler-neutral, bit width–neutral way. We
+    unit tested the logic extensively, and paid attention to the interface design
+    for abstract external components. For example, in order to fake individual components
+    and exercise their failure behavior, we created interfaces for reading and writing
+    bytes from flash, for cryptographic key storage, and for performance-monitoring
+    primitives. This method of testing environmental conditions has withstood the
+    test of time, since it explicitly captures the classes of failure from which we
+    want to recover.'
+  id: totrans-175
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 你还可以考虑测试恢复特别困难的小众情况。例如，在谷歌，我们在各种环境中实现了一个加密密钥管理协议：Arm和x86 CPU、UEFI和裸机固件、Microsoft
+    Visual C++（MSVC）、Clang、GCC编译器等。我们知道对这个逻辑的所有故障模式进行练习将是具有挑战性的——即使在全面投入端到端测试的情况下，要真实地模拟硬件故障或中断通信也是困难的。因此，我们选择在一个可移植、编译器中立、位宽中立的方式中实现核心逻辑。我们对逻辑进行了大量的单元测试，并关注了用于抽象外部组件的接口设计。例如，为了伪造个别组件并练习它们的故障行为，我们创建了用于从闪存读取和写入字节、用于加密密钥存储以及用于性能监控原语的接口。这种测试环境条件的方法经受住了时间的考验，因为它明确地捕捉了我们想要恢复的故障类别。
+- en: Finally, look for ways to build confidence in your recovery methods via continuous
+    validation. Recovery involves actions taken by humans, and humans are unreliable
+    and unpredictable. Unit tests alone, or even continuous integration/delivery/deployment,
+    cannot catch mistakes resulting from human skills or habits. For example, in addition
+    to validating the effectiveness and interoperability of recovery workflows, you
+    must validate that recovery instructions are readable and easy to comprehend.
+  id: totrans-176
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，寻找通过持续验证来对恢复方法建立信心的方法。恢复涉及人类采取的行动，而人类是不可靠和不可预测的。仅仅依靠单元测试，甚至连续集成/交付/部署也无法捕捉到由人类技能或习惯导致的错误。例如，除了验证恢复工作流的有效性和互操作性之外，你还必须验证恢复说明是否可读且易于理解。
+- en: Emergency Access
+  id: totrans-177
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 紧急访问
+- en: The recovery methods described in this chapter rely on a responder’s ability
+    to interact with the system, and we’ve advocated for recovery processes that exercise
+    the same primary services as normal operations. However, you may need to design
+    a special-purpose solution to deploy when normal access methods are *completely*
+    broken.
+  id: totrans-178
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章描述的恢复方法依赖于响应者与系统进行交互的能力，并且我们倡导使用与正常运营相同的主要服务来进行恢复过程。然而，当正常访问方法完全破坏时，您可能需要设计一个专用解决方案来部署。
+- en: Organizations usually have unique needs and options for emergency access. The
+    key is to have a plan and build mechanisms that maintain and protect that access.
+    In addition, you need to be aware of system layers outside your control—any failures
+    in those layers are not actionable, even though they impact you. In these cases,
+    you may need to stand by while someone else fixes the services your company depends
+    on. To minimize the impact of third-party outages on your service, look for any
+    potential cost-effective redundancies you can deploy at any level of your infrastructure.
+    Of course, there may not be any cost-effective alternatives, or you may already
+    have reached the top SLA your service provider guarantees. In that case, remember
+    that you’re only as available as the sum of your dependencies.^([25](ch09.html#ch09fn26))
+  id: totrans-179
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组织通常具有紧急访问的独特需求和选择。关键是制定计划并建立维护和保护该访问的机制。此外，您需要了解您无法控制的系统层——这些层面的任何故障都是无法采取行动的，尽管它们会影响您。在这些情况下，您可能需要在其他人修复公司所依赖的服务时静观其变。为了最大程度地减少第三方故障对您的服务的影响，寻找您可以在基础设施的任何层面部署的潜在具有成本效益的冗余。当然，可能没有任何具有成本效益的替代方案，或者您可能已经达到了服务提供商所保证的最高SLA。在这种情况下，请记住，您的可用性取决于您的依赖关系的总和。
+- en: Google’s remote access strategy centers around deploying self-contained critical
+    services to geographically distributed racks. To anchor recovery efforts, we aim
+    to provide remote access control, efficient local communications, alternative
+    networking, and critical fortified points in the infrastructure. During a global
+    outage, since each rack remains available to at least some portion of responders,
+    responders can start to fix the services on the racks they can access, then radially
+    expand the recovery progress. In other words, when global collaboration is practically
+    impossible, arbitrary smaller regions can to try to fix the issues themselves.
+    Despite the fact that responders may lack the context to discover where they’re
+    needed the most, and the risk of regions diverging, this approach may meaningfully
+    accelerate recovery.
+  id: totrans-180
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 谷歌的远程访问策略集中在部署自包含的关键服务到地理分布的机架上。为了支持恢复工作，我们旨在提供远程访问控制、高效的本地通信、替代网络和基础设施中的关键防御点。在全球性故障期间，由于每个机架至少对某些响应者保持可用，响应者可以开始修复他们可以访问的机架上的服务，然后径向扩展恢复进度。换句话说，当全球协作实际上是不可能的时候，任意较小的地区可以尝试自行解决问题。尽管响应者可能缺乏发现他们最需要的地方的上下文，并且存在地区分歧的风险，但这种方法可能会显著加速恢复。
+- en: Access Controls
+  id: totrans-181
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 访问控制
+- en: It’s critical that the organization’s access control services don’t become single
+    points of failure for all remote access. Ideally, you’ll be able to implement
+    alternative components that avoid the same dependencies, but the reliability of
+    these alternative components may require different security solutions. While their
+    access policies must be equally strong, they may be less convenient and/or have
+    a degraded feature set, for technical or pragmatic reasons.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 组织的访问控制服务不应成为所有远程访问的单点故障是至关重要的。理想情况下，您将能够实施避免相同依赖关系的替代组件，但是这些替代组件的可靠性可能需要不同的安全解决方案。虽然它们的访问策略必须同样强大，但出于技术或实际原因，它们可能不太方便和/或具有降级的功能集。
+- en: 'Because they rely on dependencies that may be unavailable, remote access credentials
+    cannot depend on typical credential services. Therefore, you can’t derive access
+    credentials from the dynamic components of access infrastructure, like single
+    sign-on (SSO) or federated identity providers, unless you can replace those components
+    with low-dependency implementations. In addition, choosing the lifetime of those
+    credentials poses a difficult risk management tradeoff: the good practice of enforcing
+    short-term access credentials for users or devices becomes a time bomb if the
+    outage outlasts them, so you’re forced to expand the lifetime of the credentials
+    to exceed the length of any anticipated outages, despite the additional security
+    risk (see [“Time Separation”](ch08.html#time_separation)). Furthermore, if you
+    are issuing remote access credentials proactively on a fixed schedule rather than
+    activating them on demand at the start of an outage, an outage may begin just
+    as they are about to expire.'
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于远程访问凭据可能无法使用，因此不能依赖于典型的凭据服务。因此，除非您可以用低依赖性实现替换这些组件，否则不能从访问基础设施的动态组件（如单一登录（SSO）或联合身份提供者）派生访问凭据。此外，选择这些凭据的生命周期构成了一个困难的风险管理权衡：对用户或设备强制执行短期访问凭据的良好做法，如果故障持续时间超过了它们，那么这将成为一个定时炸弹，因此您被迫延长凭据的生命周期以超过任何预期故障的长度，尽管存在额外的安全风险。此外，如果您是按固定时间表主动发放远程访问凭据，而不是在故障开始时按需激活它们，那么故障可能会在它们即将到期时开始。
+- en: If the network access employs user or device authorization, any reliance on
+    dynamic components has risks similar to the risks the credentials service faces.
+    As increasingly more networks use dynamic protocols,^([26](ch09.html#ch09fn28))
+    you may need to provide alternatives that are more static. Your list of available
+    network providers may limit your options. If dedicated network connections with
+    static network access controls are feasible, make sure their periodic updates
+    don’t break either routing or authorization. It may be especially important to
+    implement sufficient monitoring to detect where inside the network access breaks,
+    or to help distinguish network access issues from the issues in the layers above
+    the network.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果网络访问采用用户或设备授权，对于任何依赖于动态组件的风险，与凭据服务面临的风险类似。随着越来越多的网络使用动态协议，您可能需要提供更加静态的替代方案。您可用的网络提供商列表可能会限制您的选择。如果可以使用具有静态网络访问控制的专用网络连接，请确保它们的定期更新不会破坏路由或授权。实施足够的监控以检测网络访问中断的位置，或者帮助区分网络访问问题和网络上层的问题可能尤为重要。
+- en: Communications
+  id: totrans-185
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 通信
+- en: Emergency communication channels are the next critical factor in emergency response.
+    What should on-callers do when their usual chat service is down or unreachable?
+    What if that chat service is compromised or being eavesdropped on by the attacker?
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 紧急通信渠道是紧急响应的下一个关键因素。当值班人员的常规聊天服务无法使用或无法访问时，他们应该怎么办？如果聊天服务受到攻击者的威胁或被监听，该怎么办？
+- en: Pick a communications technology (e.g., Google Chat, Skype, or Slack) that has
+    as few dependencies as possible and is useful enough for the size of your responder
+    teams. If that technology is outsourced, is the system reachable by the responders,
+    even if the system layers outside your control are broken? Phone bridges, though
+    inefficient, also exist as an old-school option, though they’re increasingly deployed
+    using IP telephony that depends on the internet. Internet Relay Chat (IRC) infrastructure
+    is reliable and self-contained if your company wants to deploy its own solution,
+    but it lacks some security aspects. Additionally, you still have to make sure
+    your IRC servers remain somewhat accessible during network outages. When your
+    communication channels are hosted outside your own infrastructure, you may also
+    want to consider whether the providers guarantee enough authentication and confidentiality
+    for your company’s needs.
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 选择一种尽可能少依赖的通信技术（例如Google Chat、Skype或Slack），并且对于响应团队的规模来说足够有用。如果该技术是外包的，那么即使系统外部的层面出现故障，响应者是否能够访问该系统？电话桥接虽然效率低下，但作为一种老式选择仍然存在，尽管它们越来越多地使用依赖于互联网的IP电话技术进行部署。如果公司希望部署自己的解决方案，互联网中继聊天（IRC）基础设施是可靠且自包含的，但缺乏一些安全方面的考虑。此外，您仍然需要确保在网络中断期间您的IRC服务器仍然可以访问。当您的通信渠道托管在自己的基础设施之外时，您可能还需要考虑提供商是否能够保证足够的身份验证和保密性来满足公司的需求。
+- en: Responder Habits
+  id: totrans-188
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 响应者习惯
+- en: The uniqueness of emergency access technologies often results in practices distinct
+    from normal day-to-day operations. If you don’t prioritize the end-to-end usability
+    of these technologies, responders may not know how to use them in an emergency,
+    and you’ll lose the benefits of those technologies. It may be difficult to integrate
+    low-dependency alternatives, but that’s only part of the problem—once you mix
+    in human confusion under stress with rarely used processes and tools, the resulting
+    complexity may obstruct all access. In other words, humans, rather than technology,
+    may render breakglass tools ineffective.^([27](ch09.html#ch09fn30))
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 紧急访问技术的独特性通常导致与日常操作不同的做法。如果您不优先考虑这些技术的端到端可用性，响应者可能不知道如何在紧急情况下使用它们，您将失去这些技术的好处。整合低依赖性的替代方案可能会很困难，但这只是问题的一部分——一旦在很少使用的流程和工具中混入人类在压力下的混乱，结果复杂性可能会阻碍所有访问。换句话说，人类而不是技术可能会使紧急工具失效。
+- en: The more you can minimize the distinction between normal and emergency processes,
+    the more responders are able to draw on habit. This frees up more of their cognitive
+    capacity to focus on what *does* differ. As a result, organizational resilience
+    to outages may improve. For example, at Google, we centralized on Chrome, its
+    extensions, and any controls and tools associated with it as the single platform
+    sufficient for remote access. Introducing an emergency mode into Chrome extensions
+    allowed us to achieve the minimum possible increase in cognitive load up front,
+    while retaining the option to integrate it into more extensions later.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您能够最大程度地减少正常和紧急流程之间的区别，响应者就能够更多地依赖习惯。这将释放更多的认知能力，让他们能够更多地专注于不同之处。因此，组织对中断的弹性可能会提高。例如，在谷歌，我们集中在Chrome、其扩展和与之相关的任何控件和工具作为远程访问的单一平台。将紧急模式引入Chrome扩展程序使我们能够在前期尽可能少地增加认知负荷，同时保留将其整合到更多扩展程序中的选项。
+- en: To ensure that your responders exercise emergency access practices regularly,
+    introduce policies that integrate emergency access into the daily habits of on-call
+    staff, and continuously validate the usability of the relevant systems. For example,
+    define and enforce a minimum period between required exercises. The team lead
+    can send email notifications when a team member needs to complete required credential-refresh
+    or training tasks, or may choose to waive the exercise if they determine that
+    the individual regularly engages in equivalent activities. This increases confidence
+    that when an incident occurs, the rest of the team *does* have the relevant credentials
+    and has recently completed the necessary training. Otherwise, make practicing
+    breakglass operations and any related processes mandatory for your staff.
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了确保您的响应者定期进行紧急访问实践，引入将紧急访问整合到值班人员的日常习惯中的政策，并持续验证相关系统的可用性。例如，定义并强制执行所需练习之间的最短时间。团队负责人可以在团队成员需要完成必需的凭证刷新或培训任务时发送电子邮件通知，或者可以选择放弃练习，如果他们确定该个人定期参与等效活动。这增加了信心，当发生事故时，团队的其他成员确实拥有相关的凭证，并且最近完成了必要的培训。否则，让您的员工强制练习打破玻璃操作和任何相关流程。
+- en: Finally, make sure that relevant documentation, such as policies, standards,
+    and how-to guides, is available. People tend to forget details that are rarely
+    used, and such documentation also relieves stress and doubt under pressure. Architecture
+    overviews and diagrams are also helpful for incident responders, and bring people
+    who are unfamiliar with the subject up to speed without too much dependence on
+    subject matter experts.
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，请确保相关的文件，如政策、标准和操作指南，是可用的。人们往往会忘记很少使用的细节，这样的文件也可以在压力和怀疑下减轻压力。架构概述和图表对于事件响应者也是有帮助的，并且可以让不熟悉该主题的人快速了解，而不太依赖于专家。
+- en: Unexpected Benefits
+  id: totrans-193
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 意想不到的好处
+- en: The design principles described in this chapter, built on top of principles
+    of resilient design, improve your system’s ability to recover. Unexpected benefits
+    beyond reliability and security might help you convince your organization to adopt
+    these practices. Consider a server engineered for firmware update authentication,
+    rollback, locking, and attestation mechanisms. With these primitives, you may
+    confidently recover a machine from a detected compromise. Now consider using this
+    machine in a “bare metal” cloud hosting service, where the provider wants to clean
+    and resell machines using automation. The machines engineered with recovery in
+    mind already have a secure and automated solution in place.
+  id: totrans-194
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章描述的设计原则，建立在弹性设计原则的基础上，提高了系统的恢复能力。可靠性和安全性之外的意想不到的好处可能会帮助您说服您的组织采用这些实践。考虑一个专门用于固件更新认证、回滚、锁定和证明机制的服务器。有了这些基本功能，您可以自信地从检测到的妥协中恢复机器。现在考虑在“裸金属”云托管服务中使用这台机器，供应商希望使用自动化清理和转售机器。已经考虑了恢复的机器已经有了一个安全和自动化的解决方案。
+- en: The benefits compound even further with respect to supply chain security. When
+    machines are assembled from many different components, you need to pay less attention
+    to supply chain security for components whose integrity is recovered in an automated
+    way. Your first-touch operations simply require running a recovery procedure.
+    As an extra bonus, repurposing the recovery procedure means that you exercise
+    your critical recovery capabilities regularly, so your staff is ready to act when
+    an incident occurs.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这些好处在供应链安全方面进一步增加。当机器由许多不同的组件组装而成时，您需要更少地关注那些完整性可以通过自动方式恢复的组件的供应链安全性。您的首次操作只需要运行恢复程序。作为额外的奖励，重新利用恢复程序意味着您定期锻炼您的关键恢复能力，因此当发生事故时，您的员工已经准备好采取行动。
+- en: Designing systems for recovery is considered an advanced topic, whose business
+    value is proven only when a system is out of its intended state. But, given that
+    we recommend operating systems use an error budget to maximize cost efficiency,^([28](ch09.html#ch09fn31))
+    we expect such systems to be in an error state regularly. We hope your teams will
+    slowly start investing in rate-limiting or rollback mechanisms as early in the
+    development process as possible. For more insights about how to influence your
+    organization, see [Chapter 21](ch21.html#twoone_building_a_culture_of_security_a).
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为恢复设计系统被认为是一个高级话题，其商业价值只有在系统脱离预期状态时才能得到证明。但是，鉴于我们建议操作系统使用错误预算来最大化成本效率，我们预计这样的系统会经常处于错误状态。我们希望您的团队将慢慢开始在开发过程中尽早投资于速率限制或回滚机制。有关如何影响您的组织的更多见解，请参见[第21章](ch21.html#twoone_building_a_culture_of_security_a)。
+- en: Conclusion
+  id: totrans-197
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 结论
+- en: 'This chapter explored various aspects of designing systems for recovery. We
+    explained why systems should be flexible in terms of the rate at which they deploy
+    changes: this flexibility allows you to roll out changes slowly when possible
+    and avoid coordinated failures, but also to roll out changes quickly and confidently
+    when you have to accept more risk to meet security objectives. The ability to
+    roll back changes is essential for building reliable systems, but sometimes you
+    may need to prevent rollback to versions that are insecure or sufficiently old.
+    Understanding, monitoring, and reproducing the state of your system to the greatest
+    extent possible—through software versions, memory, wall-clock time, and so on—is
+    key to reliably recovering the system to any previously working state, and ensuring
+    that its current state matches your security requirements. As a last resort, emergency
+    access permits responders to remain connected, assess a system, and mitigate the
+    situation. Thoughtfully managing policy versus procedure, the central source of
+    truth versus local functions, and the expected state versus the system’s actual
+    state paves the way to recoverable systems, while also promoting resilience and
+    robust everyday operations.'
+  id: totrans-198
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 本章探讨了为恢复设计系统的各个方面。我们解释了系统应该在部署更改的速率方面具有灵活性的原因：这种灵活性使您能够在可能的情况下缓慢推出更改，并避免协调失败，但也使您能够在必须接受更多风险以满足安全目标时快速而自信地推出更改。回滚更改的能力对于构建可靠的系统至关重要，但有时您可能需要防止回滚到不安全或足够旧的版本。了解、监视和尽可能重现系统的状态——通过软件版本、内存、挂钟时间等——是可靠地恢复系统到以前的工作状态的关键，并确保其当前状态符合您的安全要求。作为最后的手段，紧急访问允许响应者保持连接，评估系统并缓解情况。深思熟虑地管理政策与程序、中央真相来源与本地功能、预期状态与系统实际状态之间的关系为可恢复的系统铺平了道路，同时促进了韧性和日常运营的稳健性。
+- en: ^([1](ch09.html#ch09fn1-marker)) The [CAP theorem](https://oreil.ly/WP_FI) describes
+    some tradeoffs involved in scaling distributed systems and their consequences.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch09.html#ch09fn1-marker)) [CAP定理](https://oreil.ly/WP_FI)描述了扩展分布式系统涉及的一些权衡以及其后果。
+- en: ^([2](ch09.html#ch09fn2-marker)) Unexpected bit flips can be caused by failing
+    hardware, noise from other systems, or even cosmic rays. [Chapter 15](ch15.html#onefive_investigating_systems)
+    discusses failing hardware in more detail.
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch09.html#ch09fn2-marker)) 意外的位翻转可能是由于硬件故障，来自其他系统的噪音，甚至是宇宙射线引起的。[第15章](ch15.html#onefive_investigating_systems)更详细地讨论了硬件故障。
+- en: ^([3](ch09.html#ch09fn3-marker)) An entire area of research known as Human Reliability
+    Analysis (HRA) catalogs the likelihood of human errors at a given task. For more
+    information, see the US Nuclear Regulatory Commission’s [Probabilistic Risk Assessment](https://oreil.ly/fGTHa).
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch09.html#ch09fn3-marker)) 一个名为人类可靠性分析（HRA）的研究领域记录了在给定任务中人为错误的可能性。有关更多信息，请参见美国核监管委员会的[概率风险评估](https://oreil.ly/fGTHa)。
+- en: ^([4](ch09.html#ch09fn4-marker)) “All problems in computer science can be solved
+    by another level of indirection.” —David Wheeler
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([4](ch09.html#ch09fn4-marker)) “计算机科学中的所有问题都可以通过另一级间接性来解决。” ——David Wheeler
+- en: ^([5](ch09.html#ch09fn5-marker)) “… except too many levels of indirection.”
+    —Unknown
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([5](ch09.html#ch09fn5-marker)) “… 除了太多级别的间接性。” ——未知
+- en: ^([6](ch09.html#ch09fn6-marker)) For a detailed discussion of how to respond
+    when you’ve been compromised, and the meta problem of determining whether your
+    recovery systems are themselves compromised, see [Chapter 18](ch18.html#oneeight_recovery_and_aftermath).
+    [Chapter 7](ch07.html#design_for_a_changing_landscape) also has additional design
+    patterns and examples describing how to choose an appropriate rate.
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([6](ch09.html#ch09fn6-marker)) 有关在受到威胁时如何应对以及确定您的恢复系统是否受到威胁的元问题的详细讨论，请参见[第18章](ch18.html#oneeight_recovery_and_aftermath)。[第7章](ch07.html#design_for_a_changing_landscape)还有额外的设计模式和示例，描述了如何选择适当的速率。
+- en: ^([7](ch09.html#ch09fn7-marker)) See [CVE-2014-6271](https://oreil.ly/mRhGN),
+    [CVE-2014-6277](https://oreil.ly/yyf6K), [CVE-2014-6278](https://oreil.ly/7ii2u),
+    and [CVE-2014-7169](https://oreil.ly/0ZD04).
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([7](ch09.html#ch09fn7-marker)) 请参见[CVE-2014-6271](https://oreil.ly/mRhGN)、[CVE-2014-6277](https://oreil.ly/yyf6K)、[CVE-2014-6278](https://oreil.ly/7ii2u)和[CVE-2014-7169](https://oreil.ly/0ZD04)。
+- en: ^([8](ch09.html#ch09fn8-marker)) See [CVE-2014-0160](https://oreil.ly/cJTQ8).
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([8](ch09.html#ch09fn8-marker)) 请参见[CVE-2014-0160](https://oreil.ly/cJTQ8)。
+- en: '^([9](ch09.html#ch09fn9-marker)) A corollary to this principle: if you have
+    a methodology that works in an emergency (often because it’s low dependency),
+    make that your standard methodology.'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([9](ch09.html#ch09fn9-marker)) 这个原则的推论是：如果您在紧急情况下有一个有效的方法（通常是因为它的依赖性低），那就把它作为您的标准方法。
+- en: ^([10](ch09.html#ch09fn11-marker)) For example, a cryptographic hash (such as
+    SHA256) of the complete program or firmware image.
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([10](ch09.html#ch09fn11-marker)) 例如，完整程序或固件映像的加密哈希（如SHA256）。
+- en: ^([11](ch09.html#ch09fn12-marker)) “Known bad” versions may result from successful
+    but irreversible changes, such as a major schema change, or from bugs and vulnerabilities.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([11](ch09.html#ch09fn12-marker)) “已知不良”版本可能是由于成功但不可逆转的更改，例如主要模式更改，或者由于错误和漏洞。
+- en: ^([12](ch09.html#ch09fn13-marker)) Another widely deployed example of carefully
+    managed Security Version Numbers exists in Intel’s microcode SVN, used for example
+    [to mitigate security issue CVE-2018-3615](https://oreil.ly/fN9f3).
+  id: totrans-210
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([12](ch09.html#ch09fn13-marker)) 另一个广泛部署的精心管理的安全版本号的例子存在于英特尔的微码SVN中，例如用于[缓解安全问题CVE-2018-3615](https://oreil.ly/fN9f3)。
+- en: ^([13](ch09.html#ch09fn14-marker)) One example is the hardware root of trust
+    support in [Xilinx Zynq Ultrascale+ devices](https://oreil.ly/hfydr).
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([13](ch09.html#ch09fn14-marker)) 一个例子是[Xilinx Zynq Ultrascale+设备](https://oreil.ly/hfydr)中的硬件信任根支持。
+- en: ^([14](ch09.html#ch09fn15-marker)) Revoking the credentials immediately may
+    not always be the best choice. For a discussion on responding to a compromise,
+    see [Chapter 17](ch17.html#oneseven_crisis_management).
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([14](ch09.html#ch09fn15-marker)) 立即撤销凭证可能并不总是最佳选择。有关应对妥协的讨论，请参见[第17章](ch17.html#oneseven_crisis_management)。
+- en: ^([15](ch09.html#ch09fn16-marker)) A KRL file is a compact binary representation
+    of which keys issued by a certificate authority (CA) have been revoked. See the
+    [`ssh-keygen(1)` manpage](https://oreil.ly/rRqkZ) for details.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 15. KRL文件是由证书颁发机构（CA）吊销的密钥的紧凑二进制表示。有关详细信息，请参阅[`ssh-keygen(1)` manpage](https://oreil.ly/rRqkZ)。
+- en: ^([16](ch09.html#ch09fn17-marker)) While this chapter is focused on *recovery*,
+    it is critical to also consider the *resilience* of operations like this. When
+    replacing a critical configuration file on a POSIX system such as Linux, ensuring
+    robust behavior in the face of crashes or other failures requires care. Consider
+    using the `renameat2` system call with the `RENAME_EXCHANGE` flag.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 16. 虽然本章重点是*恢复*，但也至关重要的是考虑这样操作的*弹性*。在像Linux这样的POSIX系统上替换关键配置文件时，需要谨慎确保在崩溃或其他故障发生时具有稳健的行为。考虑使用带有`RENAME_EXCHANGE`标志的`renameat2`系统调用。
+- en: ^([17](ch09.html#ch09fn18-marker)) Successive malicious KRL pushes may broaden
+    the negative impact, but the speed and breadth constraints still materially expand
+    the response window.
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 17. 连续的恶意KRL推送可能会扩大负面影响，但速度和广度的限制仍然会实质性地扩大响应窗口。
+- en: '^([18](ch09.html#ch09fn19-marker)) The `post_install` and `pre_rm` concepts
+    are borrowed from [Debian’s](https://oreil.ly/H9q9p) familiar `preinst`, `postinst`,
+    `prerm`, and `postrm`. Google’s package management system takes a more heavy-handed
+    approach: it does not allow separate configuration and installation of packages,
+    or half-successful installs. Any package change is guaranteed to succeed, or the
+    machine is rolled back completely to the previous state. If the rollback fails,
+    the machine is sent through our repairs process for reinstallation and potential
+    hardware replacement. This approach allows us to eliminate much of the complexity
+    of the package states.'
+  id: totrans-216
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 18. `post_install` 和 `pre_rm` 的概念是从[Debian](https://oreil.ly/H9q9p)的`preinst`、`postinst`、`prerm`和`postrm`中借鉴而来的。谷歌的软件包管理系统采取了更加强硬的方法：它不允许软件包的配置和安装分开，也不允许安装过程中出现一半的成功。任何软件包的更改都保证会成功，否则机器将完全回滚到先前的状态。如果回滚失败，机器将通过我们的修复流程进行重新安装和潜在的硬件更换。这种方法使我们能够消除软件包状态的许多复杂性。
+- en: ^([19](ch09.html#ch09fn20-marker)) For further discussion about responding to
+    a compromise, see [Chapter 17](ch17.html#oneseven_crisis_management).
+  id: totrans-217
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 19. 有关应对妥协的进一步讨论，请参阅[第17章](ch17.html#oneseven_crisis_management)。
+- en: ^([20](ch09.html#ch09fn21-marker)) [Spanner](https://oreil.ly/YGCjO) is Google’s
+    globally distributed database that supports externally consistent distributed
+    transactions. It requires very tight time synchronization between datacenters.
+  id: totrans-218
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 20. [Spanner](https://oreil.ly/YGCjO)是谷歌的全球分布式数据库，支持外部一致的分布式事务。它需要数据中心之间非常紧密的时间同步。
+- en: ^([21](ch09.html#ch09fn22-marker)) See Krishnan, Kripa. 2012\. “Weathering the
+    Unexpected.” *ACM Queue* 10(9). [*https://oreil.ly/vJ66c*](https://oreil.ly/vJ66c).
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 21. 请参阅Krishnan, Kripa. 2012. “Weathering the Unexpected.” *ACM Queue* 10(9).
+    [*https://oreil.ly/vJ66c*](https://oreil.ly/vJ66c)。
+- en: ^([22](ch09.html#ch09fn23-marker)) Many variations of this excellent advice
+    have been attributed to many highly respected engineers. The oldest version we
+    could find in print, which happened to be in a book on one of the authors’ bookshelves,
+    is from W. Curtis Preston’s [*Unix Backup & Recovery*](http://shop.oreilly.com/product/9781565926424.do)
+    (O’Reilly). He attributes the quote to Ron Rodriguez as “No one cares if you can
+    back up—only if you can restore.”
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 22. 许多版本的这一优秀建议都被归因于许多备受尊敬的工程师。我们在印刷品中找到的最古老版本，碰巧是在作者书架上的一本书中，是来自W. Curtis Preston的[*Unix
+    Backup & Recovery*](http://shop.oreilly.com/product/9781565926424.do)（O’Reilly）。他将这句话归因于Ron
+    Rodriguez，即“没有人在乎你能否备份——只在乎你能否恢复”。
+- en: '^([23](ch09.html#ch09fn24-marker)) For a primer, see Kristina Bennett’s SREcon18
+    talk [“Tradeoffs in Resiliency: Managing the Burden of Data Recoverability”](https://oreil.ly/V-FEC).'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '23. 有关入门知识，请参阅Kristina Bennett的SREcon18演讲[“Tradeoffs in Resiliency: Managing
+    the Burden of Data Recoverability”](https://oreil.ly/V-FEC)。'
+- en: ^([24](ch09.html#ch09fn25-marker)) For example, see Google’s [data retention
+    policies](https://oreil.ly/abNZP).
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 24. 例如，查看谷歌的[数据保留政策](https://oreil.ly/abNZP)。
+- en: ^([25](ch09.html#ch09fn26-marker)) See Treynor, Ben et al. 2017\. “The Calculus
+    of Service Availability.” *ACM Queue* 15(2). [*https://oreil.ly/It4-h*](https://oreil.ly/It4-h).
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 25. 请参阅Treynor, Ben等人。2017. “The Calculus of Service Availability.” *ACM Queue*
+    15(2). [*https://oreil.ly/It4-h*](https://oreil.ly/It4-h)。
+- en: ^([26](ch09.html#ch09fn28-marker)) For example, software-defined networking
+    (SDN).
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 26. 例如，软件定义网络（SDN）。
+- en: ^([27](ch09.html#ch09fn30-marker)) Breakglass tools are mechanisms that can
+    bypass policies to allow engineers to quickly resolve outages. See [“Breakglass”](ch05.html#breakglass).
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 27. Breakglass工具是可以绕过策略以允许工程师快速解决故障的机制。请参阅[“Breakglass”](ch05.html#breakglass)。
+- en: ^([28](ch09.html#ch09fn31-marker)) For more information on error budgets, see
+    [Chapter 3 in the SRE book](https://landing.google.com/sre/sre-book/chapters/embracing-risk/).
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 28. 有关错误预算的更多信息，请参阅[SRE书中的第3章](https://landing.google.com/sre/sre-book/chapters/embracing-risk/)。

@@ -1,0 +1,2190 @@
+- en: Chapter 10\. Cross-Cluster Data Mirroring
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第10章 跨集群数据镜像
+- en: For most of the book we discuss the setup, maintenance, and use of a single
+    Kafka cluster. There are, however, a few scenarios in which an architecture may
+    need more than one cluster.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大部分的书中，我们讨论了单个Kafka集群的设置、维护和使用。然而，有一些情况下，架构可能需要不止一个集群。
+- en: In some cases, the clusters are completely separated. They belong to different
+    departments or different use cases, and there is no reason to copy data from one
+    cluster to another. Sometimes, different SLAs or workloads make it difficult to
+    tune a single cluster to serve multiple use cases. Other times, there are different
+    security requirements. Those use cases are fairly easy—managing multiple distinct
+    clusters is the same as running a single cluster multiple times.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，集群是完全分离的。它们属于不同的部门或不同的用例，没有理由将数据从一个集群复制到另一个集群。有时，不同的SLA或工作负载使得很难调整单个集群以服务多个用例。其他时候，存在不同的安全要求。这些用例相当容易——管理多个不同的集群与多次运行单个集群是一样的。
+- en: In other use cases, the different clusters are interdependent, and the administrators
+    need to continuously copy data between the clusters. In most databases, continuously
+    copying data between database servers is called *replication*. Since we’ve used
+    replication to describe movement of data between Kafka nodes that are part of
+    the same cluster, we’ll call copying of data between Kafka clusters *mirroring*.
+    Apache Kafka’s built-in cross-cluster replicator is called *MirrorMaker*.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在其他用例中，不同的集群是相互依存的，管理员需要在集群之间持续复制数据。在大多数数据库中，不断地在数据库服务器之间复制数据被称为*复制*。由于我们已经使用复制来描述Kafka节点之间的数据移动，我们将称在Kafka集群之间复制数据为*镜像*。Apache
+    Kafka内置的跨集群复制器称为*MirrorMaker*。
+- en: In this chapter, we will discuss cross-cluster mirroring of all or part of the
+    data. We’ll start by discussing some of the common use cases for cross-cluster
+    mirroring. Then we’ll show a few architectures that are used to implement these
+    use cases and discuss the pros and cons of each architecture pattern. We’ll then
+    discuss MirrorMaker itself and how to use it. We’ll share operational tips, including
+    deployment and performance tuning. We’ll finish by discussing a few alternatives
+    to MirrorMaker.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们将讨论所有或部分数据的跨集群镜像。我们将首先讨论一些跨集群镜像的常见用例。然后，我们将展示用于实现这些用例的一些架构，并讨论每种架构模式的优缺点。然后我们将讨论MirrorMaker本身以及如何使用它。我们将分享操作提示，包括部署和性能调优。最后，我们将讨论一些MirrorMaker的替代方案。
+- en: Use Cases of Cross-Cluster Mirroring
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 跨集群镜像的用例
+- en: 'The following is a list of examples of when cross-cluster mirroring would be
+    used:'
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是跨集群镜像将被使用的一些示例列表：
+- en: Regional and central clusters
+  id: totrans-7
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 区域和中央集群
+- en: In some cases, the company has one or more datacenters in different geographical
+    regions, cities, or continents. Each datacenter has its own Kafka cluster. Some
+    applications can work just by communicating with the local cluster, but some applications
+    require data from multiple datacenters (otherwise, you wouldn’t be looking at
+    cross-datacenter replication solutions). There are many cases when this is a requirement,
+    but the classic example is a company that modifies prices based on supply and
+    demand. This company can have a datacenter in each city in which it has a presence,
+    collects information about local supply and demand, and adjusts prices accordingly.
+    All this information will then be mirrored to a central cluster where business
+    analysts can run company-wide reports on its revenue.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，公司在不同的地理区域、城市或大陆拥有一个或多个数据中心。每个数据中心都有自己的Kafka集群。一些应用程序可以通过与本地集群通信来工作，但有些应用程序需要来自多个数据中心的数据（否则，您不会寻找跨数据中心复制解决方案）。有许多情况下这是一个要求，但经典的例子是一家根据供需情况调整价格的公司。这家公司可以在其存在的每个城市都有一个数据中心，收集有关当地供需情况的信息，并相应地调整价格。然后所有这些信息将被镜像到一个中央集群，业务分析师可以在其收入上运行公司范围的报告。
+- en: High availability (HA) and disaster recovery (DR)
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高可用性（HA）和灾难恢复（DR）
+- en: The applications run on just one Kafka cluster and don’t need data from other
+    locations, but you are concerned about the possibility of the entire cluster becoming
+    unavailable for some reason. For redundancy, you’d like to have a second Kafka
+    cluster with all the data that exists in the first cluster, so in case of emergency
+    you can direct your applications to the second cluster and continue as usual.
+  id: totrans-10
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 应用程序仅在一个Kafka集群上运行，不需要来自其他位置的数据，但您担心由于某种原因整个集群可能变得不可用。为了冗余，您希望有第二个Kafka集群，其中包含第一个集群中存在的所有数据，以便在紧急情况下，您可以将应用程序指向第二个集群并继续正常运行。
+- en: Regulatory compliance
+  id: totrans-11
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 监管合规性
+- en: Companies operating in different countries may need to use different configurations
+    and policies to conform to legal and regulatory requirements in each country.
+    For instance, some datasets may be stored in separate clusters with strict access
+    control, with subsets of data replicated to other clusters with wider access.
+    To comply with regulatory policies that govern retention period in each region,
+    datasets may be stored in clusters in different regions with different configurations.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在不同国家运营的公司可能需要使用不同的配置和政策，以符合每个国家的法律和监管要求。例如，一些数据集可能存储在具有严格访问控制的单独集群中，其中数据子集被复制到其他具有更广泛访问权限的集群。为了遵守各个地区规定的保留期限的监管政策，数据集可能存储在具有不同配置的不同地区的集群中。
+- en: Cloud migrations
+  id: totrans-13
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 云迁移
+- en: Many companies these days run their business in both an on-premises datacenter
+    and a cloud provider. Often, applications run on multiple regions of the cloud
+    provider for redundancy, and sometimes multiple cloud providers are used. In these
+    cases, there is often at least one Kafka cluster in each on-premises datacenter
+    and each cloud region. Those Kafka clusters are used by applications in each datacenter
+    and region to transfer data efficiently between the datacenters. For example,
+    if a new application is deployed in the cloud but requires some data that is updated
+    by applications running in the on-premises datacenter and stored in an on-premises
+    database, you can use Kafka Connect to capture database changes to the local Kafka
+    cluster and then mirror these changes to the cloud Kafka cluster where the new
+    application can use them. This helps control the costs of cross-datacenter traffic
+    as well as improve governance and security of the traffic.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如今，许多公司在自己的数据中心和云服务提供商中运行业务。通常，应用程序在云服务提供商的多个区域运行，以实现冗余，有时会使用多个云服务提供商。在这些情况下，通常每个自有数据中心和每个云区域至少有一个Kafka集群。这些Kafka集群被每个数据中心和区域的应用程序用来在数据中心之间高效地传输数据。例如，如果在云中部署了一个新应用程序，但需要一些由在自有数据中心运行并存储在自有数据库中的应用程序更新的数据，您可以使用Kafka
+    Connect捕获数据库更改并将这些更改镜像到云Kafka集群，新应用程序可以使用这些更改。这有助于控制跨数据中心流量的成本，以及改善流量的治理和安全性。
+- en: Aggregation of data from edge clusters
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 边缘集群数据聚合
+- en: Several industries, including retail, telecommunications, transportation, and
+    healthcare, generate data from small devices with limited connectivity. An aggregate
+    cluster with high availability can be used to support analytics and other use
+    cases for data from a large number of edge clusters. This reduces connectivity,
+    availability, and durability requirements on low-footprint edge clusters, for
+    example, in IoT use cases. A highly available aggregate cluster provides business
+    continuity even when edge clusters are offline and simplifies the development
+    of applications that don’t have to directly deal with a large number of edge clusters
+    with unstable networks.
+  id: totrans-16
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 包括零售、电信、交通运输和医疗保健在内的几个行业从具有有限连接性的小型设备生成数据。可以使用具有高可用性的聚合集群来支持来自大量边缘集群的数据的分析和其他用例。这减少了对低占地面积的边缘集群的连接性、可用性和耐久性要求，例如在物联网用例中。高可用的聚合集群即使在边缘集群离线时也提供业务连续性，并简化了不必直接处理大量具有不稳定网络的边缘集群的应用程序的开发。
+- en: Multicluster Architectures
+  id: totrans-17
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 多集群架构
+- en: Now that we’ve seen a few use cases that require multiple Kafka clusters, let’s
+    look at some common architectural patterns that we’ve successfully used when implementing
+    these use cases. Before we go into the architectures, we’ll give a brief overview
+    of the realities of cross-datacenter communications. The solutions we’ll discuss
+    may seem overly complicated without understanding that they represent trade-offs
+    in the face of specific network conditions.
+  id: totrans-18
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 既然我们已经看到了一些需要多个Kafka集群的用例，让我们来看一些我们在实现这些用例时成功使用的常见架构模式。在我们讨论架构之前，我们将简要概述跨数据中心通信的现实情况。我们将讨论的解决方案可能在特定网络条件下代表了权衡，因此可能看起来过于复杂。
+- en: Some Realities of Cross-Datacenter Communication
+  id: totrans-19
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 跨数据中心通信的一些现实情况
+- en: 'The following is a list of some things to consider when it comes to cross-datacenter
+    communication:'
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下是在跨数据中心通信时需要考虑的一些事项：
+- en: High latencies
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 高延迟
+- en: Latency of communication between two Kafka clusters increases as the distance
+    and the number of network hops between the two clusters increase.
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两个Kafka集群之间的通信延迟随着两个集群之间的距离和网络跳数的增加而增加。
+- en: Limited bandwidth
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有限的带宽
+- en: Wide area networks (WANs) typically have far lower available bandwidth than
+    what you’ll see inside a single datacenter, and the available bandwidth can vary
+    from minute to minute. In addition, higher latencies make it more challenging
+    to utilize all the available bandwidth.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 广域网（WAN）通常比单个数据中心内的可用带宽要低得多，可用带宽可能会每分钟都有所变化。此外，更高的延迟使得更具挑战性地利用所有可用带宽。
+- en: Higher costs
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更高的成本
+- en: Regardless of whether you are running Kafka on premise or in the cloud, there
+    are higher costs to communicate between clusters. This is partly because the bandwidth
+    is limited and adding bandwidth can be prohibitively expensive, and also because
+    of the prices vendors charge for transferring data among datacenters, regions,
+    and clouds.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您是在本地运行Kafka还是在云中运行Kafka，跨集群通信的成本都更高。这部分是因为带宽有限，增加带宽可能成本过高，另一部分是因为供应商对数据中心、区域和云之间的数据传输收费。
+- en: Apache Kafka’s brokers and clients were designed, developed, tested, and tuned,
+    all within a single datacenter. We assumed low latency and high bandwidth between
+    brokers and clients. This is apparent in the default timeouts and sizing of various
+    buffers. For this reason, it is not recommended (except in specific cases, which
+    we’ll discuss later) to install some Kafka brokers in one datacenter and others
+    in another datacenter.
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka的代理和客户端是在单个数据中心内设计、开发、测试和调整的。我们假设代理和客户端之间的延迟低，带宽高。这在默认超时和各种缓冲区的大小中是显而易见的。因此，不建议（除非在特定情况下，我们稍后会讨论）在一个数据中心安装一些Kafka代理，而在另一个数据中心安装其他Kafka代理。
+- en: In most cases, it’s best to avoid producing data to a remote datacenter, and
+    when you do, you need to account for higher latency and the potential for more
+    network errors. You can handle the errors by increasing the number of producer
+    retries, and handle the higher latency by increasing the size of the buffers that
+    hold records between attempts to send them.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在大多数情况下，最好避免向远程数据中心生成数据，如果必须这样做，需要考虑更高的延迟和更多网络错误的可能性。您可以通过增加生产者重试的次数来处理错误，并通过增加保存记录的缓冲区的大小来处理更高的延迟，以便在尝试发送记录时进行处理。
+- en: If we need any kind of replication between clusters, and we ruled out inter-broker
+    communication and producer-broker communication, then we must allow for broker-consumer
+    communication. Indeed, this is the safest form of cross-cluster communication
+    because in the event of network partition that prevents a consumer from reading
+    data, the records remain safe inside the Kafka brokers until communications resume
+    and consumers can read them. There is no risk of accidental data loss due to network
+    partitions. Still, because bandwidth is limited, if there are multiple applications
+    in one datacenter that need to read data from Kafka brokers in another datacenter,
+    we prefer to install a Kafka cluster in each datacenter and mirror the necessary
+    data between them once rather than have multiple applications consume the same
+    data across the WAN.
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果我们需要在集群之间进行任何形式的复制，并且排除了经纪人之间的通信和生产者-经纪人之间的通信，那么我们必须允许经纪人-消费者之间的通信。事实上，这是跨集群通信中最安全的形式，因为在阻止消费者读取数据的网络分区事件发生时，记录仍然安全地保存在Kafka经纪人中，直到通信恢复并且消费者可以读取它们。由于网络带宽有限，如果一个数据中心中有多个应用程序需要从另一个数据中心的Kafka经纪人读取数据，我们更倾向于在每个数据中心安装一个Kafka集群，并在它们之间镜像必要的数据，而不是让多个应用程序通过广域网消费相同的数据。
+- en: 'We’ll talk more about tuning Kafka for cross-datacenter communication, but
+    the following principles will guide most of the architectures we’ll discuss next:'
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将更多地讨论调整Kafka以进行跨数据中心通信，但以下原则将指导我们将讨论的大多数架构：
+- en: No less than one cluster per datacenter.
+  id: totrans-31
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 每个数据中心至少有一个集群。
+- en: Replicate each event exactly once (barring retries due to errors) between each
+    pair of datacenters.
+  id: totrans-32
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在每对数据中心之间精确复制每个事件一次（除了由于错误而重试）。
+- en: When possible, consume from a remote datacenter rather than produce to a remote
+    datacenter.
+  id: totrans-33
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在可能的情况下，从远程数据中心消费，而不是向远程数据中心生产。
+- en: Hub-and-Spoke Architecture
+  id: totrans-34
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 集线器和辐射架构
+- en: This architecture is intended for the case where there are multiple local Kafka
+    clusters and one central Kafka cluster. See [Figure 10-1](#fig0801).
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构适用于存在多个本地Kafka集群和一个中央Kafka集群的情况。参见[图10-1](#fig0801)。
+- en: '![kdg2 1001](assets/kdg2_1001.png)'
+  id: totrans-36
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1001](assets/kdg2_1001.png)'
+- en: Figure 10-1\. The hub-and-spoke architecture
+  id: totrans-37
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-1。集线器和辐射架构
+- en: 'There is also a simpler variation of this architecture with just two clusters:
+    a leader and a follower. See [Figure 10-2](#fig0802).'
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有一种更简单的变体，只有两个集群：一个领导者和一个追随者。参见[图10-2](#fig0802)。
+- en: '![kdg2 1002](assets/kdg2_1002.png)'
+  id: totrans-39
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1002](assets/kdg2_1002.png)'
+- en: Figure 10-2\. A simpler version of the hub-and-spoke architecture
+  id: totrans-40
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-2。集线器和辐射架构的简化版本
+- en: This architecture is used when data is produced in multiple datacenters and
+    some consumers need access to the entire dataset. The architecture also allows
+    for applications in each datacenter to only process data local to that specific
+    datacenter. But it does not give access to the entire dataset from every datacenter.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当数据在多个数据中心产生并且一些消费者需要访问整个数据集时，使用这种架构。该架构还允许每个数据中心的应用程序仅处理特定数据中心的本地数据。但它不允许每个数据中心从整个数据集中获取数据。
+- en: The main benefit of this architecture is that data is always produced to the
+    local datacenter and events from each datacenter are only mirrored once—to the
+    central datacenter. Applications that process data from a single datacenter can
+    be located at that datacenter. Applications that need to process data from multiple
+    datacenters will be located at the central datacenter where all the events are
+    mirrored. Because replication always goes in one direction and because each consumer
+    always reads from the same cluster, this architecture is simple to deploy, configure,
+    and monitor.
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构的主要好处是数据始终产生在本地数据中心，并且每个数据中心的事件只被镜像一次 - 到中央数据中心。从单个数据中心处理数据的应用程序可以位于该数据中心。需要从多个数据中心处理数据的应用程序将位于所有事件都被镜像的中央数据中心。由于复制始终是单向的，并且每个消费者始终从同一集群中读取，因此这种架构易于部署、配置和监视。
+- en: The main drawback of this architecture is the direct result of its benefits
+    and simplicity. Processors in one regional datacenter can’t access data in another.
+    To understand better why this is a limitation, let’s look at an example of this
+    architecture.
+  id: totrans-43
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构的主要缺点直接源于其好处和简单性。一个区域数据中心的处理器无法访问另一个数据中心的数据。为了更好地理解这是一个限制，让我们看一个这种架构的例子。
+- en: Suppose that we are a large bank and have branches in multiple cities. Let’s
+    say that we decide to store user profiles and their account history in a Kafka
+    cluster in each city. We replicate all this information to a central cluster that
+    is used to run the bank’s business analytics. When users connect to the bank website
+    or visit their local branch, they are routed to send events to their local cluster
+    and read events from the same local cluster. However, suppose that a user visits
+    a branch in a different city. Because the user information doesn’t exist in the
+    city they are visiting, the branch will be forced to interact with a remote cluster
+    (not recommended) or have no way to access the user’s information (really embarrassing).
+    For this reason, use of this pattern is usually limited to only parts of the dataset
+    that can be completely separated between regional datacenters.
+  id: totrans-44
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们是一家大型银行，在多个城市设有分支机构。假设我们决定将用户配置文件和其账户历史存储在每个城市的Kafka集群中。我们将所有这些信息复制到一个用于运行银行业务分析的中央集群。当用户连接到银行网站或访问他们的本地分支机构时，他们被路由到发送事件到他们的本地集群并从同一本地集群读取事件。然而，假设用户访问另一个城市的分支机构。因为用户信息不存在于他们正在访问的城市，分支机构将被迫与远程集群交互（不建议）或无法访问用户的信息（非常尴尬）。因此，通常仅将此模式用于可以在区域数据中心之间完全分离的数据集的部分。
+- en: When implementing this architecture, for each regional datacenter you need at
+    least one mirroring process on the central datacenter. This process will consume
+    data from each remote regional cluster and produce it to the central cluster.
+    If the same topic exists in multiple datacenters, you can write all the events
+    from this topic to one topic with the same name in the central cluster, or write
+    events from each datacenter to a separate topic.
+  id: totrans-45
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在实施这种架构时，对于每个区域数据中心，您至少需要一个在中央数据中心的镜像过程。此过程将从每个远程区域集群中获取数据并将其生成到中央集群。如果在多个数据中心中存在相同的主题，您可以将此主题的所有事件写入到中央集群中具有相同名称的一个主题中，或者将每个数据中心的事件写入到一个单独的主题中。
+- en: Active-Active Architecture
+  id: totrans-46
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 主动-主动架构
+- en: This architecture is used when two or more datacenters share some or all of
+    the data, and each datacenter is able to both produce and consume events. See
+    [Figure 10-3](#fig0803).
+  id: totrans-47
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当两个或更多个数据中心共享部分或全部数据，并且每个数据中心都能够生成和消费事件时，将使用此架构。参见[图10-3](#fig0803)。
+- en: '![kdg2 1003](assets/kdg2_1003.png)'
+  id: totrans-48
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1003](assets/kdg2_1003.png)'
+- en: Figure 10-3\. The active-active architecture model
+  id: totrans-49
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-3。主动-主动架构模型
+- en: The main benefit of this architecture is the ability to serve users from a nearby
+    datacenter, which typically has performance benefits, without sacrificing functionality
+    due to limited availability of data (as we’ve seen happen in the hub-and-spoke
+    architecture). A secondary benefit is redundancy and resilience. Since every datacenter
+    has all the functionality, if one datacenter is unavailable, you can direct users
+    to a remaining datacenter. This type of failover only requires network redirects
+    of users, typically the easiest and most transparent type of failover.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构的主要优点是能够从附近的数据中心为用户提供服务，这通常具有性能优势，而不会因数据的有限可用性（正如我们在集线器和辐射架构中看到的那样）而牺牲功能。第二个好处是冗余和弹性。由于每个数据中心都具有所有功能，因此如果一个数据中心不可用，您可以将用户引导到剩余的数据中心。这种故障转移只需要对用户进行网络重定向，通常是最简单和最透明的故障转移类型。
+- en: 'The main drawback of this architecture is the challenge in avoiding conflicts
+    when data is read and updated asynchronously in multiple locations. This includes
+    technical challenges in mirroring events—for example, how do we make sure the
+    same event isn’t mirrored back and forth endlessly? But more importantly, maintaining
+    data consistency between the two datacenters will be difficult. Here are few examples
+    of the difficulties you will encounter:'
+  id: totrans-51
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构的主要缺点是在数据在多个位置异步读取和更新时避免冲突的挑战。这包括在镜像事件方面的技术挑战，例如，我们如何确保相同的事件不会无休止地来回镜像？但更重要的是，在两个数据中心之间保持数据一致性将是困难的。以下是您将遇到的一些困难的几个例子：
+- en: If a user sends an event to one datacenter and reads events from another datacenter,
+    it is possible that the event they wrote hasn’t arrived at the second datacenter
+    yet. To the user, it will look like they just added a book to their wish list
+    and clicked on the wish list, but the book isn’t there. For this reason, when
+    this architecture is used, developers usually find a way to “stick” each user
+    to a specific datacenter and make sure they use the same cluster most of the time
+    (unless they connect from a remote location or the datacenter becomes unavailable).
+  id: totrans-52
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果用户将事件发送到一个数据中心，并从另一个数据中心读取事件，那么他们写入的事件可能尚未到达第二个数据中心。对用户来说，看起来就像他们刚刚将一本书添加到愿望清单并单击了愿望清单，但书并不在那里。因此，当使用这种架构时，开发人员通常会找到一种方法来将每个用户“粘附”到特定的数据中心，并确保他们大部分时间使用相同的集群（除非他们从远程位置连接或数据中心不可用）。
+- en: An event from one datacenter says the user ordered book A, and an event from
+    more or less the same time at a second datacenter says that the same user ordered
+    book B. After mirroring, both datacenters have both events and thus we can say
+    that each datacenter has two conflicting events. Applications on both datacenters
+    need to know how to deal with this situation. Do we pick one event as the “correct”
+    one? If so, we need consistent rules on how to pick one event so applications
+    on both datacenters will arrive at the same conclusion. Do we decide that both
+    are true and simply send the user two books and have another department deal with
+    returns? Amazon used to resolve conflicts that way, but organizations dealing
+    with stock trades, for example, can’t. The specific method for minimizing conflicts
+    and handling them when they occur is specific to each use case. It is important
+    to keep in mind that if you use this architecture, you *will* have conflicts and
+    will need to deal with them.
+  id: totrans-53
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 一个数据中心的事件表示用户订购了书A，第二个数据中心在更多或更少相同的时间内的事件表示同一用户订购了书B。在镜像之后，两个数据中心都有了这两个事件，因此我们可以说每个数据中心都有两个冲突的事件。两个数据中心上的应用程序需要知道如何处理这种情况。我们选择一个事件作为“正确”的事件吗？如果是这样，我们需要一致的规则来选择一个事件，这样两个数据中心上的应用程序将得出相同的结论。我们决定两者都是真实的，只是给用户发送两本书，并让另一个部门处理退货？亚马逊过去是以这种方式解决冲突的，但是处理股票交易等问题的组织不能这样做。最小化冲突和处理冲突发生时的具体方法是特定于每个用例的。重要的是要记住，如果您使用这种架构，您*将*会有冲突，并且需要处理它们。
+- en: If you find ways to handle the challenges of asynchronous reads and writes to
+    the same dataset from multiple locations, then this architecture is highly recommended.
+    It is the most scalable, resilient, flexible, and cost-effective option we are
+    aware of. So, it is well worth the effort to figure out solutions for avoiding
+    replication cycles, keeping users mostly in the same datacenter, and handling
+    conflicts when they occur.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您找到了处理从多个位置异步读取和写入相同数据集的挑战的方法，那么强烈推荐使用这种架构。这是我们所知道的最具可扩展性、有弹性、灵活和经济有效的选择。因此，值得努力找出避免复制周期、使用户大部分时间保持在同一个数据中心，并在发生冲突时处理冲突的解决方案。
+- en: Part of the challenge of active-active mirroring, especially with more than
+    two datacenters, is that you will need mirroring tasks for each pair of datacenters
+    and each direction. Many mirroring tools these days can share processes, for example,
+    using the same process for all mirroring to a destination cluster.
+  id: totrans-55
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主动-主备镜像的挑战之一，特别是在有两个以上的数据中心时，是您将需要为每对数据中心和每个方向设置镜像任务。如今许多镜像工具可以共享进程，例如使用相同的进程进行所有镜像到目标集群。
+- en: In addition, you will want to avoid loops in which the same event is mirrored
+    back and forth endlessly. You can do this by giving each “logical topic” a separate
+    topic for each datacenter and making sure to avoid replicating topics that originated
+    in remote datacenters. For example, logical topic *users* will be topic *SF.users*
+    in one datacenter and *NYC.users* in another datacenter. The mirroring processes
+    will mirror topic *SF.users* from SF to NYC and topic *NYC.users* from NYC to
+    SF. As a result, each event will only be mirrored once, but each datacenter will
+    contain both *SF.users* and *NYC.users*, which means each datacenter will have
+    information for all the users. Consumers will need to consume events from **.users*
+    if they wish to consume all user events. Another way to think of this setup is
+    to see it as a separate namespace for each datacenter that contains all the topics
+    for the specific datacenter. In our example, we’ll have the NYC and the SF namespaces.
+    Some mirroring tools like MirrorMaker prevent replication cycles using a similar
+    naming convention.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，您将希望避免同一事件在不同数据中心之间无休止地来回镜像。您可以通过为每个“逻辑主题”在每个数据中心分配一个单独的主题，并确保避免复制源自远程数据中心的主题来实现这一点。例如，逻辑主题*用户*在一个数据中心将是*SF.users*，在另一个数据中心将是*NYC.users*。镜像过程将从SF到NYC镜像主题*SF.users*，从NYC到SF镜像主题*NYC.users*。因此，每个事件只会被镜像一次，但每个数据中心将包含*SF.users*和*NYC.users*，这意味着每个数据中心都将包含所有用户的信息。消费者需要从**.users*中消费事件，如果他们希望消费所有用户事件。另一种思考这种设置的方式是将其视为每个数据中心的单独命名空间，其中包含特定数据中心的所有主题。在我们的例子中，我们将有NYC和SF命名空间。一些镜像工具如MirrorMaker使用类似的命名约定来防止复制循环。
+- en: Record headers introduced in Apache Kafka in version 0.11.0 enable events to
+    be tagged with their originating datacenter. Header information may also be used
+    to avoid endless mirroring loops and to allow processing events from different
+    datacenters separately. You can also implement this feature by using a structured
+    data format for the record values (Avro is our favorite example) and use this
+    to include tags and headers in the event itself. However, this does require extra
+    effort when mirroring, since none of the existing mirroring tools will support
+    your specific header format.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka 0.11.0版本引入的记录头使事件可以被标记其来源数据中心。头信息也可以用于避免无休止的镜像循环，并允许分别处理来自不同数据中心的事件。您还可以通过使用结构化数据格式（Avro是我们最喜欢的例子）来实现此功能，并将标签和头信息包含在事件本身中。然而，这需要在镜像时额外的工作，因为没有现有的镜像工具会支持您的特定头格式。
+- en: Active-Standby Architecture
+  id: totrans-58
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 主备架构
+- en: In some cases, the only requirement for multiple clusters is to support some
+    kind of disaster scenario. Perhaps you have two clusters in the same datacenter.
+    You use one cluster for all the applications, but you want a second cluster that
+    contains (almost) all the events in the original cluster that you can use if the
+    original cluster is completely unavailable. Or perhaps you need geographic resiliency.
+    Your entire business is running from a datacenter in California, but you need
+    a second datacenter in Texas that usually doesn’t do much and that you can use
+    in case of an earthquake. The Texas datacenter will probably have an inactive
+    (“cold”) copy of all the applications that admins can start up in case of emergency
+    and that will use the second cluster ([Figure 10-4](#fig0804)). This is often
+    a legal requirement rather than something that the business is actually planning
+    on doing—but you still need to be ready.
+  id: totrans-59
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在某些情况下，多个集群的唯一要求是支持某种灾难情景。也许您在同一个数据中心中有两个集群。您使用一个集群来运行所有应用程序，但您希望有第二个集群包含（几乎）原始集群中的所有事件，以便在原始集群完全不可用时使用。或者您可能需要地理弹性。您的整个业务都是从加利福尼亚州的一个数据中心运行的，但您需要德克萨斯州的第二个数据中心，通常不做太多事情，以防发生地震时使用。德克萨斯数据中心可能会有所有应用程序的非活动（“冷”）副本，管理员可以在紧急情况下启动，并且将使用第二个集群（[图10-4](#fig0804)）。这通常是法律要求，而不是业务实际计划要做的事情，但您仍然需要做好准备。
+- en: '![kdg2 1004](assets/kdg2_1004.png)'
+  id: totrans-60
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1004](assets/kdg2_1004.png)'
+- en: Figure 10-4\. The active-standby architecture
+  id: totrans-61
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-4\. 主备架构
+- en: The benefits of this setup are simplicity in setup and the fact that it can
+    be used in pretty much any use case. You simply install a second cluster and set
+    up a mirroring process that streams all the events from one cluster to another.
+    No need to worry about access to data, handling conflicts, and other architectural
+    complexities.
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种设置的好处是设置简单，并且几乎可以用于任何用例。您只需安装第二个集群，并设置一个镜像过程，将所有事件从一个集群流式传输到另一个集群。无需担心数据访问、处理冲突和其他架构复杂性。
+- en: The disadvantages are waste of a good cluster and the fact that failover between
+    Kafka clusters is, in fact, much harder than it looks. The bottom line is that
+    it is currently not possible to perform cluster failover in Kafka without either
+    losing data or having duplicate events. Often both. You can minimize them but
+    never fully eliminate them.
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 缺点是浪费一个好的集群，并且Kafka集群之间的故障转移实际上比看起来要困难得多。最重要的是，目前在Kafka中执行集群故障转移时要么会丢失数据，要么会有重复事件。通常两者都有。您可以将它们最小化，但永远无法完全消除。
+- en: It should be obvious that a cluster that does nothing except wait around for
+    a disaster is a waste of resources. Since disasters are (or should be) rare, most
+    of the time we are looking at a cluster of machines that does nothing at all.
+    Some organizations try to fight this issue by having a DR (disaster recovery)
+    cluster that is much smaller than the production cluster. But this is a risky
+    decision because you can’t be sure that this minimally sized cluster will hold
+    up during an emergency. Other organizations prefer to make the cluster useful
+    during nondisasters by shifting some read-only workloads to run on the DR cluster,
+    which means they are really running a small version of a hub-and-spoke architecture
+    with a single spoke.
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 显而易见的是，一个除了等待灾难之外什么也不做的集群是资源的浪费。由于灾难是（或应该是）罕见的，大部分时间我们看到的是一组机器的集群根本什么也不做。一些组织试图通过拥有比生产集群小得多的DR（灾难恢复）集群来解决这个问题。但这是一个冒险的决定，因为您无法确定这个尺寸最小的集群在紧急情况下是否能够支撑住。其他组织更喜欢在非灾难期间使集群有用，通过将一些只读工作负载转移到DR集群上运行，这意味着他们实际上正在运行一个带有单个辐条的小型版本的集线器和辐条架构。
+- en: The more serious issue is, how do you failover to a DR cluster in Apache Kafka?
+  id: totrans-65
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 更严重的问题是，如何在Apache Kafka中切换到DR集群？
+- en: First, it should go without saying that whichever failover method you choose,
+    your SRE team must practice it on a regular basis. A plan that works today may
+    stop working after an upgrade, or perhaps new use cases make the existing tooling
+    obsolete. Once a quarter is usually the bare minimum for failover practices. Strong
+    SRE teams practice far more frequently. Netflix’s famous Chaos Monkey, a service
+    that randomly causes disasters, is the extreme—any day may become failover practice
+    day.
+  id: totrans-66
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，毋庸置疑，无论选择哪种故障切换方法，您的SRE团队都必须定期进行实践。今天有效的计划可能在升级后停止工作，或者新的用例使现有的工具过时。每季度通常是故障切换实践的最低要求。强大的SRE团队经常进行实践。Netflix著名的混沌猴（Chaos
+    Monkey）是极端的例子 - 任何一天都可能成为故障切换实践的日子。
+- en: Now, let’s take a look at what is involved in a failover.
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 现在，让我们来看看故障切换涉及哪些内容。
+- en: Disaster recovery planning
+  id: totrans-68
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 灾难恢复规划
+- en: When planning for disaster recovery, it is important to consider two key metrics.
+    Recovery time objective (RTO) defines the maximum amount of time before all services
+    must resume after a disaster. Recovery point objective (RPO) defines the maximum
+    amount of time for which data may be lost as a result of a disaster. The lower
+    the RTO, the more important it is to avoid manual processes and application restarts,
+    since very low RTO can be achieved only with automated failover. Low RPO requires
+    real-time mirroring with low latencies, and `RPO=0` requires synchronous replication.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在灾难恢复规划时，重要的是考虑两个关键指标。恢复时间目标（RTO）定义了灾难后所有服务必须恢复的最长时间。恢复点目标（RPO）定义了可能丢失数据的最长时间。RTO越低，避免手动流程和应用程序重新启动就越重要，因为只有通过自动故障切换才能实现非常低的RTO。低RPO需要低延迟的实时镜像，`RPO=0`需要同步复制。
+- en: Data loss and inconsistencies in unplanned failover
+  id: totrans-70
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 未经计划的故障切换中的数据丢失和不一致性
+- en: Because Kafka’s various mirroring solutions are all asynchronous (we’ll discuss
+    a synchronous solution in the next section), the DR cluster will not have the
+    latest messages from the primary cluster. You should always monitor how far behind
+    the DR cluster is and never let it fall too far behind. But in a busy system you
+    should expect the DR cluster to be a few hundred or even a few thousand messages
+    behind the primary. If your Kafka cluster handles 1 million messages a second
+    and the lag between the primary and the DR cluster is 5 milliseconds, your DR
+    cluster will be 5,000 messages behind the primary in the best-case scenario. So,
+    prepare for unplanned failover to include some data loss. In planned failover,
+    you can stop the primary cluster and wait for the mirroring process to mirror
+    the remaining messages before failing over applications to the DR cluster, thus
+    avoiding this data loss. When unplanned failover occurs and you lose a few thousand
+    messages, note that mirroring solutions currently don’t support transactions,
+    which means that if some events in multiple topics are related to each other (e.g.,
+    sales and line items), you can have some events arrive to the DR site in time
+    for the failover and others that don’t. Your applications will need to be able
+    to handle a line item without a corresponding sale after you failover to the DR
+    cluster.
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因为Kafka的各种镜像解决方案都是异步的（我们将在下一节讨论同步解决方案），DR集群将不会拥有来自主要集群的最新消息。您应始终监视DR集群的落后程度，并且永远不要让它落后太远。但在繁忙的系统中，您应该预期DR集群落后主要集群几百甚至几千条消息。如果您的Kafka集群每秒处理100万条消息，并且主要集群和DR集群之间的滞后时间为5毫秒，那么在最佳情况下，您的DR集群将落后于主要集群5,000条消息。因此，准备好未经计划的故障切换包括一些数据丢失。在计划的故障切换中，您可以停止主要集群，并等待镜像过程在故障切换应用程序到DR集群之前镜像剩余的消息，从而避免这种数据丢失。当发生未经计划的故障切换并丢失了几千条消息时，请注意，镜像解决方案目前不支持事务，这意味着如果多个主题中的某些事件相关（例如销售和行项目），您可以在故障切换时有一些事件及时到达DR站点，而其他事件则没有。您的应用程序需要能够处理故障切换到DR集群后没有相应销售的行项目。
+- en: Start offset for applications after failover
+  id: totrans-72
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 故障切换后应用程序的起始偏移
+- en: 'One of the challenging tasks in failing over to another cluster is making sure
+    applications know where to start consuming data. There are several common approaches.
+    Some are simple but can cause additional data loss or duplicate processing; others
+    are more involved but minimize additional data loss and reprocessing. Let’s take
+    a look at a few:'
+  id: totrans-73
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在切换到另一个集群时，一个具有挑战性的任务是确保应用程序知道从何处开始消费数据。有几种常见的方法。有些方法简单，但可能会导致额外的数据丢失或重复处理；其他方法更复杂，但可以最小化额外的数据丢失和重新处理。让我们来看看其中的一些：
+- en: Auto offset reset
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自动偏移重置
+- en: Apache Kafka consumers have a configuration for how to behave when they don’t
+    have a previously committed offset—they either start reading from the beginning
+    of the partition or from the end of the partition. If you are not somehow mirroring
+    these offsets as part of the DR plan, you need to choose one of these options.
+    Either start reading from the beginning of available data and handle large amounts
+    of duplicates or skip to the end and miss an unknown (and hopefully small) number
+    of events. If your application handles duplicates with no issues, or missing some
+    data is no big deal, this option is by far the easiest. Simply skipping to the
+    end of the topic on failover is a popular failover method due to its simplicity.
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka消费者有一个配置，用于在它们没有先前提交的偏移量时如何行为——它们要么从分区的开头开始读取，要么从分区的末尾开始读取。如果您没有将这些偏移量作为DR计划的一部分进行镜像，您需要选择其中一种选项。要么从可用数据的开头开始读取并处理大量重复，要么跳到结尾并错过未知（希望是少量）事件。如果您的应用程序可以处理重复而没有问题，或者丢失一些数据不是什么大问题，那么这个选项是最简单的。在故障转移时简单地跳到主题的末尾是一种受欢迎的故障转移方法，因为它简单易行。
+- en: Replicate offsets topic
+  id: totrans-76
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 复制偏移量主题
+- en: 'If you are using Kafka consumers from version 0.9.0 and later, the consumers
+    will commit their offsets to a special topic: `__consumer_offsets`. If you mirror
+    this topic to your DR cluster, when consumers start consuming from the DR cluster,
+    they will be able to pick up their old offsets and continue from where they left
+    off. It is simple, but there is a long list of caveats involved.'
+  id: totrans-77
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您使用的是0.9.0版本及更高版本的Kafka消费者，消费者将会将它们的偏移量提交到一个特殊的主题：“__consumer_offsets”。如果您将这个主题镜像到DR集群，当消费者开始从DR集群消费时，它们将能够恢复其旧的偏移量，并从上次离开的地方继续。这很简单，但涉及到一长串注意事项。
+- en: First, there is no guarantee that offsets in the primary cluster will match
+    those in the secondary cluster. Suppose you only store data in the primary cluster
+    for three days and you start mirroring a topic a week after it was created. In
+    this case, the first offset available in the primary cluster may be offset 57,000,000
+    (older events were from the first 4 days and were removed already), but the first
+    offset in the DR cluster will be 0\. So, a consumer that tries to read offset
+    57,000,003 (because that’s its next event to read) from the DR cluster will fail
+    to do this.
+  id: totrans-78
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 首先，不能保证主集群中的偏移量与辅助集群中的偏移量匹配。假设您只在主集群中存储数据三天，而且在创建主题一周后开始镜像。在这种情况下，主集群中可用的第一个偏移量可能是偏移量57,000,000（较早的事件来自前4天，已经被删除），但DR集群中的第一个偏移量将为0。因此，试图从DR集群读取偏移量57,000,003（因为这是它要读取的下一个事件）的消费者将无法做到这一点。
+- en: Second, even if you started mirroring immediately when the topic was first created
+    and both the primary and the DR topics start with 0, producer retries can cause
+    offsets to diverge. We discuss an alternative mirroring solution that preserves
+    offsets between primary and DR clusters at the end of this chapter.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 其次，即使在主题创建时立即开始镜像，并且主题和DR主题都从0开始，生产者重试可能导致偏移量发散。我们将在本章末讨论一种替代的镜像解决方案，该解决方案在主DR集群之间保留偏移量。
+- en: Third, even if the offsets were perfectly preserved, because of the lag between
+    primary and DR clusters and because mirroring solutions currently don’t support
+    transactions, an offset committed by a Kafka consumer may arrive ahead or behind
+    the record with this offset. A consumer that fails over may find committed offsets
+    without matching records. Or it may find that the latest committed offset in the
+    DR site is older than the latest committed offset in the primary site. See [Figure 10-5](#fig0805).
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 第三，即使偏移量完全保留，由于主DR集群之间的滞后以及镜像解决方案目前不支持事务，Kafka消费者提交的偏移量可能会比具有此偏移量的记录提前或滞后到达。进行故障转移的消费者可能会发现已提交的偏移量没有匹配的记录。或者可能发现DR站点上的最新提交的偏移量比主站点上的最新提交的偏移量旧。参见[图10-5](#fig0805)。
+- en: '![kdg2 1005](assets/kdg2_1005.png)'
+  id: totrans-81
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1005](assets/kdg2_1005.png)'
+- en: Figure 10-5\. A failover causes committed offsets without matching records
+  id: totrans-82
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-5。故障转移导致已提交的偏移量没有匹配的记录
+- en: In these cases, you need to accept some duplicates if the latest committed offset
+    in the DR site is older than the one committed on the primary or if the offsets
+    in the records in the DR site are ahead of the primary due to retries. You will
+    also need to figure out how to handle cases where the latest committed offset
+    in the DR site doesn’t have a matching record—do you start processing from the
+    beginning of the topic or skip to the end?
+  id: totrans-83
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这些情况下，如果DR站点上的最新提交的偏移量比主站点上的偏移量旧，或者由于重试而导致DR站点中的记录偏移量超过主站点，您需要接受一些重复。您还需要想办法处理DR站点上最新提交的偏移量没有匹配记录的情况——您是从主题的开头开始处理，还是跳到结尾？
+- en: As you can see, this approach has its limitations. Still, this option lets you
+    failover to another DR with a reduced number of duplicated or missing events compared
+    to other approaches while still being simple to implement.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如您所看到的，这种方法有其局限性。不过，与其他方法相比，这个选项让您能够在故障转移到另一个DR时，出现的重复或丢失事件数量减少，同时实现起来也很简单。
+- en: Time-based failover
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 基于时间的故障转移
+- en: 'From version 0.10.0 onward, each message includes a timestamp indicating the
+    time the message was sent to Kafka. From 0.10.1.0 onward, brokers include an index
+    and an API for looking up offsets by the timestamp. So, if you failover to the
+    DR cluster and you know that your trouble started at 4:05 a.m., you can tell consumers
+    to start processing data from 4:03 a.m. There will be some duplicates from those
+    two minutes, but it is probably better than other alternatives and the behavior
+    is much easier to explain to everyone in the company—“We failed back to 4:03 a.m.”
+    sounds better than “We failed back to what may or may not be the latest committed
+    offsets.” So, this is often a good compromise. The only question is: how do we
+    tell consumers to start processing data from 4:03 a.m.?'
+  id: totrans-86
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从 0.10.0 版本开始，每条消息都包括一个时间戳，指示消息发送到 Kafka 的时间。从 0.10.1.0 版本开始，代理包括一个索引和一个用于按时间戳查找偏移的
+    API。因此，如果您切换到 DR 集群，并且知道您的问题是在凌晨 4:05 开始的，您可以告诉消费者从凌晨 4:03 开始处理数据。这两分钟内会有一些重复，但这可能比其他选择更好，并且行为更容易向公司中的每个人解释——“我们回滚到了凌晨
+    4:03”听起来比“我们回滚到可能是最新提交的偏移”好。因此，这通常是一个很好的折衷方案。唯一的问题是：我们如何告诉消费者从凌晨 4:03 开始处理数据？
+- en: One option is to bake it right into your app. Have a user-configurable option
+    to specify the start time for the app. If this is configured, the app can use
+    the new APIs to fetch offset by time, seek to that time, and start consuming from
+    the right point, committing offsets as usual.
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种选择是将其直接嵌入到您的应用程序中。具有用户可配置选项来指定应用程序的启动时间。如果配置了这个选项，应用程序可以使用新的 API 来按时间获取偏移，寻找到那个时间，并从正确的位置开始消费，像往常一样提交偏移。
+- en: 'This option is great if you wrote all your applications this way in advance.
+    But what if you didn’t? Apache Kafka provides the `kafka-consumer-groups` tool
+    to reset offsets based on a range of options, including timestamp-based reset
+    added in 0.11.0\. The consumer group should be stopped while running this type
+    of tool and started immediately after. For example, the following command resets
+    consumer offsets for all topics belonging to a particular group to a specific
+    time:'
+  id: totrans-88
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您事先没有编写所有应用程序，这个选项就很好。Apache Kafka 提供了 `kafka-consumer-groups` 工具，根据一系列选项重置偏移，包括在
+    0.11.0 版本中添加的基于时间戳的重置。在运行此类型的工具时，应该停止消费者组，并在之后立即启动。例如，以下命令将为属于特定组的所有主题重置消费者偏移到特定时间：
+- en: '[PRE0]'
+  id: totrans-89
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: This option is recommended in deployments that need to guarantee a level of
+    certainty in their failover.
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个选项建议在需要保证故障切换的确定性的部署中使用。
+- en: Offset translation
+  id: totrans-91
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 偏移翻译
+- en: When discussing mirroring the offsets topic, one of the biggest challenges is
+    the fact that offsets in primary and DR clusters can diverge. In the past, some
+    organizations chose to use an external data store, such as Apache Cassandra, to
+    store mapping of offsets from one cluster to another. Whenever an event is produced
+    to the DR cluster, both offsets are sent to the external data store by the mirroring
+    tool when offsets diverge. These days, mirroring solutions, including MirrorMaker,
+    use a Kafka topic for storing offset translation metadata. Offsets are stored
+    whenever the difference between the two offsets changes. For example, if offset
+    495 on the primary mapped to offset 500 on the DR cluster, we’ll record (495,500)
+    in the external store or offset translation topic. If the difference changes later
+    due to duplicates and offset 596 is mapped to 600, then we’ll record the new mapping
+    (596,600). There is no need to store all the offset mappings between 495 and 596;
+    we just assume that the difference remains the same and so offset 550 in the primary
+    cluster will map to 555 in the DR. Then when failover occurs, instead of mapping
+    timestamps (which are always a bit inaccurate) to offsets, we map primary offsets
+    to DR offsets and use those. One of the two techniques listed previously can be
+    used to force consumers to start using the new offsets from the mapping. This
+    still has an issue with offset commits that arrived ahead of the records themselves
+    and offset commits that didn’t get mirrored to the DR on time, but it covers some
+    cases.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在讨论镜像偏移主题时，最大的挑战之一是主要和 DR 集群中的偏移可能会发散。过去，一些组织选择使用外部数据存储，如 Apache Cassandra，来存储从一个集群到另一个集群的偏移映射。每当事件被生产到
+    DR 集群时，当偏移发散时，镜像工具会将两个偏移发送到外部数据存储。如今，包括 MirrorMaker 在内的镜像解决方案使用 Kafka 主题来存储偏移翻译元数据。偏移存储在两个偏移之间的差异发生变化时。例如，如果主要偏移495映射到
+    DR 集群的偏移500，我们将在外部存储或偏移翻译主题中记录(495,500)。如果由于重复而导致差异发生变化，偏移596映射到600，那么我们将记录新的映射(596,600)。我们不需要存储495到596之间的所有偏移映射；我们只是假设差异保持不变，因此主要集群中的偏移550将映射到
+    DR 中的偏移555。然后当发生故障切换时，我们不是将时间戳（始终有点不准确）映射到偏移，而是将主要偏移映射到 DR 偏移并使用它们。之前列出的两种技术之一可以用于强制消费者开始使用映射的新偏移。这仍然存在偏移提交的问题，这些提交在记录本身之前到达，并且偏移提交未及时镜像到
+    DR，但它涵盖了一些情况。
+- en: After the failover
+  id: totrans-93
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 故障切换后
+- en: Let’s say that failover was successful. Everything is working just fine on the
+    DR cluster. Now we need to do something with the primary cluster. Perhaps turn
+    it into a DR.
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设故障切换成功了。 DR 集群上的一切都运行正常。现在我们需要对主要集群做些什么。也许把它变成一个 DR。
+- en: 'It is tempting to simply modify the mirroring processes to reverse their direction
+    and simply start mirroring from the new primary to the old one. However, this
+    leads to two important questions:'
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 简单地修改镜像进程以颠倒其方向并从新的主要集群开始镜像到旧的主要集群是很诱人的。然而，这引发了两个重要问题：
+- en: How do we know where to start mirroring? We need to solve the same problem we
+    have for all our consumers for the mirroring application itself. And remember
+    that all our solutions have cases where they either cause duplicates or miss data—sometimes
+    both.
+  id: totrans-96
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们如何知道从哪里开始镜像？我们需要解决与镜像应用程序本身的所有消费者相同的问题。请记住，我们所有的解决方案都有可能导致重复或丢失数据的情况——有时两者都有。
+- en: In addition, for reasons we discussed previously, it is likely that your original
+    primary will have events that the DR cluster does not. If you just start mirroring
+    new data back, the extra history will remain and the two clusters will be inconsistent.
+  id: totrans-97
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 此外，出于我们之前讨论的原因，你原始的主集群可能会有DR集群没有的事件。如果你只是开始镜像新数据回来，额外的历史将保留下来，两个集群将不一致。
+- en: For this reason, for scenarios where consistency and ordering guarantees are
+    critical, the simplest solution is to first scrape the original cluster—delete
+    all the data and committed offsets—and then start mirroring from the new primary
+    back to what is now the new DR cluster. This gives you a clean slate that is identical
+    to the new primary.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，对于一些关键的一致性和顺序保证的场景，最简单的解决方案是首先清除原始集群-删除所有数据和已提交的偏移量-然后从新的主集群开始镜像到现在的新DR集群。这给了你一个与新主集群相同的干净的基础。
+- en: A few words on cluster discovery
+  id: totrans-99
+  prefs:
+  - PREF_H3
+  type: TYPE_NORMAL
+  zh: 关于集群发现的几句话
+- en: One of the important points to consider when planning a standby cluster is that
+    in the event of failover, your applications will need to know how to start communicating
+    with the failover cluster. If you hardcoded the hostnames of your primary cluster
+    brokers in the producer and consumer properties, this will be challenging. Most
+    organizations keep it simple and create a DNS name that usually points to the
+    primary brokers. In case of an emergency, the DNS name can be pointed to the standby
+    cluster. The discovery service (DNS or other) doesn’t need to include all the
+    brokers—Kafka clients only need to access a single broker successfully in order
+    to get metadata about the cluster and discover the other brokers. So, including
+    just three brokers is usually fine. Regardless of the discovery method, most failover
+    scenarios do require bouncing consumer applications after failover so they can
+    find the new offsets from which they need to start consuming. For automated failover
+    without application restart to achieve very low RTO, failover logic should be
+    built into client applications.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在规划备用集群时需要考虑的一个重要点是，如果发生故障转移，你的应用程序将需要知道如何开始与故障转移集群通信。如果你在生产者和消费者属性中硬编码了主集群经纪人的主机名，这将是具有挑战性的。大多数组织都会简化并创建一个通常指向主经纪人的DNS名称。在紧急情况下，DNS名称可以指向备用集群。发现服务（DNS或其他）不需要包括所有经纪人-Kafka客户端只需要成功访问一个经纪人，以获取有关集群的元数据并发现其他经纪人。因此，通常只包括三个经纪人就可以了。无论发现方法如何，大多数故障转移场景都需要在故障转移后重新启动消费者应用程序，以便它们可以找到需要开始消费的新偏移量。为了实现非常低的RTO而进行自动故障转移而无需应用程序重新启动，故障转移逻辑应该内置到客户端应用程序中。
+- en: Stretch Clusters
+  id: totrans-101
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 拉伸集群
+- en: Active-standby architectures are used to protect the business against the failure
+    of a Kafka cluster by moving applications to communicate with another cluster
+    in case of cluster failure. Stretch clusters are intended to protect the Kafka
+    cluster from failure during a datacenter outage. This is achieved by installing
+    a single Kafka cluster across multiple datacenters.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主备架构用于通过将应用程序移动到另一个集群来保护业务免受Kafka集群故障的影响。拉伸集群旨在在数据中心宕机期间保护Kafka集群免受故障的影响。这是通过在多个数据中心安装单个Kafka集群来实现的。
+- en: Stretch clusters are fundamentally different from other multidatacenter scenarios.
+    To start with, they are not multicluster—it is just one cluster. As a result,
+    we don’t need a mirroring process to keep two clusters in sync. Kafka’s normal
+    replication mechanism is used, as usual, to keep all brokers in the cluster in
+    sync. This setup can include synchronous replication. Producers normally receive
+    an acknowledgment from a Kafka broker after the message was successfully written
+    to Kafka. In the stretch cluster case, we can configure things so the acknowledgment
+    will be sent after the message is written successfully to Kafka brokers in two
+    datacenters. This involves using rack definitions to make sure each partition
+    has replicas in multiple datacenters, and the use of `min.insync.replicas` and
+    `acks=all` to ensure that every write is acknowledged from at least two datacenters.
+    From 2.4.0 onward, brokers can also be configured to enable consumers to fetch
+    from the closest replica using rack definitions. Brokers match their rack with
+    that of the consumer to find the local replica that is most up-to-date, falling
+    back to the leader if a suitable local replica is not available. Consumers fetching
+    from followers in their local datacenter achieve higher throughput, lower latency,
+    and lower cost by reducing cross-datacenter traffic.
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 拉伸集群与其他多数据中心场景有根本的不同。首先，它们不是多集群-它只是一个集群。因此，我们不需要镜像过程来保持两个集群同步。正常情况下，Kafka的复制机制被使用来保持集群中所有经纪人的同步。这种设置可以包括同步复制。生产者通常在成功写入Kafka后从Kafka经纪人那里收到确认。在拉伸集群的情况下，我们可以配置确认在消息成功写入两个数据中心的Kafka经纪人后发送。这涉及使用机架定义来确保每个分区在多个数据中心中都有副本，并使用`min.insync.replicas`和`acks=all`来确保每次写入都从至少两个数据中心得到确认。从2.4.0版本开始，经纪人还可以配置为启用消费者使用机架定义从最近的副本获取数据。经纪人将其机架与消费者的机架匹配，以找到最新的本地副本，如果适当的本地副本不可用，则返回到领导者。从本地数据中心获取数据的消费者通过减少跨数据中心的流量实现更高的吞吐量，更低的延迟和更低的成本。
+- en: The advantages of this architecture are in the synchronous replication—some
+    types of business simply require that their DR site is always 100% synchronized
+    with the primary site. This is often a legal requirement and is applied to any
+    data store across the company—Kafka included. The other advantage is that both
+    datacenters and all brokers in the cluster are used. There is no waste like we
+    saw in active-standby architectures.
+  id: totrans-104
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构的优势在于同步复制-一些类型的业务简单地要求他们的DR站点始终与主站点100%同步。这通常是法律要求，并适用于公司内的任何数据存储-Kafka也包括在内。另一个优势是使用了两个数据中心和集群中的所有经纪人。没有像我们在主备架构中看到的浪费。
+- en: This architecture is limited in the type of disasters it protects against. It
+    only protects from datacenter failures, not any kind of application or Kafka failures.
+    The operational complexity is also limited. This architecture demands physical
+    infrastructure that not all companies can provide.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种架构在其保护的灾难类型方面存在局限性。它只能保护数据中心的故障，而不能保护任何类型的应用程序或Kafka故障。操作复杂性也受到限制。这种架构需要物理基础设施，而并非所有公司都能提供。
+- en: This architecture is feasible if you can install Kafka (and ZooKeeper) in at
+    least three datacenters with high bandwidth and low latency between them. This
+    can be done if your company owns three buildings on the same street, or—more commonly—by
+    using three availability zones inside one region of your cloud provider.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的公司拥有三栋建筑位于同一条街上，或者更常见的是，在云服务提供商的一个区域内使用三个可用区，那么在至少三个数据中心中安装Kafka（和ZooKeeper）是可行的，且它们之间具有高带宽和低延迟。
+- en: The reason three datacenters are important is because ZooKeeper requires an
+    uneven number of nodes in a cluster and will remain available if a majority of
+    the nodes are available. With two datacenters and an uneven number of nodes, one
+    datacenter will always contain a majority, which means that if this datacenter
+    is unavailable, ZooKeeper is unavailable, and Kafka is unavailable. With three
+    datacenters, you can easily allocate nodes so no single datacenter has a majority.
+    So, if one datacenter is unavailable, a majority of nodes exist in the other two
+    datacenters, and the ZooKeeper cluster will remain available. Therefore, so will
+    the Kafka cluster.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 三个数据中心之所以重要，是因为ZooKeeper在集群中需要一个不均匀数量的节点，并且如果大多数节点可用，它将保持可用。有了两个数据中心和不均匀数量的节点，一个数据中心将始终包含大多数节点，这意味着如果这个数据中心不可用，ZooKeeper就不可用，Kafka也不可用。有了三个数据中心，您可以轻松地分配节点，以便没有一个单一的数据中心拥有大多数节点。因此，如果一个数据中心不可用，大多数节点存在于其他两个数据中心中，ZooKeeper集群将保持可用。因此，Kafka集群也将保持可用。
+- en: 2.5 DC Architecture
+  id: totrans-108
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 2.5 DC架构
+- en: A popular model for stretch clusters is a 2.5 DC (datacenter) architecture with
+    both Kafka and ZooKeeper running in two datacenters, and a third “0.5” datacenter
+    with one ZooKeeper node to provide quorum if a datacenter fails.
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一个流行的拉伸集群模型是2.5 DC（数据中心）架构，其中Kafka和ZooKeeper都在两个数据中心运行，并且第三个“0.5”数据中心有一个ZooKeeper节点，以提供如果一个数据中心失败的话，提供法定人数。
+- en: It is possible to run ZooKeeper and Kafka in two datacenters using a ZooKeeper
+    group configuration that allows for manual failover between two datacenters. However,
+    this setup is uncommon.
+  id: totrans-110
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 可以在两个数据中心中运行ZooKeeper和Kafka，使用ZooKeeper组配置允许在两个数据中心之间进行手动故障转移。然而，这种设置并不常见。
+- en: Apache Kafka’s MirrorMaker
+  id: totrans-111
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Apache Kafka的MirrorMaker
+- en: Apache Kafka contains a tool called MirrorMaker for mirroring data between two
+    datacenters. Early versions of MirrorMaker used a collection of consumers that
+    were members of a consumer group to read data from a set of source topics and
+    a shared Kafka producer in each MirrorMaker process to send those events to the
+    destination cluster. While this was sufficient to mirror data across clusters
+    in some scenarios, it had several issues, particularly latency spikes as configuration
+    changes and addition of new topics resulted in stop-the-world rebalances. MirrorMaker
+    2.0 is the next-generation multicluster mirroring solution for Apache Kafka that
+    is based on the Kafka Connect framework, overcoming many of the shortcomings of
+    its predecessor. Complex topologies can be easily configured to support a wide
+    range of use cases like disaster recovery, backup, migration, and data aggregation.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Kafka包含一个名为MirrorMaker的工具，用于在两个数据中心之间镜像数据。早期版本的MirrorMaker使用了一个消费者组的集合，这些消费者是消费者组的成员，用于从一组源主题中读取数据，并且每个MirrorMaker进程中都有一个共享的Kafka生产者，用于将这些事件发送到目标集群。虽然这足以在某些情况下在集群之间镜像数据，但它存在一些问题，特别是随着配置更改和新主题的添加导致的延迟峰值，会导致停止世界的重新平衡。MirrorMaker
+    2.0是基于Kafka Connect框架的下一代多集群镜像解决方案，克服了其前身的许多缺点。可以轻松配置复杂的拓扑结构，以支持灾难恢复、备份、迁移和数据聚合等各种用例。
+- en: More about MirrorMaker
+  id: totrans-113
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 关于MirrorMaker的更多信息
+- en: MirrorMaker sounds very simple, but because we were trying to be very efficient
+    and get very close to exactly-once delivery, it turned out to be tricky to implement
+    correctly. MirrorMaker has been rewritten multiple times. The description here
+    and the details in the following sections apply to MirrorMaker 2.0, which was
+    introduced in 2.4.0.
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker听起来很简单，但因为我们试图非常高效并且非常接近精确一次交付，所以正确实现它变得棘手。MirrorMaker已经被多次重写。这里的描述和以下部分的细节适用于MirrorMaker
+    2.0，该版本在2.4.0中引入。
+- en: MirrorMaker uses a source connector to consume data from another Kafka cluster
+    rather than from a database. Use of the Kafka Connect framework minimizes administration
+    overhead for busy enterprise IT departments. If you recall the Kafka Connect architecture
+    from [Chapter 9](ch09.html#building_data_pipelines), you remember that each connector
+    divides the work among a configurable number of tasks. In MirrorMaker, each task
+    is a consumer and a producer pair. The Connect framework assigns those tasks to
+    different Connect worker nodes as needed—so you may have multiple tasks on one
+    server or have the tasks spread out to multiple servers. This replaces the manual
+    work of figuring out how many MirrorMaker streams should run per instance and
+    how many instances per machine. Connect also has a REST API to centrally manage
+    the configuration for the connectors and tasks. If we assume that most Kafka deployments
+    include Kafka Connect for other reasons (sending database change events into Kafka
+    is a very popular use case), then by running MirrorMaker inside Connect, we can
+    cut down on the number of clusters we need to manage.
+  id: totrans-115
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker使用源连接器从另一个Kafka集群中消费数据，而不是从数据库中。使用Kafka Connect框架可以最大程度地减少繁忙企业IT部门的管理开销。如果您还记得[第9章](ch09.html#building_data_pipelines)中的Kafka
+    Connect架构，您会记得每个连接器将工作分配给可配置数量的任务。在MirrorMaker中，每个任务都是一个消费者和一个生产者对。Connect框架根据需要将这些任务分配给不同的Connect工作节点——因此您可以在一个服务器上拥有多个任务，或者将任务分散到多个服务器上。这取代了手动计算每个实例应运行多少MirrorMaker流以及每台机器上应运行多少实例的工作。Connect还具有REST
+    API来集中管理连接器和任务的配置。如果我们假设大多数Kafka部署都包括Kafka Connect出于其他原因（将数据库更改事件发送到Kafka是一个非常受欢迎的用例），那么通过在Connect中运行MirrorMaker，我们可以减少需要管理的集群数量。
+- en: MirrorMaker allocates partitions to tasks evenly without using Kafka’s consumer
+    group-management protocol to avoid latency spikes due to rebalances when new topics
+    or partitions are added. Events from each partition in the source cluster are
+    mirrored to the same partition in the target cluster, preserving semantic partitioning
+    and maintaining ordering of events for each partition. If new partitions are added
+    to source topics, they are automatically created in the target topic. In addition
+    to data replication, MirrorMaker also supports migration of consumer offsets,
+    topic configuration, and topic ACLs, making it a complete mirroring solution for
+    multicluster deployments. A replication flow defines the configuration of a directional
+    flow from a source cluster to a target cluster. Multiple replication flows can
+    be defined for MirrorMaker to define complex topologies, including the architectural
+    patterns we discussed earlier like hub-and-spoke, active-standby, and active-active
+    architectures. [Figure 10-6](#fig0806) shows the use of MirrorMaker in an active-standby
+    architecture.
+  id: totrans-116
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker均匀分配分区给任务，而不使用Kafka的消费者组管理协议，以避免由于添加新主题或分区而导致的重新平衡而产生的延迟峰值。源集群中每个分区的事件都被镜像到目标集群中的相同分区，保留语义分区和维护每个分区的事件顺序。如果在源主题中添加了新分区，它们将自动创建在目标主题中。除了数据复制，MirrorMaker还支持消费者偏移、主题配置和主题ACL的迁移，使其成为多集群部署的完整镜像解决方案。复制流定义了从源集群到目标集群的方向流的配置。可以为MirrorMaker定义多个复制流，以定义复杂的拓扑，包括我们之前讨论的架构模式，如集线器-辐射、主备和主-主架构。[图10-6](#fig0806)显示了在主备架构中使用MirrorMaker的情况。
+- en: '![kdg2 1006](assets/kdg2_1006.png)'
+  id: totrans-117
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1006](assets/kdg2_1006.png)'
+- en: Figure 10-6\. The MirrorMaker process in Kafka
+  id: totrans-118
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-6。Kafka中的MirrorMaker进程
+- en: Configuring MirrorMaker
+  id: totrans-119
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 配置MirrorMaker
+- en: MirrorMaker is highly configurable. In addition to the cluster settings to define
+    the topology, Kafka Connect, and connector settings, every configuration property
+    of the underlying producer, consumers, and admin client used by MirrorMaker can
+    be customized. We will show a few examples here and highlight some of the important
+    configuration options, but exhaustive documentation of MirrorMaker is outside
+    our scope.
+  id: totrans-120
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker是高度可配置的。除了用于定义拓扑、Kafka Connect和连接器设置的集群设置外，MirrorMaker使用的底层生产者、消费者和管理客户端的每个配置属性都可以自定义。我们将在这里展示一些示例，并突出一些重要的配置选项，但是MirrorMaker的详尽文档不在我们的范围之内。
+- en: 'With that in mind, let’s take a look at a MirrorMaker example. The following
+    command starts MirrorMaker with the configuration options specified in the properties
+    file:'
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有了这个想法，让我们来看一个MirrorMaker的例子。以下命令使用属性文件中指定的配置选项启动MirrorMaker：
+- en: '[PRE1]'
+  id: totrans-122
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: 'Let’s look at some of MirrorMaker’s configuration options:'
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们来看一些MirrorMaker的配置选项：
+- en: Replication flow
+  id: totrans-124
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 复制流
+- en: 'The following example shows the configuration options for setting up an active-standby
+    replication flow between two datacenters in New York and London:'
+  id: totrans-125
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下示例显示了在纽约和伦敦两个数据中心之间设置主备复制流的配置选项：
+- en: '[PRE2]'
+  id: totrans-126
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: '[![1](assets/1.png)](#co_cross_cluster_data_mirroring_CO1-1)'
+  id: totrans-127
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_cross_cluster_data_mirroring_CO1-1)'
+- en: Define aliases for the clusters used in replication flows.
+  id: totrans-128
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为复制流中使用的集群定义别名。
+- en: '[![2](assets/2.png)](#co_cross_cluster_data_mirroring_CO1-2)'
+  id: totrans-129
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_cross_cluster_data_mirroring_CO1-2)'
+- en: Configure bootstrap for each cluster, using the cluster alias as the prefix.
+  id: totrans-130
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为每个集群配置引导程序，使用集群别名作为前缀。
+- en: '[![3](assets/3.png)](#co_cross_cluster_data_mirroring_CO1-3)'
+  id: totrans-131
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_cross_cluster_data_mirroring_CO1-3)'
+- en: Enable replication flow between a pair of clusters using the prefix `source​-⁠>target`.
+    All configuration options for this flow use the same prefix.
+  id: totrans-132
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 使用前缀`source​-⁠>target`在一对集群之间启用复制流。此流的所有配置选项都使用相同的前缀。
+- en: '[![4](assets/4.png)](#co_cross_cluster_data_mirroring_CO1-4)'
+  id: totrans-133
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_cross_cluster_data_mirroring_CO1-4)'
+- en: Configure the topics to be mirrored for this replication flow.
+  id: totrans-134
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为此复制流配置要镜像的主题。
+- en: Mirror topics
+  id: totrans-135
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 镜像主题
+- en: As shown in the example, for each replication flow, a regular expression may
+    be specified for the topic names that will be mirrored. In this example, we chose
+    to replicate every topic, but it is often good practice to use something like
+    *prod.** and avoid replicating test topics. A separate topic exclusion list containing
+    topic names or patterns like *test.** may also be specified to exclude topics
+    that don’t require mirroring. Target topic names are automatically prefixed with
+    the source cluster alias by default. For example, in active-active architecture,
+    MirrorMaker replicating topics from an NYC datacenter to a LON datacenter will
+    mirror the topic *orders* from NYC to the topic *NYC.orders* in LON. This default
+    naming strategy prevents replication cycles resulting in events being endlessly
+    mirrored between the two clusters in active-active mode if topics are mirrored
+    from NYC to LON as well as LON to NYC. The distinction between local and remote
+    topics also supports aggregation use cases since consumers may choose subscription
+    patterns to consume data produced from just the local region or subscribe to topics
+    from all regions to get the complete dataset.
+  id: totrans-136
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如示例所示，对于每个复制流，可以为将被镜像的主题名称指定一个正则表达式。在这个例子中，我们选择复制每个主题，但通常最好使用类似*prod.**的内容，并避免复制测试主题。还可以指定一个单独的主题排除列表，其中包含不需要镜像的主题名称或类似*test.**的模式。目标主题名称默认会自动添加源集群别名的前缀。例如，在主动-主动架构中，MirrorMaker从NYC数据中心复制主题到LON数据中心，将会把NYC的*orders*主题镜像到LON的*NYC.orders*主题。这种默认命名策略可以防止复制循环，在主动-主动模式下，如果主题从NYC到LON以及从LON到NYC都进行了镜像，事件将在两个集群之间无休止地进行镜像。本地和远程主题之间的区别也支持聚合用例，因为消费者可以选择订阅模式，从而只消费来自本地区域的数据，或者订阅来自所有区域的主题，以获取完整的数据集。
+- en: MirrorMaker periodically checks for new topics in the source cluster and starts
+    mirroring these topics automatically if they match the configured patterns. If
+    more partitions are added to the source topic, the same number of partitions is
+    automatically added to the target topic, ensuring that events in the source topic
+    appear in the same partitions in the same order in the target topic.
+  id: totrans-137
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker定期检查源集群中的新主题，并在它们匹配配置的模式时自动开始镜像这些主题。如果源主题添加了更多的分区，相同数量的分区将自动添加到目标主题，确保源主题中的事件以相同的顺序出现在目标主题的相同分区中。
+- en: Consumer offset migration
+  id: totrans-138
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消费者偏移迁移
+- en: MirrorMaker contains a utility class `RemoteClusterUtils` to enable consumers
+    to seek to the last checkpointed offset in a DR cluster with offset translation
+    when failing over from a primary cluster. Support for periodic migration of consumer
+    offsets was added in 2.7.0 to automatically commit translated offsets to the target
+    `__consumer_offsets` topic so that consumers switching to a DR cluster can restart
+    from where they left off in the primary cluster with no data loss and minimal
+    duplicate processing. Consumer groups for which offsets are migrated can be customized,
+    and for added protection, MirrorMaker does not overwrite offsets if consumers
+    on the target cluster are actively using the target consumer group, thus avoiding
+    any accidental conflicts.
+  id: totrans-139
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker包含一个名为`RemoteClusterUtils`的实用类，以便消费者在从主集群故障转移时进行偏移转换，以便定位到DR集群中最后一次检查的偏移。在2.7.0中添加了对消费者偏移的定期迁移支持，以自动提交转换后的偏移到目标`__consumer_offsets`主题，以便切换到DR集群的消费者可以从主集群中离开的地方重新开始，而不会丢失数据并且最小化重复处理。可以自定义迁移偏移的消费者组，并且为了增加保护，MirrorMaker不会覆盖偏移，如果目标集群上的消费者正在积极使用目标消费者组，从而避免任何意外冲突。
+- en: Topic configuration and ACL migration
+  id: totrans-140
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 主题配置和ACL迁移
+- en: In addition to mirroring data records, MirrorMaker may be configured to mirror
+    topic configuration and access control lists (ACLs) of the topics to retain the
+    same behavior for the mirrored topic. The default configuration enables this migration
+    with reasonable periodic refresh intervals that may be sufficient in most cases.
+    Most of the topic configuration settings from the source are applied to the target
+    topic, but a few like `min.insync.replicas` are not applied by default. The list
+    of excluded configs can be customized.
+  id: totrans-141
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了镜像数据记录，MirrorMaker还可以配置为镜像主题配置和主题的访问控制列表（ACL），以保留镜像主题的相同行为。默认配置启用了合理的周期性刷新间隔，这在大多数情况下可能已经足够了。源主题的大多数主题配置设置都会应用到目标主题上，但像`min.insync.replicas`这样的一些设置默认情况下不会应用。排除配置的列表可以进行自定义。
+- en: Only literal topic ACLs that match topics being mirrored are migrated, so if
+    you are using prefixed or wildcard ACLs or alternative authorization mechanisms,
+    you will need to configure those on the target cluster explicitly. ACLs for `Topic:Write`
+    are not migrated to ensure that only MirrorMaker is allowed to write to the target
+    topic. Appropriate access must be explicitly granted at the time of failover to
+    ensure that applications work with the secondary cluster.
+  id: totrans-142
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有与被镜像的主题匹配的文字主题ACL才会被迁移，因此如果您使用了前缀或通配符ACL或替代授权机制，您需要在目标集群上明确配置这些内容。`Topic:Write`的ACL不会被迁移，以确保只有MirrorMaker被允许写入目标主题。在故障转移时必须明确授予适当的访问权限，以确保应用程序能够与辅助集群一起工作。
+- en: Connector tasks
+  id: totrans-143
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 连接器任务
+- en: The configuration option `tasks.max` limits the maximum number of tasks that
+    the connector associated with MirrorMaker may use. The default is 1, but a minimum
+    of 2 is recommended. When replicating a lot of topic partitions, higher values
+    should be used if possible to increase parallelism.
+  id: totrans-144
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置选项`tasks.max`限制了与MirrorMaker关联的连接器可能使用的最大任务数。默认值为1，但建议至少为2。当复制大量主题分区时，如果可能的话应该使用更高的值以增加并行性。
+- en: Configuration prefixes
+  id: totrans-145
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 配置前缀
+- en: 'MirrorMaker supports customization of configuration options for all its components,
+    including connectors, producers, consumers, and admin clients. Kafka Connect and
+    connector configs can be specified without any prefix. But since MirrorMaker configuration
+    can include configuration for multiple clusters, prefixes can be used to specify
+    cluster-specific configs or configs for a particular replication flow. As we saw
+    in the example earlier, clusters are identified using aliases that are used as
+    a configuration prefix for options related to that cluster. Prefixes can be used
+    to build a hierarchical configuration, with the more specific prefixed configuration
+    having higher precedence than the less specific or nonprefixed configuration.
+    MirrorMaker uses the following prefixes:'
+  id: totrans-146
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker支持对其所有组件（包括连接器、生产者、消费者和管理客户端）的配置选项进行自定义。Kafka Connect和连接器配置可以在没有任何前缀的情况下指定。但由于MirrorMaker配置可以包括多个集群的配置，因此可以使用前缀来指定特定于集群的配置或特定复制流的配置。正如我们之前在示例中看到的那样，集群使用别名来标识，这些别名用作与该集群相关的选项的配置前缀。前缀可用于构建分层配置，具有更具体前缀的配置优先级高于不太具体或无前缀的配置。MirrorMaker使用以下前缀：
+- en: '{cluster}.{connector_config}'
+  id: totrans-147
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '{cluster}.{connector_config}'
+- en: '{cluster}.admin.{admin_config}'
+  id: totrans-148
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '{cluster}.admin.{admin_config}'
+- en: '{source_cluster}.consumer.{consumer_config}'
+  id: totrans-149
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '{source_cluster}.consumer.{consumer_config}'
+- en: '{target_cluster}.producer.{producer_config}'
+  id: totrans-150
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '{target_cluster}.producer.{producer_config}'
+- en: '{source_cluster}->{target_cluster}.{replication_flow_config}'
+  id: totrans-151
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '{source_cluster}->{target_cluster}.{replication_flow_config}'
+- en: Multicluster Replication Topology
+  id: totrans-152
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 多集群复制拓扑
+- en: We have seen an example configuration for a simple active-standby replication
+    flow for MirrorMaker. Now let’s look at extending the configuration to support
+    other common architectural patterns.
+  id: totrans-153
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们已经看到了一个简单的主动-备用复制流的MirrorMaker示例配置。现在让我们看一下如何扩展配置以支持其他常见的架构模式。
+- en: 'Active-active topology between New York and London can be configured by enabling
+    replication flow in both directions. In this case, even though all topics from
+    NYC are mirrored to LON and vice versa, MirrorMaker ensures that the same event
+    isn’t constantly mirrored back and forth between the pair of clusters since remote
+    topics use the cluster alias as the prefix. It is good practice to use the same
+    configuration file that contains the full replication topology for different MirrorMaker
+    processes since it avoids conflicts when configs are shared using the internal
+    configs topic in the target datacenter. MirrorMaker processes can be started in
+    the target datacenter using the shared configuration file by specifying the target
+    cluster when starting the MirrorMaker process using the `--clusters` option:'
+  id: totrans-154
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过在两个方向上启用复制流，可以配置纽约和伦敦之间的主动-主动拓扑。在这种情况下，即使从NYC的所有主题都被镜像到LON，反之亦然，MirrorMaker确保相同的事件不会在一对集群之间不断地来回镜像，因为远程主题使用集群别名作为前缀。最佳做法是使用包含完整复制拓扑的相同配置文件来为不同的MirrorMaker进程进行配置，因为这样可以避免在目标数据中心使用内部配置主题共享配置时出现冲突。可以通过使用`--clusters`选项在目标数据中心启动MirrorMaker进程时使用共享配置文件来指定目标集群：
+- en: '[PRE3]'
+  id: totrans-155
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE3]'
+- en: '[![1](assets/1.png)](#co_cross_cluster_data_mirroring_CO2-1)'
+  id: totrans-156
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_cross_cluster_data_mirroring_CO2-1)'
+- en: Enable replication from New York to London.
+  id: totrans-157
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从纽约到伦敦启用复制。
+- en: '[![2](assets/2.png)](#co_cross_cluster_data_mirroring_CO2-2)'
+  id: totrans-158
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_cross_cluster_data_mirroring_CO2-2)'
+- en: Specify topics that are replicated from New York to London.
+  id: totrans-159
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指定从纽约到伦敦复制的主题。
+- en: '[![3](assets/3.png)](#co_cross_cluster_data_mirroring_CO2-3)'
+  id: totrans-160
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![3](assets/3.png)](#co_cross_cluster_data_mirroring_CO2-3)'
+- en: Enable replication from London to New York.
+  id: totrans-161
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 从伦敦到纽约启用复制。
+- en: '[![4](assets/4.png)](#co_cross_cluster_data_mirroring_CO2-4)'
+  id: totrans-162
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![4](assets/4.png)](#co_cross_cluster_data_mirroring_CO2-4)'
+- en: Specify topics that are replicated from London to New York.
+  id: totrans-163
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 指定从伦敦到纽约复制的主题。
+- en: 'More replication flows with additional source or target clusters can also be
+    added to the topology. For example, we can extend the configuration to support
+    the fan out from NYC to SF and LON by adding a new replication flow for SF:'
+  id: totrans-164
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还可以向拓扑中添加具有额外源或目标集群的更多复制流。例如，可以通过为SF添加新的复制流来扩展配置，以支持从NYC到SF和LON的扇出：
+- en: '[PRE4]'
+  id: totrans-165
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE4]'
+- en: Securing MirrorMaker
+  id: totrans-166
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 保护MirrorMaker
+- en: 'For production clusters, it is important to ensure that all cross-datacenter
+    traffic is secure. Options for securing Kafka clusters are described in [Chapter 11](ch11.html#securing_kafka).
+    MirrorMaker must be configured to use a secure broker listener in both source
+    and target clusters, and client-side security options for each cluster must be
+    configured for MirrorMaker to enable it to establish authenticated connections.
+    SSL should be used to encrypt all cross-datacenter traffic. For example, the following
+    configuration may be used to configure credentials for MirrorMaker:'
+  id: totrans-167
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于生产集群，确保所有跨数据中心流量都是安全的非常重要。用于保护Kafka集群的选项在[第11章](ch11.html#securing_kafka)中有描述。MirrorMaker必须配置为在源和目标集群中使用安全代理侦听器，并且必须为MirrorMaker配置每个集群的客户端端安全选项，以使其能够建立经过身份验证的连接。应使用SSL加密所有跨数据中心流量。例如，可以使用以下配置来配置MirrorMaker的凭据：
+- en: '[PRE5]'
+  id: totrans-168
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE5]'
+- en: '[![1](assets/1.png)](#co_cross_cluster_data_mirroring_CO3-1)'
+  id: totrans-169
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![1](assets/1.png)](#co_cross_cluster_data_mirroring_CO3-1)'
+- en: Security protocol should match that of the broker listener corresponding to
+    the bootstrap servers specified for the cluster. `SSL` or `SASL_SSL` is recommended.
+  id: totrans-170
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 安全协议应与为集群指定的引导服务器对应的代理侦听器的安全协议相匹配。建议使用`SSL`或`SASL_SSL`。
+- en: '[![2](assets/2.png)](#co_cross_cluster_data_mirroring_CO3-2)'
+  id: totrans-171
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '[![2](assets/2.png)](#co_cross_cluster_data_mirroring_CO3-2)'
+- en: Credentials for MirrorMaker are specified here using JAAS configuration since
+    SASL is used. For SSL, keystores should be specified if mutual client authentication
+    is enabled.
+  id: totrans-172
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在这里使用JAAS配置指定了MirrorMaker的凭据，因为使用了SASL。对于SSL，如果启用了相互客户端身份验证，则应指定密钥库。
+- en: 'The principal associated with MirrorMaker must also be granted appropriate
+    permissions on the source and target clusters if authorization is enabled on the
+    clusters. ACLs must be granted for the MirrorMaker process for:'
+  id: totrans-173
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果集群上启用了授权，则还必须为MirrorMaker关联的主体在源和目标集群上授予适当的权限。必须为MirrorMaker进程授予ACL，以用于：
+- en: '`Topic:Read` on the source cluster to consume from source topics; `Topic:Create`
+    and `Topic:Write` on the target cluster to create and produce to target topics.'
+  id: totrans-174
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在源集群上使用`Topic:Read`从源主题消费；在目标集群上使用`Topic:Create`和`Topic:Write`创建和生产到目标主题。
+- en: '`Topic:DescribeConfigs` on the source cluster to obtain source topic configuration;
+    `Topic:AlterConfigs` on the target cluster to update target topic configuration.'
+  id: totrans-175
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在源集群上使用`Topic:DescribeConfigs`获取源主题配置；在目标集群上使用`Topic:AlterConfigs`更新目标主题配置。
+- en: '`Topic:Alter` on the target cluster to add partitions if new source partitions
+    are detected.'
+  id: totrans-176
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在目标集群上使用`Topic:Alter`添加分区，如果检测到新的源分区。
+- en: '`Group:Describe` on the source cluster to obtain source consumer group metadata,
+    including offsets; `Group:Read` on the target cluster to commit offsets for those
+    groups in the target cluster.'
+  id: totrans-177
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在源集群上使用`Group:Describe`获取源消费者组元数据，包括偏移量；在目标集群上使用`Group:Read`提交这些消费者组在目标集群中的偏移量。
+- en: '`Cluster:Describe` on the source cluster to obtain source topic ACLs; `Cluster:Alter`
+    on the target cluster to update the target topic ACLs.'
+  id: totrans-178
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在源集群上使用`Cluster:Describe`获取源主题ACL；在目标集群上使用`Cluster:Alter`更新目标主题ACL。
+- en: '`Topic:Create` and `Topic:Write` permissions for internal MirrorMaker topics
+    in the source and target clusters.'
+  id: totrans-179
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 在源和目标集群中为内部MirrorMaker主题授予`Topic:Create`和`Topic:Write`权限。
+- en: Deploying MirrorMaker in Production
+  id: totrans-180
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 在生产环境中部署MirrorMaker
+- en: In the previous example, we started MirrorMaker in dedicated mode on the command
+    line. You can start any number of these processes to form a dedicated MirrorMaker
+    cluster that is scalable and fault-tolerant. The processes mirroring to the same
+    cluster will find each other and balance load between them automatically. Usually
+    when running MirrorMaker in a production environment, you will want to run MirrorMaker
+    as a service, running in the background with `nohup` and redirecting its console
+    output to a log file. The tool also has `-daemon` as a command-line option that
+    should do that for you. Most companies that use MirrorMaker have their own startup
+    scripts that also include the configuration parameters they use. Production deployment
+    systems like Ansible, Puppet, Chef, and Salt are often used to automate deployment
+    and manage the many configuration options. MirrorMaker may also be run inside
+    a Docker container. MirrorMaker is completely stateless and doesn’t require any
+    disk storage (all the data and state are stored in Kafka itself).
+  id: totrans-181
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前面的示例中，我们在命令行上以专用模式启动了MirrorMaker。您可以启动任意数量的这些进程，以形成一个可扩展和容错的专用MirrorMaker集群。向同一集群镜像的进程将自动找到彼此并在它们之间自动平衡负载。通常在生产环境中运行MirrorMaker时，您将希望将MirrorMaker作为服务运行，后台运行，并将其控制台输出重定向到日志文件。该工具还具有`-daemon`作为命令行选项，应该为您执行这些操作。大多数使用MirrorMaker的公司都有自己的启动脚本，其中还包括他们使用的配置参数。生产部署系统如Ansible、Puppet、Chef和Salt通常用于自动化部署和管理许多配置选项。MirrorMaker也可以在Docker容器中运行。MirrorMaker是完全无状态的，不需要任何磁盘存储（所有数据和状态都存储在Kafka本身）。
+- en: Since MirrorMaker is based on Kafka Connect, all deployment modes of Connect
+    can be used with MirrorMaker. Standalone mode may be used for development and
+    testing where MirrorMaker runs as a standalone Connect worker on a single machine.
+    MirrorMaker may also be run as a connector in an existing distributed Connect
+    cluster by explicitly configuring the connectors. For production use, we recommend
+    running MirrorMaker in distributed mode either as a dedicated MirrorMaker cluster
+    or in a shared distributed Connect cluster.
+  id: totrans-182
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于MirrorMaker基于Kafka Connect，所有Connect的部署模式都可以与MirrorMaker一起使用。独立模式可用于MirrorMaker在单台机器上作为独立的Connect工作进程运行的开发和测试。MirrorMaker也可以作为现有分布式Connect集群中的连接器运行，通过显式配置连接器。对于生产使用，我们建议以分布式模式运行MirrorMaker，可以作为专用MirrorMaker集群或共享的分布式Connect集群。
+- en: If at all possible, run MirrorMaker at the target datacenter. So, if you are
+    sending data from NYC to SF, MirrorMaker should run in SF and consume data across
+    the US from NYC. The reason for this is that long-distance networks can be a bit
+    less reliable than those inside a datacenter. If there is a network partition
+    and you lose connectivity between the datacenters, having a consumer that is unable
+    to connect to a cluster is much safer than a producer that can’t connect. If the
+    consumer can’t connect, it simply won’t be able to read events, but the events
+    will still be stored in the source Kafka cluster and can remain there for a long
+    time. There is no risk of losing events. On the other hand, if the events were
+    already consumed and MirrorMaker can’t produce them due to network partition,
+    there is always a risk that these events will accidentally get lost by MirrorMaker.
+    So, remote consuming is safer than remote producing.
+  id: totrans-183
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果可能的话，在目标数据中心运行MirrorMaker。因此，如果你从纽约发送数据到旧金山，MirrorMaker应该在旧金山运行，并从纽约跨越美国消费数据。这样做的原因是远程网络可能比数据中心内部的网络不太可靠。如果发生网络分区并且在数据中心之间失去连接，有一个无法连接到集群的消费者要比无法连接的生产者更安全。如果消费者无法连接，它就无法读取事件，但事件仍将存储在源Kafka集群中，并且可以在那里保留很长时间。不会有丢失事件的风险。另一方面，如果事件已经被消费并且MirrorMaker由于网络分区而无法生产它们，那么这些事件有可能会被MirrorMaker意外丢失。因此，远程消费比远程生产更安全。
+- en: When do you have to consume locally and produce remotely? The answer is when
+    you need to encrypt the data while it is transferred between the datacenters but
+    you don’t need to encrypt the data inside the datacenter. Consumers take a significant
+    performance hit when connecting to Kafka with SSL encryption—much more so than
+    producers. This is because use of SSL requires copying data for encryption, which
+    means consumers no longer enjoy the performance benefits of the usual zero-copy
+    optimization. And this performance hit also affects the Kafka brokers themselves.
+    If your cross datacenter traffic requires encryption, but local traffic does not,
+    then you may be better off placing MirrorMaker at the source datacenter, having
+    it consume unencrypted data locally, and then producing it to the remote datacenter
+    through an SSL encrypted connection. This way, the producer connects to Kafka
+    with SSL but not the consumer, which doesn’t impact performance as much. If you
+    use this consume locally and produce remotely approach, make sure MirrorMaker’s
+    Connect producer is configured to never lose events by configuring it with `acks=all`
+    and a sufficient number of retries. Also, configure MirrorMaker to fail fast using
+    `errors.tolerance=none` when it fails to send events, which is typically safer
+    to do than to continue and risk data loss. Note that newer versions of Java have
+    significantly increased SSL performance, so producing locally and consuming remotely
+    may be a viable option even with encryption.
+  id: totrans-184
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 何时必须在本地消费并远程生产？答案是当您需要在数据中心之间传输数据时加密数据，但您不需要在数据中心内加密数据时。消费者在使用SSL加密连接到Kafka时会受到显着的性能影响——比生产者更多。这是因为使用SSL需要复制数据进行加密，这意味着消费者不再享受通常的零拷贝优化的性能优势。这种性能影响也会影响Kafka代理本身。如果您的跨数据中心流量需要加密，但本地流量不需要，那么您可能最好将MirrorMaker放置在源数据中心，让它在本地消费未加密的数据，然后通过SSL加密连接将其生产到远程数据中心。这样，生产者使用SSL连接到Kafka，但消费者不会受到太大的性能影响。如果您使用这种本地消费和远程生产的方法，请确保MirrorMaker的Connect生产者配置为通过配置`acks=all`和足够数量的重试来永远不会丢失事件。此外，当无法发送事件时，配置MirrorMaker使用`errors.tolerance=none`来快速失败，这通常比继续并冒着数据丢失的风险更安全。请注意，较新版本的Java具有显着提高的SSL性能，因此即使使用加密，本地生产和远程消费也可能是一个可行的选项。
+- en: Another case where we may need to produce remotely and consume locally is a
+    hybrid scenario when mirroring from an on-premises cluster to a cloud cluster.
+    Secure on-premises clusters are likely to be behind a firewall that doesn’t allow
+    incoming connections from the cloud. Running MirrorMaker on premise allows all
+    connections to be from on premises to the cloud.
+  id: totrans-185
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一个可能需要远程生产和本地消费的情况是混合场景，当从本地集群到云集群进行镜像时。安全的本地集群可能落后于不允许来自云端的传入连接的防火墙。在本地运行MirrorMaker允许所有连接都是从本地到云端。
+- en: 'When deploying MirrorMaker in production, it is important to remember to monitor
+    it as follows:'
+  id: totrans-186
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在生产环境中部署MirrorMaker时，重要的是要记住要监视它如下：
+- en: Kafka Connect monitoring
+  id: totrans-187
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka Connect监控
+- en: Kafka Connect provides a wide range of metrics to monitor different aspects
+    like connector metrics to monitor connector status, source connector metrics to
+    monitor throughout, and worker metrics to monitor rebalance delays. Connect also
+    provides a REST API to view and manage connectors.
+  id: totrans-188
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Kafka Connect提供了广泛的指标来监控不同方面，如连接器指标用于监控连接器状态，源连接器指标用于监控吞吐量，工作器指标用于监控重新平衡延迟。Connect还提供了一个REST
+    API来查看和管理连接器。
+- en: MirrorMaker metrics monitoring
+  id: totrans-189
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker指标监控
+- en: In addition to metrics from Connect, MirrorMaker adds metrics to monitor mirroring
+    throughput and replication latency. The replication latency metric `replication-latency-ms`
+    shows the time interval between the record timestamp and the time at which the
+    record was successfully produced to the target cluster. This is useful to detect
+    if the target is not keeping up with the source in a timely manner. Increased
+    latency during peak hours may be OK if there is sufficient capacity to catch up
+    later, but sustained increase in latency may indicate insufficient capacity. Other
+    metrics like `record-age-ms`, which shows the age of records at the time of replication,
+    `byte-rate`, which shows replication throughout, and `checkpoint-latency-ms`,
+    which shows offset migration latency, can also be very useful. MirrorMaker also
+    emits periodic heartbeats by default, which can be used to monitor its health.
+  id: totrans-190
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 除了来自Connect的指标外，MirrorMaker还添加了用于监控镜像吞吐量和复制延迟的指标。复制延迟指标`replication-latency-ms`显示记录时间戳和成功生产到目标集群的时间之间的时间间隔。这对于检测目标是否及时跟上源是很有用的。在高峰时段增加的延迟可能是可以接受的，如果有足够的容量来稍后赶上，但持续增加的延迟可能表明容量不足。其他指标，如`record-age-ms`（显示复制时记录的年龄）、`byte-rate`（显示复制吞吐量）和`checkpoint-latency-ms`（显示偏移迁移延迟）也可能非常有用。MirrorMaker还默认定期发出心跳，可用于监视其健康状况。
+- en: Lag monitoring
+  id: totrans-191
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 滞后监控
+- en: You will definitely want to know if the target cluster is falling behind the
+    source. The lag is the difference in offsets between the latest message in the
+    source Kafka cluster and the latest message in the target cluster. See [Figure 10-7](#fig0807).
+  id: totrans-192
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 您肯定会想知道目标集群是否落后于源集群。滞后是源Kafka集群中最新消息与目标集群中最新消息之间偏移量的差异。请参阅[图10-7](#fig0807)。
+- en: '![kdg2 1007](assets/kdg2_1007.png)'
+  id: totrans-193
+  prefs: []
+  type: TYPE_IMG
+  zh: '![kdg2 1007](assets/kdg2_1007.png)'
+- en: Figure 10-7\. Monitoring the lag difference in offsets
+  id: totrans-194
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 图10-7。监控偏移量差异的滞后
+- en: In [Figure 10-7](#fig0807), the last offset in the source cluster is 7, and
+    the last offset in the target is 5—meaning there is a lag of 2 messages.
+  id: totrans-195
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在[图10-7](#fig0807)中，源集群中的最后偏移量为7，目标集群中的最后偏移量为5，意味着有2条消息的滞后。
+- en: 'There are two ways to track this lag, and neither is perfect:'
+  id: totrans-196
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 有两种方法可以跟踪这种滞后，但都不是完美的：
+- en: Check the latest offset committed by MirrorMaker to the source Kafka cluster.
+    You can use the `kafka-consumer-groups` tool to check for each partition MirrorMaker
+    is reading— the offset of the last event in the partition, the last offset MirrorMaker
+    committed, and the lag between them. This indicator is not 100% accurate because
+    MirrorMaker doesn’t commit offsets all the time. It commits offsets every minute
+    by default, so you will see the lag grow for a minute and then suddenly drop.
+    In the diagram, the real lag is 2, but the `kafka-consumer-groups` tool will report
+    a lag of 5 because MirrorMaker hasn’t committed offsets for more recent messages
+    yet. LinkedIn’s Burrow monitors the same information but has a more sophisticated
+    method to determine whether the lag represents a real problem, so you won’t get
+    false alerts.
+  id: totrans-197
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 检查MirrorMaker提交到源Kafka集群的最新偏移量。您可以使用`kafka-consumer-groups`工具来检查MirrorMaker正在读取的每个分区的偏移量
+    - 分区中最后一个事件的偏移量，MirrorMaker提交的最后一个偏移量以及它们之间的滞后。这个指标并不是100%准确，因为MirrorMaker并不总是提交偏移量。它默认每分钟提交一次偏移量，所以你会看到滞后在一分钟内增长，然后突然下降。在图表中，实际滞后是2，但`kafka-consumer-groups`工具将报告滞后为5，因为MirrorMaker尚未提交更近期的消息的偏移量。LinkedIn的Burrow监视相同的信息，但有一种更复杂的方法来确定滞后是否代表真正的问题，因此您不会收到错误警报。
+- en: Check the latest offset read by MirrorMaker (even if it isn’t committed). The
+    consumers embedded in MirrorMaker publish key metrics in JMX. One of them is the
+    consumer maximum lag (over all the partitions it is consuming). This lag is also
+    not 100% accurate because it is updated based on what the consumer read but doesn’t
+    take into account whether the producer managed to send those messages to the destination
+    Kafka cluster and whether they were acknowledged successfully. In this example,
+    the MirrorMaker consumer will report a lag of 1 message rather than 2, because
+    it already read message 6—even though the message wasn’t produced to the destination
+    yet.
+  id: totrans-198
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: '检查MirrorMaker读取的最新偏移量（即使没有提交）。MirrorMaker嵌入的消费者在JMX中发布关键指标。其中之一是消费者的最大滞后（在它正在消费的所有分区上）。这个滞后也不是100%准确，因为它是基于消费者读取的内容更新的，但并不考虑生产者是否成功将这些消息发送到目标Kafka集群以及它们是否被成功确认。在这个例子中，MirrorMaker消费者将报告1条消息的滞后，而不是2条，因为它已经读取了消息6
+    - 即使消息尚未被生产到目标。 '
+- en: Note that if MirrorMaker skips or drops messages, neither method will detect
+    an issue because they just track the latest offset. [Confluent Control Center](https://oreil.ly/KnvVV)
+    is a commercial tool that monitors message counts and checksums and closes this
+    monitoring gap.
+  id: totrans-199
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，如果MirrorMaker跳过或丢弃消息，这两种方法都无法检测到问题，因为它们只跟踪最新的偏移量。[Confluent Control Center](https://oreil.ly/KnvVV)是一个商业工具，用于监视消息计数和校验和，并弥补了这一监控差距。
+- en: Producer and consumer metrics monitoring
+  id: totrans-200
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产者和消费者指标监控
+- en: 'The Kafka Connect framework used by MirrorMaker contains a producer and a consumer.
+    Both have many available metrics, and we recommend collecting and tracking them.
+    The [Kafka documentation](http://bit.ly/2sMfZWf) lists all the available metrics.
+    Here are a few metrics that are useful in tuning MirrorMaker performance:'
+  id: totrans-201
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker使用的Kafka Connect框架包含生产者和消费者。两者都有许多可用的指标，我们建议收集和跟踪它们。[Kafka文档](http://bit.ly/2sMfZWf)列出了所有可用的指标。以下是一些有用于调整MirrorMaker性能的指标：
+- en: Consumer
+  id: totrans-202
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 消费者
+- en: '`fetch-size-avg`, `fetch-size-max`, `fetch-rate`, `fetch-throttle-time-avg`,
+    and `fetch-throttle-time-max`'
+  id: totrans-203
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fetch-size-avg`、`fetch-size-max`、`fetch-rate`、`fetch-throttle-time-avg`和`fetch-throttle-time-max`'
+- en: Producer
+  id: totrans-204
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 生产者
+- en: '`batch-size-avg`, `batch-size-max`, `requests-in-flight`, and `record-retry-rate`'
+  id: totrans-205
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`batch-size-avg`、`batch-size-max`、`requests-in-flight`和`record-retry-rate`'
+- en: Both
+  id: totrans-206
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 两者
+- en: '`io-ratio` and `io-wait-ratio`'
+  id: totrans-207
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`io-ratio`和`io-wait-ratio`'
+- en: Canary
+  id: totrans-208
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 金丝雀
+- en: If you monitor everything else, a canary isn’t strictly necessary, but we like
+    to add it in for multiple layers of monitoring. It provides a process that, every
+    minute, sends an event to a special topic in the source cluster and tries to read
+    the event from the destination cluster. It also alerts you if the event takes
+    more than an acceptable amount of time to arrive. This can mean that MirrorMaker
+    is lagging or that it isn’t available at all.
+  id: totrans-209
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您监控其他所有内容，那么金丝雀并不是绝对必要的，但我们喜欢添加它以进行多层监控。它提供了一个进程，每分钟向源集群的一个特殊主题发送一个事件，并尝试从目标集群读取该事件。如果事件到达所需的时间超过可接受的时间，它还会向您发出警报。这可能意味着MirrorMaker滞后，或者根本不可用。
+- en: Tuning MirrorMaker
+  id: totrans-210
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 调整MirrorMaker
+- en: MirrorMaker is horizontally scalable. Sizing of the MirrorMaker cluster depends
+    on the throughput you need and the lag you can tolerate. If you can’t tolerate
+    any lag, you have to size MirrorMaker with enough capacity to keep up with your
+    top throughput. If you can tolerate some lag, you can size MirrorMaker to be 75–80%
+    utilized 95–99% of the time. Then, expect some lag to develop when you are at
+    peak throughput. Because MirrorMaker has spare capacity most of the time, it will
+    catch up once the peak is over.
+  id: totrans-211
+  prefs: []
+  type: TYPE_NORMAL
+  zh: MirrorMaker是横向可扩展的。MirrorMaker集群的大小取决于您需要的吞吐量和可以容忍的滞后。如果不能容忍任何滞后，您必须为MirrorMaker分配足够的容量，以跟上您的最高吞吐量。如果可以容忍一些滞后，您可以将MirrorMaker的大小设置为95-99%的时间内使用75-80%的利用率。然后，在达到最大吞吐量时，预计会出现一些滞后。因为MirrorMaker大部分时间都有多余的容量，一旦高峰过去，它就会赶上来。
+- en: Then you want to measure the throughput you get from MirrorMaker with a different
+    number of connector tasks—configured with the `tasks.max` parameter. This depends
+    a lot on your hardware, datacenter, or cloud provider, so you will want to run
+    your own tests. Kafka ships with the `kafka-performance-producer` tool. Use it
+    to generate load on a source cluster and then connect MirrorMaker and start mirroring
+    this load. Test MirrorMaker with 1, 2, 4, 8, 16, 24, and 32 tasks. Watch where
+    performance tapers off and set `tasks.max` just below this point. If you are consuming
+    or producing compressed events (recommended, since bandwidth is the main bottleneck
+    for cross-datacenter mirroring), MirrorMaker will have to decompress and recompress
+    the events. This uses a lot of CPU, so keep an eye on CPU utilization as you increase
+    the number of tasks. Using this process, you will find the maximum throughput
+    you can get with a single MirrorMaker worker. If it is not enough, you will want
+    to experiment with additional workers. If you are running MirrorMaker on an existing
+    Connect cluster with other connectors, make sure you also take the load from those
+    connectors into account when sizing the cluster.
+  id: totrans-212
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，您需要测量使用不同数量的连接器任务（使用`tasks.max`参数配置）从MirrorMaker获得的吞吐量。这在很大程度上取决于您的硬件、数据中心或云提供商，因此您需要进行自己的测试。Kafka附带了`kafka-performance-producer`工具。使用它在源集群上生成负载，然后连接MirrorMaker并开始镜像此负载。使用1、2、4、8、16、24和32个任务测试MirrorMaker。观察性能何时下降，并将`tasks.max`设置为略低于此点。如果您正在消费或生产压缩事件（建议这样做，因为带宽是跨数据中心镜像的主要瓶颈），MirrorMaker将不得不解压缩和重新压缩事件。这会消耗大量CPU，因此随着任务数量的增加，要密切关注CPU利用率。使用此过程，您将找到单个MirrorMaker工作程序可以获得的最大吞吐量。如果不够，您需要尝试使用额外的工作程序。如果您在现有的Connect集群上运行MirrorMaker，并且有其他连接器，请确保在调整集群大小时也考虑这些连接器的负载。
+- en: In addition, you may want to separate sensitive topics—those that absolutely
+    require low latency and where the mirror must be as close to the source as possible—to
+    a separate MirrorMaker cluster. This will prevent a bloated topic or an out-of-control
+    producer from slowing down your most sensitive data pipeline.
+  id: totrans-213
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，您可能希望将敏感主题（绝对需要低延迟并且镜像必须尽可能接近源的主题）分开到一个单独的MirrorMaker集群。这将防止膨胀的主题或失控的生产者拖慢最敏感的数据管道。
+- en: This is pretty much all the tuning you can do to MirrorMaker itself. However,
+    you can still increase the throughput of each task and each MirrorMaker worker.
+  id: totrans-214
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这基本上是您可以对MirrorMaker本身进行的所有调整。但是，您仍然可以增加每个任务和每个MirrorMaker工作程序的吞吐量。
+- en: 'If you are running MirrorMaker across datacenters, tuning the TCP stack can
+    help to increase the effective bandwidth. In Chapters [3](ch03.html#writing_messages_to_kafka)
+    and [4](ch04.html#reading_data_from_kafka), we saw that TCP buffer sizes can be
+    configured for producers and consumers using `send.buffer.bytes` and `receive.buffer.bytes`.
+    Similarly, broker-side buffer sizes can be configured using `socket.send.buffer.bytes`
+    and `socket.receive.buffer.bytes` on brokers. These configuration options should
+    be combined with optimization of the network configuration in Linux, as follows:'
+  id: totrans-215
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在数据中心之间运行MirrorMaker，则调整TCP堆栈可以帮助增加有效带宽。在第3章和第4章中，我们看到TCP缓冲区大小可以使用`send.buffer.bytes`和`receive.buffer.bytes`为生产者和消费者进行配置。同样，经纪人端的缓冲区大小可以使用经纪人上的`socket.send.buffer.bytes`和`socket.receive.buffer.bytes`进行配置。这些配置选项应与Linux中的网络配置优化相结合，如下所示：
+- en: Increase the TCP buffer size (`net.core.rmem_default`, `net.core.rmem_max`,
+    `net.core.wmem_default`, `net.core.wmem_max`, and `net.core.optmem_max`)
+  id: totrans-216
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 增加TCP缓冲区大小（`net.core.rmem_default`，`net.core.rmem_max`，`net.core.wmem_default`，`net.core.wmem_max`和`net.core.optmem_max`）
+- en: Enable automatic window scaling (`sysctl –w net.ipv4.tcp_window_scaling=1 or
+    add net.ipv4.tcp_window_scaling=1 to /etc/sysctl.conf`)
+  id: totrans-217
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 启用自动窗口缩放（`sysctl –w net.ipv4.tcp_window_scaling=1`或将`net.ipv4.tcp_window_scaling=1`添加到`/etc/sysctl.conf`）
+- en: Reduce the TCP slow start time (set `/proc/sys/net/ipv4/tcp_slow_​start_after_idle`
+    to `0`)
+  id: totrans-218
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 减少TCP慢启动时间（将`/proc/sys/net/ipv4/tcp_slow_start_after_idle`设置为`0`）
+- en: Note that tuning the Linux network is a large and complex topic. To understand
+    more about these parameters and others, we recommend reading a network tuning
+    guide such as *Performance Tuning for Linux Servers* by Sandra K. Johnson et al.
+    (IBM Press).
+  id: totrans-219
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，调整Linux网络是一个庞大且复杂的主题。要了解更多关于这些参数和其他参数的信息，我们建议阅读《Linux服务器性能调优》（Sandra K.
+    Johnson等著，IBM Press）等网络调优指南。
+- en: In addition, you may want to tune the underlying producers and consumers of
+    MirrorMaker. First, you will want decide whether the producer or the consumer
+    is the bottleneck—is the producer waiting for the consumer to bring more data
+    or the other way around? One way to decide is to look at the producer and consumer
+    metrics you are monitoring. If one process is idle while the other is fully utilized,
+    you know which one needs tuning. Another method is to do several thread dumps
+    (using jstack) and see if the MirrorMaker threads are spending most of the time
+    in poll or in send—more time spent polling usually means the consumer is the bottleneck,
+    while more time spent sending shift points to the producer.
+  id: totrans-220
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此外，您可能希望调整MirrorMaker的基础生产者和消费者。首先，您需要决定生产者或消费者哪一个是瓶颈 - 生产者是否在等待消费者带来更多数据，还是反之亦然？决定的一种方法是查看您正在监控的生产者和消费者指标。如果一个进程处于空闲状态，而另一个进程被充分利用，您就知道哪个需要调整。另一种方法是进行几次线程转储（使用jstack），看MirrorMaker线程是否大部分时间都在poll或send中度过
+    - 大部分时间花在poll上通常意味着消费者是瓶颈，而更多时间花在发送上则指向生产者。
+- en: 'If you need to tune the producer, the following configuration settings can
+    be useful:'
+  id: totrans-221
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您需要调整生产者，以下配置设置可能会有用：
+- en: '`linger.ms` and `batch.size`'
+  id: totrans-222
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`linger.ms`和`batch.size`'
+- en: If your monitoring shows that the producer consistently sends partially empty
+    batches (i.e., `batch-size-avg` and `batch-size-max` metrics are lower than configured
+    `batch.size`), you can increase throughput by introducing a bit of latency. Increase
+    `linger.ms` and the producer will wait a few milliseconds for the batches to fill
+    up before sending them. If you are sending full batches and have memory to spare,
+    you can increase `batch.size` and send larger batches.
+  id: totrans-223
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您的监控显示生产者持续发送部分空批次（即`batch-size-avg`和`batch-size-max`指标低于配置的`batch.size`），您可以通过引入一些延迟来增加吞吐量。增加`linger.ms`，生产者将等待几毫秒，直到批次填满后再发送它们。如果您正在发送完整的批次并且有可用内存，您可以增加`batch.size`并发送更大的批次。
+- en: '`max.in.flight.requests.per.connection`'
+  id: totrans-224
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最大飞行请求数量每个连接
+- en: Limiting the number of in-flight requests to 1 is currently the only way for
+    MirrorMaker to guarantee that message ordering is preserved if some messages require
+    multiple retries before they are successfully acknowledged. But this means every
+    request that was sent by the producer has to be acknowledged by the target cluster
+    before the next message is sent. This can limit throughput, especially if there
+    is significant latency before the brokers acknowledge the messages. If message
+    order is not critical for your use case, using the default value of 5 for `max.in.flight.requests.per.connection`
+    can significantly increase your throughput.
+  id: totrans-225
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 限制每个连接的飞行请求数量为1目前是MirrorMaker保证消息顺序保持的唯一方法，如果一些消息在成功确认之前需要多次重试。但这意味着生产者发送的每个请求都必须在下一条消息发送之前由目标集群确认。这可能会限制吞吐量，特别是在代理确认消息之前存在显着的延迟的情况下。如果消息顺序对您的用例不重要，那么使用`max.in.flight.requests.per.connection`的默认值5可以显著提高吞吐量。
+- en: 'The following consumer configurations can increase throughput for the consumer:'
+  id: totrans-226
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 以下消费者配置可以增加消费者的吞吐量：
+- en: '`fetch.max.bytes`'
+  id: totrans-227
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fetch.max.bytes`'
+- en: If the metrics you are collecting show that `fetch-size-avg` and `fetch-size-max`
+    are close to the `fetch.max.bytes` configuration, the consumer is reading as much
+    data from the broker as it is allowed. If you have available memory, try increasing
+    `fetch.max.bytes` to allow the consumer to read more data in each request.
+  id: totrans-228
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您收集的指标显示`fetch-size-avg`和`fetch-size-max`接近`fetch.max.bytes`的配置，那么消费者正在从代理中读取的数据量已经达到了允许的最大值。如果有可用内存，尝试增加`fetch.max.bytes`以允许消费者在每个请求中读取更多的数据。
+- en: '`fetch.min.bytes` and `fetch.max.wait.ms`'
+  id: totrans-229
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`fetch.min.bytes`和`fetch.max.wait.ms`'
+- en: If you see in the consumer metrics that `fetch-rate` is high, the consumer is
+    sending too many requests to the brokers and not receiving enough data in each
+    request. Try increasing both `fetch.min.bytes` and `fetch.max.wait.ms` so the
+    consumer will receive more data in each request and the broker will wait until
+    enough data is available before responding to the consumer request.
+  id: totrans-230
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果您在消费者指标中看到`fetch-rate`很高，那么消费者向代理发送了太多的请求，而在每个请求中没有收到足够的数据。尝试增加`fetch.min.bytes`和`fetch.max.wait.ms`，这样消费者将在每个请求中接收更多的数据，而代理将等待足够的数据可用后再响应消费者的请求。
+- en: Other Cross-Cluster Mirroring Solutions
+  id: totrans-231
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 其他跨集群镜像解决方案
+- en: We looked in depth at MirrorMaker because this mirroring software arrives as
+    part of Apache Kafka. However, MirrorMaker also has some limitations when used
+    in practice. It is worthwhile to look at some of the alternatives to MirrorMaker
+    and the ways they address MirrorMaker limitations and complexities. We describe
+    a couple of open source solutions from Uber and LinkedIn and commercial solutions
+    from Confluent.
+  id: totrans-232
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们深入研究了MirrorMaker，因为这种镜像软件作为Apache Kafka的一部分提供。然而，在实际使用中，MirrorMaker也存在一些限制。值得看看一些替代MirrorMaker以及它们如何解决MirrorMaker的限制和复杂性的方法。我们描述了来自Uber和LinkedIn的一些开源解决方案，以及Confluent的商业解决方案。
+- en: Uber uReplicator
+  id: totrans-233
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Uber uReplicator
+- en: Uber ran legacy MirrorMaker at very large scale, and as the number of topics
+    and partitions grew and the cluster throughput increased, it started running into
+    several problems. As we saw earlier, the legacy MirrorMaker used consumers that
+    were members of a single consumer group to consume from source topics. Adding
+    MirrorMaker threads, adding MirrorMaker instances, bouncing MirrorMaker instances,
+    or even adding new topics that match the regular expression used in the inclusion
+    filter all caused consumers to rebalance. As we saw in [Chapter 4](ch04.html#reading_data_from_kafka),
+    rebalancing stops all the consumers until new partitions can be assigned to each
+    consumer. With a very large number of topics and partitions, this can take a while.
+    This is especially true when using old consumers like Uber did. In some cases,
+    this caused 5–10 minutes of inactivity, causing mirroring to fall behind and accumulate
+    a large backlog of events to mirror, which can take a long time to recover from.
+    This caused very high latency for consumers reading events from the destination
+    cluster. To avoid rebalances when someone added a topic matching the topic inclusion
+    filter, Uber decided to maintain a list of exact topic names to mirror instead
+    of using a regular expression filter. But this was hard to maintain as all MirrorMaker
+    instances had to be reconfigured and bounced to add a new topic. If not done correctly,
+    this could result in endless rebalances as the consumers won’t be able to agree
+    on the topics they subscribe to.
+  id: totrans-234
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Uber在非常大规模上运行传统的MirrorMaker，随着主题和分区数量的增加以及集群吞吐量的增加，它开始遇到了一些问题。正如我们之前所看到的，传统的MirrorMaker使用属于单个消费者组的消费者从源主题中消费。添加MirrorMaker线程，添加MirrorMaker实例，重启MirrorMaker实例，甚至添加与包含过滤器中使用的正则表达式匹配的新主题都会导致消费者重新平衡。正如我们在[第4章](ch04.html#reading_data_from_kafka)中看到的那样，重新平衡会使所有消费者停止，直到可以将新分区分配给每个消费者为止。对于非常多的主题和分区，这可能需要一段时间。当像Uber一样使用旧的消费者时，情况尤其如此。在某些情况下，这导致5-10分钟的不活动时间，导致镜像落后并积累大量待镜像的事件，这需要很长时间才能恢复。这导致了消费者从目标集群中读取事件的非常高的延迟。为了避免在有人添加与主题包含过滤器匹配的主题时重新平衡，Uber决定维护一个确切的要镜像的主题名称列表，而不是使用正则表达式过滤器。但是这很难维护，因为所有MirrorMaker实例都必须重新配置和重启以添加新主题。如果操作不正确，这可能导致无休止的重新平衡，因为消费者无法就他们订阅的主题达成一致。
+- en: Given these issues, Uber decided to write its own MirrorMaker clone, called
+    `uReplicator`. Uber decided to use Apache Helix as a central (but highly available)
+    controller to manage the topic list and the partitions assigned to each uReplicator
+    instance. Administrators use a REST API to add new topics to the list in Helix,
+    and uReplicator is responsible for assigning partitions to the different consumers.
+    To achieve this, Uber replaced the Kafka consumers used in MirrorMaker with a
+    Kafka consumer Uber engineers wrote called Helix consumer. This consumer takes
+    its partition assignment from the Apache Helix controller rather than as a result
+    of an agreement between the consumers (see [Chapter 4](ch04.html#reading_data_from_kafka)
+    for details on how this is done in Kafka). As a result, the Helix consumer can
+    avoid rebalances and instead listen to changes in the assigned partitions that
+    arrive from Helix.
+  id: totrans-235
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 考虑到这些问题，Uber决定编写自己的MirrorMaker克隆版本，称为`uReplicator`。 Uber决定使用Apache Helix作为中央（但高可用）控制器，以管理主题列表和分配给每个uReplicator实例的分区。管理员使用REST
+    API将新主题添加到Helix的列表中，uReplicator负责将分区分配给不同的消费者。为了实现这一点，Uber用称为Helix消费者的Kafka消费者替换了MirrorMaker中使用的Kafka消费者。该消费者从Apache
+    Helix控制器获取其分区分配，而不是根据消费者之间的协议达成的结果（有关在Kafka中如何完成此操作的详细信息，请参见[第4章](ch04.html#reading_data_from_kafka)）。因此，Helix消费者可以避免重新平衡，而是监听从Helix到达的分配分区的更改。
+- en: Uber engineering wrote a [blog post](https://oreil.ly/SGItx) describing the
+    architecture in more detail and showing the improvements they experienced. uReplicator’s
+    dependency on Apache Helix introduces a new component to learn and manage, adding
+    complexity to any deployment. As we saw earlier, MirrorMaker 2.0 solves many of
+    these scalability and fault-tolerance issues of legacy MirrorMaker without any
+    external dependencies.
+  id: totrans-236
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Uber工程撰写了一篇[博客文章](https://oreil.ly/SGItx)，更详细地描述了架构并展示了他们所经历的改进。uReplicator对Apache
+    Helix的依赖引入了一个新的要学习和管理的组件，增加了任何部署的复杂性。正如我们之前所看到的，MirrorMaker 2.0解决了许多传统MirrorMaker的可伸缩性和容错性问题，而没有任何外部依赖。
+- en: LinkedIn Brooklin
+  id: totrans-237
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 领英Brooklin
+- en: 'Like Uber, LinkedIn was also using legacy MirrorMaker for transferring data
+    between Kafka clusters. As the scale of the data grew, it also ran into similar
+    scalability issues and operational challenges. So LinkedIn built a mirroring solution
+    on top of its data streaming system called Brooklin. Brooklin is a distributed
+    service that can stream data between different heterogeneous data source and target
+    systems, including Kafka. As a generic data ingestion framework that can be used
+    to build data pipelines, Brooklin supports multiple use cases:'
+  id: totrans-238
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与Uber一样，LinkedIn也在使用传统的MirrorMaker在Kafka集群之间传输数据。随着数据规模的增长，它也遇到了类似的可伸缩性问题和操作挑战。因此，LinkedIn在其数据流系统Brooklin之上构建了一个镜像解决方案。Brooklin是一个分布式服务，可以在不同的异构数据源和目标系统之间流式传输数据，包括Kafka。作为一个通用的数据摄取框架，可以用来构建数据管道，Brooklin支持多种用例：
+- en: Data bridge to feed data into stream processing systems from different data
+    sources
+  id: totrans-239
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据桥将数据从不同数据源传送到流处理系统
+- en: Stream change data capture (CDC) events from different data stores
+  id: totrans-240
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 从不同数据存储中流式捕获（CDC）事件
+- en: Cross-cluster mirroring solution for Kafka
+  id: totrans-241
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: Kafka的跨集群镜像解决方案
+- en: Brooklin is a scalable distributed system designed for high reliability and
+    has been tested with Kafka at scale. It is used to mirror trillions of messages
+    a day and has been optimized for stability, performance, and operability. Brooklin
+    comes with a REST API for management operations. It is a shared service that can
+    process a large number of data pipelines, enabling the same service to mirror
+    data across multiple Kafka clusters.
+  id: totrans-242
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Brooklin是一个可伸缩的分布式系统，专为高可靠性而设计，并已经在规模上与Kafka进行了测试。它用于每天镜像数万亿条消息，并已经针对稳定性、性能和可操作性进行了优化。Brooklin配备了用于管理操作的REST
+    API。它是一个共享服务，可以处理大量的数据管道，使同一服务能够在多个Kafka集群之间镜像数据。
+- en: Confluent Cross-Datacenter Mirroring Solutions
+  id: totrans-243
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: Confluent跨数据中心镜像解决方案
+- en: At the same time that Uber developed its uReplicator, Confluent independently
+    developed Confluent Replicator. Despite the similarities in names, the projects
+    have almost nothing in common—they are different solutions to two different sets
+    of MirrorMaker problems. Like MirrorMaker 2.0, which came later, Confluent’s Replicator
+    is based on the Kafka Connect framework and was developed to address issues its
+    enterprise customers encountered when using legacy MirrorMaker to manage their
+    multicluster deployments.
+  id: totrans-244
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 与Uber同时开发其uReplicator，Confluent独立开发了Confluent Replicator。尽管名称相似，但这两个项目几乎没有任何共同之处-它们是解决两组不同MirrorMaker问题的不同解决方案。与后来推出的MirrorMaker
+    2.0一样，Confluent的Replicator基于Kafka Connect框架开发，旨在解决企业客户在使用传统MirrorMaker管理其多集群部署时遇到的问题。
+- en: For customers who use stretch clusters for their operational simplicity and
+    low RTO and RPO, Confluent added Multi-Region Cluster (MRC) as a built-in feature
+    of Confluent Server, which is a commercial component of the Confluent Platform.
+    MRC extends Kafka’s support for stretch clusters using asynchronous replicas to
+    limit impact on latency and throughput. Like stretch clusters, this is suitable
+    for replication between availability zones or regions with latencies less than
+    50 ms and benefits from transparent client failover. For distant clusters with
+    less reliable networks, a new built-in feature called Cluster Linking was added
+    to Confluent Server more recently. Cluster Linking extends Kafka’s offset-preserving
+    intra-cluster replication protocol to mirror data between clusters.
+  id: totrans-245
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于使用拉伸集群以实现操作简便性和低RTO和RPO的客户，Confluent将多区域集群（MRC）作为Confluent Server的内置功能添加到了Confluent平台的商业组件。
+    MRC通过使用异步副本来限制对延迟和吞吐率的影响，扩展了Kafka对拉伸集群的支持。与拉伸集群一样，这适用于可用性区域或延迟低于50毫秒的区域之间的复制，并受益于透明客户端故障转移。对于网络不太可靠的远程集群，最近在Confluent
+    Server中添加了一个名为Cluster Linking的新内置功能。Cluster Linking将Kafka的保留偏移量的集群内复制协议扩展到集群之间镜像数据。
+- en: 'Let’s look at the features supported by each of these solutions:'
+  id: totrans-246
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 让我们看看每个解决方案支持的功能：
+- en: Confluent Replicator
+  id: totrans-247
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Confluent复制器
+- en: Confluent Replicator is a mirroring tool similar to MirrorMaker that relies
+    on the Kafka Connect framework for cluster management and can run on existing
+    Connect clusters. Both support data replication for different topologies as well
+    as migration of consumer offsets and topic configuration. There are some differences
+    in features between the two. For example, MirrorMaker supports ACL migration and
+    offset translation for any client, but Replicator doesn’t migrate ACLs and supports
+    offset translation (using timestamp interceptor) only for Java clients. Replicator
+    doesn’t have the concept of local and remote topics like MirrorMaker, but it supports
+    aggregate topics. Like MirrorMaker, Replicator also avoids replication cycles
+    but does so using provenance headers. Replicator provides a range of metrics,
+    like replication lag, and can be monitored using its REST API or Control Center
+    UI. It also supports schema migration between clusters and can perform schema
+    translation.
+  id: totrans-248
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Confluent Replicator是一个类似于MirrorMaker的镜像工具，它依赖于Kafka Connect框架进行集群管理，并可以在现有的Connect集群上运行。两者都支持不同拓扑的数据复制，以及消费者偏移和主题配置的迁移。两者之间有一些功能上的差异。例如，MirrorMaker支持ACL迁移和任何客户端的偏移量转换，但Replicator不迁移ACL并且仅支持Java客户端的偏移量转换（使用时间戳拦截器）。Replicator没有像MirrorMaker那样的本地和远程主题的概念，但它支持聚合主题。与MirrorMaker一样，Replicator也避免了复制循环，但是使用来源头来实现。Replicator提供了一系列指标，如复制延迟，并可以使用其REST
+    API或Control Center UI进行监控。它还支持集群之间的模式迁移，并可以执行模式转换。
+- en: Multi-Region Clusters (MRC)
+  id: totrans-249
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 多区域集群（MRC）
+- en: We saw earlier that stretch clusters provide simple transparent failover and
+    failback for clients without the need for offset translation or client restarts.
+    But stretch clusters require datacenters to be close to each other and provide
+    a stable low-latency network to enable synchronous replication between datacenters.
+    MRC is also suitable only for datacenters within a 50 ms latency, but it uses
+    a combination of synchronous and asynchronous replication to limit impact on producer
+    performance and provide higher network tolerance.
+  id: totrans-250
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们之前看到，拉伸集群为客户端提供了简单透明的故障转移和故障恢复，而无需进行偏移量转换或客户端重启。但是拉伸集群要求数据中心彼此靠近，并提供稳定的低延迟网络，以实现数据中心之间的同步复制。MRC也仅适用于延迟在50毫秒内的数据中心，但它使用同步和异步复制的组合来限制对生产者性能的影响，并提供更高的网络容错性。
+- en: As we saw earlier, Apache Kafka supports fetching from followers to enable clients
+    to fetch from their closest brokers based on rack ID, thereby reducing cross-datacenter
+    traffic. Confluent Server also adds the concept of *observers*, which are asynchronous
+    replicas that do not join the ISR and hence have no impact on producers using
+    `acks=all` but are able to deliver records to consumers. Operators can configure
+    synchronous replication within a region and asynchronous replication between regions
+    to benefit from both low latency and high durability at the same time. Replica
+    placement constraints in Confluent Server allow you to specify a minimum number
+    of replicas per region using rack IDs to ensure that replicas are spread across
+    regions to guarantee durability. Confluent Platform 6.1 also adds automatic observer
+    promotion with configurable criteria, enabling fast failover without data loss
+    automatically. When `min.insync.replicas` falls below a configured minimum number
+    of synchronous replicas, observers that have caught up are automatically promoted
+    to allow them to join ISRs, bringing the number of ISRs back up to the required
+    minimum. The promoted observers use synchronous replication and may impact throughput,
+    but the cluster remains operational throughout without data loss even if a region
+    fails. When the failed region recovers, observers are automatically demoted, getting
+    the cluster back to normal performance levels.
+  id: totrans-251
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 正如我们之前所看到的，Apache Kafka支持从跟随者获取以使客户端能够基于机架ID从最近的代理获取数据，从而减少跨数据中心的流量。Confluent
+    Server还引入了*观察者*的概念，它们是异步副本，不加入ISR，因此对使用`acks=all`的生产者没有影响，但能够将记录传递给消费者。运营商可以在区域内配置同步复制和区域间的异步复制，以同时获得低延迟和高耐久性的好处。Confluent
+    Server中的副本放置约束允许您使用机架ID指定每个区域的最小副本数量，以确保副本分布在各个区域，以保证耐久性。Confluent Platform 6.1还增加了可配置标准的自动观察者晋升，实现快速故障转移而无需数据丢失。当`min.insync.replicas`低于配置的最小同步副本数量时，已追赶上的观察者将自动晋升，使它们能够加入ISR，将ISR数量恢复到所需的最小值。晋升的观察者使用同步复制，可能会影响吞吐量，但即使一个区域失败，集群仍然可以正常运行而不会丢失数据。当失败的区域恢复时，观察者会自动降级，使集群恢复到正常的性能水平。
+- en: Cluster Linking
+  id: totrans-252
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群链接
+- en: Cluster Linking, introduced as a preview feature in Confluent Platform 6.0,
+    builds inter-cluster replication directly into the Confluent Server. By using
+    the same protocol as inter-broker replication within a cluster, Cluster Linking
+    performs offset-preserving replication across clusters, enabling seamless migration
+    of clients without any need for offset translation. Topic configuration, partitions,
+    consumer offsets, and ACLs are all kept synchronized between the two clusters
+    to enable failover with low RTO if a disaster occurs. A cluster link defines the
+    configuration of a directional flow from a source cluster to a destination cluster.
+    Leader brokers of mirror partitions in the destination cluster fetch partition
+    data from the corresponding source leaders, while followers in the destination
+    replicate from their local leader using the standard replication mechanism in
+    Kafka. Mirror topics are marked as read-only in the destination to prevent any
+    local produce to these topics, ensuring that mirror topics are logically identical
+    to their source topic.
+  id: totrans-253
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群链接是Confluent Platform 6.0中作为预览功能引入的，它直接将集群间复制内置到Confluent Server中。通过使用与集群内部的broker复制相同的协议，集群链接在集群之间执行保留偏移量的复制，实现了客户端的无缝迁移，无需进行偏移量转换。主题配置、分区、消费者偏移量和ACL在两个集群之间保持同步，以便在发生灾难时实现低RTO的故障切换。集群链接定义了从源集群到目标集群的方向流的配置。目标集群中的镜像分区的领导者代理从相应的源领导者获取分区数据，而目标中的跟随者则使用Kafka中的标准复制机制从其本地领导者复制。在目标中，镜像主题被标记为只读，以防止对这些主题进行本地生产，确保镜像主题在逻辑上与其源主题相同。
+- en: Cluster Linking provides operational simplicity without the need for separate
+    clusters like Connect clusters and is more performant than external tools since
+    it avoids decompression and recompression during mirroring. Unlike MRC, there
+    is no option for synchronous replication, and client failover is a manual process
+    that requires client restart. But Cluster Linking may be used with distant datacenters
+    with unreliable high-latency networks and reduces cross-datacenter traffic by
+    replicating only once between datacenters. It is suitable for cluster migration
+    and topic sharing use cases.
+  id: totrans-254
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 集群链接提供了操作上的简单性，无需像Connect集群那样使用单独的集群，并且比外部工具更高效，因为它在镜像过程中避免了解压缩和重新压缩。与MRC不同，没有同步复制的选项，客户端故障转移是一个需要客户端重新启动的手动过程。但是集群链接可以与不稳定的高延迟网络的远程数据中心一起使用，并通过在数据中心之间仅进行一次复制来减少跨数据中心的流量。它适用于集群迁移和主题共享的用例。
+- en: Summary
+  id: totrans-255
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 总结
+- en: We started the chapter by describing the reasons you may need to manage more
+    than a single Kafka cluster and then proceeded to describe several common multicluster
+    architectures, ranging from the simple to the very complex. We went into the details
+    of implementing failover architecture for Kafka and compared the different options
+    currently available. Then we proceeded to discuss the available tools. Starting
+    with Apache Kafka’s MirrorMaker, we went into many details of using it in production.
+    We finished by reviewing alternative options that solve some of the issues you
+    might encounter with MirrorMaker.
+  id: totrans-256
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们首先描述了您可能需要管理多个Kafka集群的原因，然后描述了几种常见的多集群架构，从简单到非常复杂。我们详细介绍了为Kafka实现故障转移架构的细节，并比较了当前可用的不同选项。然后我们讨论了可用的工具。从Apache
+    Kafka的MirrorMaker开始，我们详细介绍了在生产中使用它的许多细节。最后，我们回顾了解决MirrorMaker可能遇到的一些问题的替代选项。
+- en: Whichever architecture and tools you end up using, remember that multicluster
+    configuration and mirroring pipelines should be monitored and tested just like
+    everything else you take into production. Because multicluster management in Kafka
+    can be easier than it is with relational databases, some organizations treat it
+    as an afterthought and neglect to apply proper design, planning, testing, deployment
+    automation, monitoring, and maintenance. By taking multicluster management seriously,
+    preferably as part of a holistic disaster or geodiversity plan for the entire
+    organization that involves multiple applications and data stores, you will greatly
+    increase the chances of successfully managing multiple Kafka clusters.
+  id: totrans-257
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无论您最终使用哪种架构和工具，都要记住，多集群配置和镜像管道应该像您投入生产的其他一切一样进行监控和测试。因为在Kafka中管理多集群可能比在关系型数据库中更容易，一些组织将其视为事后思考，并忽视了适当的设计、规划、测试、部署自动化、监控和维护。通过认真对待多集群管理，最好作为整个组织的灾难或地理多样性计划的一部分，涉及多个应用程序和数据存储，您将大大增加成功管理多个Kafka集群的机会。

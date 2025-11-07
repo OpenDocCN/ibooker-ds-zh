@@ -1,0 +1,1030 @@
+- en: Chapter 26\. Performance Tuning
+  id: totrans-0
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 第 26 章。性能调优
+- en: The performance characteristics of a distributed streaming application are often
+    dictated by complex relationships among internal and external factors involved
+    in its operation.
+  id: totrans-1
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 分布式流应用程序的性能特征通常受其运行中的内部和外部因素之间复杂关系的制约。
+- en: External factors are bound to the environment in which the application executes,
+    like the hosts that constitute the cluster and the network that connects them.
+    Each host provides resources like CPU, memory, and storage with certain performance
+    characteristics. For example, we might have magnetic disks that are typically
+    slow but offer low-cost storage or fast solid-state drive (SSD) arrays that provide
+    very fast access at a higher cost per storage unit. Or we might be using cloud
+    storage, which is bound to the capacity of the network and the available internet
+    connection. Likewise, the data producers are often outside of the control of the
+    streaming application.
+  id: totrans-2
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 外部因素与应用程序执行环境绑定，如构成集群的主机及连接它们的网络。每个主机提供诸如 CPU、内存和存储等资源，具有特定的性能特征。例如，我们可能有磁盘通常速度较慢但提供低成本存储的磁盘，或者提供高成本每存储单位较快访问的快速固态驱动器（SSD）阵列。或者我们可能正在使用云存储，其性能受网络容量和可用互联网连接的限制。同样，数据生产者通常不受流应用程序控制之外。
+- en: Under internal factors, we consider the complexity of the algorithms implemented,
+    the resources assigned to the application, and the particular configuration that
+    dictates how the application must behave.
+  id: totrans-3
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在内部因素方面，我们考虑实施的算法复杂性、分配给应用程序的资源以及决定应用程序行为的特定配置。
+- en: In this chapter, we first work to gain a deeper understanding of the performance
+    factors in Spark Streaming. Then, we survey several strategies that you can apply
+    to tune the performance of an existing job.
+  id: totrans-4
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在本章中，我们首先努力深入了解 Spark Streaming 的性能因素。然后，我们调查几种可以应用于调优现有作业性能的策略。
+- en: The Performance Balance of Spark Streaming
+  id: totrans-5
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: Spark Streaming 的性能平衡
+- en: Performance tuning in Spark Streaming can sometimes be complex, but it always
+    begins with the simple equilibrium between the batch interval and the batch processing
+    time. We can view the batch processing time as the time cost we have to complete
+    the processing of all the received data and any other related bookkeeping, whereas
+    the batch interval is the budget we have allocated. Much like the financial analogy,
+    a healthy application will fit its processing cost within the allocated budget.
+    Although it might happen that in some particular moments when the pressure goes
+    up, we go beyond the budget, we must see that in the longer term, our balance
+    is preserved. An application that exceeds this time-budget balance over a long
+    period will result in a systemic failure, usually resulting in the crash of the
+    application due to resource exhaustion.
+  id: totrans-6
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在 Spark Streaming 中进行性能调优有时可能会很复杂，但始终始于批处理间隔和批处理时间的简单平衡。我们可以将批处理时间视为完成所有接收数据及相关簿记处理所需的时间成本，而批处理间隔则是我们分配的预算。就像财务类比一样，一个健康的应用程序将在分配的预算内完成其处理成本。虽然在一些特定时刻压力增大时可能会超出预算，但我们必须看到从长期来看，我们的平衡是得以保持的。一个长期超出这种时间预算平衡的应用程序将导致系统性失败，通常由于资源耗尽导致应用程序崩溃。
+- en: The Relationship Between Batch Interval and Processing Delay
+  id: totrans-7
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 批处理间隔与处理延迟之间的关系
+- en: A strong constraint with streaming applications, in general, is that data ingestion
+    does not stop. In Spark Streaming, the ingestion of data occurs at regular intervals,
+    and there are no facilities to turn it off arbitrarily. Hence, if the job queue
+    is not empty by the time that the new batch interval starts, and new data is inserted
+    into the system, Spark Streaming needs to finish processing the prior jobs before
+    getting to the new data that is just entering the queue.
+  id: totrans-8
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一般来说，流应用程序的一个重要限制是数据摄入不会停止。在 Spark Streaming 中，数据摄入是在固定的间隔内发生的，并且没有任何方法可以随意关闭它。因此，如果在新的批处理间隔开始时作业队列还没有空，新数据又被插入系统中，Spark
+    Streaming 需要在处理新数据之前完成先前作业的处理。
+- en: 'With only one job running at a time, we can see the following:'
+  id: totrans-9
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 只有一个作业在运行时，我们可以看到以下情况：
+- en: If the batch processing time is only temporarily greater than the batch interval
+    but, in general, Spark is able to process a batch in less than the batch interval,
+    Spark Streaming will eventually catch up and empty the job (RDD) queue.
+  id: totrans-10
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果批处理时间仅暂时大于批处理间隔，但一般情况下，Spark 能够在批处理间隔内处理一个批次，Spark Streaming 最终将赶上并清空作业（RDD）队列。
+- en: If, on the other hand, the lateness is systemic and on average the cluster takes
+    more than a batch interval to process a microbatch, Spark Streaming will keep
+    accepting on average more data than it can remove from its storage management
+    on every batch interval. Eventually, the cluster will run out of resources and
+    crash.
+  id: totrans-11
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 另一方面，如果迟延是系统性的，并且集群平均需要超过一个批处理间隔来处理一个微批次，Spark Streaming 将在每个批处理间隔上平均接受更多数据，而无法从其存储管理中删除。最终，集群将耗尽资源并崩溃。
+- en: We need then to consider what happens when that accumulation of excess data
+    occurs for a stable amount of time. By default, RDDs that represent the data fed
+    into the system are put into the memory of the cluster’s machines. Within that
+    memory, the origin data—a source RDD—requires a replication, meaning that as the
+    data is fed into the system, a second copy is created for fault tolerance, progressively,
+    on every block interval. As a consequence, for a temporary amount of time, and
+    until the data of this RDD is processed, that data is present in two copies in
+    the memory of executors of the system. In the receiver model, because the data
+    is always present in one copy on the receiver, this machine bears most of the
+    memory pressure.
+  id: totrans-12
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，我们需要考虑当那些多余数据积累稳定一段时间后会发生什么。默认情况下，代表输入到系统的数据的 RDD 被放置在集群机器的内存中。在那个内存中，原始数据——源
+    RDD——需要复制，这意味着随着数据被输入到系统中，在每个块间隔上逐渐为了容错性创建第二个副本。因此，暂时的时间内，直到处理该 RDD 的数据，该数据在系统执行者的内存中存在两个副本。在接收者模型中，因为数据始终在接收者上存在一个副本，所以这台机器承担了大部分的内存压力。
+- en: The Last Moments of a Failing Job
+  id: totrans-13
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 一个作业失败的最后时刻
+- en: Eventually, if we add too much data into a spot in the system, we end up overflowing
+    the memory of a few executors. In the receiver model, this might well be the receiver
+    executor that happens to crash with an `OutOfMemoryError`. What happens next is
+    that another machine on the cluster will be designated as the new receiver and
+    will begin receiving new data. Because some of the blocks that were in the memory
+    of that receiver have now been lost due to the crash, they will now be present
+    in only the cluster in one single copy, meaning that this will trigger a reduplication
+    of this data before processing of that data can occur. So, the existing executors
+    in the cluster will pick up the prior memory pressure—there is no inherent relief
+    from data lost during the crash. A few executors will be busy copying the data,
+    and one new executor will be accepting data once again. But remember that if prior
+    to the crash our cluster included *N* executors, it is now composed of *N* – *1*
+    executors, and it is potentially slower in processing the same rhythm of data
+    ingestion—not to mention that most executors are now busy with data replication
+    instead of processing as usual. The batch-processing times we observed before
+    the crash can now only be higher, and, in particular, higher than the batch interval.
+  id: totrans-14
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最终，如果我们在系统中某个地方添加了太多的数据，我们最终会溢出几个执行者的内存。在接收者模型中，这可能是接收者执行者因为`OutOfMemoryError`而崩溃。接下来发生的是集群中的另一台机器将被指定为新的接收者，并开始接收新数据。因为那个接收者内存中的一些块由于崩溃而丢失，它们现在只存在于集群中的单一副本中，这意味着在处理这些数据之前会触发对这些数据的重复。因此，集群中现有的执行者将承受先前的内存压力——在崩溃期间丢失的数据没有固有的缓解。少数执行者将忙于复制数据，而一个新的执行者将再次接受数据。但请记住，如果在崩溃之前我们的集群包含
+    *N* 个执行者，现在由 *N* - *1* 个执行者组成，并且在处理相同的数据摄入节奏时可能较慢——更不用说大多数执行者现在忙于数据复制而不是像往常一样的处理。我们在崩溃之前观察到的批处理时间现在只能更高，并且特别是高于批处理间隔。
+- en: In conclusion, having a batch-processing time that is, on average, higher than
+    the batch interval has the potential of creating cascading crashes throughout
+    your cluster. It is therefore extremely important to maintain Spark’s equilibrium
+    in considering the batch interval as a time budget for all of the things that
+    we might want to do during the normal functioning of the cluster.
+  id: totrans-15
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 总之，平均批处理时间高于批处理间隔可能会在整个集群中引发级联崩溃。因此，在考虑批处理间隔作为集群正常运行期间可能要执行的所有操作的时间预算时，保持Spark的平衡非常重要。
+- en: Note
+  id: totrans-16
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: You can remove the constraint that only one job can execute at a given time
+    by setting `spark.streaming.concurrent.jobs` to a value greater than the one in
+    your Spark configuration. However, this can be risky in that it can create competition
+    for resources and can make it more difficult to debug whether there are sufficient
+    resources in the system to process the ingested data fast enough.
+  id: totrans-17
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 通过将`spark.streaming.concurrent.jobs`设置为比您的Spark配置中的值大的值，您可以取消仅允许一个作业在给定时间执行的约束。然而，这可能存在风险，因为它可能会导致资源竞争，并且可能会使调试是否系统中有足够的资源来处理摄入数据变得更加困难。
+- en: 'Going Deeper: Scheduling Delay and Processing Delay'
+  id: totrans-18
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 深入探讨：调度延迟和处理延迟
+- en: Many factors can have an influence on the batch-processing time. Of course,
+    the first and foremost constraint is the analysis that is to be performed on the
+    data—the logic of the job itself. The running time of that computation might or
+    might not depend on the size of the data, and might or might not depend on the
+    values present in the data.
+  id: totrans-19
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 许多因素可能会影响批处理时间。当然，首要的约束是要在数据上执行的分析——作业本身的逻辑。该计算的运行时间可能取决于数据的大小，也可能不取决于数据中的值。
+- en: This purely computational time is accounted for under the name of *processing
+    delay*, which is the difference between the time elapsed running the job and the
+    time elapsed setting it up.
+  id: totrans-20
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这种纯计算时间在*处理延迟*的名义下被考虑进去，它是运行作业所花时间和设置作业所花时间之间的差异。
+- en: '*Scheduling delay*, on the other hand, accounts for the time necessary in taking
+    the job definition (often a *closure*), serializing it, and sending it to an executor
+    that will need to process it. Naturally, this distribution of tasks implies some
+    overhead—time that is not spent computing—so it’s wise not to decompose our workload
+    into too many small jobs and to tune the parallelism so that it is commensurate
+    with the number of executors on our cluster. Finally, the *scheduling delay* also
+    accounts for job lateness, if our Spark Streaming cluster has accumulated jobs
+    on its queue. It is formally defined as the time between the entrance of the job
+    (RDD) in the job queue, and the moment Spark Streaming actually begins computation.'
+  id: totrans-21
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 另一方面，*调度延迟*考虑的是在获取作业定义（通常是一个*闭包*），序列化它并发送到需要处理它的执行器所需的时间。自然地，这种任务的分发意味着一些开销——并非全部用于计算的时间，因此明智的做法是不要将我们的工作负载分解为太多的小作业，并调整并行性，使其与我们集群上的执行器数量相匹配。最后，*调度延迟*还考虑了作业迟到，如果我们的Spark
+    Streaming集群在其队列中积累了作业。它正式定义为作业（RDD）进入作业队列和Spark Streaming实际开始计算之间的时间。
+- en: 'Another important factor influencing scheduling delay are the locality settings,
+    in particular `spark.locality.wait`, which dictates how long to wait for the most
+    local placement of the task with relation to the data before escalating to the
+    next locality level. The following are the locality levels:'
+  id: totrans-22
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 影响调度延迟的另一个重要因素是地域设置，特别是`spark.locality.wait`，它规定在向数据相关任务的最本地放置等待多长时间之前升级到下一个地域级别。以下是地域级别：
+- en: '`PROCESS_LOCAL`'
+  id: totrans-23
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`PROCESS_LOCAL`'
+- en: Same process Java virtual machine (JVM). This is the highest locality level.
+  id: totrans-24
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同一进程的Java虚拟机（JVM）。这是最高的地域级别。
+- en: '`NODE_LOCAL`'
+  id: totrans-25
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`NODE_LOCAL`'
+- en: Same executor machine.
+  id: totrans-26
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同一执行器机器。
+- en: '`NO_PREF`'
+  id: totrans-27
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`NO_PREF`'
+- en: No locality preference.
+  id: totrans-28
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 无地域偏好。
+- en: '`RACK_LOCAL`'
+  id: totrans-29
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RACK_LOCAL`'
+- en: Same server rack.
+  id: totrans-30
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 同一服务器机架。
+- en: '`ANY`'
+  id: totrans-31
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`ANY`'
+- en: This is the lowest locality level, usually as a result of not being able to
+    obtain a locality at any level above.
+  id: totrans-32
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这是最低的地域级别，通常是由于无法获取任何上面级别的地域而导致的。
+- en: Checkpoint Influence in Processing Time
+  id: totrans-33
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 处理时间中的检查点影响
+- en: There are other factors that, perhaps counterintuitively, can contribute to
+    the batch processing time, in particular checkpointing. As is discussed in [Chapter 24](ch24.xhtml#checkpointing),
+    checkpointing is a safeguard that is necessary in the processing of stateful streams
+    to avoid data loss while recovering from failure. It uses the storage of intermediate
+    computation values on the disk so that in the event of a failure, data that depends
+    on values seen in the stream since the very beginning of processing do not need
+    to be recomputed from the data source, but only from the time of the last checkpoint.
+    The checkpointing operation is structurally programmed by Spark as a periodic
+    job, and, as such, the time making the checkpoint is actually considered as part
+    of the processing delay, not the scheduling delay.
+  id: totrans-34
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 还有其他因素可能出乎意料地会影响批处理时间，特别是检查点。如[第24章](ch24.xhtml#checkpointing)中讨论的那样，检查点是在处理有状态流时必需的保障，以避免在故障恢复时发生数据丢失。它使用中间计算值在磁盘上进行存储，以便在故障发生时，不需要重新计算从数据源以来看到的流中的值所依赖的数据，而只需从最后一个检查点的时间开始重新计算。检查点操作由Spark结构化地编程为周期性作业，因此，制作检查点所花费的时间实际上被视为处理延迟的一部分，而不是调度延迟。
+- en: 'The usual checkpointing on a stateful stream for which checkpoints are usually
+    significant, in terms of semantics and in the size of the safeguarded data, can
+    take an amount of time much larger than a batch interval. Checkpointing durations
+    on the order of 10 batch intervals is not unheard of. As a consequence, when making
+    sure that the average batch-processing time is less than the batch interval, it’s
+    necessary to take checkpointing into account. The contribution of checkpointing
+    to the average batch-processing time is as follows:'
+  id: totrans-35
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于有状态流的常规检查点，通常在语义上和保护数据大小方面，检查点的持续时间可能远远超过批处理间隔的时间。检查点的持续时间长达10个批处理间隔并不罕见。因此，在确保平均批处理时间小于批处理间隔时，有必要考虑检查点。检查点对平均批处理时间的贡献如下：
+- en: <math alttext="StartFraction c h e c k p o i n t i n g d e l a y Over b a t
+    c h i n t e r v a l EndFraction asterisk c h e c k p o i n t i n g d u r a t i
+    o n" display="block"><mrow><mfrac><mrow><mi>c</mi><mi>h</mi><mi>e</mi><mi>c</mi><mi>k</mi><mi>p</mi><mi>o</mi><mi>i</mi><mi>n</mi><mi>t</mi><mi>i</mi><mi>n</mi><mi>g</mi><mi>d</mi><mi>e</mi><mi>l</mi><mi>a</mi><mi>y</mi></mrow>
+    <mrow><mi>b</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mi>i</mi><mi>n</mi><mi>t</mi><mi>e</mi><mi>r</mi><mi>v</mi><mi>a</mi><mi>l</mi></mrow></mfrac>
+    <mo>*</mo> <mrow><mi>c</mi> <mi>h</mi> <mi>e</mi> <mi>c</mi> <mi>k</mi> <mi>p</mi>
+    <mi>o</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mi>d</mi>
+    <mi>u</mi> <mi>r</mi> <mi>a</mi> <mi>t</mi> <mi>i</mi> <mi>o</mi> <mi>n</mi></mrow></mrow></math>
+  id: totrans-36
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="StartFraction c h e c k p o i n t i n g d e l a y Over b a t
+    c h i n t e r v a l EndFraction asterisk c h e c k p o i n t i n g d u r a t i
+    o n" display="block"><mrow><mfrac><mrow><mi>c</mi><mi>h</mi><mi>e</mi><mi>c</mi><mi>k</mi><mi>p</mi><mi>o</mi><mi>i</mi><mi>n</mi><mi>t</mi><mi>i</mi><mi>n</mi><mi>g</mi><mi>d</mi><mi>e</mi><mi>l</mi><mi>a</mi><mi>y</mi></mrow>
+    <mrow><mi>b</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mi>i</mi><mi>n</mi><mi>t</mi><mi>e</mi><mi>r</mi><mi>v</mi><mi>a</mi><mi>l</mi></mrow></mfrac>
+    <mo>*</mo> <mrow><mi>c</mi> <mi>h</mi> <mi>e</mi> <mi>c</mi> <mi>k</mi> <mi>p</mi>
+    <mi>o</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mi>d</mi>
+    <mi>u</mi> <mi>r</mi> <mi>a</mi> <mi>t</mi> <mi>i</mi> <mi>o</mi> <mi>n</mi></mrow></mrow></math>
+- en: 'This should be added to the average computation time observed during a noncheckpointing
+    job to have an idea of the real batch-processing time. Alternatively, another
+    way to proceed is to compute how much time we have left in our budget (the difference
+    between batch interval and batch-processing time) without checkpointing and tune
+    the checkpointing interval in a function:'
+  id: totrans-37
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这应该添加到非检查点作业期间观察到的平均计算时间中，以了解真实批处理时间的概念。或者，另一种处理方式是计算在我们的预算（批处理间隔和批处理时间之间的差异）中没有检查点的剩余时间，并在函数中调整检查点间隔：
+- en: <math alttext="c h e c k p o i n t i n g d e l a y greater-than-or-equal-to
+    c h e c k p o i n t i n g d u r a t i o n slash left-parenthesis b a t c h i n
+    t e r v a l minus b a t c h p r o c e s s i n g t i m e Superscript asterisk Baseline
+    right-parenthesis" display="block"><mrow><mrow><mi>c</mi> <mi>h</mi> <mi>e</mi>
+    <mi>c</mi> <mi>k</mi> <mi>p</mi> <mi>o</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>i</mi>
+    <mi>n</mi> <mi>g</mi> <mi>d</mi> <mi>e</mi> <mi>l</mi> <mi>a</mi> <mi>y</mi></mrow>
+    <mo>≥</mo> <mrow><mi>c</mi> <mi>h</mi> <mi>e</mi> <mi>c</mi> <mi>k</mi> <mi>p</mi>
+    <mi>o</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mi>d</mi>
+    <mi>u</mi> <mi>r</mi> <mi>a</mi> <mi>t</mi> <mi>i</mi> <mi>o</mi> <mi>n</mi></mrow>
+    <mo>/</mo> <mo>(</mo> <mrow><mi>b</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi>
+    <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>e</mi> <mi>r</mi> <mi>v</mi> <mi>a</mi> <mi>l</mi></mrow>
+    <mo>-</mo> <msup><mrow><mi>b</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mi>p</mi><mi>r</mi><mi>o</mi><mi>c</mi><mi>e</mi><mi>s</mi><mi>s</mi><mi>i</mi><mi>n</mi><mi>g</mi><mi>t</mi><mi>i</mi><mi>m</mi><mi>e</mi></mrow>
+    <mo>*</mo></msup> <mo>)</mo></mrow></math>
+  id: totrans-38
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math alttext="c h e c k p o i n t i n g d e l a y greater-than-or-equal-to
+    c h e c k p o i n t i n g d u r a t i o n slash left-parenthesis b a t c h i n
+    t e r v a l minus b a t c h p r o c e s s i n g t i m e Superscript asterisk Baseline
+    right-parenthesis" display="block"><mrow><mrow><mi>c</mi> <mi>h</mi> <mi>e</mi>
+    <mi>c</mi> <mi>k</mi> <mi>p</mi> <mi>o</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>i</mi>
+    <mi>n</mi> <mi>g</mi> <mi>d</mi> <mi>e</mi> <mi>l</mi> <mi>a</mi> <mi>y</mi></mrow>
+    <mo>≥</mo> <mrow><mi>c</mi> <mi>h</mi> <mi>e</mi> <mi>c</mi> <mi>k</mi> <mi>p</mi>
+    <mi>o</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>i</mi> <mi>n</mi> <mi>g</mi> <mi>d</mi>
+    <mi>u</mi> <mi>r</mi> <mi>a</mi> <mi>t</mi> <mi>i</mi> <mi>o</mi> <mi>n</mi></mrow>
+    <mo>/</mo> <mo>(</mo> <mrow><mi>b</mi> <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi>
+    <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>e</mi> <mi>r</mi> <mi>v</mi> <mi>a</mi> <mi>l</mi></mrow>
+    <mo>-</mo> <msup><mrow><mi>b</mi><mi>a</mi><mi>t</mi><mi>c</mi><mi>h</mi><mi>p</mi><mi>r</mi><mi>o</mi><mi>c</mi><mi>e</mi><mi>s</mi><mi>s</mi><mi>i</mi><mi>n</mi><mi>g</mi><mi>t</mi><mi>i</mi><mi>m</mi><mi>e</mi></mrow>
+    <mo>*</mo></msup> <mo>)</mo></mrow></math>
+- en: Where * marks the measure of the batch-processing time without checkpointing.
+  id: totrans-39
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当*标记批处理时间的测量时，不使用检查点。
+- en: External Factors that Influence the Job’s Performance
+  id: totrans-40
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 影响作业性能的外部因素
+- en: Finally, if all those factors have been taken into account and you are still
+    witnessing spikes in the processing delay of your jobs, another aspect that we
+    really need to pay attention to is the changing conditions on the cluster.
+  id: totrans-41
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后，如果所有这些因素都已考虑进去，但您仍然注意到作业处理延迟出现波动，我们确实需要注意的另一个方面是集群上的变化条件。
+- en: 'For example, other systems colocated on our cluster may impact our shared processing
+    resources: the Hadoop Distributed File System (HDFS) is known to have had bugs
+    in its older versions that constrained concurrent disk writes.^([1](ch26.xhtml#idm46385810797976))
+    Therefore, we might be running a cluster at a very stable rate, while simultaneously,
+    a different job—that might not even be Spark related—can require heavy use of
+    the disk. This can affect the following:'
+  id: totrans-42
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，我们集群中共存的其他系统可能会影响我们共享的处理资源：已知Hadoop分布式文件系统（HDFS）在其较旧版本中存在有限制并发磁盘写入的错误。^([1](ch26.xhtml#idm46385810797976))
+    因此，我们可能正在以非常稳定的速率运行集群，同时，一个可能与Spark无关的不同作业可能需要大量使用磁盘。这可能会影响以下内容：
+- en: Data ingestion in the reliable receiver model, when using a write-ahead log
+    (WAL)
+  id: totrans-43
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 数据在可靠接收模型中的接收，在使用写前日志（WAL）时
+- en: Checkpointing time
+  id: totrans-44
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 检查点时间
+- en: Actions of our stream processing that involve saving data to the disk
+  id: totrans-45
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们流处理中涉及将数据保存到磁盘的操作。
+- en: 'To alleviate this issue of external impacts on our job through disk usage,
+    we could do the following:'
+  id: totrans-46
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 为了通过磁盘使用减轻作业受外部影响的问题，我们可以采取以下措施：
+- en: Use a distributed in-memory cache such as Alluxio^([2](ch26.xhtml#idm46385810790088))
+  id: totrans-47
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 使用Alluxio等分布式内存缓存
+- en: Reduce disk pressure by saving structured, small data in a NoSQL database rather
+    than on files
+  id: totrans-48
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 将结构化的小数据保存在 NoSQL 数据库中，而不是保存在文件中，以减少磁盘压力。
+- en: Avoid colocating more disk-intensive applications with Spark than is strictly
+    necessary
+  id: totrans-49
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 避免将更多磁盘密集型应用与 Spark 放置在一起，除非绝对必要
+- en: Disk access is only one of the possible bottlenecks that could affect our job
+    through resource sharing with the cluster. Another possibility can be network
+    starvation or, more generally, the existence of workloads that cannot be monitored
+    and scheduled through our resource manager.
+  id: totrans-50
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 磁盘访问只是可能影响我们通过资源共享与集群的作业的一种潜在瓶颈。另一种可能性可能是网络饥饿，或者更普遍地说，存在无法通过我们的资源管理器监视和调度的工作负载。
+- en: How to Improve Performance?
+  id: totrans-51
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 如何提高性能？
+- en: In the previous section, we discussed the intrinsic and extrinsic factors that
+    can influence the performance of a Spark Streaming job.
+  id: totrans-52
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在前一节中，我们讨论了可以影响 Spark Streaming 作业性能的内在和外在因素。
+- en: Let’s imagine that we are in a situation in which we developed a job and we
+    observe certain issues that affect the performance and, hence, the stability of
+    the job. The first step to take would be to gain insights in the different performance
+    indicators of our job, perhaps using the techniques outlined in [“Understanding
+    Job Performance Using the Streaming UI”](ch25.xhtml#ui-performance).
+  id: totrans-53
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 假设我们处于这样一种情况：我们开发了一个作业，并观察到某些影响性能和因此作业稳定性的问题。采取的第一步将是深入了解我们作业的不同性能指标，也许可以使用[“使用流式
+    UI 理解作业性能”](ch25.xhtml#ui-performance)中概述的技术。
+- en: We use that information as a comparison baseline as well as guidance to use
+    one or more of the different strategies that follow.
+  id: totrans-54
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们将这些信息作为比较基准，并指导使用以下的一个或多个不同策略。
+- en: Tweaking the Batch Interval
+  id: totrans-55
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 调整批处理间隔
+- en: A strategy that is mentioned frequently is to lengthen the batch interval. This
+    approach might help to improve some parallelism and resource usage issues. For
+    example, if we increase a batch interval from one minute to five minutes, we have
+    to serialize only the tasks that are the components of our job once every five
+    minutes instead of once every minute—a five-fold reduction.
+  id: totrans-56
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 经常提到的一个策略是延长批处理间隔。这种方法可能有助于改善一些并行性和资源使用问题。例如，如果我们将批处理间隔从一分钟增加到五分钟，那么我们每五分钟只需序列化一次作业中的组件任务，而不是每分钟一次，从而减少五倍。
+- en: Nonetheless, the batches of our stream will represent five minutes’ worth of
+    data seen “over the wire” instead of one, and because most of the instability
+    issues are caused by an inadequate distribution of our resources to the throughput
+    of our stream, the batch interval might change little to this imbalance. More
+    important the batch interval that we seek to implement is often of high semantic
+    value in our analysis; if only because, as we have seen in [Chapter 21](ch21.xhtml#sps-windows),
+    it constrains the windowing and sliding intervals that we can create on an aggregated
+    stream. Changing these analysis semantics to accommodate processing constraints
+    should be envisioned only as a last resort.
+  id: totrans-57
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 尽管如此，我们流的批次将表示通过“线上”看到的五分钟数据，而不是一分钟数据，因为大多数不稳定性问题是由于我们的资源分配不足以支持我们流的吞吐量所导致的，批处理间隔对于这种不平衡可能改变很少。更重要的是，我们希望实现的批处理间隔在我们的分析中通常具有很高的语义值；例如，正如我们在[第21章](ch21.xhtml#sps-windows)中看到的，它限制了我们可以在聚合流上创建的窗口和滑动间隔。只有在最后一种情况下，我们才应该考虑改变这些分析语义以适应处理约束。
+- en: A more compelling strategy consists of reducing general inefficiencies, such
+    as using a fast serialization library or implementing algorithms with better performance
+    characteristics. We can also accelerate disk-writing speeds by augmenting or replacing
+    our distributed filesystem with an in-memory cache, such as [Alluxio](https://www.alluxio.com/).
+    When that’s not sufficient, we should consider adding more resources to our cluster,
+    letting us distribute the stream on more executors by correspondingly augmenting
+    the number of partitions that we use through, for example, block interval tuning.
+  id: totrans-58
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 一种更具吸引力的策略是减少一般的低效率，例如使用快速序列化库或实现具有更好性能特性的算法。我们还可以通过增加或替换我们的分布式文件系统为内存缓存，如[Alluxio](https://www.alluxio.com/)，来加快磁盘写入速度。当这些措施不足以满足需求时，我们应该考虑通过调整块间隔来增加集群资源，从而通过相应增加使用的分区数来将流分布到更多执行器上。
+- en: Limiting the Data Ingress with Fixed-Rate Throttling
+  id: totrans-59
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 通过固定速率节流来限制数据入口
+- en: If getting more resources is absolutely impossible, we need to look at reducing
+    the number of data elements that we must deal with.
+  id: totrans-60
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果绝对不能获取更多资源，我们需要考虑减少必须处理的数据元素数量。
+- en: Since version 1.3, Spark includes a fixed-rate throttling that allows it to
+    accept a maximum number of elements. We can set this by adding `spark.streaming.receiver.maxRate`
+    to a value in elements per second in your Spark configuration. Note that for the
+    receiver-based consumers, this limitation is enforced at block creation and simply
+    refuses to read any more elements from the data source if the throttle limit has
+    been reached.
+  id: totrans-61
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 自版本 1.3 起，Spark 包含了一个固定速率的限流功能，允许其接受最大数量的元素。我们可以通过在 Spark 配置中添加 `spark.streaming.receiver.maxRate`
+    来设置每秒元素的值。请注意，对于基于接收器的消费者，此限制在块创建时生效，并且如果达到了限制，它将简单地拒绝从数据源读取更多元素。
+- en: 'For the Kafka direct connector, there’s a dedicated configuration `spark.streaming.kafka.maxRatePerPartition`
+    that sets the max rate limit per partition in the topic in records per second.
+    When using this option, be mindful that the total rate will be as follows:'
+  id: totrans-62
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于 Kafka 直连器，有一个专门的配置 `spark.streaming.kafka.maxRatePerPartition`，设置每个分区中主题的最大速率限制，以记录每秒。在使用此选项时，请注意总速率将如下：
+- en: <math display="block"><mrow><mrow><mi>m</mi> <mi>a</mi> <mi>x</mi> <mi>R</mi>
+    <mi>a</mi> <mi>t</mi> <mi>e</mi> <mi>P</mi> <mi>e</mi> <mi>r</mi> <mi>P</mi> <mi>a</mi>
+    <mi>r</mi> <mi>t</mi> <mi>i</mi> <mi>t</mi> <mi>i</mi> <mi>o</mi> <mi>n</mi></mrow>
+    <mo>*</mo> <mrow><mi>p</mi> <mi>a</mi> <mi>r</mi> <mi>t</mi> <mi>i</mi> <mi>t</mi>
+    <mi>i</mi> <mi>o</mi> <mi>n</mi> <mi>s</mi> <mi>p</mi> <mi>e</mi> <mi>r</mi> <mi>t</mi>
+    <mi>o</mi> <mi>p</mi> <mi>i</mi> <mi>c</mi></mrow> <mo>*</mo> <mrow><mi>b</mi>
+    <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>e</mi>
+    <mi>r</mi> <mi>v</mi> <mi>a</mi> <mi>l</mi></mrow></mrow></math>
+  id: totrans-63
+  prefs: []
+  type: TYPE_NORMAL
+  zh: <math display="block"><mrow><mrow><mi>m</mi> <mi>a</mi> <mi>x</mi> <mi>R</mi>
+    <mi>a</mi> <mi>t</mi> <mi>e</mi> <mi>P</mi> <mi>e</mi> <mi>r</mi> <mi>P</mi> <mi>a</mi>
+    <mi>r</mi> <mi>t</mi> <mi>i</mi> <mi>t</mi> <mi>i</mi> <mi>o</mi> <mi>n</mi></mrow>
+    <mo>*</mo> <mrow><mi>p</mi> <mi>a</mi> <mi>r</mi> <mi>t</mi> <mi>i</mi> <mi>t</mi>
+    <mi>i</mi> <mi>o</mi> <mi>n</mi> <mi>s</mi> <mi>p</mi> <mi>e</mi> <mi>r</mi> <mi>t</mi>
+    <mi>o</mi> <mi>p</mi> <mi>i</mi> <mi>c</mi></mrow> <mo>*</mo> <mrow><mi>b</mi>
+    <mi>a</mi> <mi>t</mi> <mi>c</mi> <mi>h</mi> <mi>i</mi> <mi>n</mi> <mi>t</mi> <mi>e</mi>
+    <mi>r</mi> <mi>v</mi> <mi>a</mi> <mi>l</mi></mrow></mrow></math>
+- en: 'Note that this behavior does not, in and of itself, include any signaling;
+    Spark will just let a limited amount of elements, and pick up the reading of new
+    elements on the next batch interval. This has consequences on the system that
+    is feeding data into Spark:'
+  id: totrans-64
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 请注意，这种行为本身并不包括任何信号传递；Spark 只会在批次间隔结束时允许有限数量的元素，并在下一个批次间隔开始时继续读取新元素。这对将数据馈送到
+    Spark 的系统有影响：
+- en: If this is a pull-based system, such as in Kafka, Flume, and others, the input
+    system could compute the number of elements read and manage the overflow data
+    in a custom fashion.
+  id: totrans-65
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果这是一个拉取式系统，例如 Kafka、Flume 等，输入系统可以计算读取的元素数量，并以自定义方式管理溢出数据。
+- en: If the input system is more prosaically a buffer (file buffer, TCP buffer),
+    it will overflow after a few block intervals (because our stream has a large throughput
+    than the throttle) and will periodically be flushed (deleted) when this happens.
+  id: totrans-66
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 如果输入系统更加朴素地是一个缓冲区（文件缓冲区、TCP 缓冲区），它将在几个块间隔后溢出（因为我们的流比限流的吞吐量大），并且会定期刷新（删除）。
+- en: As a consequence, throttled ingestion in Spark can exhibit some “jitter” in
+    the elements read, because Spark reads every element until an underlying TCP or
+    file buffer, used as a queue for “late” elements, reaches capacity and is flushed
+    as a whole. The effect of this is that the input stream is separated in large
+    intervals of processed elements interspersed with “holes” (dropped elements) of
+    a regular size (e.g., one TCP buffer).
+  id: totrans-67
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 由于 Spark 中的限流机制，可以表现出读取元素时的一些“抖动”，因为 Spark 会读取每个元素，直到底层的 TCP 或文件缓冲区，用作“延迟”元素的队列，达到容量并整体刷新。这样做的效果是输入流被分隔成大量处理元素的间隔，其中夹杂着定期大小的“空洞”（丢失的元素）（例如，一个
+    TCP 缓冲区）。
+- en: Backpressure
+  id: totrans-68
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 回压
+- en: The queue-based system we have described with fixed-rate throttling has the
+    disadvantage that it makes it obscure for our entire pipeline to understand where
+    inefficiencies lie. Indeed, we have considered a *data source* (e.g., a TCP socket)
+    that consists of *reading data from an external server* (e.g., an HTTP server),
+    into a *local system-level queue* (a TCP buffer), before Spark feeds this data
+    in an *application-level buffer* (Spark Streaming’s RDDs). Unless we use a listener
+    tied to our Spark Streaming receiver, it is challenging to detect and diagnose
+    that our system is congested and, if so, where the congestion occurs.
+  id: totrans-69
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 我们描述的基于队列的系统通过固定速率限流存在一个缺点，即使我们整个流水线都不易理解效率低下的原因。事实上，我们考虑了一个*数据源*（例如 TCP 套接字），它由*从外部服务器读取数据*（例如
+    HTTP 服务器）组成，进入*本地系统级队列*（TCP 缓冲区），然后 Spark 将此数据传送到*应用级缓冲区*（Spark Streaming 的 RDD）。除非我们使用与
+    Spark Streaming 接收器绑定的监听器，否则很难检测和诊断系统是否拥挤，以及拥挤发生在哪里。
+- en: The external server could perhaps decide, if it was aware that our Spark Streaming
+    cluster is congested, to react on that signal and use its own approach to either
+    delay or select the incoming elements to Spark. More important, it could make
+    the congestion information flow back up the stream to the data producers it depends
+    on, calling every part of the pipeline to be aware of and help with the congestion.
+    It would also allow any monitoring system to have a better view of how and where
+    congestion happens in our system helping with resource management and tuning.
+  id: totrans-70
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果外部服务器意识到我们的Spark Streaming集群拥塞，它可以决定根据该信号做出反应，并使用自己的方法延迟或选择要发送到Spark的入站元素。更重要的是，它可以使拥塞信息沿着流向上传回其依赖的数据生产者，调用管道的每个部分意识到并帮助处理拥塞。这还允许任何监控系统更好地查看拥塞在我们系统中的发生位置，从而有助于资源管理和调优。
+- en: The *upstream-flowing*, *quantified signal* about congestion is called *backpressure*.
+    This is a continuous signaling that explicitly says how many elements the system
+    in question (here, our Spark Streaming cluster) can be expected to process at
+    this specific instant. Backpressure signaling has an advantage with respect to
+    throttling because it is set up as a dynamic signal that varies in function to
+    the influx of elements and the state of the queue in Spark. As such, it does not
+    affect the system if there is no congestion, and it does not require tuning of
+    an arbitrary limit, avoiding the associated risks in misconfiguration (underused
+    resources if the limit is too restrictive; overflow if the limit is too permissive).
+  id: totrans-71
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '*上游流动*、*量化信号*关于拥塞的信息被称为*背压*。这是一个连续的信号，明确表示了在特定时刻我们期望系统（这里是我们的Spark Streaming集群）处理多少元素。与节流相比，背压信号有一个优势，因为它被设置为动态信号，根据元素的流入以及Spark队列的状态而变化。因此，如果没有拥塞，它不会影响系统，并且不需要调整任意限制，避免配置错误（如果限制过于严格，则资源未充分利用；如果限制过于宽松，则会溢出）的相关风险。'
+- en: This approach has been available in Spark since version 1.5 and can, in a nutshell,
+    provide dynamic throttling.
+  id: totrans-72
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此方法自Spark 1.5版本起可用，简言之，可提供动态节流。
+- en: Dynamic Throttling
+  id: totrans-73
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 动态节流
+- en: In Spark Streaming, dynamic throttling is regulated by default with a *Proportional-Integral-Derivative*
+    (PID) controller, which observes an error signal as the difference between the
+    latest *ingestion rate*, observed on a batch interval in terms of number of elements
+    per second, and the *processing rate*, which is the number of elements that have
+    been processed per second. We could consider this error as the imbalance between
+    the number of elements coming in and the number of elements going out of Spark
+    at the current instant (with an “instant” rounded to a full batch interval).
+  id: totrans-74
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Spark Streaming中，默认使用*比例积分微分*（PID）控制器来动态调节节流，它通过观察错误信号来调节，这个错误信号是指最新批处理间隔内的*摄入速率*（以每秒元素数计）与*处理速率*之间的差异。我们可以将这个错误视为当前时刻进入Spark的元素数与离开Spark的元素数之间的不平衡（“即时”被调整为完整批处理间隔）。
+- en: 'The PID controller then aims at regulating the number of ingested elements
+    on the *next* batch interval by taking into account the following:'
+  id: totrans-75
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，PID控制器旨在通过考虑以下因素来调节*下一个*批处理间隔中的摄入元素数：
+- en: A proportional term (the error at this instant)
+  id: totrans-76
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 比例项（此时的错误）
+- en: An integral or “historic” term (the sum of all errors in the past; here, the
+    number of unprocessed elements lying in the queue)
+  id: totrans-77
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 积分或“历史”项（过去所有错误的总和；这里指队列中未处理元素的数量）
+- en: A derivative or “speed” term (the rate at which the number of elements has been
+    diminishing in the past)
+  id: totrans-78
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 导数或“速度”项（过去元素数量减少的速率）
+- en: The PID then attempts to compute an ideal number depending on these three factors.
+  id: totrans-79
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然后，PID试图计算一个理想数，具体取决于这三个因素。
+- en: Backpressure-based dynamic throttling in Spark can be turned on by setting `spark.streaming.backpressure.enabled`
+    to `true` in your Spark configuration. Another variable `spark.streaming.backpressure.initialRate`
+    dictates the number of elements per second the throttling should initially expect.
+    You should set it slightly above your best estimate of the throughput of your
+    stream to allow the algorithm to “warm up.”
+  id: totrans-80
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Spark中，基于背压的动态节流可以通过在Spark配置中将`spark.streaming.backpressure.enabled`设置为`true`来启用。另一个变量`spark.streaming.backpressure.initialRate`决定了节流初始应预期的每秒处理元素数。您应将其设置为略高于流吞吐量的最佳估计，以允许算法“预热”。
+- en: Note
+  id: totrans-81
+  prefs:
+  - PREF_H6
+  type: TYPE_NORMAL
+  zh: 注意
+- en: The approach of focusing on backpressure to deal with congestion in a pipelined
+    system is inspired by the [Reactive Streams specification](http://www.reactive-streams.org/),
+    an implementation-agnostic API intended to realize a manifesto on the advantages
+    of this approach, backed by numerous industry players with a stake in stream processing,
+    including Netflix, Lightbend, and Twitter.
+  id: totrans-82
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 关注反压来处理管道系统中的拥塞问题受到了[反应流规范](http://www.reactive-streams.org/)的启发，这是一个与实现无关的
+    API，旨在实现一个关于这种方法优势的宣言，得到了包括 Netflix、Lightbend 和 Twitter 在内的多个行业参与者的支持。
+- en: Tuning the Backpressure PID
+  id: totrans-83
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 调整反压 PID
+- en: PID tuning is a well-established and vast subject, the scope of which is beyond
+    this book, but the Spark Streaming user should have an intuition of what this
+    is used for. The *proportional term* helps with dealing with the current snapshot
+    of the error, the *integral term* helps the system to deal with the accumulated
+    error until now, and the *derivative term* helps the system either avoid overshooting
+    for cases in which it is correcting too fast, or undercorrection in case we face
+    a brutal spike in the throughput of stream elements.
+  id: totrans-84
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PID 调优是一个成熟且广泛的主题，超出了本书的范围，但 Spark Streaming 用户应该对其用途有直觉。*比例项*有助于处理当前错误的快照，*积分项*帮助系统处理到目前为止累积的错误，*导数项*帮助系统避免在系统快速修正时过冲或在面对流元素吞吐量急剧增加时欠修正。
+- en: 'Each of the terms of the PID has a weight factor attached to it, between 0
+    and 1, as befits a classical implementation of PIDs. Here are the parameters that
+    you need to set in your Spark configuration:'
+  id: totrans-85
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PID 的每个术语都有一个附加的权重因子，介于 0 和 1 之间，适合经典的 PID 实现。以下是您需要在 Spark 配置中设置的参数：
+- en: '[PRE0]'
+  id: totrans-86
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE0]'
+- en: 'By default, Spark implements a proportional–integral controller, with a proportional
+    weight of 1, an integral weight of 0.2, and a derivative weight of 0. This offers
+    a sensible default in Spark Streaming applications where the stream throughput
+    varies relatively slowly with respect to the batch interval, and is easier to
+    interpret: Spark aims to ingest no more than the last rate of processing allowed,
+    with a “buffer” for processing one-fifth of the late elements on each batch. Note,
+    however, that if you are faced with a fast-changing stream with an irregular throughput,
+    you might consider having a nonzero derivative term.'
+  id: totrans-87
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 默认情况下，Spark 实现了一个比例-积分控制器，比例权重为 1，积分权重为 0.2，导数权重为 0。这在 Spark Streaming 应用程序中提供了一个合理的默认值，其中流的吞吐量相对于批处理间隔变化比较慢，并且更容易解释：Spark
+    的目标是不超过最后一个处理速率，并且在每个批次中有一个用于处理五分之一迟到元素的“缓冲区”。然而，请注意，如果面对变化快速且吞吐量不规则的流，您可能需要考虑使用非零导数项。
+- en: Custom Rate Estimator
+  id: totrans-88
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 自定义速率估算器
+- en: The PID estimator is not the only rate estimator that we can implement in Spark.
+    It is an implementation of the `RateEstimator` trait, and the particular implementation
+    can be swapped by setting the value of `spark.streaming.backpressure.rateEstimator`
+    to your class name. Remember that you will need to include the class in question
+    in the Spark classpath; for example, through the `--jars` argument to `spark-submit`.
+  id: totrans-89
+  prefs: []
+  type: TYPE_NORMAL
+  zh: PID 估算器并非是我们可以在 Spark 中实现的唯一速率估算器。它是`RateEstimator` trait 的一个实现，可以通过将`spark.streaming.backpressure.rateEstimator`的值设置为您的类名来交换特定的实现。请记住，您需要在
+    Spark 类路径中包含相关类；例如，通过`spark-submit`的`--jars`参数。
+- en: 'The `RateEstimator` trait is a serializable trait that requires a single method:'
+  id: totrans-90
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '`RateEstimator` trait 是一个可序列化的 trait，需要一个单独的方法：'
+- en: '[PRE1]'
+  id: totrans-91
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE1]'
+- en: This function should return an estimate of the number of records the stream
+    attached to this `RateEstimator` should ingest per second, given an update on
+    the size and completion times of the latest batch. You should feel free to contribute
+    an alternative implementation.
+  id: totrans-92
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 此函数应返回流连接到此`RateEstimator`应每秒摄取的记录数的估计值，考虑到最新批次的大小和完成时间的更新。您可以自由贡献替代实现。
+- en: A Note on Alternative Dynamic Handling Strategies
+  id: totrans-93
+  prefs:
+  - PREF_H2
+  type: TYPE_NORMAL
+  zh: 替代动态处理策略的注意事项
+- en: 'Throttling in Spark, dynamic or not, is expressed in the `InputDStream` classes,
+    which include `ReceiverInputDStream` for the receiver model and `DirectKafkaInputDStream`
+    for the Kafka direct receiver. These implementations currently both have a simple
+    way of dealing with excess elements: they are neither read from the input source
+    (`ReceiverInputDStream`) nor consumed from the topic (`DirectKafkaInputDStream`).'
+  id: totrans-94
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Spark中，动态或静态的节流表达在`InputDStream`类中，这包括接收模型的`ReceiverInputDStream`和Kafka直接接收器的`DirectKafkaInputDStream`。目前，这些实现都有一种简单的处理多余元素的方式：它们既不从输入源读取（`ReceiverInputDStream`），也不从主题消费（`DirectKafkaInputDStream`）。
+- en: But it would be reasonable to propose several possible alternative implementations
+    based on the backpressure signal received at the `InputDStream`. We could imagine
+    policies such as taking the first, largest, or smallest elements, or a random
+    sample.
+  id: totrans-95
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 但是，在`InputDStream`接收到的背压信号的应用程序生命周期内，可以合理地提出几种可能的替代实现。我们可以想象诸如取第一个、最大的或最小的元素，或者是一个随机样本的策略。
+- en: 'Sadly, the `rateController: RateController` member of these classes is `protected[streaming]`,
+    but this member has a `getLatestRate` function that lets the DStream implementation
+    receive the relevant limit at any instant. Any implementation of a custom DStream
+    could thus take inspiration from the nonpublic but open source methods of rate
+    control to help dealing with congestion in a better way.'
+  id: totrans-96
+  prefs: []
+  type: TYPE_NORMAL
+  zh: '不幸的是，这些类的`rateController: RateController`成员是`protected[streaming]`的，但该成员具有一个`getLatestRate`函数，该函数允许DStream实现在任何时刻接收到相关限制。因此，任何自定义DStream的实现都可以从速率控制的非公开但开放源代码的方法中汲取灵感，以更好地处理拥塞情况。'
+- en: Caching
+  id: totrans-97
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 缓存
+- en: Caching in Spark Streaming is a feature that, when well manipulated, can significantly
+    speed up the computation performed by your application. This seems to be counterintuitive
+    given that the base RDDs representing the data stored in the input of a computation
+    are actually replicated twice before any job runs on them.
+  id: totrans-98
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 在Spark Streaming中，缓存是一种功能，当良好地操作时，可以显著加快应用程序执行的计算。这似乎是违反直觉的，因为在作业运行之前，表示计算输入中存储的数据的基础RDD实际上被复制了两次。
+- en: 'However, over the lifetime of your application, there might be a very long
+    pipeline that takes your computation from those base RDDs to some very refined
+    and structured representations of the data that usually involves a key–value tuple.
+    At the end of the computation performed by your application, you are probably
+    looking at doing some distribution of the output of your computation into various
+    outlets: data stores or databases such as Cassandra, for example. That distribution
+    usually involves looking at the data computed during the previous batch interval
+    and finding which portions of the output data should go where.'
+  id: totrans-99
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 然而，在你的应用程序的生命周期内，可能存在一个非常长的流水线，将你的计算从这些基础RDD到一些非常精细和结构化的数据表示，通常涉及键-值元组。在应用程序执行的计算结束时，你可能正在考虑将计算输出的某些部分分发到各种输出：例如数据存储或数据库，如Cassandra。这种分发通常涉及查看在上一批次间隔期间计算的数据，并找出应将输出数据的哪些部分放在哪里。
+- en: A typical use case for that is to look at the keys in the RDD of the structured
+    output data (the last DStream in your computation), to find exactly where to put
+    the results of your computation outside of Spark, depending on these keys. Another
+    use case would be to look for only some specific elements on the RDD received
+    during the last batch. Indeed, your RDD might actually be the output of a computation
+    that depends not only on the last batch of data, but on many prior events received
+    since the start of the application. The last step of your pipeline might summarize
+    the state of your system. Looking at that RDD of output structured results, we
+    might be searching for some elements that pass certain criteria, comparing new
+    results with previous values, or distributing data to different organizational
+    entities, to name a few cases.
+  id: totrans-100
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 对于这种情况的典型用例是查看结构化输出数据的RDD中的键（计算中的最后一个DStream），以确定根据这些键将计算结果放置在Spark之外的确切位置。另一个用例是仅查找上一批次接收到的RDD中的某些特定元素。事实上，你的RDD实际上可能是依赖于不仅是最后一批数据，而是从应用程序启动以来接收的许多先前事件的计算输出。你的流水线的最后一步可能总结了系统的状态。在那个输出结构化结果的RDD上查找，我们可能正在寻找通过某些标准的某些元素，将新结果与先前值进行比较，或者将数据分发给不同的组织实体，列举几种情况。
+- en: For example, think of anomaly detection. You might compute some metrics or features
+    on values (users or elements that you are monitoring on a routine basis). Some
+    of those features might reveal some problems or that some alerts need to be produced.
+    To output those to an alerting system, you want to find elements that pass some
+    criteria in the RDD of data that you’re currently looking at. To do that, you
+    are going to *iterate* over the RDD of results. Beside the alerting, you might
+    also want to publish the state of your application to, for example, feed a data
+    visualization or a dashboard, informing you on more general characteristics of
+    the system that you are currently surveying.
+  id: totrans-101
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 例如，想象一下异常检测。您可能会对值（定期监视的用户或元素）计算一些指标或特征。其中一些特征可能会显示出一些问题或需要生成一些警报。为了将这些输出到警报系统，您需要在当前查看的数据RDD中找到通过某些标准的元素。为此，您将会*迭代*结果RDD。除了警报外，您可能还希望发布应用程序的状态，例如，用于提供数据可视化或仪表板，以通知您正在调查的系统的更一般特征。
+- en: The point of this thought exercise is to envision that computing on an output
+    DStream involves several operations for each and every RDD that composes the final
+    result of your pipeline, despite it being very structured and probably reduced
+    in size from the input data. For that purpose, using the cache to store that final
+    RDD before several iterations occur on it is extremely useful.
+  id: totrans-102
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 这个思维实验的要点是设想在输出DStream上计算涉及到为管道最终结果的每个RDD进行多次操作，尽管它非常结构化且可能从输入数据中减少了大小。为此，在多次迭代发生之前使用缓存来存储该最终RDD非常有用。
+- en: 'When you do several iterations on a cached RDD, while the first cycle takes
+    the same time as the noncached version, while each subsequent iteration takes
+    only a fraction of the time. The reason for that is that although the base data
+    of Spark Streaming is cached in the system, intermediate steps need to be recovered
+    from that base data along the way, using the potentially very long pipeline defined
+    by your application. Retrieving that elaborated data takes time, in every single
+    iteration that is required to process the data as specified by your application,
+    as shown here:'
+  id: totrans-103
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 当你在缓存的RDD上进行多次迭代时，第一次迭代与非缓存版本花费的时间相同，而每个后续迭代只需花费少量时间。这是因为虽然Spark Streaming的基础数据被缓存在系统中，但在应用程序定义的潜在非常长的流水线中，需要逐步从该基础数据中恢复中间步骤。在处理数据时，每次迭代都需要检索详细数据，如下所示：
+- en: '[PRE2]'
+  id: totrans-104
+  prefs: []
+  type: TYPE_PRE
+  zh: '[PRE2]'
+- en: As a consequence, if your DStream or the corresponding RDDs are used multiple
+    times, caching them significantly speeds up the process. However, it is very important
+    to not overtax Spark’s memory management and assume RDDs of a DStream will naturally
+    fall out of cache when your DStream moves to the next RDD, after a batch interval.
+    It is very important that at the end of the iteration over every single RDD of
+    your DStream you think of unpersisting the RDD to let it fall out of cache.
+  id: totrans-105
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 因此，如果您的DStream或对应的RDD被多次使用，将它们缓存会显著加快处理速度。但非常重要的是不要过度使用Spark的内存管理，并假设DStream的RDD在批处理间隔后会自然地从缓存中移除。在每个DStream的RDD迭代结束时，请务必考虑取消持久化RDD，以便让它从缓存中移除。
+- en: Otherwise, Spark will need to do some relatively clever computation to try to
+    understand which pieces of data it should retain. That particular computation
+    might slow down the results of your application or limit the memory that would
+    be accessible to it.
+  id: totrans-106
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 否则，Spark将需要进行相对聪明的计算，以尝试理解应保留哪些数据片段。这种特定的计算可能会减慢应用程序的结果或限制其可访问的内存。
+- en: One last point to consider is that you should not use `cache` eagerly and everywhere.
+    The `cache` operation has a cost that might outweigh the benefits if the cached
+    data is not used enough times. In summary, `cache` is a performance-boosting function
+    that should be used with care.
+  id: totrans-107
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 最后要考虑的一点是，不应过度使用`cache`操作。如果缓存数据没有足够多次使用，`cache`操作的成本可能超过其带来的好处。总结一下，`cache`是一个提升性能的函数，应谨慎使用。
+- en: Speculative Execution
+  id: totrans-108
+  prefs:
+  - PREF_H1
+  type: TYPE_NORMAL
+  zh: 预测执行
+- en: 'Apache Spark deals with straggler jobs, whether in streaming or batch execution,
+    using *speculative execution*. This mechanism uses the fact that Spark’s processing
+    puts the same task in the queue of every worker at the same time. As such, it
+    seems reasonable to estimate that workers should require more or less the same
+    amount of time to complete one task. If that is not the case, it’s most often
+    because of one of two reasons:'
+  id: totrans-109
+  prefs: []
+  type: TYPE_NORMAL
+  zh: Apache Spark 处理流或批处理执行中的落后作业时，使用 *推测执行*。该机制利用了 Spark 处理将同一任务同时放入每个工作节点的队列的特点。因此，估计每个工作节点完成一个任务应该需要大致相同的时间。如果不是这种情况，通常是由于以下两个原因之一：
+- en: Either our dataset is suffering from data skew, in which a few tasks concentrate
+    most of the computation. This is in some cases normal,^([3](ch26.xhtml#idm46385810533736))
+    but in most instances a bad situation, that we will want alleviate (e.g., via
+    shuffling our input).
+  id: totrans-110
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 我们的数据集可能受到数据倾斜的影响，其中少数任务集中了大部分的计算。在某些情况下这是正常的，^([3](ch26.xhtml#idm46385810533736))
+    但在大多数情况下是一个不好的情况，我们需要通过重新分配输入（例如通过洗牌）来改善。
+- en: Or a particular executor is slow because it’s *that* executor, presenting a
+    case of bad hardware on the node, or if the node is otherwise overloaded in the
+    context of a shared cluster.
+  id: totrans-111
+  prefs:
+  - PREF_UL
+  type: TYPE_NORMAL
+  zh: 或者某个特定执行器由于硬件故障或者共享集群中的负载过载而运行缓慢。
+- en: If Spark detects this unusually long execution time and has resources available,
+    it has the ability to relaunch on another node the task that is currently running
+    late. This speculative task (which *speculates* that something has gone wrong
+    with the original) will either finish first and cancel the old job, or be canceled
+    as soon as the former one returns. Overall, this competition between the “tortoise
+    and the hare” yields a better completion time and usage of available resources.
+  id: totrans-112
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 如果 Spark 检测到异常长的执行时间并且有可用资源，它可以重新启动当前运行缓慢的任务到另一个节点。这个推测任务（假设原始任务出了问题）将要么首先完成并取消旧任务，要么在前者返回后立即被取消。总体来说，“乌龟和兔子”的竞争能够实现更好的完成时间和资源利用。
+- en: Speculative execution is responsive to four configuration parameters, listed
+    in [Table 26-1](#configuration-parameters-table).
+  id: totrans-113
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 推测执行响应四个配置参数，详见[表 26-1](#configuration-parameters-table)。
+- en: Table 26-1\. Speculative execution configuration parameters
+  id: totrans-114
+  prefs: []
+  type: TYPE_NORMAL
+  zh: 表 26-1\. 推测执行配置参数
+- en: '| Option | Default | Meaning |'
+  id: totrans-115
+  prefs: []
+  type: TYPE_TB
+  zh: '| 选项 | 默认 | 含义 |'
+- en: '| --- | --- | --- |'
+  id: totrans-116
+  prefs: []
+  type: TYPE_TB
+  zh: '| --- | --- | --- |'
+- en: '| `spark.speculation` | `false` | *If set to “true,” performs speculative execution
+    of tasks* |'
+  id: totrans-117
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.speculation` | `false` | *如果设置为“true”，则执行任务的推测执行* |'
+- en: '| `spark.speculation.interval` | `100ms` | *How often Spark will check for
+    tasks to speculate* |'
+  id: totrans-118
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.speculation.interval` | `100ms` | *Spark 检测任务进行推测的频率* |'
+- en: '| `spark.speculation.multiplier` | `1.5` | *How many times slower a task is
+    than the median to be considered for speculation* |'
+  id: totrans-119
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.speculation.multiplier` | `1.5` | *任务比中位数慢多少倍才考虑进行推测* |'
+- en: '| `spark.speculation.quantile` | `0.75` | *Fraction of tasks that must be complete
+    before speculation is enabled for a particular stage* |'
+  id: totrans-120
+  prefs: []
+  type: TYPE_TB
+  zh: '| `spark.speculation.quantile` | `0.75` | *特定阶段启用推测执行前完成的任务比例* |'
+- en: ^([1](ch26.xhtml#idm46385810797976-marker)) You can refer to [HDFS-7489](https://issues.apache.org/jira/browse/HDFS-7489)
+    for an example of one of those subtle concurrency issues.
+  id: totrans-121
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([1](ch26.xhtml#idm46385810797976-marker)) 您可以参考 [HDFS-7489](https://issues.apache.org/jira/browse/HDFS-7489)
+    来了解这些微妙的并发问题的一个示例。
+- en: ^([2](ch26.xhtml#idm46385810790088-marker)) Alluxio was originally named Tachyon
+    and was part of the Spark code base, which hints at how complementary its features
+    are to data processing with Spark.
+  id: totrans-122
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([2](ch26.xhtml#idm46385810790088-marker)) Alluxio 最初名为 Tachyon，是 Spark 代码库的一部分，这表明它的功能与
+    Spark 数据处理非常互补。
+- en: ^([3](ch26.xhtml#idm46385810533736-marker)) For example, in anomaly detection
+    inference, the executor detecting an anomalous value sometimes has duties of alerting
+    that are an additional burden on top of the regular node duties.
+  id: totrans-123
+  prefs: []
+  type: TYPE_NORMAL
+  zh: ^([3](ch26.xhtml#idm46385810533736-marker)) 例如，在异常检测推断中，探测到异常值的执行器有时还需要额外的警报工作，这是常规节点职责的额外负担。
