@@ -35,7 +35,6 @@
 +   [Julia 数据分析](docs/jl-dtanls/README.md)
 +   [Kafka 权威指南第二版](docs/kafka-dfn-gd-2e/README.md)
 +   [数据科学团队领导指南](docs/ld-ds-tm/README.md)
-+   [数据科学学习指南](docs/lrn-ds/README.md)
 +   [Spark 学习指南](docs/lrn-spk/README.md)
 +   [程序员的数学](docs/math-prog/README.md)
 +   [Excel 现代数据分析](docs/mdn-dt-anls-xcl/README.md)
@@ -66,4 +65,5 @@
 +   [Storm 应用指南](docs/stm-app/README.md)
 +   [Tableau 策略指南](docs/tbl-stg/README.md)
 +   [数据科学思维](docs/tnk-ds/README.md)
++   [UCB Data100：数据科学学习指南](docs/ucb-ds100-lrn-ds/README.md)
 +   [数据分析落地指南](docs/wlgrd-dtanls/README.md)
